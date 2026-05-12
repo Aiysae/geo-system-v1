@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Read(//Users/mac/Desktop/Cursor—GEO/**)",
+      "Read(//Users/mac/**)",
+      "Bash(npm run *)",
+      "Bash(npx eslint *)"
+    ]
+  }
+}
