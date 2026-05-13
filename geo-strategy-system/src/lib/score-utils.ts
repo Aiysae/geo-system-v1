@@ -47,8 +47,12 @@ export function aggregatePenetration(
       totalSlots++
       const cleanBrands = it.mentionedBrands.filter(b => !isPlatformName(b))
 
-      // 本 slot 内是否命中我方（去重，避免同一 answer 把 "势途" 和 "势途GEO" 重复计 2 次）
-      const hitOurInThisSlot = cleanBrands.some(b => isSameBrand(b, ourBrand))
+      // ★ 命中判定的"唯一真理"来自 route 层的 it.hitOur（基于盲测回答文本的 includes 匹配）。
+      // 兼容旧数据（无 hitOur 字段）时，回退到对 mentionedBrands 的同品牌匹配。
+      const hitOurInThisSlot =
+        typeof it.hitOur === "boolean"
+          ? it.hitOur
+          : cleanBrands.some(b => isSameBrand(b, ourBrand))
       if (hitOurInThisSlot) {
         ourMentions++
         modelMentions++

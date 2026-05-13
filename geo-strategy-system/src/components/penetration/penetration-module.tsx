@@ -20,11 +20,13 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
+  const [modelErrors, setModelErrors] = useState<Partial<Record<ModelKey, string>>>({})
 
   async function handleRun(params: { questions: string[]; models: ModelKey[] }) {
     setLoading(true)
     setError(null)
     setSkipped([])
+    setModelErrors({})
     try {
       const res = await fetch("/api/penetration", {
         method: "POST",
@@ -34,11 +36,13 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           ourBrand: client.ourBrand,
           industry: client.industry,
           questions: params.questions,
+          competitors: client.competitors,
           models: params.models,
         }),
       })
       const data = await res.json()
       if (!res.ok) {
+        if (Array.isArray(data.skipped)) setSkipped(data.skipped)
         throw new Error(data.error || "请求失败")
       }
       const result: PenetrationResult = {
@@ -48,6 +52,9 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
       }
       onChangeClient({ penetration: result })
       if (Array.isArray(data.skipped)) setSkipped(data.skipped)
+      if (data.modelErrors && typeof data.modelErrors === "object") {
+        setModelErrors(data.modelErrors)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "未知错误")
     } finally {
@@ -80,6 +87,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               loading={loading}
               error={error}
               skipped={skipped}
+              modelErrors={modelErrors}
             />
           </div>
 
@@ -248,9 +256,12 @@ function RawAnswersPanel({
           </div>
           <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
             {items.map((it, i) => {
-              const hit = ourBrand
-                ? it.mentionedBrands.some(b => b.toLowerCase() === ourBrand.toLowerCase().trim())
-                : false
+              const hit =
+                typeof it.hitOur === "boolean"
+                  ? it.hitOur
+                  : ourBrand
+                    ? it.mentionedBrands.some(b => b.toLowerCase() === ourBrand.toLowerCase().trim())
+                    : false
               return (
                 <div key={i} className="px-4 py-3 hover:bg-slate-50/50 transition">
                   <div className="flex items-start gap-2 mb-1.5">
