@@ -91,7 +91,10 @@ async function handler(req: NextRequest) {
      - **百度系（文心）：** 百度百科、百家号、百度知道的占位策略。
    - 针对这些平台，给出"如何伪装成第三方高权重内容"的实操建议（如：以开发者身份在掘金发技术帖，以行业KOL身份在知乎发万字评测）。
 
-请严格按照上述要求生成完整的 JSON 策略方案，确保每一个字段都经过深思熟虑，具备可执行性。`
+请严格按照上述要求生成完整的 JSON 策略方案，确保每一个字段都经过深思熟虑，具备可执行性。
+
+【JSON 输出强制规则】
+你必须严格输出纯 JSON 格式数据。绝不允许在 JSON 的 Value 字符串内部使用未经转义的英文双引号（"）。如果你需要在文本中引用内容，必须使用单引号（'）或中文全角引号（""）。确保 JSON 结构完整闭合。`
 
     const userPrompt = `请为以下品牌生成完整的 GEO 策略方案：
 
@@ -121,7 +124,7 @@ async function handler(req: NextRequest) {
           { role: "user", content: userPrompt },
         ],
         temperature: 0.7,
-        max_tokens: 4096,
+        max_tokens: 8192,
       }),
     })
 
@@ -162,9 +165,12 @@ async function handler(req: NextRequest) {
     console.log("[势途 GEO API] 模型回复长度:", content.length, "字符")
 
     let jsonStr = content.trim()
-    if (jsonStr.startsWith("```")) {
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+    if (fenceMatch) {
       console.log("[势途 GEO API] 检测到 markdown 代码块包裹，正在剥离...")
-      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```$/, "")
+      jsonStr = fenceMatch[1].trim()
+    } else if (jsonStr.startsWith("```")) {
+      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim()
     }
 
     let strategy
@@ -173,8 +179,14 @@ async function handler(req: NextRequest) {
       console.log("[势途 GEO API] JSON 解析成功! 顶层字段:", Object.keys(strategy))
     } catch (parseErr) {
       console.error("[势途 GEO API] JSON 解析失败:", parseErr)
+      console.error("[势途 GEO API] 原始未解析文本（前 2000 字符）:\n", content.slice(0, 2000))
+      console.error("[势途 GEO API] 提取后待解析文本（前 2000 字符）:\n", jsonStr.slice(0, 2000))
       return NextResponse.json(
-        { raw: content, error: "无法解析 AI 返回结果，请重试" }
+        {
+          raw: content,
+          error: "无法解析 AI 返回结果，请重试",
+          parseError: parseErr instanceof Error ? parseErr.message : String(parseErr),
+        }
       )
     }
 
