@@ -24,4 +24,11 @@ export async function decrCreditsBy(userId: string, n: number): Promise<number> 
   return await kv.decrby(key(userId), Math.floor(n))
 }
 
+/** 加 n 积分，返回加后的值。n <= 0 时不操作，返回当前余额。 */
+export async function addCreditsBy(userId: string, n: number): Promise<number> {
+  if (!Number.isFinite(n) || n <= 0) return await getCredits(userId)
+  await ensureInitialized(userId)
+  return await kv.incrby(key(userId), Math.floor(n))
+}
+
 export const CREDITS_INITIAL = INITIAL_CREDITS
