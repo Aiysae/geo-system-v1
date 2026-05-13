@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Loader2, Play, AlertTriangle } from "lucide-react"
+import { Loader2, Play, AlertTriangle, XCircle } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/llm"
 import type { Client, ModelKey } from "@/types"
 
@@ -18,6 +18,7 @@ interface Props {
   loading: boolean
   error: string | null
   skipped?: string[]
+  modelErrors?: Partial<Record<ModelKey, string>>
 }
 
 export default function BatchInputPanel({
@@ -27,6 +28,7 @@ export default function BatchInputPanel({
   loading,
   error,
   skipped,
+  modelErrors,
 }: Props) {
   const [questionsText, setQuestionsText] = useState(() => client.questions.join("\n"))
   const [competitorsText, setCompetitorsText] = useState(() => client.competitors.join("\n"))
@@ -143,6 +145,23 @@ export default function BatchInputPanel({
           <span>
             以下模型未配置 API Key 已被跳过：<b>{skipped.join("、")}</b>
           </span>
+        </div>
+      )}
+
+      {modelErrors && Object.keys(modelErrors).length > 0 && (
+        <div className="space-y-1.5">
+          {(Object.entries(modelErrors) as Array<[ModelKey, string]>).map(([m, msg]) => (
+            <div
+              key={m}
+              className="flex items-start gap-2 text-xs text-red-700 bg-red-50 border border-red-300 rounded-lg p-2.5"
+            >
+              <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-red-500" />
+              <span>
+                <b>{MODEL_LABELS[m]} 接口配置缺失或调用失败：</b>
+                {msg}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 

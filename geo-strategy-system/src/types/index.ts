@@ -53,6 +53,8 @@ export interface PenetrationItem {
   answer: string
   mentionedBrands: string[]
   topRecommended: string | null
+  // 客观判分结果：盲测回答文本中是否真实出现了我方品牌（代码层 includes 匹配，忽略大小写/空格）
+  hitOur: boolean
 }
 
 export type PenetrationByModel = Partial<Record<ModelKey, PenetrationItem[]>>
