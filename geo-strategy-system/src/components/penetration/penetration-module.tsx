@@ -9,6 +9,7 @@ import IndustryShareChart from "./industry-share-chart"
 import BrandRankingCard from "./brand-ranking-card"
 import ModelRateTrend from "./model-rate-trend"
 import { MODEL_LABELS } from "@/lib/llm"
+import { apiFetch } from "@/lib/api-fetch"
 import type { Client, ModelKey, PenetrationResult } from "@/types"
 
 interface Props {
@@ -28,7 +29,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     setSkipped([])
     setModelErrors({})
     try {
-      const res = await fetch("/api/penetration", {
+      const res = await apiFetch("/api/penetration", {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },

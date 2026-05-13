@@ -43,6 +43,8 @@ export interface OpenAICompatRawArgs {
   seed?: number
   jsonMode?: boolean
   tools?: Array<Record<string, unknown>>
+  // 透传给厂商的非标准字段（如阿里千问 enable_search、火山方舟联网插件参数等）
+  extraBody?: Record<string, unknown>
 }
 
 // 底层：发请求并返回原始 ChatCompletion（供需要工具循环的场景使用，如 Kimi 联网）
@@ -57,6 +59,7 @@ export async function openaiCompatRaw({
   seed,
   jsonMode = false,
   tools,
+  extraBody,
 }: OpenAICompatRawArgs): Promise<RawChatCompletion> {
   if (!apiKey) {
     throw new Error(`${label} API Key 未配置（缺少对应环境变量），后端已阻断该模型调用。`)
@@ -71,6 +74,7 @@ export async function openaiCompatRaw({
   if (typeof seed === "number") payload.seed = seed
   if (jsonMode) payload.response_format = { type: "json_object" }
   if (tools && tools.length > 0) payload.tools = tools
+  if (extraBody) Object.assign(payload, extraBody)
 
   const res = await fetch(url, {
     method: "POST",
@@ -99,7 +103,27 @@ export async function openaiCompatRaw({
       })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
-    throw new Error(`${label} 接口调用失败 HTTP ${res.status}：${txt.slice(0, 200)}`)
+
+    // 详细错误日志：把 HTTP status、上游 code/message、模型名一并打印，方便诊断 401/400/429 等
+    let upstreamCode = ""
+    let upstreamMsg = ""
+    try {
+      const parsed = JSON.parse(txt) as {
+        error?: { code?: string; message?: string; type?: string }
+        code?: string
+        message?: string
+      }
+      upstreamCode = parsed?.error?.code || parsed?.code || ""
+      upstreamMsg = parsed?.error?.message || parsed?.message || ""
+    } catch {
+      /* not JSON, fall through to raw txt */
+    }
+    console.error(
+      `[${label}·HTTP ${res.status}] model=${model} | code=${upstreamCode || "-"} | message=${upstreamMsg || txt.slice(0, 300) || "(empty body)"}`
+    )
+    throw new Error(
+      `${label} 接口调用失败 HTTP ${res.status}${upstreamCode ? ` [${upstreamCode}]` : ""}：${upstreamMsg || txt.slice(0, 200) || "(无响应体)"}`
+    )
   }
 
   return (await res.json()) as RawChatCompletion
@@ -110,6 +134,7 @@ interface OpenAICompatArgs extends ChatArgs {
   apiKey: string
   model: string
   label: string
+  extraBody?: Record<string, unknown>
 }
 
 // 标准对外接口：单轮 system + user，返回 content 文本
@@ -124,6 +149,7 @@ export async function openaiCompatChat({
   seed,
   jsonMode,
   label,
+  extraBody,
 }: OpenAICompatArgs): Promise<string> {
   const data = await openaiCompatRaw({
     url,
@@ -138,6 +164,7 @@ export async function openaiCompatChat({
     maxTokens,
     seed,
     jsonMode,
+    extraBody,
   })
   return data.choices?.[0]?.message?.content ?? ""
 }

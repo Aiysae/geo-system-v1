@@ -119,17 +119,58 @@ export function aggregatePenetration(
   }
 }
 
+// 强健的 LLM JSON 清洗器：剥离 markdown 代码块、首尾空格、前后说明性文字，
+// 再尝试 JSON.parse。专门为"大模型即使被要求输出 JSON 仍偶尔包 ```json ... ``` "这类
+// 失真返回值设计。失败时返回 null（由上层决定如何报错并展示原始文本）。
+export function sanitizeLlmJson(raw: string): string {
+  let s = (raw ?? "").trim()
+  // 1) 剥离所有 markdown 代码块标记（兼容 ```json / ```JSON / ``` 出现在任意位置）
+  s = s.replace(/```json\s*/gi, "").replace(/```/g, "")
+  // 2) 再次 trim
+  s = s.trim()
+  // 3) 若开头/结尾有"以下是 JSON："之类的多余文字，截到首个 { / [ 与最后一个 } / ]
+  return s
+}
+
 export function parseJsonLoose(raw: string): unknown {
-  let s = raw.trim()
-  if (s.startsWith("```")) {
-    s = s.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "")
-  }
-  const first = s.indexOf("{")
-  const last = s.lastIndexOf("}")
-  if (first >= 0 && last > first) s = s.slice(first, last + 1)
+  let s = sanitizeLlmJson(raw)
+
+  // 优先尝试直接 parse（清洗后已可能是完整 JSON）
   try {
     return JSON.parse(s)
   } catch {
-    return null
+    /* 继续 */
   }
+
+  // 再退而求其次：在清洗后的文本里切出第一个 { 到最后一个 }
+  const first = s.indexOf("{")
+  const last = s.lastIndexOf("}")
+  if (first >= 0 && last > first) {
+    s = s.slice(first, last + 1)
+    try {
+      return JSON.parse(s)
+    } catch {
+      /* 继续 */
+    }
+    // 单引号 → 双引号兜底
+    try {
+      return JSON.parse(s.replace(/'/g, '"'))
+    } catch {
+      /* fallthrough */
+    }
+  }
+
+  return null
+}
+
+// 严格版：解析失败时抛出含原始文本前 500 字的清晰错误，便于上层透传给前端。
+export function parseJsonStrict<T = unknown>(raw: string, contextLabel = "LLM"): T {
+  const parsed = parseJsonLoose(raw) as T | null
+  if (parsed === null || parsed === undefined) {
+    const preview = (raw ?? "").trim().slice(0, 500)
+    throw new Error(
+      `${contextLabel} 返回内容无法解析为 JSON（已剥离 markdown 代码块后仍失败）。原始片段：${preview}`
+    )
+  }
+  return parsed
 }
