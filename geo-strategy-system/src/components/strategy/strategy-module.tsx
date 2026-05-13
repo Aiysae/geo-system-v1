@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Lightbulb, Loader2, Sparkles, Globe, ExternalLink, Settings2 } from "lucide-react"
 import StrategyTable from "./strategy-table"
+import { apiFetch } from "@/lib/api-fetch"
 import type { Client, DiagnosisDimensions, StrategyResult } from "@/types"
 
 interface Props {
@@ -50,7 +51,7 @@ export default function StrategyModule({ client, onChangeClient }: Props) {
         .map(s => s.trim())
         .filter(Boolean)
 
-      const res = await fetch("/api/strategy", {
+      const res = await apiFetch("/api/strategy", {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },

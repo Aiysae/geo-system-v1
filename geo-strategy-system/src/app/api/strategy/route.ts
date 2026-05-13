@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { StrategyRow, WebsiteMatrixItem } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
-import { parseJsonLoose } from "@/lib/score-utils"
+import { parseJsonStrict } from "@/lib/score-utils"
+import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -113,7 +114,7 @@ ${args.weakDimensions.join("、") || "（暂无诊断数据）"}`
 
 const VALID_PRIORITY = new Set(["高", "中", "低"])
 
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest) {
   try {
     const body = await req.json()
     const ourBrand = String(body.ourBrand || "").trim()
@@ -140,6 +141,12 @@ export async function POST(req: NextRequest) {
     if (!ourBrand) {
       return NextResponse.json({ error: "请填写我方品牌名" }, { status: 400 })
     }
+
+    // 预检上限：rows ≤ targetRows（或默认 10），websiteMatrix ≤ 6（含兜底合并到至少 4 条）
+    const targetRowsForPrecheck = Math.max(keywordCount ?? 0, questionCount ?? 0) || 10
+    const requiredCredits = targetRowsForPrecheck + 6
+    const guard = await authAndCheckCredits(requiredCredits)
+    if (!guard.ok) return guard.response
 
     const order = ["deepseek", "doubao", "qwen", "kimi"] as const
     const picked = order.find(k => ADAPTERS[k].configured())
@@ -168,13 +175,28 @@ export async function POST(req: NextRequest) {
       temperature: 0.7,
       maxTokens,
     })
-    const parsed = parseJsonLoose(raw) as
-      | { rows?: unknown; websiteMatrix?: unknown }
-      | null
+
+    // 强健的 JSON 清洗 + 解析：先剥离 ```json ... ``` markdown 标记、再 JSON.parse；
+    // 失败时抛出含原始文本前 500 字的清晰错误，避免前端只看到"返回格式异常"。
+    let parsed: { rows?: unknown; websiteMatrix?: unknown }
+    try {
+      parsed = parseJsonStrict<{ rows?: unknown; websiteMatrix?: unknown }>(raw, ADAPTERS[picked].label)
+    } catch (parseErr) {
+      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr)
+      console.error(`[strategy] JSON 清洗解析失败 | model=${picked} | rawHead=`, raw.slice(0, 300))
+      return NextResponse.json(
+        { error: `AI 返回格式异常：${msg}`, raw: raw.slice(0, 500) },
+        { status: 502 }
+      )
+    }
 
     if (!parsed || !Array.isArray(parsed.rows)) {
+      console.error(
+        `[strategy] JSON 已解析但缺少 rows 数组 | model=${picked} | keys=`,
+        parsed ? Object.keys(parsed) : null
+      )
       return NextResponse.json(
-        { error: "AI 返回格式异常", raw: raw.slice(0, 500) },
+        { error: "AI 返回 JSON 中缺少 rows 数组", raw: raw.slice(0, 500) },
         { status: 502 }
       )
     }
@@ -215,6 +237,8 @@ export async function POST(req: NextRequest) {
     // 保证用户每次点"一键生成策略"都能看到完整的网站搭建建议（包括域名建议 + 战略意图）
     const finalMatrix =
       websiteMatrix.length >= 4 ? websiteMatrix : mergeWithFallback(websiteMatrix, ourBrand, industry)
+
+    await chargeCredits(guard.userId, rows.length + finalMatrix.length)
 
     return NextResponse.json(
       {
@@ -320,3 +344,6 @@ function roleOverlap(a: string, b: string): boolean {
   const keys = ["官方", "官网", "主域", "测评", "榜", "评分", "百科", "问答", "对比", "替代", "白皮书", "报告", "案例", "客户"]
   return keys.some(k => A.includes(k) && B.includes(k))
 }
+
+
+export const POST = handler

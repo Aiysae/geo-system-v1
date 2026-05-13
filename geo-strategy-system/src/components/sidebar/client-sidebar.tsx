@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, Trash2, Users, Database } from "lucide-react"
+import { Plus, Trash2, Users, Database, X } from "lucide-react"
 import type { Client } from "@/types"
 
 interface Props {
@@ -10,9 +10,21 @@ interface Props {
   onSelect: (id: string) => void
   onCreate: (name: string) => void
   onDelete: (id: string) => void
+  /** 仅在移动端抽屉模式下生效：是否展开。桌面端 (md+) 永远显示，此值被忽略。 */
+  open?: boolean
+  /** 仅在移动端：抽屉关闭回调。桌面端不会触发。 */
+  onClose?: () => void
 }
 
-export default function ClientSidebar({ clients, activeId, onSelect, onCreate, onDelete }: Props) {
+export default function ClientSidebar({
+  clients,
+  activeId,
+  onSelect,
+  onCreate,
+  onDelete,
+  open = false,
+  onClose,
+}: Props) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState("")
 
@@ -24,16 +36,31 @@ export default function ClientSidebar({ clients, activeId, onSelect, onCreate, o
     setAdding(false)
   }
 
+  // 移动端 (<md)：fixed 抽屉，根据 open 平移；桌面端 (md+)：静态 flex 子项，始终可见。
+  // md:translate-x-0 强行覆盖移动端的 -translate-x-full，使桌面端布局不受 open 状态影响。
+  const drawerClass = open ? "translate-x-0" : "-translate-x-full"
+
   return (
-    <aside className="no-print w-64 shrink-0 bg-gradient-to-b from-[#001a2c] via-[#003554] to-[#004B73] text-white h-screen flex flex-col overflow-hidden shadow-2xl shadow-blue-900/20">
-      <div className="px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0">
-        <div className="flex items-center gap-3">
+    <aside
+      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-64 shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-gradient-to-b from-[#001a2c] via-[#003554] to-[#004B73] text-white h-screen flex flex-col overflow-hidden shadow-2xl shadow-blue-900/20`}
+    >
+      <div className="px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0 flex items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
           <img src="/logo.jpg" alt="" className="h-9 w-auto rounded-lg ring-1 ring-white/20" />
-          <div>
+          <div className="min-w-0">
             <div className="font-bold tracking-wide text-base bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent">势途 GEO</div>
             <div className="text-[11px] text-white/60 mt-0.5">市场情报终端</div>
           </div>
         </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden p-1.5 rounded hover:bg-white/10 transition shrink-0"
+            aria-label="关闭侧边栏"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <div className="flex items-center justify-between px-4 pt-5 pb-2 shrink-0">

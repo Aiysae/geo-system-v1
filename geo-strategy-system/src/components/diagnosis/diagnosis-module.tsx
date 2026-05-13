@@ -9,6 +9,7 @@ import { Radar, Loader2, RefreshCw } from "lucide-react"
 import GemScorePanel from "./gem-score-panel"
 import RadarFiveDim from "./radar-five-dim"
 import ModelTabs from "./model-tabs"
+import { apiFetch } from "@/lib/api-fetch"
 import type { Client, Diagnosis } from "@/types"
 
 interface Props {
@@ -24,7 +25,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch("/api/diagnose", {
+      const res = await apiFetch("/api/diagnose", {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { Diagnosis } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonLoose } from "@/lib/score-utils"
+import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -60,8 +61,11 @@ ${args.penetrationContext || "（暂无渗透率检测数据，请基于品牌+�
   return { system, user }
 }
 
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest) {
   try {
+    const guard = await authAndCheckCredits(1)
+    if (!guard.ok) return guard.response
+
     const body = await req.json()
     const ourBrand = String(body.ourBrand || "").trim()
     const industry = String(body.industry || "").trim()
@@ -129,6 +133,7 @@ export async function POST(req: NextRequest) {
       generatedAt: new Date().toISOString(),
     }
 
+    await chargeCredits(guard.userId, 1)
     return NextResponse.json(result)
   } catch (e) {
     console.error("[diagnose]", e)
@@ -142,3 +147,6 @@ export async function POST(req: NextRequest) {
 function blank() {
   return { preference: "-", weakness: "-", fix: "-" }
 }
+
+
+export const POST = handler

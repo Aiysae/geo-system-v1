@@ -3,6 +3,7 @@ import type { ModelKey, PenetrationByModel, PenetrationItem } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { aggregatePenetration, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
+import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -317,7 +318,7 @@ function pickJudge(activeModels: ModelKey[]): ModelKey | null {
   return null
 }
 
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest) {
   try {
     const body = await req.json()
     const ourBrand = String(body.ourBrand || "").trim()
@@ -359,6 +360,10 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
+
+    const requiredCredits = activeModels.length * questions.length
+    const guard = await authAndCheckCredits(requiredCredits)
+    if (!guard.ok) return guard.response
 
     const judgeModel = pickJudge(activeModels)
     if (!judgeModel) {
@@ -416,6 +421,8 @@ export async function POST(req: NextRequest) {
 
     const aggregated = aggregatePenetration(byModel, ourBrand)
 
+    await chargeCredits(guard.userId, requiredCredits)
+
     return NextResponse.json(
       {
         byModel,
@@ -448,3 +455,6 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
+
+export const POST = handler

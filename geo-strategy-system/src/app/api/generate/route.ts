@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
+import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ""
 const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest) {
   console.log("[势途 GEO API] === 开始处理生成请求 ===")
   console.log("[势途 GEO API] DEEPSEEK_API_KEY 已加载?", !!DEEPSEEK_API_KEY)
 
   try {
+    const guard = await authAndCheckCredits(20)
+    if (!guard.ok) return guard.response
+
     const body = await req.json()
     const { brandName, brandSlogan, industry, coreAdvantages, targetMetrics, targetAudience, competitors } = body
 
@@ -191,6 +195,15 @@ export async function POST(req: NextRequest) {
     console.log("[势途 GEO API] 内容切入点:", strategy.contentAngles.length, "条")
     console.log("[势途 GEO API] 分发策略:", strategy.domesticMediaDistribution.length, "条")
 
+    const totalRows =
+      (Array.isArray(strategy.domainStrategy) ? strategy.domainStrategy.length : 0) +
+      (Array.isArray(strategy.keyDataPoints) ? strategy.keyDataPoints.length : 0) +
+      (Array.isArray(strategy.contentAngles) ? strategy.contentAngles.length : 0) +
+      (Array.isArray(strategy.domesticMediaDistribution)
+        ? strategy.domesticMediaDistribution.length
+        : 0)
+
+    await chargeCredits(guard.userId, totalRows)
     return NextResponse.json({ ...strategy })
   } catch (error) {
     console.error("[势途 GEO API] 未捕获的异常:", error)
@@ -200,3 +213,6 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
+
+export const POST = handler

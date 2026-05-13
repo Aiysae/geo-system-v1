@@ -5,7 +5,9 @@ import ClientSidebar from "@/components/sidebar/client-sidebar"
 import PenetrationModule from "@/components/penetration/penetration-module"
 import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
 import StrategyModule from "@/components/strategy/strategy-module"
-import { Sparkles, Printer } from "lucide-react"
+import { Sparkles, Printer, Menu } from "lucide-react"
+import { UserButton } from "@clerk/nextjs"
+import { useCredits } from "@/components/credits/credits-provider"
 import {
   listClients,
   getActiveId,
@@ -20,6 +22,8 @@ export default function Home() {
   const [clients, setClients] = useState<Client[]>([])
   const [activeId, setActive] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     const list = listClients()
@@ -36,6 +40,8 @@ export default function Home() {
   const handleSelect = useCallback((id: string) => {
     setActive(id)
     persistActiveId(id)
+    // 移动端：选中客户后自动收起抽屉，直接进入详情面板
+    setSidebarOpen(false)
   }, [])
 
   const handleCreate = useCallback((name: string) => {
@@ -44,6 +50,7 @@ export default function Home() {
     setClients(prev => [saved, ...prev])
     setActive(saved.id)
     persistActiveId(saved.id)
+    setSidebarOpen(false)
   }, [])
 
   const handleDelete = useCallback((id: string) => {
@@ -73,12 +80,23 @@ export default function Home() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30 print-root">
+      {/* 移动端：抽屉展开时的半透明遮罩，点击关闭 */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40 z-40 no-print"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <ClientSidebar
         clients={clients}
         activeId={activeId}
         onSelect={handleSelect}
         onCreate={handleCreate}
         onDelete={handleDelete}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
       <main className="flex-1 min-w-0 h-screen overflow-y-auto overscroll-contain relative print-main">
@@ -88,7 +106,9 @@ export default function Home() {
           <div className="absolute bottom-0 left-1/3 w-80 h-80 rounded-full bg-gradient-to-br from-emerald-200/20 to-teal-200/15 blur-3xl animate-float-slow" style={{ animationDelay: "-10s" }}></div>
         </div>
         <div className="relative z-10">
-        {active && <StickyHeader client={active} />}
+        {active && (
+          <StickyHeader client={active} onOpenSidebar={() => setSidebarOpen(true)} />
+        )}
         {!hydrated ? (
           <div className="h-screen flex items-center justify-center text-slate-400 text-sm">
             加载中...
@@ -96,7 +116,9 @@ export default function Home() {
         ) : !active ? (
           <EmptyState onCreate={handleCreate} />
         ) : (
-          <Dashboard client={active} onChangeClient={handleChangeClient} />
+          // key={active.id}：切换客户时强制 Dashboard 整子树重挂载，
+          // 彻底清空各 Module 内的 isDetecting/loading/progress 等运行时状态，根治状态泄露。
+          <Dashboard key={active.id} client={active} onChangeClient={handleChangeClient} />
         )}
         </div>
       </main>
@@ -104,14 +126,28 @@ export default function Home() {
   )
 }
 
-function StickyHeader({ client }: { client: Client }) {
+function StickyHeader({
+  client,
+  onOpenSidebar,
+}: {
+  client: Client
+  onOpenSidebar: () => void
+}) {
   function handlePrint() {
     window.print()
   }
   return (
-    <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm shadow-slate-200/40 sticky-header">
-      <div className="max-w-7xl mx-auto px-8 py-3 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
+    <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm shadow-slate-200/40 sticky-header">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 py-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          {/* 移动端汉堡按钮：触发左侧抽屉。md+ 隐藏 */}
+          <button
+            onClick={onOpenSidebar}
+            className="no-print md:hidden p-2 -ml-1 rounded-lg hover:bg-slate-100 transition shrink-0"
+            aria-label="打开客户列表"
+          >
+            <Menu className="h-5 w-5 text-slate-700" />
+          </button>
           <img src="/logo.jpg" alt="" className="h-8 w-auto rounded-lg ring-1 ring-slate-200 shrink-0" />
           <div className="min-w-0">
             <div className="text-sm font-bold tracking-wide bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent">
@@ -125,13 +161,34 @@ function StickyHeader({ client }: { client: Client }) {
         </div>
         <button
           onClick={handlePrint}
-          className="no-print inline-flex items-center gap-1.5 text-xs font-medium px-3.5 py-2 rounded-lg bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all whitespace-nowrap"
+          className="no-print inline-flex items-center gap-1.5 text-xs font-medium px-3 md:px-3.5 py-2 rounded-lg bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all whitespace-nowrap shrink-0"
         >
           <Printer className="h-3.5 w-3.5" />
-          导出 PDF 报告
+          <span className="hidden sm:inline">导出 PDF 报告</span>
+          <span className="sm:hidden">导出</span>
         </button>
+        <div className="no-print shrink-0 flex items-center gap-2">
+          <CreditsPill />
+          <UserButton />
+        </div>
       </div>
     </header>
+  )
+}
+
+function CreditsPill() {
+  const { balance } = useCredits()
+  return (
+    <div
+      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-br from-amber-50 to-rose-50 ring-1 ring-amber-200/70 text-[11px] font-medium text-slate-700"
+      title="体验算力积分余额"
+    >
+      <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+      <span className="hidden sm:inline text-slate-500">积分</span>
+      <span className="font-mono font-bold text-slate-900 tabular-nums">
+        {balance === null ? "…" : balance}
+      </span>
+    </div>
   )
 }
 
@@ -185,13 +242,13 @@ function Dashboard({
   onChangeClient: (patch: Partial<Client>) => void
 }) {
   return (
-    <div className="max-w-7xl mx-auto px-8 py-8 animate-fade-in-up print-container">
-      <header className="mb-8 flex items-end justify-between gap-4">
+    <div className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8 animate-fade-in-up print-container">
+      <header className="mb-6 md:mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
         <div>
           <div className="text-[11px] text-slate-400 mb-1.5 tracking-[0.18em] uppercase font-medium">
             当前客户
           </div>
-          <h1 className="text-3xl font-bold tracking-tight shimmer-text">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight shimmer-text break-words">
             {client.name}
           </h1>
           {client.industry && (
@@ -207,7 +264,10 @@ function Dashboard({
       </header>
 
       <section className="space-y-6">
-        <PenetrationModule client={client} onChangeClient={onChangeClient} />
+        <PenetrationModule
+          client={client}
+          onChangeClient={onChangeClient}
+        />
         <DiagnosisModule client={client} onChangeClient={onChangeClient} />
         <StrategyModule client={client} onChangeClient={onChangeClient} />
       </section>
