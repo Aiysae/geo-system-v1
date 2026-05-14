@@ -4,6 +4,10 @@ import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ""
 const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
+export const runtime = "nodejs"
+export const maxDuration = 90
+export const dynamic = "force-dynamic"
+
 async function handler(req: NextRequest) {
   console.log("[势途 GEO API] === 开始处理生成请求 ===")
   console.log("[势途 GEO API] DEEPSEEK_API_KEY 已加载?", !!DEEPSEEK_API_KEY)
@@ -111,8 +115,13 @@ async function handler(req: NextRequest) {
     console.log("[势途 GEO API] 正在调用 DeepSeek API...")
     console.time("[势途 GEO API] DeepSeek 请求耗时")
 
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 60000)
+
     const response = await fetch(DEEPSEEK_API_URL, {
       method: "POST",
+      cache: "no-store",
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
@@ -124,9 +133,11 @@ async function handler(req: NextRequest) {
           { role: "user", content: userPrompt },
         ],
         temperature: 0.7,
-        max_tokens: 8192,
+        max_tokens: 4096,
       }),
     })
+
+    clearTimeout(timeout)
 
     console.timeEnd("[势途 GEO API] DeepSeek 请求耗时")
     console.log("[势途 GEO API] DeepSeek 响应状态码:", response.status)
@@ -219,6 +230,14 @@ async function handler(req: NextRequest) {
     return NextResponse.json({ ...strategy })
   } catch (error) {
     console.error("[势途 GEO API] 未捕获的异常:", error)
+
+    if (error instanceof Error && error.name === "AbortError") {
+      return NextResponse.json(
+        { error: "AI 模型响应超时，请稍后重试" },
+        { status: 504 }
+      )
+    }
+
     return NextResponse.json(
       { error: "服务器内部错误: " + (error instanceof Error ? error.message : "未知错误") },
       { status: 500 }

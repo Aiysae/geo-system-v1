@@ -6,7 +6,8 @@
       "Read(//Users/mac/**)",
       "Bash(npm run *)",
       "Bash(npx eslint *)",
-      "Bash(npx next *)"
+      "Bash(npx next *)",
+      "Bash(find . *)"
     ]
   }
 }

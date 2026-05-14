@@ -23,7 +23,17 @@ export function unregisterCreditsHandlers() {
  *  - 其它情况照常返回 Response 给调用者继续处理
  */
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const res = await fetch(input, init)
+  let res: Response
+
+  try {
+    res = await fetch(input, {
+      cache: "no-store",
+      ...init,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "网络连接失败"
+    throw new Error(`请求失败：${message}`)
+  }
 
   if (res.status === 403) {
     try {
