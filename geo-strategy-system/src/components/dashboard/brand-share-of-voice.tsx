@@ -1,0 +1,151 @@
+"use client"
+
+import { useMemo } from "react"
+import { AudioLines, HelpCircle } from "lucide-react"
+import type { ModelKey } from "@/types"
+import type { BrandVoiceItem } from "@/lib/dashboard-aggregations"
+import { MODEL_LABELS } from "@/lib/llm"
+
+interface Props {
+  items: BrandVoiceItem[]
+  /** 默认展示前 limit 条，超出折叠 */
+  limit?: number
+}
+
+const MODEL_BADGE: Record<ModelKey, { letter: string; bg: string }> = {
+  doubao: { letter: "豆", bg: "bg-gradient-to-br from-sky-500 to-blue-600" },
+  deepseek: { letter: "D", bg: "bg-gradient-to-br from-indigo-500 to-violet-600" },
+  qwen: { letter: "千", bg: "bg-gradient-to-br from-fuchsia-500 to-purple-600" },
+  kimi: { letter: "K", bg: "bg-gradient-to-br from-slate-700 to-slate-900" },
+}
+
+export default function BrandShareOfVoice({ items, limit = 30 }: Props) {
+  const visible = useMemo(() => items.slice(0, limit), [items, limit])
+  const hiddenCount = Math.max(0, items.length - visible.length)
+  const targetRank = items.find(it => it.isTarget)?.rank ?? null
+  // 进度条的"满刻度"参考：用首位提及数。这样最大声量品牌的条占满 100% 视觉宽度。
+  const maxMentions = items[0]?.mentions ?? 1
+
+  return (
+    <div className="rounded-2xl bg-slate-900/95 ring-1 ring-slate-800 overflow-hidden shadow-xl shadow-black/20">
+      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-800/80">
+        <div className="flex items-center gap-2.5">
+          <AudioLines className="h-4 w-4 text-slate-400" />
+          <div className="text-sm font-semibold text-slate-200">品牌声量表</div>
+          {targetRank && (
+            <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30">
+              我方排名 #{targetRank}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+          <HelpCircle className="h-3.5 w-3.5" />
+          <span>{items.length} 个品牌</span>
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="px-5 py-10 text-center text-sm text-slate-500">
+          暂无品牌声量数据
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_60px] items-center gap-4 px-5 py-2.5 text-[11px] uppercase tracking-wider text-slate-500 bg-slate-800/40">
+            <div>排名</div>
+            <div>品牌</div>
+            <div>声量强度</div>
+            <div className="text-right">百分比</div>
+            <div className="text-right">提及</div>
+            <div className="text-right">模型</div>
+          </div>
+
+          <div className="divide-y divide-slate-800/60">
+            {visible.map(item => (
+              <BrandRow key={item.brand} item={item} maxMentions={maxMentions} />
+            ))}
+          </div>
+
+          {hiddenCount > 0 && (
+            <div className="text-center text-xs text-slate-500 py-3 bg-slate-900/60 border-t border-slate-800/60">
+              还有 {hiddenCount} 个品牌…
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: number }) {
+  const widthPct = maxMentions > 0 ? Math.max(2, (item.mentions / maxMentions) * 100) : 0
+  const ratioPct = (item.ratio * 100).toFixed(item.ratio < 0.001 ? 2 : 1)
+
+  return (
+    <div
+      className={`grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_60px] items-center gap-4 px-5 py-3.5 transition-colors ${
+        item.isTarget
+          ? "bg-gradient-to-r from-amber-500/15 via-amber-500/[0.06] to-transparent ring-1 ring-inset ring-amber-400/30"
+          : "hover:bg-slate-800/30"
+      }`}
+    >
+      <div
+        className={`text-sm tabular-nums ${
+          item.isTarget ? "text-amber-300 font-semibold" : "text-slate-500"
+        }`}
+      >
+        {item.rank}
+      </div>
+
+      <div className="min-w-0">
+        <div
+          className={`text-sm truncate ${
+            item.isTarget ? "text-amber-200 font-semibold" : "text-slate-200 font-medium"
+          }`}
+          title={item.brand}
+        >
+          {item.brand}
+        </div>
+        <div className="mt-1.5 flex items-center gap-1">
+          {item.models.map(m => (
+            <span
+              key={m}
+              title={MODEL_LABELS[m]}
+              className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white ring-2 ring-slate-900 ${MODEL_BADGE[m].bg}`}
+            >
+              {MODEL_BADGE[m].letter}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="relative h-2 rounded-full bg-slate-800/80 overflow-hidden">
+        <div
+          className={`absolute inset-y-0 left-0 rounded-full ${
+            item.isTarget
+              ? "bg-gradient-to-r from-amber-400 to-orange-400"
+              : "bg-gradient-to-r from-[#0077B6] via-[#00B4D8] to-[#48cae4]"
+          }`}
+          style={{ width: `${widthPct}%` }}
+        />
+      </div>
+
+      <div
+        className={`text-sm tabular-nums text-right ${
+          item.isTarget ? "text-amber-200" : "text-slate-300"
+        }`}
+      >
+        {ratioPct}%
+      </div>
+      <div
+        className={`text-sm tabular-nums text-right ${
+          item.isTarget ? "text-amber-200 font-semibold" : "text-slate-200"
+        }`}
+      >
+        {item.mentions}
+      </div>
+      <div className="text-sm tabular-nums text-right text-slate-400">
+        {item.modelCount}
+      </div>
+    </div>
+  )
+}
