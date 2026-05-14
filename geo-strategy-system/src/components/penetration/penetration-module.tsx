@@ -1,15 +1,25 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Target, ChevronDown, MessageSquare } from "lucide-react"
+import { Target, ChevronDown, MessageSquare, BarChart3 } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
 import PenetrationDonut from "./penetration-donut"
 import IndustryShareChart from "./industry-share-chart"
 import BrandRankingCard from "./brand-ranking-card"
 import ModelRateTrend from "./model-rate-trend"
+import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
+import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import { MODEL_LABELS } from "@/lib/llm"
 import { apiFetch } from "@/lib/api-fetch"
+import {
+  getBrandVoiceAction,
+  getKeywordCompetitionAction,
+} from "@/app/actions/dashboards"
+import type {
+  BrandVoiceItem,
+  KeywordCompetitionItem,
+} from "@/lib/dashboard-aggregations"
 import type { Client, ModelKey, PenetrationResult } from "@/types"
 
 interface Props {
@@ -171,6 +181,11 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                   </div>
                 )}
 
+                <MonitoringDashboards
+                  penetration={pen}
+                  ourBrand={client.ourBrand}
+                />
+
                 <RawAnswersPanel byModel={pen.byModel} ourBrand={client.ourBrand} />
 
                 <div className="text-[11px] text-slate-400 text-right">
@@ -306,6 +321,89 @@ function RawAnswersPanel({
               )
             })}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MonitoringDashboards({
+  penetration,
+  ourBrand,
+}: {
+  penetration: PenetrationResult
+  ourBrand: string
+}) {
+  const [open, setOpen] = useState(true)
+  const [voice, setVoice] = useState<BrandVoiceItem[] | null>(null)
+  const [competition, setCompetition] = useState<KeywordCompetitionItem[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // generatedAt 是 PenetrationResult 的稳定指纹：byModel 一变它就变，
+  // 用它做 cache key 既能命中 React.cache、又能避免重复请求。
+  const cacheKey = penetration.generatedAt
+
+  useEffect(() => {
+    let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- kick off server-action fetch on cacheKey change
+    setLoading(true)
+    setError(null)
+    Promise.all([
+      getBrandVoiceAction({ byModel: penetration.byModel, ourBrand, cacheKey }),
+      getKeywordCompetitionAction({ byModel: penetration.byModel, ourBrand, cacheKey }),
+    ])
+      .then(([v, c]) => {
+        if (cancelled) return
+        setVoice(v)
+        setCompetition(c)
+      })
+      .catch(e => {
+        if (cancelled) return
+        setError(e instanceof Error ? e.message : "聚合失败")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [penetration.byModel, ourBrand, cacheKey])
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50/70 transition group"
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500 flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
+            <BarChart3 className="h-3.5 w-3.5 text-white" />
+          </span>
+          <div className="text-left">
+            <div className="text-sm font-medium text-slate-800">监控大盘 · 品牌声量 & 关键词竞争</div>
+            <div className="text-[11px] text-slate-500">
+              基于本次盲测结果服务端聚合，自动过滤拒答 / 0 参与模型的无效问题
+            </div>
+          </div>
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-slate-100 p-4 bg-slate-950/95 space-y-4">
+          {loading && !voice && !competition && (
+            <div className="text-center text-sm text-slate-400 py-10">聚合中…</div>
+          )}
+          {error && (
+            <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+          {voice && <BrandShareOfVoice items={voice} />}
+          {competition && <KeywordCompetition items={competition} />}
         </div>
       )}
     </div>
