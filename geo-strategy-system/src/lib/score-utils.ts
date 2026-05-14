@@ -126,10 +126,10 @@ export function sanitizeLlmJson(raw: string): string {
   let s = (raw ?? "").trim()
   // 1) 剥离所有 markdown 代码块标记（兼容 ```json / ```JSON / ``` 出现在任意位置）
   s = s.replace(/```json\s*/gi, "").replace(/```/g, "")
-  // 2) 再次 trim
-  s = s.trim()
-  // 3) 若开头/结尾有"以下是 JSON："之类的多余文字，截到首个 { / [ 与最后一个 } / ]
-  return s
+  // 2) 去掉 /* */ 块注释（大模型偶尔会自作主张加注释；故意不剥离 // 行注释，
+  //    以免误伤字符串里的 URL，如 "logo": "//cdn.x.com/a.png"）
+  s = s.replace(/\/\*[\s\S]*?\*\//g, "")
+  return s.trim()
 }
 
 export function parseJsonLoose(raw: string): unknown {
@@ -142,19 +142,30 @@ export function parseJsonLoose(raw: string): unknown {
     /* 继续 */
   }
 
-  // 再退而求其次：在清洗后的文本里切出第一个 { 到最后一个 }
-  const first = s.indexOf("{")
-  const last = s.lastIndexOf("}")
-  if (first >= 0 && last > first) {
-    s = s.slice(first, last + 1)
+  // 退而求其次：兼容对象 {…} 与数组 […] 两种形态，取最外层的 first..last
+  const candidates: Array<{ open: string; close: string }> = [
+    { open: "{", close: "}" },
+    { open: "[", close: "]" },
+  ]
+  for (const { open, close } of candidates) {
+    const first = s.indexOf(open)
+    const last = s.lastIndexOf(close)
+    if (first < 0 || last <= first) continue
+    const sliced = s.slice(first, last + 1)
     try {
-      return JSON.parse(s)
+      return JSON.parse(sliced)
     } catch {
       /* 继续 */
     }
-    // 单引号 → 双引号兜底
+    // 兜底 1：去掉对象/数组中的尾逗号（"foo",} 或 "foo",]）
     try {
-      return JSON.parse(s.replace(/'/g, '"'))
+      return JSON.parse(sliced.replace(/,(\s*[}\]])/g, "$1"))
+    } catch {
+      /* 继续 */
+    }
+    // 兜底 2：单引号 → 双引号
+    try {
+      return JSON.parse(sliced.replace(/'/g, '"').replace(/,(\s*[}\]])/g, "$1"))
     } catch {
       /* fallthrough */
     }

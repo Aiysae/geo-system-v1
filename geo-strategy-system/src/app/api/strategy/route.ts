@@ -169,11 +169,17 @@ async function handler(req: NextRequest) {
     })
     const targetRows = Math.max(keywordCount ?? 0, questionCount ?? 0)
     const maxTokens = targetRows > 10 ? 4096 : 3072
+    // ★ 必须开启 jsonMode：
+    //   1) 对 DeepSeek 而言会下发 response_format=json_object，从源头杜绝 ```json 包裹与前后说明文字；
+    //   2) 同时让 DeepSeek 走"裁判快路径"（deepseek.ts 里 jsonMode=true 时跳过 search_web 工具循环），
+    //      避免 SEARCH_DIRECTIVE 占用 prompt 预算导致大体量 JSON 被 max_tokens 截断（截断会让"剥离 markdown 后仍失败"）。
+    // 温度同时降到 0.4：温度过高会让长 JSON 出现尾逗号/未转义引号/中文全角标点污染。
     const raw = await ADAPTERS[picked].chat({
       system,
       user,
-      temperature: 0.7,
+      temperature: 0.4,
       maxTokens,
+      jsonMode: true,
     })
 
     // 强健的 JSON 清洗 + 解析：先剥离 ```json ... ``` markdown 标记、再 JSON.parse；
