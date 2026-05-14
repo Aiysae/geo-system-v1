@@ -1,17 +1,18 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
+import { chatWithLocalWebSearchTool } from "./tool-loop"
 
 // 豆包 (Volcengine Ark) 适配器
 //
-// 火山方舟有两套对话入口：
-//   1) Endpoint Inference（基础模型推理）—— /api/v3/chat/completions，model 填 ep-xxxx
-//      本身不挂插件，无内置联网。
-//   2) Bot/Agent（智能体）—— /api/v3/bots/chat/completions，model 填 bot-xxxx
-//      可在控制台为 Bot 挂载"联网搜索"插件，调用即享联网。
+// 两套对话入口：
+//   1) Bot/Agent（推荐）—— /api/v3/bots/chat/completions，model=bot-xxxx。
+//      在火山方舟控制台为 Bot 挂载"联网搜索"插件后，调用即享原生联网。
+//   2) Endpoint Inference —— /api/v3/chat/completions，model=ep-xxxx。
+//      本身没有联网插件；为满足"所有 AI 调用必须联网"的硬约束，
+//      此路径强制接入本地 search_web Function Calling 兜底（与 DeepSeek 同款）。
 //
 // 因此：
-//   - 若设置了 ARK_DOUBAO_BOT_ID（推荐），自动走 bots 入口 → 真正联网。
-//   - 否则继续走 endpoint，但每个进程会在首次调用时打印一次警告，
-//     提醒用户去控制台创建挂载搜索插件的 Bot，并把环境变量替换为 Bot ID。
+//   - 设置了 ARK_DOUBAO_BOT_ID：走 bots 入口，吃 Bot 的原生联网插件。
+//   - 否则：走 endpoint + search_web 工具循环外挂，保证依然联网。
 //
 // 参考文档：
 //   - https://www.volcengine.com/docs/82379/1099475 (Bot 调用)
@@ -24,18 +25,17 @@ const BOT_ID = process.env.ARK_DOUBAO_BOT_ID || ""
 const ENDPOINT_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 const BOT_URL = "https://ark.cn-beijing.volces.com/api/v3/bots/chat/completions"
 
-let endpointFallbackWarned = false
-function warnEndpointFallbackOnce() {
-  if (endpointFallbackWarned) return
-  endpointFallbackWarned = true
-  console.warn(
+let endpointFallbackInfoOnce = false
+function logEndpointFallbackOnce() {
+  if (endpointFallbackInfoOnce) return
+  endpointFallbackInfoOnce = true
+  console.log(
     [
-      "[豆包·联网] ⚠️  当前使用的是基础 Endpoint Inference (ARK_DOUBAO_ENDPOINT_ID)，",
-      "该入口本身没有内置联网搜索能力。",
-      "若需要让豆包获取最新资讯，请到火山方舟控制台：",
-      "  1) 创建一个智能体 (Bot) 并挂载 '联网搜索' 插件；",
+      "[豆包·联网] 当前未配置 ARK_DOUBAO_BOT_ID，走 Endpoint Inference + 本地 search_web Function Calling 兜底联网。",
+      "若希望使用火山方舟原生联网插件，建议：",
+      "  1) 在火山方舟控制台创建 Bot 并挂载『联网搜索』插件；",
       "  2) 在 .env.local 中新增 ARK_DOUBAO_BOT_ID=bot-xxxx；",
-      "  3) 重启服务后本适配器会自动切到 /bots/chat/completions 走联网。",
+      "  3) 重启服务后本适配器会自动切到 /bots/chat/completions。",
     ].join("\n")
   )
 }
@@ -46,6 +46,7 @@ export function isDoubaoConfigured(): boolean {
 
 export async function chatDoubao(args: ChatArgs): Promise<string> {
   if (BOT_ID) {
+    // Bot 模式：原生联网插件，single-shot 即可。
     return openaiCompatChat({
       url: BOT_URL,
       apiKey: KEY,
@@ -55,8 +56,9 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
     })
   }
 
-  warnEndpointFallbackOnce()
-  return openaiCompatChat({
+  // Endpoint 模式：用 search_web 工具循环外挂联网，保证依然能拿到实时网页结果。
+  logEndpointFallbackOnce()
+  return chatWithLocalWebSearchTool({
     url: ENDPOINT_URL,
     apiKey: KEY,
     model: ENDPOINT,

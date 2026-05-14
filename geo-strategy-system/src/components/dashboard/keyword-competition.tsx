@@ -20,9 +20,11 @@ type SortOrder = "redOcean" | "blueOcean"
 
 interface Props {
   items: KeywordCompetitionItem[]
-  /** 默认展示前 N 条；不传则全量 */
+  /** 默认展示前 N 条；硬上限 10，传入更大值会被钳到 10 */
   maxItems?: number
 }
+
+const CHART_HARD_CAP = 10
 
 const MODEL_COLOR: Record<ModelKey, string> = {
   doubao: "text-sky-300",
@@ -36,16 +38,20 @@ function truncate(s: string, n: number): string {
   return `${s.slice(0, n - 1)}…`
 }
 
-export default function KeywordCompetition({ items, maxItems = 20 }: Props) {
+export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }: Props) {
   const [sortOrder, setSortOrder] = useState<SortOrder>("redOcean")
 
   const data = useMemo(() => {
+    // 1) 先按竞争热度排序
     const sorted = [...items].sort((a, b) =>
       sortOrder === "redOcean"
         ? b.totalMentions - a.totalMentions
         : a.totalMentions - b.totalMentions,
     )
-    return sorted.slice(0, maxItems).map(it => ({
+    // 2) 排序之后再 slice，保证图表上永远是"最符合当前排序规则"的前 N 条
+    // 3) 防呆：调用方传入超过硬上限 10 也强行钳到 10；数据不足 10 时按实际数量
+    const effectiveLimit = Math.min(maxItems, CHART_HARD_CAP, sorted.length)
+    return sorted.slice(0, effectiveLimit).map(it => ({
       question: it.question,
       questionShort: truncate(it.question, 14),
       totalMentions: it.totalMentions,

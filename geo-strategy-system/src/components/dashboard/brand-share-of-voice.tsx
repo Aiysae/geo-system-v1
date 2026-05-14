@@ -1,15 +1,15 @@
 "use client"
 
-import { useMemo } from "react"
-import { AudioLines, HelpCircle } from "lucide-react"
+import { useMemo, useState } from "react"
+import { AudioLines, ChevronDown, ChevronUp, HelpCircle } from "lucide-react"
 import type { ModelKey } from "@/types"
 import type { BrandVoiceItem } from "@/lib/dashboard-aggregations"
 import { MODEL_LABELS } from "@/lib/llm"
 
 interface Props {
   items: BrandVoiceItem[]
-  /** 默认展示前 limit 条，超出折叠 */
-  limit?: number
+  /** 折叠态默认展示的条数（默认 5） */
+  defaultVisible?: number
 }
 
 const MODEL_BADGE: Record<ModelKey, { letter: string; bg: string }> = {
@@ -19,9 +19,12 @@ const MODEL_BADGE: Record<ModelKey, { letter: string; bg: string }> = {
   kimi: { letter: "K", bg: "bg-gradient-to-br from-slate-700 to-slate-900" },
 }
 
-export default function BrandShareOfVoice({ items, limit = 30 }: Props) {
-  const visible = useMemo(() => items.slice(0, limit), [items, limit])
-  const hiddenCount = Math.max(0, items.length - visible.length)
+export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) {
+  const [expanded, setExpanded] = useState(false)
+
+  const initialBatch = useMemo(() => items.slice(0, defaultVisible), [items, defaultVisible])
+  const extraBatch = useMemo(() => items.slice(defaultVisible), [items, defaultVisible])
+  const hasMore = extraBatch.length > 0
   const targetRank = items.find(it => it.isTarget)?.rank ?? null
   // 进度条的"满刻度"参考：用首位提及数。这样最大声量品牌的条占满 100% 视觉宽度。
   const maxMentions = items[0]?.mentions ?? 1
@@ -60,15 +63,50 @@ export default function BrandShareOfVoice({ items, limit = 30 }: Props) {
           </div>
 
           <div className="divide-y divide-slate-800/60">
-            {visible.map(item => (
+            {initialBatch.map(item => (
               <BrandRow key={item.brand} item={item} maxMentions={maxMentions} />
             ))}
           </div>
 
-          {hiddenCount > 0 && (
-            <div className="text-center text-xs text-slate-500 py-3 bg-slate-900/60 border-t border-slate-800/60">
-              还有 {hiddenCount} 个品牌…
-            </div>
+          {hasMore && (
+            <>
+              {/* CSS Grid 0fr↔1fr 平滑展开：高度自适应、无 max-h 魔数 */}
+              <div
+                className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+                  expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                }`}
+                aria-hidden={!expanded}
+              >
+                <div className="overflow-hidden">
+                  <div className="divide-y divide-slate-800/60 border-t border-slate-800/60">
+                    {extraBatch.map(item => (
+                      <BrandRow key={item.brand} item={item} maxMentions={maxMentions} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-center bg-slate-900/60 border-t border-slate-800/60">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(v => !v)}
+                  aria-expanded={expanded}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 my-1 text-xs font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 rounded-md transition-colors"
+                >
+                  {expanded ? (
+                    <>
+                      <ChevronUp className="h-3.5 w-3.5" />
+                      收起
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      展开全部（共 {items.length} 个）
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
           )}
         </>
       )}

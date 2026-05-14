@@ -319,7 +319,7 @@ export default function BatchInputPanel({
             >
               <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-red-500" />
               <span>
-                <b>{MODEL_LABELS[m]} 接口配置缺失或调用失败：</b>
+                <b>{MODEL_LABELS[m]} API 调用失败：</b>
                 {msg}
               </span>
             </div>
