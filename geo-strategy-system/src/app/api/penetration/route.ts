@@ -134,7 +134,7 @@ async function blindQuery(
       temperature: 0,
       seed,
       jsonMode: false, // ★ 不强制 JSON，让 AI 自然作答
-      maxTokens: 1024,
+      maxTokens: 4096,
     })
     const answer = (raw || "").trim()
     console.log(
@@ -184,7 +184,7 @@ async function judgeAnswer(
       temperature: 0,
       seed: 42,
       jsonMode: true,
-      maxTokens: 800,
+      maxTokens: 2048,
     })
     const parsed = parseJsonLoose(raw) as
       | { hitOur?: unknown; hitEvidence?: unknown; mentionedBrands?: unknown; topRecommended?: unknown }

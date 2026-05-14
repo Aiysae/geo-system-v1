@@ -1,21 +1,18 @@
-import { openaiCompatRaw, openaiCompatChat, type ChatArgs } from "./openai-compat"
+import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
+import { withBeijingTime } from "./time-context"
 
 // Kimi (Moonshot) 适配器
 //
-// 设计要点（与 DeepSeek 保持一致的"双轨"策略）：
-//   1) 当调用方是"裁判"等需要严格 JSON 输出 (jsonMode=true) 时：
-//      - 跳过 $web_search 工具循环，直接走 single-shot chat（带 JSON Mode）
-//      - 工具调用 + JSON Mode 同时启用经常被供应商拒绝（400），所以严格分离两路。
-//   2) 当调用方是"自由文本回答" (jsonMode=false) 时：
-//      - 开启官方 builtin function "$web_search" 联网检索能力
-//      - 严格按 Moonshot 文档要求处理 tool_calls 循环：
-//        https://platform.moonshot.cn/docs/api/tool_use#web-search
+// 所有调用（含 jsonMode=true 的"裁判"路径）一律开启官方 builtin function "$web_search" 联网检索。
+// 严格按 Moonshot 文档处理 tool_calls 循环：
+//   https://platform.moonshot.cn/docs/api/tool_use#web-search
+//
+// 关于 tools + JSON Mode 同时启用：Moonshot 偶发 400。
+// openai-compat 的 jsonMode 400/422 重试兜底会自动去掉 response_format 重发，仍能返回可解析 JSON。
 //
 // 错误日志：所有失败一律打印【完整错误体】到终端，便于排查 401/400 等鉴权或参数错误。
 
 const KEY = process.env.MOONSHOT_API_KEY || ""
-// 默认使用官方规范模型名 moonshot-v1-8k（最稳、支持 tool use 与 JSON Mode）。
-// 如需切换可通过环境变量 MOONSHOT_MODEL 覆盖（例如 moonshot-v1-32k / moonshot-v1-128k / kimi-latest）。
 const MODEL = process.env.MOONSHOT_MODEL || "moonshot-v1-8k"
 const URL = "https://api.moonshot.cn/v1/chat/completions"
 const LABEL = "Kimi"
@@ -31,29 +28,14 @@ const WEB_SEARCH_TOOL = {
 
 export async function chatKimi(args: ChatArgs): Promise<string> {
   if (!KEY) {
+    console.warn("[Kimi] Moonshot API Key is undefined（process.env.MOONSHOT_API_KEY 为空，请检查 .env.local 是否已加载）")
     throw new Error(`${LABEL} 接口配置缺失：未读取到环境变量 MOONSHOT_API_KEY。`)
   }
 
-  // 裁判等严格 JSON 场景：跳过工具循环，直接 single-shot（JSON Mode）
-  if (args.jsonMode) {
-    try {
-      return await openaiCompatChat({
-        url: URL,
-        apiKey: KEY,
-        model: MODEL,
-        label: LABEL,
-        ...args,
-      })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      console.error(`[${LABEL}·json-mode] 调用失败 | model=${MODEL} | error=`, msg)
-      throw e
-    }
-  }
-
-  // 自由文本场景：开启 $web_search 工具循环
+  // 所有路径都进 $web_search 工具循环，包括 jsonMode（裁判）。
+  // 顶部注入"当前北京时间"作为时间锚点，避免 Kimi 把"今天"理解错。
   const messages: Array<Record<string, unknown>> = [
-    { role: "system", content: args.system },
+    { role: "system", content: withBeijingTime(args.system) },
     { role: "user", content: args.user },
   ]
 
@@ -70,7 +52,9 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
         temperature: args.temperature,
         maxTokens: args.maxTokens,
         seed: args.seed,
-        jsonMode: false,
+        // jsonMode 透传给底层；若上游 400/422 拒绝 tools+response_format，
+        // openai-compat 已有去掉 response_format 重试的兜底。
+        jsonMode: args.jsonMode,
         tools: [WEB_SEARCH_TOOL],
       })
     } catch (e) {
@@ -89,7 +73,6 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
     const finish = choice.finish_reason
 
     if (finish === "tool_calls" && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-      // 必须把 assistant 这条带 tool_calls 的消息原样塞回 messages，再追加 tool 角色的执行结果。
       messages.push({
         role: "assistant",
         content: msg.content ?? "",
@@ -97,7 +80,7 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
       })
       for (const tc of msg.tool_calls) {
         if (tc.function?.name === "$web_search") {
-          // Moonshot 协议：$web_search 是 builtin，搜索已在服务器端执行完成，
+          // Moonshot 协议：$web_search 是 builtin，搜索已在服务器端执行，
           // 客户端只需把 arguments 原样作为 tool 结果回传。
           messages.push({
             role: "tool",
@@ -106,7 +89,6 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
             content: tc.function.arguments,
           })
         } else {
-          // 非预期工具：塞个空结果继续，避免死循环
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
