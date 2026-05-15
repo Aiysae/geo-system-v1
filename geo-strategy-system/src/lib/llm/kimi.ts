@@ -55,7 +55,7 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
         // jsonMode 透传给底层；若上游 400/422 拒绝 tools+response_format，
         // openai-compat 已有去掉 response_format 重试的兜底。
         jsonMode: args.jsonMode,
-        tools: [WEB_SEARCH_TOOL],
+        tools: args.mode === "consumer" ? undefined : [WEB_SEARCH_TOOL],
       })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)

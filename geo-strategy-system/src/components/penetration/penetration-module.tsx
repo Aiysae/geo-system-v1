@@ -295,9 +295,7 @@ function RawAnswersPanel({
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-600 leading-relaxed pl-7 mb-2">
-                    {highlight(it.answer, ourBrand)}
-                  </div>
+                  <AnswerItem text={it.answer} ourBrand={ourBrand} highlightFn={highlight} />
                   {it.mentionedBrands.length > 0 && (
                     <div className="flex flex-wrap gap-1 pl-7">
                       {it.mentionedBrands.map((b, j) => {
@@ -322,6 +320,36 @@ function RawAnswersPanel({
             })}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function AnswerItem({
+  text,
+  ourBrand,
+  highlightFn,
+}: {
+  text: string
+  ourBrand: string
+  highlightFn: (t: string, b: string) => React.ReactNode
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = text.length > 300
+  const displayText = !isLong || expanded ? text : text.slice(0, 300) + "..."
+
+  return (
+    <div className="pl-7 mb-2">
+      <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">
+        {highlightFn(displayText, ourBrand)}
+      </div>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1.5 text-[11px] font-medium text-[#0077B6] hover:text-[#004B73] transition-colors"
+        >
+          {expanded ? "收起完整回答" : "展开完整回答"}
+        </button>
       )}
     </div>
   )

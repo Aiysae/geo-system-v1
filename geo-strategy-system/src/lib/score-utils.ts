@@ -133,7 +133,7 @@ export function sanitizeLlmJson(raw: string): string {
 }
 
 export function parseJsonLoose(raw: string): unknown {
-  let s = sanitizeLlmJson(raw)
+  const s = sanitizeLlmJson(raw)
 
   // 优先尝试直接 parse（清洗后已可能是完整 JSON）
   try {

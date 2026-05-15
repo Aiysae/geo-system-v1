@@ -45,11 +45,11 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
 
   // 登录态变化时初始化/清空
   useEffect(() => {
-    if (isSignedIn) {
-      refresh()
-    } else {
-      setBalance(null)
-    }
+    if (!isSignedIn) return
+
+    queueMicrotask(() => {
+      void refresh()
+    })
   }, [isSignedIn, refresh])
 
   // 注册 fetch 桥接回调

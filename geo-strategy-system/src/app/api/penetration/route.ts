@@ -32,22 +32,16 @@ export const revalidate = 0
 // ---------- Stage A · 盲测出题 System Prompt（不含 ourBrand） ----------
 function buildBlindSystemPrompt(industry: string): string {
   const year = new Date().getFullYear()
-  return `你是一个客观、严谨的市场分析引擎助手，正在独立、公开地回答一位用户的咨询。
+  return `请基于公开可验证的信息，真实、自然地回答用户问题。
 
-【硬性事实纪律 — 严禁幻觉】
-1. 请严格基于你已知的客观行业事实回答用户的疑问。如果你不了解具体的公司、团队或产品，请直接说明你不了解，**严禁捏造、虚构或猜测任何不存在的品牌、公司、产品或服务商名称**。
-2. 宁可少答、宁可承认不知道，也绝不编造。任何无法在公开资料中查证的名字一律不要写出。
-3. 你能掌握的是最新（${year}年）国内公开行业资讯，但仅限于你确有把握的事实。
-4. 回答必须客观中立，自然列出业内主流品牌/产品/服务商，**不要刻意推荐或回避任何特定一方**。
-5. 本次对话**无任何上下文记忆**，请独立作答。
+【事实要求】
+1. 如果你不确定某个品牌、产品、公司或数据是否真实存在，请直接明确说明不确定。
+2. 严禁编造、虚构、猜测不存在的品牌、产品、服务商或行业事实。
+3. 请尽量基于最新（${year}年）公开信息回答，但仅限于你有把握的内容。
+4. 回答应客观中立，不要刻意偏向或回避任何品牌。
 
-【输出要求】
-- 用 80~300 字直接、自然、像真人客服一样回答用户问题。
-- **不要使用 JSON 或 markdown 代码块包裹**，就是一段普通的中文文字。
-- 不要解释你是 AI、不要说"以下是我的回答"，直接进入正文。
-
-【上下文背景（仅供你理解话题域，请勿在回答中提及"行业"二字本身）】
-- 用户咨询的领域：${industry || "未指定（请按用户提问的字面含义作答）"}`
+【上下文背景】
+- 用户咨询领域：${industry || "未指定"}`
 }
 
 // ---------- Stage B · 裁判 System Prompt ----------
@@ -130,16 +124,18 @@ async function blindQuery(
   try {
     const raw = await adapter.chat({
       system: sys,
-      user: question, // ★ 只发用户原始疑问句，绝不夹带任何品牌信息
+      user: question,
       temperature: 0,
       seed,
-      jsonMode: false, // ★ 不强制 JSON，让 AI 自然作答
+      mode: "consumer",
+      jsonMode: false,
       maxTokens: 4096,
     })
-    const answer = (raw || "").trim()
+    const answer = raw || ""
     console.log(
-      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | ${Date.now() - t0}ms | len=${answer.length} | q="${question.slice(0, 30)}..."`
+      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
     )
+    console.log(`[penetration·blind-answer] preservedLen=${answer.length}`)
     return { answer }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "未知错误"
@@ -178,11 +174,14 @@ async function judgeAnswer(
   const t0 = Date.now()
 
   async function attempt(extraHint = ""): Promise<JudgeResult | null> {
+    console.log(`[penetration·judge-input] len=${args.answer.length}`)
+
     const raw = await adapter.chat({
       system: sys + extraHint,
       user,
       temperature: 0,
       seed: 42,
+      mode: "judge",
       jsonMode: true,
       maxTokens: 2048,
     })

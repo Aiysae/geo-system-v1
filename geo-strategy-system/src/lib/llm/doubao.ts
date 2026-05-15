@@ -1,5 +1,4 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
-import { chatWithLocalWebSearchTool } from "./tool-loop"
 
 // 豆包 (Volcengine Ark) 适配器
 //
@@ -31,8 +30,8 @@ function logEndpointFallbackOnce() {
   endpointFallbackInfoOnce = true
   console.log(
     [
-      "[豆包·联网] 当前未配置 ARK_DOUBAO_BOT_ID，走 Endpoint Inference + 本地 search_web Function Calling 兜底联网。",
-      "若希望使用火山方舟原生联网插件，建议：",
+      "[豆包·联网] 当前未配置 ARK_DOUBAO_BOT_ID，Endpoint 模式将退化为普通推理（无原生联网能力）。",
+      "若希望启用豆包官方联网搜索，建议：",
       "  1) 在火山方舟控制台创建 Bot 并挂载『联网搜索』插件；",
       "  2) 在 .env.local 中新增 ARK_DOUBAO_BOT_ID=bot-xxxx；",
       "  3) 重启服务后本适配器会自动切到 /bots/chat/completions。",
@@ -56,9 +55,8 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
     })
   }
 
-  // Endpoint 模式：用 search_web 工具循环外挂联网，保证依然能拿到实时网页结果。
   logEndpointFallbackOnce()
-  return chatWithLocalWebSearchTool({
+  return openaiCompatChat({
     url: ENDPOINT_URL,
     apiKey: KEY,
     model: ENDPOINT,
