@@ -48,6 +48,8 @@ export type GenerationStatus = "idle" | "generating" | "done" | "error"
 
 export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi"
 
+export type LlmMode = "consumer" | "judge"
+
 export interface PenetrationItem {
   question: string
   answer: string

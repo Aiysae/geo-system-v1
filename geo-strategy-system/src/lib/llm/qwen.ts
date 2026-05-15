@@ -12,17 +12,19 @@ export function isQwenConfigured(): boolean {
 }
 
 export async function chatQwen(args: ChatArgs): Promise<string> {
+  const extraBody = args.mode === "consumer"
+    ? undefined // Consumer 模式关闭原生联网，保证纯净
+    : {
+        enable_search: true,
+        search_options: { forced_search: true },
+      };
+
   return openaiCompatChat({
     url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     apiKey: KEY,
     model: MODEL,
     label: "通义千问",
     ...args,
-    // ★ 联网硬开关：所有调用（含裁判）一律强制联网，不读 DASHSCOPE_ENABLE_SEARCH。
-    //   forced_search: true 让模型在有联网结果时优先采信网页内容，覆盖陈旧训练数据。
-    extraBody: {
-      enable_search: true,
-      search_options: { forced_search: true },
-    },
+    extraBody,
   })
 }

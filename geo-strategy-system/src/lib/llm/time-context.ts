@@ -45,9 +45,7 @@ export function buildBeijingTimeHeader(now: Date = new Date()): string {
   }
 
   return [
-    `【当前准确的北京时间】${year}年${month}月${day}日 ${weekday} ${hour}:${minute}:${second}（UTC+8）`,
-    `- 请以此时间为准回答任何涉及"今天/现在/最近/本年/今年"的问题，不要使用训练数据中的旧时间。`,
-    `- 若用户问题不涉及该时间之后才发生的最新资讯，无需触发联网搜索，直接基于既有知识作答以提速。`,
+    `【当前北京时间】${year}年${month}月${day}日 ${weekday} ${hour}:${minute}:${second}`,
   ].join("\n")
 }
 

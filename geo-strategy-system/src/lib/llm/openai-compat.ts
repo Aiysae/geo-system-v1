@@ -8,6 +8,7 @@
 // 4. 单轮入口 openaiCompatChat 会自动在 system prompt 头部注入"当前北京时间"，
 //    工具循环类（如 deepseek/kimi）自行拼装 messages 时也应使用 withBeijingTime。
 
+import type { LlmMode } from "@/types"
 import { withBeijingTime } from "./time-context"
 
 interface ChatArgs {
@@ -17,6 +18,7 @@ interface ChatArgs {
   maxTokens?: number
   seed?: number
   jsonMode?: boolean
+  mode?: LlmMode
 }
 
 export interface RawChatCompletionMessage {
@@ -168,6 +170,7 @@ export async function openaiCompatChat({
   maxTokens,
   seed,
   jsonMode,
+  mode,
   label,
   extraBody,
 }: OpenAICompatArgs): Promise<string> {
@@ -184,7 +187,7 @@ export async function openaiCompatChat({
     temperature,
     maxTokens,
     seed,
-    jsonMode,
+    jsonMode: mode === "consumer" ? false : jsonMode,
     extraBody,
   })
   return data.choices?.[0]?.message?.content ?? ""

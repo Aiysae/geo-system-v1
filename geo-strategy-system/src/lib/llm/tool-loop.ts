@@ -51,8 +51,12 @@ interface ToolLoopArgs extends ChatArgs {
 }
 
 export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<string> {
+  const finalSystem = args.mode === 'consumer'
+    ? args.system || ""
+    : (args.system || "") + SEARCH_DIRECTIVE;
+
   const messages: Array<Record<string, unknown>> = [
-    { role: "system", content: withBeijingTime((args.system || "") + SEARCH_DIRECTIVE) },
+    { role: "system", content: withBeijingTime(finalSystem) },
     { role: "user", content: args.user },
   ]
 
@@ -70,7 +74,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
       // ★ 关键：jsonMode 透传，让"裁判"路径也照常拿 JSON 输出，
       //    若供应商不接受 tools+response_format 同时启用，openai-compat 已带 400 重试兜底。
       jsonMode: args.jsonMode,
-      tools: [SEARCH_WEB_TOOL],
+      tools: args.mode === 'consumer' ? undefined : [SEARCH_WEB_TOOL],
     })
 
     const choice = data.choices?.[0]
@@ -98,11 +102,15 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
           console.log(
             `[${args.label}·search_web] q="${query}" hits=${hits.length} ${Date.now() - t0}ms`
           )
+          const formatted = formatHitsForLLM(query, hits)
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
             name: "search_web",
-            content: formatHitsForLLM(query, hits),
+            content:
+              args.mode === "consumer"
+                ? `${formatted}\n\n【要求】请保留关键事实、品牌名、时间、价格、数据与来源细节，不要过度压缩搜索结果。`
+                : formatted,
           })
         } else {
           messages.push({
