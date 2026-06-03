@@ -1,0 +1,41 @@
+name: Deploy geo-strategy-system to ECS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "geo-strategy-system/**"
+      - ".github/workflows/deploy-geo.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_KEY }}
+          port: ${{ secrets.ECS_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+            if [ -z "$DEPLOY_PATH" ]; then
+              DEPLOY_PATH="/var/www/geo-strategy-system"
+            fi
+            cd "$DEPLOY_PATH"
+            git pull origin main
+            cd geo-strategy-system
+            if [ -f ../.env.production ]; then
+              set -a
+              # shellcheck disable=SC1091
+              source ../.env.production
+              set +a
+            fi
+            npm ci
+            npm run build
+            pm2 restart geo || pm2 start ecosystem.config.cjs
+            pm2 save

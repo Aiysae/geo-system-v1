@@ -1,6 +1,6 @@
 import { kv } from "@vercel/kv"
 
-const INITIAL_CREDITS = 5
+const INITIAL_CREDITS = 20
 
 const key = (userId: string) => `user_credits:${userId}`
 
