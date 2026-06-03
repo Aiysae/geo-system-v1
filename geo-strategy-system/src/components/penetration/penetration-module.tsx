@@ -16,6 +16,7 @@ import {
   getBrandVoiceAction,
   getKeywordCompetitionAction,
 } from "@/app/actions/dashboards"
+import { useCredits } from "@/components/credits/credits-provider"
 import type {
   BrandVoiceItem,
   KeywordCompetitionItem,
@@ -32,8 +33,17 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
   const [modelErrors, setModelErrors] = useState<Partial<Record<ModelKey, string>>>({})
+  const { balance } = useCredits()
 
   async function handleRun(params: { questions: string[]; models: ModelKey[] }) {
+    const requiredCredits = params.questions.length * params.models.length
+    if (typeof balance === "number" && balance < requiredCredits) {
+      setError(
+        `体验算力积分不足：本次检测需要 ${requiredCredits} 积分，当前余额 ${balance} 积分。请减少问题数量 / 检测模型，或申请充值后重试。`
+      )
+      return
+    }
+
     setLoading(true)
     setError(null)
     setSkipped([])

@@ -119,7 +119,7 @@ function InsufficientCreditsModal({
           </div>
 
           <p className="text-sm text-slate-600 leading-relaxed">
-            您的体验算力积分已耗尽。请联系管理员进行充值。
+            当前体验算力积分不足以完成本次任务。请联系管理员进行充值，或减少问题数量 / 检测模型后重试。
           </p>
 
           {(typeof required === "number" || typeof balance === "number") && (

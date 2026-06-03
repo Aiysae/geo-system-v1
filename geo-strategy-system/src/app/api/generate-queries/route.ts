@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
 
-// 高频疑问句智能生成 · 强制绑定豆包 Bot (Volcengine Ark Bots /api/v3/bots/chat/completions)
+// 高频疑问句智能生成 · 豆包专用 (Volcengine Ark)
 //
 // 设计纪律：
-//   - 此路由只能读取 ARK_API_KEY + ARK_DOUBAO_BOT_ID 两个环境变量；
-//     绝对禁止使用 ARK_DOUBAO_ENDPOINT_ID 或硬编码 ep- 开头的 endpoint ID。
-//   - Bot 必须在火山方舟控制台预先创建并挂载需要的插件（如联网搜索）。
-//   - model 字段直接传 bot-xxxx，走 /api/v3/bots/chat/completions。
+//   - 优先使用 ARK_DOUBAO_BOT_ID（bot-xxxx），走 /api/v3/bots/chat/completions。
+//   - 未配置 Bot 时，允许回退到 ARK_DOUBAO_ENDPOINT_ID（ep-xxxx），走 /api/v3/chat/completions。
+//   - 避免部署环境只配置普通 Endpoint 时，智能生成入口被错误阻断。
 //   - 系统提示强约束模型只输出"字符串数组"或 {"questions":[...]} 包装对象。
 //   - 后端对返回做宽松解析：兼容 markdown 代码块、双引号/单引号、对象/数组两种 shape。
 //   - 任何上游失败一律把具体错误（含 Volcengine 的 code/message）透传到前端 Toast。
@@ -20,7 +19,9 @@ export const revalidate = 0
 
 const ARK_API_KEY = process.env.ARK_API_KEY || ""
 const ARK_DOUBAO_BOT_ID = process.env.ARK_DOUBAO_BOT_ID || ""
+const ARK_DOUBAO_ENDPOINT_ID = process.env.ARK_DOUBAO_ENDPOINT_ID || ""
 const ARK_BOT_URL = "https://ark.cn-beijing.volces.com/api/v3/bots/chat/completions"
+const ARK_ENDPOINT_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
 const SYSTEM_PROMPT =
   "你是一个顶级的 GEO (生成式引擎优化) 与 SEO 专家。你的唯一任务是站在【完全中立的普通消费者视角】，推演目标消费者在搜寻相关服务或产品时最常问的高频疑问句。" +
@@ -148,7 +149,9 @@ function humanizeUpstreamError(rawMsg: string): string {
       const code = obj?.error?.code || obj?.code || ""
       const message = obj?.error?.message || obj?.message || ""
       if (code === "InvalidEndpointOrModel.NotFound" || /not.?found/i.test(code)) {
-        return `豆包调用失败：未找到该 Bot ID（${ARK_DOUBAO_BOT_ID || "未配置"}）。请到火山方舟控制台确认 Bot 已创建并发布，且 .env.local 中 ARK_DOUBAO_BOT_ID 正确（应为 bot- 开头）。`
+        const currentModel = ARK_DOUBAO_BOT_ID || ARK_DOUBAO_ENDPOINT_ID || "未配置"
+        const modelType = ARK_DOUBAO_BOT_ID ? "Bot ID" : "Endpoint ID"
+        return `豆包调用失败：未找到该 ${modelType}（${currentModel}）。请到火山方舟控制台确认模型已创建/发布，且 .env.local 中对应配置正确。`
       }
       if (/quota|balance|insufficient/i.test(code) || /余额|额度|配额/i.test(message)) {
         return `豆包调用失败：账户余额或配额不足。请到火山方舟控制台充值后重试。原始信息：${message || code}`
@@ -175,18 +178,28 @@ async function handler(req: NextRequest) {
       )
     }
     if (!ARK_DOUBAO_BOT_ID) {
+      if (!ARK_DOUBAO_ENDPOINT_ID) {
+        return NextResponse.json(
+          {
+            error:
+              "生成失败：未配置 ARK_DOUBAO_BOT_ID 或 ARK_DOUBAO_ENDPOINT_ID。请在 .env.local 中至少配置一个豆包 Bot（bot- 开头）或 Endpoint（ep- 开头）后重启服务。",
+          },
+          { status: 500 }
+        )
+      }
+    }
+    if (ARK_DOUBAO_BOT_ID && !ARK_DOUBAO_BOT_ID.startsWith("bot-")) {
       return NextResponse.json(
         {
-          error:
-            "生成失败：未配置 ARK_DOUBAO_BOT_ID。本功能强制要求使用火山方舟 Bot（bot- 开头），请在 .env.local 中配置后重启服务。",
+          error: `生成失败：ARK_DOUBAO_BOT_ID 必须以 "bot-" 开头（当前值：${ARK_DOUBAO_BOT_ID}）。如需使用 ep- 开头的 Endpoint，请配置到 ARK_DOUBAO_ENDPOINT_ID。`,
         },
         { status: 500 }
       )
     }
-    if (!ARK_DOUBAO_BOT_ID.startsWith("bot-")) {
+    if (!ARK_DOUBAO_BOT_ID && ARK_DOUBAO_ENDPOINT_ID && !ARK_DOUBAO_ENDPOINT_ID.startsWith("ep-")) {
       return NextResponse.json(
         {
-          error: `生成失败：ARK_DOUBAO_BOT_ID 必须以 "bot-" 开头（当前值：${ARK_DOUBAO_BOT_ID}）。请勿填入 ep- 开头的 Endpoint ID。`,
+          error: `生成失败：ARK_DOUBAO_ENDPOINT_ID 必须以 "ep-" 开头（当前值：${ARK_DOUBAO_ENDPOINT_ID}）。`,
         },
         { status: 500 }
       )
@@ -213,9 +226,9 @@ async function handler(req: NextRequest) {
     let content: string
     try {
       content = await openaiCompatChat({
-        url: ARK_BOT_URL,
+        url: ARK_DOUBAO_BOT_ID ? ARK_BOT_URL : ARK_ENDPOINT_URL,
         apiKey: ARK_API_KEY,
-        model: ARK_DOUBAO_BOT_ID, // 必须是 bot-xxxx
+        model: ARK_DOUBAO_BOT_ID || ARK_DOUBAO_ENDPOINT_ID,
         label: "豆包",
         system: SYSTEM_PROMPT,
         user: buildUserPrompt({ industry, brand, count, keywords }),
