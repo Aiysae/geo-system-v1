@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fafbfd;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --primary: #004B73;
+  --primary-foreground: #f0f9ff;
+  --secondary: #f0f6fa;
+  --secondary-foreground: #004B73;
+  --muted: #f0f6fa;
+  --muted-foreground: #5b7a92;
+  --border: #d4dfe7;
+  --input: #d4dfe7;
+  --ring: #004B73;
+  --radius: 0.625rem;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -40px) scale(1.05); }
+  66% { transform: translate(-20px, 30px) scale(0.97); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-float-slow { animation: float-slow 14s ease-in-out infinite; }
+.animate-fade-in-up { animation: fade-in-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0, 75, 115, 0.18); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 75, 115, 0.32); }
