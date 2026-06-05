@@ -107,9 +107,10 @@ export default function Home() {
           <div className="absolute bottom-0 left-1/3 w-80 h-80 rounded-full bg-gradient-to-br from-emerald-200/20 to-teal-200/15 blur-3xl animate-float-slow" style={{ animationDelay: "-10s" }}></div>
         </div>
         <div className="relative z-10">
-        {active && (
-          <StickyHeader client={active} onOpenSidebar={() => setSidebarOpen(true)} />
-        )}
+        <StickyHeader
+          client={active}
+          onOpenSidebar={() => setSidebarOpen(true)}
+        />
         {!hydrated ? (
           <div className="h-screen flex items-center justify-center text-slate-400 text-sm">
             加载中...
@@ -131,7 +132,7 @@ function StickyHeader({
   client,
   onOpenSidebar,
 }: {
-  client: Client
+  client: Client | null
   onOpenSidebar: () => void
 }) {
   function handlePrint() {
@@ -154,10 +155,16 @@ function StickyHeader({
             <div className="text-sm font-bold tracking-wide bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent">
               势途 GEO · 市场情报大盘
             </div>
-            <div className="text-[11px] text-slate-500 truncate">
-              当前客户：<span className="font-medium text-slate-700">{client.name}</span>
-              {client.industry && <span className="text-slate-400"> · {client.industry}</span>}
-            </div>
+            {client ? (
+              <div className="text-[11px] text-slate-500 truncate">
+                当前客户：<span className="font-medium text-slate-700">{client.name}</span>
+                {client.industry && <span className="text-slate-400"> · {client.industry}</span>}
+              </div>
+            ) : (
+              <div className="text-[11px] text-slate-400">
+                请先创建或选择一个客户
+              </div>
+            )}
           </div>
         </div>
         <div className="no-print flex items-center gap-2">
@@ -169,14 +176,16 @@ function StickyHeader({
             <span className="hidden sm:inline">文章检测</span>
             <span className="sm:hidden">检测</span>
           </a>
-          <button
-            onClick={handlePrint}
-            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 md:px-3.5 py-2 rounded-lg bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all whitespace-nowrap shrink-0"
-          >
-            <Printer className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">导出 PDF 报告</span>
-            <span className="sm:hidden">导出</span>
-          </button>
+          {client && (
+            <button
+              onClick={handlePrint}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 md:px-3.5 py-2 rounded-lg bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all whitespace-nowrap shrink-0"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">导出 PDF 报告</span>
+              <span className="sm:hidden">导出</span>
+            </button>
+          )}
         </div>
         <div className="no-print shrink-0 flex items-center gap-2">
           <CreditsPill />
