@@ -1,8 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, Trash2, Users, Database, X, FileText } from "lucide-react"
-import Link from "next/link"
+import { Plus, Trash2, Users, Database, X } from "lucide-react"
 import type { Client } from "@/types"
 
 interface Props {
@@ -134,17 +133,6 @@ export default function ClientSidebar({
           </div>
         ))}
       </nav>
-
-      {/* 工具导航 */}
-      <div className="px-3 py-2 border-t border-white/10 shrink-0 space-y-1">
-        <Link
-          href="/keyword-strategy"
-          className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-white/70 hover:text-white hover:bg-white/10 transition"
-        >
-          <FileText className="h-4 w-4" />
-          <span>疑问句策略</span>
-        </Link>
-      </div>
 
       <div className="px-4 py-3 border-t border-white/10 text-[11px] text-white/40 flex items-center gap-1.5 shrink-0">
         <Database className="h-3 w-3" />

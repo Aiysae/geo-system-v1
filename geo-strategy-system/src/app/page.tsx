@@ -5,7 +5,7 @@ import ClientSidebar from "@/components/sidebar/client-sidebar"
 import PenetrationModule from "@/components/penetration/penetration-module"
 import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
 import StrategyModule from "@/components/strategy/strategy-module"
-import { Sparkles, Printer, Menu, FileSearch } from "lucide-react"
+import { Sparkles, Printer, Menu } from "lucide-react"
 import { UserButton } from "@clerk/nextjs"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
@@ -168,14 +168,6 @@ function StickyHeader({
           </div>
         </div>
         <div className="no-print flex items-center gap-2">
-          <a
-            href="/aigc-detector"
-            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 md:px-3.5 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:shadow-lg hover:shadow-purple-300/40 hover:-translate-y-0.5 transition-all whitespace-nowrap shrink-0"
-          >
-            <FileSearch className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">文章检测</span>
-            <span className="sm:hidden">检测</span>
-          </a>
           {client && (
             <button
               onClick={handlePrint}
