@@ -28,14 +28,45 @@ jobs:
             fi
             cd "$DEPLOY_PATH"
             git pull origin main
-            cd geo-strategy-system
-            if [ -f ../.env.production ]; then
+
+            APP_DIR=""
+            while IFS= read -r package_file; do
+              if grep -q '"name"[[:space:]]*:[[:space:]]*"geo-strategy-system"' "$package_file"; then
+                APP_DIR="$(dirname "$package_file")"
+                break
+              fi
+            done < <(find "$DEPLOY_PATH" -maxdepth 5 -name package.json -not -path '*/node_modules/*' -print)
+
+            if [ -z "$APP_DIR" ]; then
+              echo "Could not find geo-strategy-system package.json under $DEPLOY_PATH"
+              exit 1
+            fi
+
+            cd "$APP_DIR"
+
+            ENV_FILE=""
+            for candidate in "$APP_DIR/.env.production" "$APP_DIR/../.env.production" "$DEPLOY_PATH/.env.production" "$DEPLOY_PATH/../.env.production"; do
+              if [ -f "$candidate" ]; then
+                ENV_FILE="$candidate"
+                break
+              fi
+            done
+
+            if [ -n "$ENV_FILE" ]; then
               set -a
               # shellcheck disable=SC1091
-              source ../.env.production
+              source "$ENV_FILE"
               set +a
+            else
+              echo "Warning: .env.production not found; using existing environment"
             fi
-            npm ci
+
+            if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+              npm ci
+            else
+              npm install
+            fi
+
             npm run build
             pm2 restart geo || pm2 start ecosystem.config.cjs
             pm2 save
