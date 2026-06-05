@@ -51,6 +51,8 @@ export interface OpenAICompatRawArgs {
   tools?: Array<Record<string, unknown>>
   // 透传给厂商的非标准字段（如阿里千问 enable_search、火山方舟联网插件参数等）
   extraBody?: Record<string, unknown>
+  /** timeout in ms (default 300000) */
+  timeoutMs?: number
 }
 
 // 底层：发请求并返回原始 ChatCompletion（供需要工具循环的场景使用，如 Kimi 联网）
@@ -66,6 +68,7 @@ export async function openaiCompatRaw({
   jsonMode = false,
   tools,
   extraBody,
+  timeoutMs,
 }: OpenAICompatRawArgs): Promise<RawChatCompletion> {
   if (!apiKey) {
     // 请求前显式校验：把缺失的 Key 用 console.warn 打印出来，便于在终端立刻定位
@@ -84,15 +87,29 @@ export async function openaiCompatRaw({
   if (tools && tools.length > 0) payload.tools = tools
   if (extraBody) Object.assign(payload, extraBody)
 
-  const res = await fetch(url, {
-    method: "POST",
-    cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  })
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined
+  const timeout = timeoutMs && timeoutMs > 0 ? setTimeout(() => controller?.abort(), timeoutMs) : undefined
+
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      signal: controller?.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  } catch (fetchErr) {
+    if (timeout) clearTimeout(timeout)
+    if (fetchErr instanceof DOMException && fetchErr.name === "AbortError") {
+      throw new Error(`${label} 请求超时 (${(timeoutMs || 300000) / 1000}s)，图片/PDF 识别耗时较长，请在 API 设置中增加超时时间`)
+    }
+    throw new Error(`${label} API 连接失败：${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
+  }
+  if (timeout) clearTimeout(timeout)
 
   if (!res.ok) {
     const txt = await res.text().catch(() => "")
@@ -157,6 +174,22 @@ interface OpenAICompatArgs extends ChatArgs {
   model: string
   label: string
   extraBody?: Record<string, unknown>
+  /** data URLs for vision (image/jpeg, image/png, application/pdf) */
+  images?: string[]
+  /** timeout in seconds (default 300) */
+  timeoutSec?: number
+}
+
+/** compress a data URL if it exceeds maxBytes by stripping it (API will reject oversized payloads) */
+function trimDataUrl(dataUrl: string, maxBytes: number): { url: string; trimmed: boolean } {
+  if (dataUrl.length <= maxBytes) return { url: dataUrl, trimmed: false }
+  const headerEnd = dataUrl.indexOf(",")
+  if (headerEnd === -1) return { url: dataUrl.slice(0, maxBytes), trimmed: true }
+  const header = dataUrl.slice(0, headerEnd + 1)
+  const data = dataUrl.slice(headerEnd + 1)
+  const availableForData = maxBytes - header.length
+  if (availableForData <= 0) return { url: dataUrl.slice(0, maxBytes), trimmed: true }
+  return { url: header + data.slice(0, availableForData), trimmed: true }
 }
 
 // 标准对外接口：单轮 system + user，返回 content 文本
@@ -173,24 +206,81 @@ export async function openaiCompatChat({
   mode,
   label,
   extraBody,
+  images,
+  timeoutSec,
 }: OpenAICompatArgs): Promise<string> {
-  const data = await openaiCompatRaw({
-    url,
-    apiKey,
-    model,
-    label,
-    messages: [
-      // ★ 头部强制注入"当前北京时间"，覆盖所有走单轮入口的模型（豆包/千问/裁判路径）
-      { role: "system", content: withBeijingTime(system) },
-      { role: "user", content: user },
-    ],
-    temperature,
-    maxTokens,
-    seed,
-    jsonMode: mode === "consumer" ? false : jsonMode,
-    extraBody,
-  })
-  return data.choices?.[0]?.message?.content ?? ""
+  if (!apiKey) {
+    console.warn(`[${label}] API Key is undefined`)
+    throw new Error(`${label} API Key 未配置`)
+  }
+
+  // Trim oversized images (each capped at ~5MB to avoid payload issues)
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+  const trimmedImages: string[] = []
+  if (images && images.length > 0) {
+    for (const img of images) {
+      const { url: trimmed, trimmed: wasTrimmed } = trimDataUrl(img, MAX_IMAGE_BYTES)
+      if (wasTrimmed) {
+        console.warn(`[${label}] 图片过大 (${(img.length / 1024 / 1024).toFixed(1)}MB)，已截断至 ~5MB，可能导致识别质量下降`)
+      }
+      if (trimmed.length > 100) {
+        trimmedImages.push(trimmed)
+      }
+    }
+  }
+
+  const userContent = trimmedImages.length > 0
+    ? [
+        { type: "text" as const, text: user },
+        ...trimmedImages.map(url => ({
+          type: "image_url" as const,
+          image_url: { url, detail: "auto" as const },
+        })),
+      ]
+    : user
+
+  const timeoutMs = (timeoutSec && timeoutSec > 0 ? timeoutSec : 300) * 1000
+
+  try {
+    const data = await openaiCompatRaw({
+      url,
+      apiKey,
+      model,
+      label,
+      messages: [
+        // ★ 头部强制注入"当前北京时间"，覆盖所有走单轮入口的模型（豆包/千问/裁判路径）
+        { role: "system", content: withBeijingTime(system) },
+        { role: "user", content: userContent },
+      ],
+      temperature,
+      maxTokens,
+      seed,
+      jsonMode: mode === "consumer" ? false : jsonMode,
+      extraBody,
+      timeoutMs,
+    })
+    return data.choices?.[0]?.message?.content ?? ""
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.toLowerCase() : ""
+    const isVisionRejection = images && images.length > 0 && (
+      msg.includes("does not support image") ||
+      msg.includes("does not support vision") ||
+      msg.includes("don't support image") ||
+      msg.includes("not a vision model") ||
+      msg.includes("not support multimodal") ||
+      msg.includes("not a multimodal model") ||
+      msg.includes("image understanding is not supported") ||
+      msg.includes("does not support multimodal") ||
+      msg.includes("is not a vision model") ||
+      msg.includes("images are not supported") ||
+      msg.includes("can only process text") ||
+      msg.includes("cannot process image")
+    )
+    if (isVisionRejection) {
+      throw new Error(`${label} 当前模型不支持图片/PDF识别，请切换到视觉模型（如 qwen3-vl-plus、gpt-4o、glm-4v）。原始错误：${err instanceof Error ? err.message : String(err)}`)
+    }
+    throw err
+  }
 }
 
 export type { ChatArgs }
