@@ -69,22 +69,5 @@ jobs:
 
             npm run build
 
-            PM2_APP="$(pm2 jlist | node -e '
-              let input = "";
-              process.stdin.on("data", chunk => input += chunk);
-              process.stdin.on("end", () => {
-                const cwd = process.cwd();
-                const apps = JSON.parse(input || "[]");
-                const byCwd = apps.find(app => app.pm2_env && app.pm2_env.pm_cwd === cwd);
-                const fallback = apps.find(app => app.name === "geo-system" || app.name === "geo");
-                console.log((byCwd || fallback || {}).name || "");
-              });
-            ')"
-
-            if [ -n "$PM2_APP" ]; then
-              pm2 restart "$PM2_APP"
-            else
-              pm2 start ecosystem.config.cjs
-            fi
-
+            pm2 restart geo-system || pm2 restart geo || pm2 start ecosystem.config.cjs
             pm2 save
