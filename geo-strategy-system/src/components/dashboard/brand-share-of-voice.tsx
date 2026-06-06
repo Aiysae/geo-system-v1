@@ -17,6 +17,8 @@ const MODEL_BADGE: Record<ModelKey, { letter: string; bg: string }> = {
   deepseek: { letter: "D", bg: "bg-gradient-to-br from-indigo-500 to-violet-600" },
   qwen: { letter: "千", bg: "bg-gradient-to-br from-fuchsia-500 to-purple-600" },
   kimi: { letter: "K", bg: "bg-gradient-to-br from-slate-700 to-slate-900" },
+  ernie: { letter: "文", bg: "bg-gradient-to-br from-emerald-500 to-teal-600" },
+  hunyuan: { letter: "元", bg: "bg-gradient-to-br from-rose-500 to-red-600" },
 }
 
 export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) {

@@ -23,7 +23,14 @@ interface ChatArgs {
 
 export interface RawChatCompletionMessage {
   role: string
-  content: string | null
+  content:
+    | string
+    | null
+    | Array<{
+        type?: string
+        text?: string
+        [key: string]: unknown
+      }>
   tool_calls?: Array<{
     id: string
     type: string
@@ -51,6 +58,7 @@ export interface OpenAICompatRawArgs {
   tools?: Array<Record<string, unknown>>
   // 透传给厂商的非标准字段（如阿里千问 enable_search、火山方舟联网插件参数等）
   extraBody?: Record<string, unknown>
+  extraHeaders?: Record<string, string>
   /** timeout in ms (default 300000) */
   timeoutMs?: number
 }
@@ -68,6 +76,7 @@ export async function openaiCompatRaw({
   jsonMode = false,
   tools,
   extraBody,
+  extraHeaders,
   timeoutMs,
 }: OpenAICompatRawArgs): Promise<RawChatCompletion> {
   if (!apiKey) {
@@ -99,6 +108,7 @@ export async function openaiCompatRaw({
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
+        ...extraHeaders,
       },
       body: JSON.stringify(payload),
     })
@@ -123,6 +133,7 @@ export async function openaiCompatRaw({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
+          ...extraHeaders,
         },
         body: JSON.stringify(fallback),
       })
@@ -168,12 +179,35 @@ export async function openaiCompatRaw({
   }
 }
 
+function extractMessageContent(message: RawChatCompletionMessage | undefined, label: string): string {
+  if (!message) return ""
+  const { content } = message
+  if (typeof content === "string") return content
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part?.text === "string") return part.text
+        if (typeof part === "object" && part && "content" in part) {
+          const nested = (part as { content?: unknown }).content
+          return typeof nested === "string" ? nested : ""
+        }
+        return ""
+      })
+      .filter(Boolean)
+      .join("\n")
+  }
+  if (content == null) return ""
+  console.warn(`[${label}] message.content 类型异常：${typeof content}`)
+  return String(content)
+}
+
 interface OpenAICompatArgs extends ChatArgs {
   url: string
   apiKey: string
   model: string
   label: string
   extraBody?: Record<string, unknown>
+  extraHeaders?: Record<string, string>
   /** data URLs for vision (image/jpeg, image/png, application/pdf) */
   images?: string[]
   /** timeout in seconds (default 300) */
@@ -206,6 +240,7 @@ export async function openaiCompatChat({
   mode,
   label,
   extraBody,
+  extraHeaders,
   images,
   timeoutSec,
 }: OpenAICompatArgs): Promise<string> {
@@ -257,9 +292,17 @@ export async function openaiCompatChat({
       seed,
       jsonMode: mode === "consumer" ? false : jsonMode,
       extraBody,
+      extraHeaders,
       timeoutMs,
     })
-    return data.choices?.[0]?.message?.content ?? ""
+    const choice = data.choices?.[0]
+    const content = extractMessageContent(choice?.message, label)
+    if (!content.trim()) {
+      const finish = choice?.finish_reason || "unknown"
+      console.warn(`[${label}] 返回空内容 | finish_reason=${finish}`)
+      throw new Error(`${label} 返回空内容（finish_reason=${finish}），请检查模型名、联网参数或上游额度。`)
+    }
+    return content
   } catch (err) {
     const msg = err instanceof Error ? err.message.toLowerCase() : ""
     const isVisionRejection = images && images.length > 0 && (

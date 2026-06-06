@@ -9,24 +9,31 @@ import type { ChatArgs } from "./openai-compat"
 // 万一上游不接受 tools+response_format 同时启用，openai-compat 的 400 兜底会自动去掉
 // response_format 重试，仍返回可被 parseJsonLoose 解析的内容。
 
-const KEY = process.env.DEEPSEEK_API_KEY || ""
 const URL = "https://api.deepseek.com/v1/chat/completions"
-const MODEL = "deepseek-chat"
 const LABEL = "DeepSeek"
 
+function apiKey(): string {
+  return process.env.DEEPSEEK_API_KEY || ""
+}
+
+function model(): string {
+  return process.env.DEEPSEEK_MODEL || "deepseek-chat"
+}
+
 export function isDeepSeekConfigured(): boolean {
-  return !!KEY
+  return !!apiKey()
 }
 
 export async function chatDeepSeek(args: ChatArgs): Promise<string> {
-  if (!KEY) {
+  const key = apiKey()
+  if (!key) {
     console.warn("[DeepSeek] API Key is undefined（process.env.DEEPSEEK_API_KEY 为空，请检查 .env.local）")
     throw new Error(`${LABEL} 接口配置缺失：未读取到环境变量 DEEPSEEK_API_KEY。`)
   }
   return chatWithLocalWebSearchTool({
     url: URL,
-    apiKey: KEY,
-    model: MODEL,
+    apiKey: key,
+    model: model(),
     label: LABEL,
     ...args,
   })

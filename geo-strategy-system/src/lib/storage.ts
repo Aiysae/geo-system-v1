@@ -53,7 +53,7 @@ export function deleteClient(id: string): void {
   if (getActiveId() === id) setActiveId(list[0]?.id ?? null)
 }
 
-const DEFAULT_MODELS: ModelKey[] = ["doubao", "deepseek"]
+const DEFAULT_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
 
 export function createClient(name: string): Client {
   const now = new Date().toISOString()
