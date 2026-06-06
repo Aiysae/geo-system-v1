@@ -27,6 +27,10 @@ jobs:
               DEPLOY_PATH="/var/www/geo-strategy-system"
             fi
             cd "$DEPLOY_PATH"
+
+            # Older deploy attempts may leave npm-version-specific lockfile
+            # metadata changes on the ECS checkout, which blocks git pull.
+            git checkout -- geo-strategy-system/package-lock.json 2>/dev/null || true
             git pull origin main
 
             APP_DIR=""
