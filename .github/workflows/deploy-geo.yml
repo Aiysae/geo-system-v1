@@ -12,6 +12,36 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Upload source to ECS
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+          ECS_SSH_PORT: ${{ secrets.ECS_SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          PORT="${ECS_SSH_PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/var/www/geo-strategy-system/geo-system-v1}"
+          REMOTE_APP_DIR="${DEPLOY_PATH%/}/geo-strategy-system"
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ECS_SSH_KEY" > ~/.ssh/geo_ecs_key
+          chmod 600 ~/.ssh/geo_ecs_key
+          ssh-keyscan -p "$PORT" -H "$ECS_HOST" >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/geo_ecs_key -p "$PORT" "$ECS_USER@$ECS_HOST" "mkdir -p '$REMOTE_APP_DIR'"
+          rsync -az --delete \
+            --exclude 'node_modules' \
+            --exclude '.next' \
+            --exclude '.env.local' \
+            --exclude '.env.production' \
+            -e "ssh -i ~/.ssh/geo_ecs_key -p $PORT" \
+            geo-strategy-system/ "$ECS_USER@$ECS_HOST:$REMOTE_APP_DIR/"
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -24,14 +54,9 @@ jobs:
             set -euo pipefail
             DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
             if [ -z "$DEPLOY_PATH" ]; then
-              DEPLOY_PATH="/var/www/geo-strategy-system"
+              DEPLOY_PATH="/var/www/geo-strategy-system/geo-system-v1"
             fi
             cd "$DEPLOY_PATH"
-
-            # Older deploy attempts may leave npm-version-specific lockfile
-            # metadata changes on the ECS checkout, which blocks git pull.
-            git checkout -- geo-strategy-system/package-lock.json 2>/dev/null || true
-            git pull origin main
 
             APP_DIR=""
             while IFS= read -r package_file; do
