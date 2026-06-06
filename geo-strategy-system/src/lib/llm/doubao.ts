@@ -1,4 +1,5 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
+import { chatWithLocalWebSearchTool } from "./tool-loop"
 
 // 豆包 (Volcengine Ark) 适配器
 //
@@ -17,12 +18,20 @@ import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 //   - https://www.volcengine.com/docs/82379/1099475 (Bot 调用)
 //   - https://www.volcengine.com/docs/82379/1298454 (联网搜索插件)
 
-const KEY = process.env.ARK_API_KEY || ""
-const ENDPOINT = process.env.ARK_DOUBAO_ENDPOINT_ID || ""
-const BOT_ID = process.env.ARK_DOUBAO_BOT_ID || ""
-
 const ENDPOINT_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 const BOT_URL = "https://ark.cn-beijing.volces.com/api/v3/bots/chat/completions"
+
+function apiKey(): string {
+  return process.env.ARK_API_KEY || ""
+}
+
+function endpointId(): string {
+  return process.env.ARK_DOUBAO_ENDPOINT_ID || ""
+}
+
+function botId(): string {
+  return process.env.ARK_DOUBAO_BOT_ID || ""
+}
 
 let endpointFallbackInfoOnce = false
 function logEndpointFallbackOnce() {
@@ -40,26 +49,30 @@ function logEndpointFallbackOnce() {
 }
 
 export function isDoubaoConfigured(): boolean {
-  return !!KEY && (!!BOT_ID || !!ENDPOINT)
+  return !!apiKey() && (!!botId() || !!endpointId())
 }
 
 export async function chatDoubao(args: ChatArgs): Promise<string> {
-  if (BOT_ID) {
+  const key = apiKey()
+  const bot = botId()
+  const endpoint = endpointId()
+
+  if (bot) {
     // Bot 模式：原生联网插件，single-shot 即可。
     return openaiCompatChat({
       url: BOT_URL,
-      apiKey: KEY,
-      model: BOT_ID,
+      apiKey: key,
+      model: bot,
       label: "豆包",
       ...args,
     })
   }
 
   logEndpointFallbackOnce()
-  return openaiCompatChat({
+  return chatWithLocalWebSearchTool({
     url: ENDPOINT_URL,
-    apiKey: KEY,
-    model: ENDPOINT,
+    apiKey: key,
+    model: endpoint,
     label: "豆包",
     ...args,
   })

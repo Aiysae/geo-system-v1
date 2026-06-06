@@ -18,7 +18,7 @@ import { MODEL_LABELS } from "@/lib/llm"
 import { apiFetch } from "@/lib/api-fetch"
 import type { Client, ModelKey } from "@/types"
 
-const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi"]
+const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
 
 type InputMode = "manual" | "ai"
 

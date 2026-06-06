@@ -54,7 +54,7 @@ function buildJudgeSystemPrompt(): string {
    - 内容平台：小红书、抖音、快手、B站、知乎、微博、微信、公众号、视频号、今日头条、百家号、CSDN、掘金、简书、豆瓣、贴吧、虎扑
    - 电商：淘宝、天猫、京东、拼多多、唯品会、苏宁、美团、大众点评
    - 搜索/通用：百度、谷歌、Google、Bing、必应、搜狗、360、夸克
-   - AI 通用大模型本体：豆包、DeepSeek、通义千问、Kimi、ChatGPT、文心一言、Claude
+   - AI 通用大模型本体：豆包、DeepSeek、通义千问、Kimi、文心一言、腾讯元宝、混元、ChatGPT、Claude
 3. 用户会告诉你"目标品牌名"，你只需如实判断：原文里有没有出现该品牌（含同义变体，例如"势途"和"势途 GEO"视为同一品牌）。**没出现就是没出现，绝对不要为了讨好用户而强行说命中。**
 
 【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止任何额外文字】
@@ -310,7 +310,7 @@ async function processSlot(args: {
 // 强约束：裁判应尽量与"出题模型"不同，避免自证；只有当所有可用模型都被占用时才允许相同。
 // ============================================================================
 function pickJudge(activeModels: ModelKey[]): ModelKey | null {
-  const order: ModelKey[] = ["deepseek", "doubao", "qwen", "kimi"]
+  const order: ModelKey[] = ["deepseek", "qwen", "ernie", "hunyuan", "doubao", "kimi"]
   for (const m of order) {
     if (activeModels.includes(m)) return m
   }

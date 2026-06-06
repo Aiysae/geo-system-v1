@@ -31,6 +31,8 @@ const MODEL_COLOR: Record<ModelKey, string> = {
   deepseek: "text-indigo-300",
   qwen: "text-fuchsia-300",
   kimi: "text-slate-300",
+  ernie: "text-emerald-300",
+  hunyuan: "text-rose-300",
 }
 
 function truncate(s: string, n: number): string {
@@ -140,8 +142,8 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
                   type="number"
                   xAxisId="models"
                   orientation="top"
-                  domain={[0, 4]}
-                  ticks={[0, 1, 2, 3, 4]}
+                  domain={[0, 6]}
+                  ticks={[0, 1, 2, 3, 4, 5, 6]}
                   tick={{ fontSize: 11, fill: "#f59e0b" }}
                   axisLine={{ stroke: "#f59e0b", opacity: 0.4 }}
                   tickLine={{ stroke: "#f59e0b", opacity: 0.4 }}
@@ -261,7 +263,7 @@ function CompetitionTooltip({
   const d = payload[0]?.payload
   if (!d) return null
 
-  const models: ModelKey[] = ["doubao", "qwen", "deepseek", "kimi"]
+  const models: ModelKey[] = ["doubao", "qwen", "deepseek", "kimi", "ernie", "hunyuan"]
   return (
     <div className="rounded-lg bg-slate-950/95 ring-1 ring-slate-700 shadow-2xl shadow-black/40 px-3 py-2.5 max-w-xs">
       <div className="text-xs text-slate-200 font-medium leading-snug mb-2 break-words">

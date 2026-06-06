@@ -20,7 +20,7 @@ interface Props {
   overallRate: number
 }
 
-const COLORS = ["#004B73", "#0077B6", "#00B4D8", "#48cae4"]
+const COLORS = ["#004B73", "#0077B6", "#00B4D8", "#48cae4", "#10b981", "#f43f5e"]
 
 export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
   if (perModelRate.length === 0) {

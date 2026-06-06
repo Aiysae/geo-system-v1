@@ -12,13 +12,19 @@ import { withBeijingTime } from "./time-context"
 //
 // 错误日志：所有失败一律打印【完整错误体】到终端，便于排查 401/400 等鉴权或参数错误。
 
-const KEY = process.env.MOONSHOT_API_KEY || ""
-const MODEL = process.env.MOONSHOT_MODEL || "moonshot-v1-8k"
 const URL = "https://api.moonshot.cn/v1/chat/completions"
 const LABEL = "Kimi"
 
+function apiKey(): string {
+  return process.env.MOONSHOT_API_KEY || ""
+}
+
+function model(): string {
+  return process.env.MOONSHOT_MODEL || "moonshot-v1-8k"
+}
+
 export function isKimiConfigured(): boolean {
-  return !!KEY
+  return !!apiKey()
 }
 
 const WEB_SEARCH_TOOL = {
@@ -26,8 +32,28 @@ const WEB_SEARCH_TOOL = {
   function: { name: "$web_search" },
 }
 
+function messageText(content: unknown): string {
+  if (typeof content === "string") return content
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (part && typeof part === "object" && "text" in part) {
+          const text = (part as { text?: unknown }).text
+          return typeof text === "string" ? text : ""
+        }
+        return ""
+      })
+      .filter(Boolean)
+      .join("\n")
+  }
+  return ""
+}
+
 export async function chatKimi(args: ChatArgs): Promise<string> {
-  if (!KEY) {
+  const key = apiKey()
+  const selectedModel = model()
+
+  if (!key) {
     console.warn("[Kimi] Moonshot API Key is undefined（process.env.MOONSHOT_API_KEY 为空，请检查 .env.local 是否已加载）")
     throw new Error(`${LABEL} 接口配置缺失：未读取到环境变量 MOONSHOT_API_KEY。`)
   }
@@ -45,8 +71,8 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
     try {
       data = await openaiCompatRaw({
         url: URL,
-        apiKey: KEY,
-        model: MODEL,
+        apiKey: key,
+        model: selectedModel,
         label: LABEL,
         messages,
         temperature: args.temperature,
@@ -60,7 +86,7 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       console.error(
-        `[${LABEL}·tool-loop] 第 ${round + 1}/${MAX_ROUNDS} 轮调用失败 | model=${MODEL} | error=`,
+        `[${LABEL}·tool-loop] 第 ${round + 1}/${MAX_ROUNDS} 轮调用失败 | model=${selectedModel} | error=`,
         msg
       )
       throw e
@@ -75,7 +101,7 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
     if (finish === "tool_calls" && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
       messages.push({
         role: "assistant",
-        content: msg.content ?? "",
+        content: messageText(msg.content),
         tool_calls: msg.tool_calls,
       })
       for (const tc of msg.tool_calls) {
@@ -100,7 +126,11 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
       continue
     }
 
-    return msg.content ?? ""
+    const content = messageText(msg.content)
+    if (!content.trim()) {
+      throw new Error(`${LABEL} 返回空内容（finish_reason=${finish || "unknown"}），请检查模型名、联网工具或上游额度。`)
+    }
+    return content
   }
 
   throw new Error(`${LABEL} 工具调用循环超过 ${MAX_ROUNDS} 轮仍未收敛，已阻断。`)

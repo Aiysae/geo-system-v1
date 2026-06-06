@@ -59,7 +59,7 @@ const PLATFORM_NAMES: string[] = [
   "claude", "anthropic",
   "gemini", "bard",
   "智谱", "chatglm", "智谱清言", "glm",
-  "腾讯元宝", "元宝", "混元",
+  "腾讯元宝", "元宝", "混元", "hunyuan", "tencent hunyuan",
   "讯飞星火", "星火", "spark",
   "perplexity", "phind", "you.com",
   "copilot", "github copilot", "ms copilot", "microsoft copilot",

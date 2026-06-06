@@ -4,11 +4,16 @@ import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 // 阿里云 DashScope OpenAI 兼容模式支持在 body 顶层注入 enable_search:true。
 //   https://help.aliyun.com/zh/model-studio/use-qwen-by-calling-api#section-search-on-internet
 
-const KEY = process.env.DASHSCOPE_API_KEY || ""
-const MODEL = process.env.DASHSCOPE_MODEL || "qwen-plus"
+function apiKey(): string {
+  return process.env.DASHSCOPE_API_KEY || ""
+}
+
+function model(): string {
+  return process.env.DASHSCOPE_MODEL || "qwen-plus"
+}
 
 export function isQwenConfigured(): boolean {
-  return !!KEY
+  return !!apiKey()
 }
 
 export async function chatQwen(args: ChatArgs): Promise<string> {
@@ -21,8 +26,8 @@ export async function chatQwen(args: ChatArgs): Promise<string> {
 
   return openaiCompatChat({
     url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-    apiKey: KEY,
-    model: MODEL,
+    apiKey: apiKey(),
+    model: model(),
     label: "通义千问",
     ...args,
     extraBody,

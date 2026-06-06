@@ -43,6 +43,23 @@ const SEARCH_DIRECTIVE = `
 - 一次问题最多调用 search_web 3 次，每次 query 要聚焦。
 - 拿到 tool 结果后，要客观引用其中事实，不要逐条复读链接。`
 
+function messageText(content: unknown): string {
+  if (typeof content === "string") return content
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (part && typeof part === "object" && "text" in part) {
+          const text = (part as { text?: unknown }).text
+          return typeof text === "string" ? text : ""
+        }
+        return ""
+      })
+      .filter(Boolean)
+      .join("\n")
+  }
+  return ""
+}
+
 interface ToolLoopArgs extends ChatArgs {
   url: string
   apiKey: string
@@ -85,7 +102,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
     if (finish === "tool_calls" && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
       messages.push({
         role: "assistant",
-        content: msg.content ?? "",
+        content: messageText(msg.content),
         tool_calls: msg.tool_calls,
       })
       for (const tc of msg.tool_calls) {
@@ -124,7 +141,11 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
       continue
     }
 
-    return msg.content ?? ""
+    const content = messageText(msg.content)
+    if (!content.trim()) {
+      throw new Error(`${args.label} 返回空内容（finish_reason=${finish || "unknown"}），请检查模型名、联网工具或上游额度。`)
+    }
+    return content
   }
 
   throw new Error(`${args.label} 工具调用循环超过 ${MAX_ROUNDS} 轮仍未收敛，已阻断。`)
