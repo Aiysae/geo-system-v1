@@ -7,9 +7,9 @@ import ResearchModule from "@/components/research/research-module"
 import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
 import StrategyModule from "@/components/strategy/strategy-module"
 import { Sparkles, Printer, Menu } from "lucide-react"
-import { UserButton } from "@clerk/nextjs"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
+import { AccountMenu } from "@/components/auth/account-menu"
 import {
   listClients,
   getActiveId,
@@ -183,7 +183,7 @@ function StickyHeader({
         <div className="no-print shrink-0 flex items-center gap-2">
           <CreditsPill />
           <RechargeButton />
-          <UserButton />
+          <AccountMenu />
         </div>
       </div>
     </header>

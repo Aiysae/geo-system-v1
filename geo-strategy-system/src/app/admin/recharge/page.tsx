@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { auth } from "@clerk/nextjs/server"
 import { ShieldCheck, Sparkles, Inbox } from "lucide-react"
-import { isAdminUserId } from "@/lib/admin"
+import { isAdminUser } from "@/lib/admin"
+import { getCurrentUser } from "@/lib/auth"
 import { listPending } from "@/lib/recharge"
 import { RechargeRow } from "./recharge-row"
 
@@ -10,9 +10,9 @@ export const dynamic = "force-dynamic"
 export const revalidate = 0
 
 export default async function AdminRechargePage() {
-  const { userId } = await auth()
-  if (!userId) redirect("/sign-in?redirect_url=/admin/recharge")
-  if (!isAdminUserId(userId)) {
+  const user = await getCurrentUser()
+  if (!user) redirect("/sign-in?redirect_url=/admin/recharge")
+  if (!isAdminUser(user)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30 px-4">
         <div className="w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 p-8 text-center">

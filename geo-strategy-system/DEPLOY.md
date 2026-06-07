@@ -23,7 +23,7 @@
 |------|------|
 | 运行方式 | `npm run build` + `pm2` + `next start`（端口 3000） |
 | 反向代理 | Nginx → HTTPS → `127.0.0.1:3000` |
-| 登录 | Clerk（需在控制台添加生产域名） |
+| 登录 | 自建邮箱密码账号 + HttpOnly Session |
 | 积分 / 充值 | `@vercel/kv`（Upstash），复制 `KV_*` 环境变量即可，**无需改代码** |
 | AI | DeepSeek / 豆包 / 千问 / Kimi |
 
@@ -83,7 +83,7 @@ cp geo-strategy-system/.env.production.example /var/www/geo-strategy-system/.env
 nano /var/www/geo-strategy-system/.env.production
 ```
 
-按 `.env.production.example` 中的项填入真实值。Clerk 生产环境请使用 **Live** 密钥（`pk_live_` / `sk_live_`）。
+按 `.env.production.example` 中的项填入真实值。`AUTH_SECRET` 可用 `openssl rand -base64 32` 生成；`ADMIN_EMAILS` 填写管理员邮箱，多个用英文逗号分隔。
 
 ```bash
 chmod 600 /var/www/geo-strategy-system/.env.production
@@ -137,13 +137,13 @@ sudo certbot --nginx -d your-domain.com -d www.your-domain.com
 
 ---
 
-## 七、Clerk 控制台配置
+## 七、账号与后台配置
 
-1. 打开 [Clerk Dashboard](https://dashboard.clerk.com) → 你的应用
-2. **Domains** → 添加 `https://你的域名`
-3. 确认 **API Keys** 使用 Production（Live）并写入服务器 `.env.production`
-4. 登录路径与代码一致：`/sign-in`、`/sign-up`（见 `src/app/layout.tsx`）
-5. 保存后等待数分钟再测试登录
+1. 在服务器 `.env.production` 写入 `AUTH_SECRET` 和 `ADMIN_EMAILS`
+2. 执行 `set -a && source ../.env.production && set +a && npm run build`
+3. 执行 `pm2 restart geo-system --update-env`
+4. 用 `ADMIN_EMAILS` 中的邮箱注册或登录
+5. 访问 `/admin` 管理用户与积分，访问 `/admin/recharge` 审批充值申请
 
 ---
 
@@ -152,7 +152,8 @@ sudo certbot --nginx -d your-domain.com -d www.your-domain.com
 在浏览器逐项确认：
 
 - [ ] `https://你的域名` 首页可访问
-- [ ] Clerk 登录 / 注册正常
+- [ ] 邮箱密码登录 / 注册正常
+- [ ] 管理员邮箱可访问 `/admin`
 - [ ] 登录后积分余额能显示（KV 连通）
 - [ ] **模块一** 渗透率检测能跑完（可能需 1–3 分钟）
 - [ ] **模块二** AI 诊断有结果
@@ -217,11 +218,11 @@ pm2 restart geo-system --update-env
 
 ### 401 Unauthorized
 
-- 未登录或 Clerk 域名未配置：检查 Clerk Domains 与 Live 密钥
+- 未登录或 Session 配置异常：检查 `AUTH_SECRET` 是否存在，修改后执行 `pm2 restart geo-system --update-env`
 
 ### 403 Insufficient credits
 
-- 积分不足；检查 `KV_REST_API_*` 是否正确，Clerk 用户 ID 是否正常
+- 积分不足；检查 `KV_REST_API_*` 是否正确，用户 ID 是否正常
 
 ### KV / Redis 连接失败
 

@@ -1,6 +1,6 @@
-import { auth } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
 import { decrCreditsBy, getCredits } from "./credits"
+import { getCurrentUser } from "./auth"
 
 type UserIdGuard =
   | { ok: true; userId: string }
@@ -10,16 +10,16 @@ type CreditsGuard =
   | { ok: true; balance: number }
   | { ok: false; response: Response }
 
-/** 仅做 Clerk 鉴权。未登录返回 401 Response，不读积分。 */
+/** 仅做登录鉴权。未登录返回 401 Response，不读积分。 */
 export async function requireUserId(): Promise<UserIdGuard> {
-  const { userId } = await auth()
-  if (!userId) {
+  const user = await getCurrentUser()
+  if (!user) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
     }
   }
-  return { ok: true, userId }
+  return { ok: true, userId: user.id }
 }
 
 /** 校验余额 >= required；不足返回 403 + 余额信息。 */
