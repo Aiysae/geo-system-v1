@@ -57,6 +57,18 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
   const bot = botId()
   const endpoint = endpointId()
 
+  if (args.forceWebSearch && endpoint) {
+    // 渗透率客观盲测要求"必须联网搜索"。Endpoint + 本地 search_web 工具
+    // 可以在第一轮强制 tool_choice，便于审计搜索是否真实发生。
+    return chatWithLocalWebSearchTool({
+      url: ENDPOINT_URL,
+      apiKey: key,
+      model: endpoint,
+      label: "豆包",
+      ...args,
+    })
+  }
+
   if (bot) {
     // Bot 模式：原生联网插件，single-shot 即可。
     return openaiCompatChat({

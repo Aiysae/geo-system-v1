@@ -12,10 +12,10 @@ export const revalidate = 0
 
 // ============================================================================
 // 两阶段管线
-//   Stage A · 盲测出题
-//     - 给被测模型只发用户疑问句本身
-//     - System Prompt 不含 ourBrand、不暗示这是检测
-//     - Kimi 走 $web_search 联网；其它模型靠强硬"严禁捏造"纪律
+//   Stage A · 客观联网单问
+//     - 每个 (model, question) 都是独立请求
+//     - 给被测模型只发用户疑问句本身，不注入 system prompt、目标品牌或检测意图
+//     - 通过模型原生联网参数或 search_web 工具选择强制联网搜索
 //     - 输出：纯自然语言回答（不强制 JSON）
 //
 //   Stage B · 独立裁判 AI 检测
@@ -28,21 +28,6 @@ export const revalidate = 0
 //     - 裁判给出的 mentionedBrands 也必须能在 answer 文本里找到对应字面，
 //       否则丢弃（防止裁判反过来又产生幻觉）
 // ============================================================================
-
-// ---------- Stage A · 盲测出题 System Prompt（不含 ourBrand） ----------
-function buildBlindSystemPrompt(industry: string): string {
-  const year = new Date().getFullYear()
-  return `请基于公开可验证的信息，真实、自然地回答用户问题。
-
-【事实要求】
-1. 如果你不确定某个品牌、产品、公司或数据是否真实存在，请直接明确说明不确定。
-2. 严禁编造、虚构、猜测不存在的品牌、产品、服务商或行业事实。
-3. 请尽量基于最新（${year}年）公开信息回答，但仅限于你有把握的内容。
-4. 回答应客观中立，不要刻意偏向或回避任何品牌。
-
-【上下文背景】
-- 用户咨询领域：${industry || "未指定"}`
-}
 
 // ---------- Stage B · 裁判 System Prompt ----------
 function buildJudgeSystemPrompt(): string {
@@ -109,31 +94,31 @@ function answerMentionsBrand(answer: string, brand: string): boolean {
 }
 
 // ============================================================================
-// Stage A · 盲测出题
+// Stage A · 客观联网单问
 // ============================================================================
 async function blindQuery(
   model: ModelKey,
-  question: string,
-  industry: string
+  question: string
 ): Promise<{ answer: string; error?: string }> {
   const adapter = ADAPTERS[model]
-  const sys = buildBlindSystemPrompt(industry)
   const seed = deriveSeed(model, question)
   const t0 = Date.now()
 
   try {
     const raw = await adapter.chat({
-      system: sys,
+      system: "",
       user: question,
       temperature: 0,
       seed,
       mode: "consumer",
       jsonMode: false,
       maxTokens: 4096,
+      forceWebSearch: true,
+      rawQuestionOnly: true,
     })
     const answer = raw || ""
     console.log(
-      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
+      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | forcedSearch=true | rawQuestionOnly=true | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
     )
     console.log(`[penetration·blind-answer] preservedLen=${answer.length}`)
     return { answer }
@@ -239,10 +224,9 @@ async function processSlot(args: {
   judgeModel: ModelKey
   question: string
   ourBrand: string
-  industry: string
   competitors: string[]
 }): Promise<PenetrationItem & { error?: string; judgeError?: string }> {
-  const blind = await blindQuery(args.model, args.question, args.industry)
+  const blind = await blindQuery(args.model, args.question)
 
   if (blind.error || !blind.answer) {
     return {
@@ -321,7 +305,6 @@ async function handler(req: NextRequest) {
   try {
     const body = await req.json()
     const ourBrand = String(body.ourBrand || "").trim()
-    const industry = String(body.industry || "").trim()
     const questions: string[] = Array.isArray(body.questions)
       ? body.questions.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
@@ -375,7 +358,7 @@ async function handler(req: NextRequest) {
     console.log(
       `[penetration] 启动 ${activeModels.length} 模型 × ${questions.length} 问题 = ${
         activeModels.length * questions.length
-      } 个 slot（Stage A 盲测出题 + Stage B 独立裁判 [${ADAPTERS[judgeModel].label}] + Stage C 代码安全网）`
+      } 个 slot（Stage A 客观联网单问 + Stage B 独立裁判 [${ADAPTERS[judgeModel].label}] + Stage C 代码安全网）`
     )
     const t0 = Date.now()
 
@@ -388,7 +371,6 @@ async function handler(req: NextRequest) {
             judgeModel,
             question: q,
             ourBrand,
-            industry,
             competitors,
           }).then(item => ({ model: m, item }))
         )

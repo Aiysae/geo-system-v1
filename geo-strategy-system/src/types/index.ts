@@ -116,6 +116,15 @@ export interface Diagnosis {
 
 export type ResearchMode = "hypothesis" | "ai"
 
+export type ResearchSourceMode = "module" | "manual"
+
+export interface ResearchManualInput {
+  region: string
+  industry: string
+  fullName: string
+  aliases: string
+}
+
 export interface ResearchDimension {
   name: string
   score: number
@@ -125,7 +134,10 @@ export interface ResearchDimension {
 
 export interface ResearchResult {
   mode: ResearchMode
+  sourceMode?: ResearchSourceMode
   hypothesis?: string
+  region?: string
+  aliases?: string[]
   executiveSummary: string
   brandImage: string
   modelMentality: string
@@ -139,7 +151,9 @@ export interface ResearchResult {
   generatedAt: string
 }
 
-export interface CompetitorCompareResult {
+export type CompetitorCompareSourceMode = "module" | "manual"
+
+export interface CompetitorComparison {
   competitor: string
   positioningSummary: string
   ourAdvantages: string[]
@@ -149,6 +163,12 @@ export interface CompetitorCompareResult {
   differentiators: string[]
   userChoiceDrivers: string[]
   contentActions: string[]
+}
+
+export interface CompetitorCompareResult extends CompetitorComparison {
+  selectedCompetitors?: string[]
+  comparisons?: CompetitorComparison[]
+  ourWeaknessSummary?: string[]
   generatedAt: string
 }
 
@@ -166,6 +186,11 @@ export interface Client {
   penetration?: PenetrationResult
   research?: ResearchResult
   competitorCompare?: CompetitorCompareResult
+  researchSourceMode?: ResearchSourceMode
+  researchManualInput?: ResearchManualInput
+  competitorCompareSourceMode?: CompetitorCompareSourceMode
+  competitorCompareCustomCompetitors?: string[]
+  competitorCompareSelectedCompetitors?: string[]
   diagnosis?: Diagnosis
   keywordStrategy?: KeywordStrategyState
 }

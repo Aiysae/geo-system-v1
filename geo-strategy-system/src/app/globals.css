@@ -129,27 +129,26 @@ body {
 }
 
 @media print {
-  /* 打印时统一白底，去掉所有装饰光斑/阴影 */
   @page {
     size: A4;
-    margin: 12mm 10mm 14mm 10mm;
+    margin: 13mm 12mm 15mm;
   }
 
   html, body {
     background: #ffffff !important;
     color: #0f172a !important;
+    font-size: 10.5pt !important;
+    line-height: 1.45 !important;
+    letter-spacing: 0 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  /* 全局：强制浏览器输出彩色 / 渐变 / Logo 颜色（图片必须打印彩色）*/
   *, *::before, *::after {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  /* 仅隐藏明确标注 no-print 的元素（侧栏、装饰光斑、导出按钮等）。
-     ★ sticky-header 不再整体隐藏 —— 否则 Logo 也会消失。 */
   .no-print,
   aside.no-print {
     display: none !important;
@@ -159,28 +158,30 @@ body {
     display: block !important;
   }
 
-  /* sticky 顶栏：取消 sticky 与背景模糊，改为简洁报告抬头横幅 */
   .sticky-header {
     position: static !important;
     background: #ffffff !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
-    border-bottom: 2px solid #004B73 !important;
+    border-bottom: 1.5pt solid #004B73 !important;
     box-shadow: none !important;
-    page-break-after: avoid;
-    break-after: avoid;
+    break-after: avoid-page;
   }
 
-  /* Logo：强制使用 img 标签的原图色，避免被浏览器降级为黑白 */
+  .sticky-header > div {
+    max-width: 100% !important;
+    padding: 0 0 5mm !important;
+    gap: 3mm !important;
+  }
+
   .sticky-header img {
     display: inline-block !important;
-    height: 36px !important;
+    height: 34px !important;
     width: auto !important;
     filter: none !important;
-    ring: 0 !important;
+    outline: none !important;
   }
 
-  /* 主内容区强制 100% 宽度，去除滚动条 */
   .print-root {
     display: block !important;
     height: auto !important;
@@ -190,6 +191,7 @@ body {
   }
 
   .print-main {
+    display: block !important;
     width: 100% !important;
     height: auto !important;
     max-width: 100% !important;
@@ -199,10 +201,20 @@ body {
 
   .print-container {
     max-width: 100% !important;
-    padding: 8mm 6mm !important;
+    padding: 7mm 0 0 !important;
   }
 
-  /* 去掉一切交互装饰，但保留彩色背景/边框/图表色 */
+  .print-container > header {
+    margin: 0 0 7mm !important;
+    padding-bottom: 5mm !important;
+    border-bottom: 1px solid #d9e6ee !important;
+    break-after: avoid-page;
+  }
+
+  .print-container > section {
+    margin-top: 0 !important;
+  }
+
   *,
   *::before,
   *::after {
@@ -212,28 +224,126 @@ body {
     transition: none !important;
   }
 
-  /* 卡片不允许被切到下一页（核心数据卡片、图表容器） */
+  .overflow-hidden,
+  .overflow-y-auto,
+  [class*="max-h-"] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .backdrop-blur,
+  .backdrop-blur-xl,
+  [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .print-container [class*="rounded-xl"],
+  .print-container [class*="rounded-2xl"] {
+    border-radius: 8px !important;
+    border-color: #d7e3eb !important;
+  }
+
+  .print-container [class*="bg-white"],
+  .print-container [class*="from-white"],
+  .print-container [class*="via-slate"],
+  .print-container [class*="to-blue"] {
+    background-color: #ffffff !important;
+  }
+
+  section,
   section > *,
+  .print-container [class*="rounded-xl"],
+  .print-container [class*="rounded-2xl"] {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
   .recharts-wrapper,
   .recharts-responsive-container,
-  [class*="rounded-xl"],
-  [class*="rounded-2xl"],
-  table {
+  table,
+  thead,
+  tr,
+  img,
+  svg,
+  canvas {
     page-break-inside: avoid !important;
-    break-inside: avoid !important;
+    break-inside: avoid-page !important;
   }
 
-  /* 标题块尽量与下方内容保持在一起 */
-  h1, h2, h3, h4 {
-    page-break-after: avoid;
-    break-after: avoid;
+  .print-container .grid > *,
+  .print-container ul > li,
+  .print-container ol > li {
+    page-break-inside: avoid !important;
+    break-inside: avoid-page !important;
   }
 
-  /* 渐变文字打印时退化为深蓝（部分浏览器不打印渐变背景）*/
+  h1, h2, h3, h4,
+  [class*="CardTitle"],
+  .print-container [class*="tracking-wider"] {
+    page-break-after: avoid !important;
+    break-after: avoid-page !important;
+    orphans: 3;
+    widows: 3;
+  }
+
+  p, li, blockquote {
+    orphans: 3;
+    widows: 3;
+  }
+
+  .print-container .space-y-5 > *,
+  .print-container .space-y-4 > *,
+  .print-container .space-y-3 > * {
+    margin-top: 0 !important;
+    margin-bottom: 4mm !important;
+  }
+
+  .print-container .grid {
+    gap: 4mm !important;
+  }
+
+  .recharts-surface {
+    overflow: visible !important;
+  }
+
   .shimmer-text,
   .bg-clip-text {
     -webkit-text-fill-color: #004B73 !important;
     color: #004B73 !important;
     background: none !important;
+  }
+
+  button {
+    cursor: default !important;
+  }
+
+  /*
+    关键分页策略：
+    - 长报告卡片允许自然分页，避免整块被推到下一页造成大留白；
+    - 图表、表格、列表项尽量保持完整；
+    - 标题避免孤立在页尾。
+  */
+  .print-container [class*="min-h-"],
+  .print-container [class*="h-screen"],
+  .print-container [class*="min-h-screen"] {
+    min-height: 0 !important;
+    height: auto !important;
+  }
+
+  .print-container [class*="py-"],
+  .print-container [class*="p-"] {
+    scroll-margin: 0 !important;
+  }
+
+  /*
+    旧规则会把所有圆角卡片整体禁止分页，是 PDF 大面积留白的主因。
+    这里特意只保留图表/表格等小型视觉块的不分页保护。
+  */
+  .print-container > section > *,
+  .recharts-wrapper,
+  .recharts-responsive-container,
+  table {
+    max-width: 100% !important;
   }
 }
