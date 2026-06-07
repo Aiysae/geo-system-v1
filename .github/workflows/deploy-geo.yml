@@ -98,5 +98,11 @@ jobs:
 
             npm run build
 
-            pm2 restart geo-system || pm2 restart geo || pm2 start ecosystem.config.cjs
+            if pm2 describe geo-system > /dev/null; then
+              pm2 restart geo-system --update-env
+            elif pm2 describe geo > /dev/null; then
+              pm2 restart geo --update-env
+            else
+              pm2 start ecosystem.config.cjs
+            fi
             pm2 save
