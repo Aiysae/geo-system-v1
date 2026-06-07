@@ -38,7 +38,10 @@ const EXTRACTION_SYSTEM = `你是一个专业的客户资料抽取助手。你�
 
 不要输出 JSON 外的任何文字。`
 
-function buildExtractionUserPrompt(files: { name: string; content: string }[], projectInfo: Record<string, string>): string {
+function buildExtractionUserPrompt(
+  files: { name: string; content: string }[],
+  projectInfo: Record<string, string | undefined>,
+): string {
   let prompt = `以下是用户上传的资料和填写的项目信息，请抽取结构化客户资料。\n\n`
 
   if (Object.values(projectInfo).some(v => v)) {
@@ -100,10 +103,46 @@ function mergeItems(
   return merged
 }
 
+interface UploadedPayloadFile {
+  name: string
+  content: string
+  fileType?: "pdf" | "image" | "text" | string
+}
+
+interface ExtractProjectInfo {
+  project_name?: string
+  industry?: string
+  audience?: string
+  product_description?: string
+  pain_points_raw?: string
+  core_advantages?: string
+  competitors_raw?: string
+  geo_goals?: string
+  [key: string]: string | undefined
+}
+
+interface ApiConfigPayload {
+  baseUrl?: string
+  apiKey?: string
+  model?: string
+  chatPath?: string
+  timeout?: number
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
 async function handler(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { files = [], projectInfo, apiConfig } = body
+    const body = await req.json() as {
+      files?: UploadedPayloadFile[]
+      projectInfo?: ExtractProjectInfo
+      apiConfig?: ApiConfigPayload
+    }
+    const files = Array.isArray(body.files) ? body.files : []
+    const projectInfo = body.projectInfo || {}
+    const apiConfig = body.apiConfig || {}
 
     const baseUrl = (apiConfig?.baseUrl || "https://api.openai.com").replace(/\/+$/, "")
     const apiKey = apiConfig?.apiKey || ""
@@ -116,12 +155,12 @@ async function handler(req: NextRequest) {
     }
 
     // Separate text files from image/PDF files
-    const textFiles = files.filter((f: any) => {
+    const textFiles = files.filter(f => {
       if (f.fileType === "image" || f.fileType === "pdf") return false
       if (f.content?.startsWith?.("data:image/") || f.content?.startsWith?.("data:application/pdf")) return false
       return true
     })
-    const mediaFiles = files.filter((f: any) => f.fileType === "image" || f.fileType === "pdf") as { name: string; content: string }[]
+    const mediaFiles = files.filter(f => f.fileType === "image" || f.fileType === "pdf")
     const mediaDataUrls = mediaFiles.map(f => f.content).filter(Boolean) as string[]
 
     // Detect text-only models (don't send images to them)
@@ -164,13 +203,13 @@ async function handler(req: NextRequest) {
     if (fenceMatch) cleaned = fenceMatch[1].trim()
     else if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim()
 
-    let extracted
+    let extracted: Record<string, unknown>
     try {
       extracted = JSON.parse(cleaned)
-    } catch (e) {
+    } catch {
       try {
         extracted = JSON.parse(cleaned.replace(/,(\s*[}\]])/g, "$1"))
-      } catch (e2) {
+      } catch {
         return NextResponse.json({
           error: "AI 返回格式异常，请重试",
           raw: raw.slice(0, 1000),
@@ -183,14 +222,14 @@ async function handler(req: NextRequest) {
       industry: extracted.industry || projectInfo?.industry || "",
       audience: extracted.audience || projectInfo?.audience || "",
       product_description: extracted.product_description || projectInfo?.product_description || "",
-      pain_points: mergeItems((extracted.pain_points || []).map(normalizeItem), splitRawItems(projectInfo?.pain_points_raw)),
-      advantages: mergeItems((extracted.advantages || []).map(normalizeItem), splitRawItems(projectInfo?.core_advantages)),
-      weaknesses: (extracted.weaknesses || []).map(normalizeItem),
-      competitors: mergeItems((extracted.competitors || []).map(normalizeItem), splitRawItems(projectInfo?.competitors_raw)),
-      scenes: (extracted.scenes || []).map(normalizeItem),
+      pain_points: mergeItems(asArray(extracted.pain_points).map(normalizeItem), splitRawItems(projectInfo?.pain_points_raw)),
+      advantages: mergeItems(asArray(extracted.advantages).map(normalizeItem), splitRawItems(projectInfo?.core_advantages)),
+      weaknesses: asArray(extracted.weaknesses).map(normalizeItem),
+      competitors: mergeItems(asArray(extracted.competitors).map(normalizeItem), splitRawItems(projectInfo?.competitors_raw)),
+      scenes: asArray(extracted.scenes).map(normalizeItem),
       geo_goals: extracted.geo_goals || projectInfo?.geo_goals || "",
       source_notes: extracted.source_notes || (files.length > 0
-        ? `基于 ${files.map((f: any) => f.name).join("、")} 抽取` + (mediaDataUrls.length > 0 ? `（含 ${mediaDataUrls.length} 个图片/PDF 视觉识别）` : "")
+        ? `基于 ${files.map(f => f.name).join("、")} 抽取` + (mediaDataUrls.length > 0 ? `（含 ${mediaDataUrls.length} 个图片/PDF 视觉识别）` : "")
         : "仅基于用户填写信息生成"),
     }
 

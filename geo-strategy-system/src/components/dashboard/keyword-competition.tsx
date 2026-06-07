@@ -15,6 +15,7 @@ import { Flame, Gem, Activity } from "lucide-react"
 import type { ModelKey } from "@/types"
 import type { KeywordCompetitionItem } from "@/lib/dashboard-aggregations"
 import { MODEL_LABELS } from "@/lib/llm"
+import ModelAvatar from "@/components/model-avatar"
 
 type SortOrder = "redOcean" | "blueOcean"
 
@@ -294,6 +295,7 @@ function CompetitionTooltip({
                   v > 0 ? MODEL_COLOR[m] : "text-slate-600"
                 }`}
               >
+                <ModelAvatar model={m} size="xs" className="h-4 w-4 ring-slate-700" />
                 {MODEL_LABELS[m]} ×{v}
               </span>
             )

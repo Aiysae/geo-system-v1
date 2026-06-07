@@ -9,6 +9,40 @@ export interface ApiProviderConfig {
   chatPath: string
 }
 
+/** 迁入到主系统后，按客户保存的关键词策略工作台状态 */
+export interface KeywordStrategyState {
+  id: string
+  name: string
+  step: ToolStep
+  completedSteps: ToolStep[]
+  projectName: string
+  industry: string
+  audience: string
+  locationTerms: string
+  productDesc: string
+  coreAdvantages: string
+  painPointsRaw: string
+  competitorsRaw: string
+  geoGoals: string
+  uploadedFiles: UploadedFile[]
+  extracting: boolean
+  extractionError: string
+  extractedProfile: ExtractedProfile | null
+  advantageStatus: GenerationStatus
+  advantageError: string
+  strategyStatus: GenerationStatus
+  strategyError: string
+  strategyPlan: GeoStrategyPlan | null
+  questionStatus: GenerationStatus
+  questionError: string
+  questionCount: number
+  customQuestionCount: number
+  layer2Ratio: number
+  categoryConfig: QuestionCategoryConfig
+  questions: QuestionItem[]
+  contentCalendar: ContentCalendarItem[]
+}
+
 /** 基础项目信息 */
 export interface ProjectInfo {
   project_name: string

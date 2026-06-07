@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/llm"
 import { apiFetch } from "@/lib/api-fetch"
+import ModelAvatar from "@/components/model-avatar"
 import type { Client, ModelKey } from "@/types"
 
 const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
@@ -132,7 +133,7 @@ export default function BatchInputPanel({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <Label className="text-xs text-slate-600 mb-1.5 block">我方品牌名 *</Label>
           <Input
@@ -270,7 +271,7 @@ export default function BatchInputPanel({
 
       <div>
         <Label className="text-xs text-slate-600 mb-2 block">检测模型 *</Label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {ALL_MODELS.map(m => {
             const checked = client.selectedModels.includes(m)
             const isDoubao = m === "doubao"
@@ -289,6 +290,7 @@ export default function BatchInputPanel({
                   onChange={() => toggleModel(m)}
                   className="accent-[#004B73]"
                 />
+                <ModelAvatar model={m} size="xs" />
                 <span className="font-medium">{MODEL_LABELS[m]}</span>
                 {isDoubao && (
                   <span className="ml-auto text-[10px] bg-[#004B73] text-white px-1.5 py-0.5 rounded">

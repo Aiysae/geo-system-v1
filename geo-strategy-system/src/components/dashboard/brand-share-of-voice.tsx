@@ -2,23 +2,13 @@
 
 import { useMemo, useState } from "react"
 import { AudioLines, ChevronDown, ChevronUp, HelpCircle } from "lucide-react"
-import type { ModelKey } from "@/types"
 import type { BrandVoiceItem } from "@/lib/dashboard-aggregations"
-import { MODEL_LABELS } from "@/lib/llm"
+import ModelAvatar from "@/components/model-avatar"
 
 interface Props {
   items: BrandVoiceItem[]
   /** 折叠态默认展示的条数（默认 5） */
   defaultVisible?: number
-}
-
-const MODEL_BADGE: Record<ModelKey, { letter: string; bg: string }> = {
-  doubao: { letter: "豆", bg: "bg-gradient-to-br from-sky-500 to-blue-600" },
-  deepseek: { letter: "D", bg: "bg-gradient-to-br from-indigo-500 to-violet-600" },
-  qwen: { letter: "千", bg: "bg-gradient-to-br from-fuchsia-500 to-purple-600" },
-  kimi: { letter: "K", bg: "bg-gradient-to-br from-slate-700 to-slate-900" },
-  ernie: { letter: "文", bg: "bg-gradient-to-br from-emerald-500 to-teal-600" },
-  hunyuan: { letter: "元", bg: "bg-gradient-to-br from-rose-500 to-red-600" },
 }
 
 export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) {
@@ -55,19 +45,23 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_60px] items-center gap-4 px-5 py-2.5 text-[11px] uppercase tracking-wider text-slate-500 bg-slate-800/40">
-            <div>排名</div>
-            <div>品牌</div>
-            <div>声量强度</div>
-            <div className="text-right">百分比</div>
-            <div className="text-right">提及</div>
-            <div className="text-right">模型</div>
-          </div>
+          <div className="overflow-x-auto">
+            <div className="min-w-[680px]">
+              <div className="grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_60px] items-center gap-4 px-5 py-2.5 text-[11px] uppercase tracking-wider text-slate-500 bg-slate-800/40">
+                <div>排名</div>
+                <div>品牌</div>
+                <div>声量强度</div>
+                <div className="text-right">百分比</div>
+                <div className="text-right">提及</div>
+                <div className="text-right">模型</div>
+              </div>
 
-          <div className="divide-y divide-slate-800/60">
-            {initialBatch.map(item => (
-              <BrandRow key={item.brand} item={item} maxMentions={maxMentions} />
-            ))}
+              <div className="divide-y divide-slate-800/60">
+                {initialBatch.map(item => (
+                  <BrandRow key={item.brand} item={item} maxMentions={maxMentions} />
+                ))}
+              </div>
+            </div>
           </div>
 
           {hasMore && (
@@ -80,10 +74,12 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
                 aria-hidden={!expanded}
               >
                 <div className="overflow-hidden">
-                  <div className="divide-y divide-slate-800/60 border-t border-slate-800/60">
+                  <div className="overflow-x-auto border-t border-slate-800/60">
+                    <div className="min-w-[680px] divide-y divide-slate-800/60">
                     {extraBatch.map(item => (
                       <BrandRow key={item.brand} item={item} maxMentions={maxMentions} />
                     ))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -147,13 +143,12 @@ function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: nu
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           {item.models.map(m => (
-            <span
+            <ModelAvatar
               key={m}
-              title={MODEL_LABELS[m]}
-              className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white ring-2 ring-slate-900 ${MODEL_BADGE[m].bg}`}
-            >
-              {MODEL_BADGE[m].letter}
-            </span>
+              model={m}
+              size="xs"
+              className="ring-2 ring-slate-900"
+            />
           ))}
         </div>
       </div>

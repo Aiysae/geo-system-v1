@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { API_PROVIDERS, DEFAULT_CATEGORY_CONFIG, type ApiProviderConfig, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type ContentCalendarItem, type QuestionCategoryConfig } from "@/types/geo-strategy"
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, ChevronLeft, CloudUpload, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
+import { API_PROVIDERS, DEFAULT_CATEGORY_CONFIG, type ApiProviderConfig, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type ContentCalendarItem, type QuestionCategoryConfig, type OfficialSiteAction, type ThirdPartySite } from "@/types/geo-strategy"
+import type { Client } from "@/types"
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 
 // ==================== Brand Data ====================
 
@@ -39,8 +40,8 @@ interface BrandData {
   contentCalendar: ContentCalendarItem[]
 }
 
-function createBrand(name: string): BrandData {
-  return {
+function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandData {
+  const base: BrandData = {
     id: genId(),
     name,
     step: "input",
@@ -72,11 +73,85 @@ function createBrand(name: string): BrandData {
     questions: [],
     contentCalendar: [],
   }
+
+  return { ...base, ...overrides, name: overrides.name ?? name }
+}
+
+function createBrandFromClient(client: Client): BrandData {
+  const fallback = createBrand(client.name, {
+    id: client.id,
+    projectName: client.ourBrand || client.name,
+    industry: client.industry,
+    competitorsRaw: client.competitors.join("\n"),
+  })
+
+  const saved = client.keywordStrategy
+  if (!saved) return fallback
+
+  return {
+    ...fallback,
+    ...saved,
+    id: saved.id || client.id,
+    name: client.name,
+    projectName: saved.projectName || client.ourBrand || client.name,
+    industry: saved.industry || client.industry,
+    competitorsRaw: saved.competitorsRaw || client.competitors.join("\n"),
+    uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : [],
+    categoryConfig: {
+      ...DEFAULT_CATEGORY_CONFIG,
+      ...(saved.categoryConfig || {}),
+    },
+    completedSteps: saved.completedSteps?.length ? saved.completedSteps : fallback.completedSteps,
+    extracting: false,
+  }
 }
 
 // ==================== Helpers ====================
 
 const API_SETTINGS_STORAGE_KEY = "geo-strategy-api-settings"
+
+interface ApiSettingsState {
+  provider: ApiProviderConfig
+  baseUrl: string
+  model: string
+  apiKey: string
+  timeout: number
+}
+
+function readApiSettings(): ApiSettingsState {
+  const fallbackProvider = API_PROVIDERS[0]
+  const fallback: ApiSettingsState = {
+    provider: fallbackProvider,
+    baseUrl: fallbackProvider.baseUrl,
+    model: fallbackProvider.defaultModel,
+    apiKey: "",
+    timeout: 900,
+  }
+
+  if (typeof window === "undefined") return fallback
+
+  try {
+    const saved = window.localStorage.getItem(API_SETTINGS_STORAGE_KEY)
+    if (!saved) return fallback
+    const parsed = JSON.parse(saved) as {
+      providerId?: string
+      baseUrl?: string
+      model?: string
+      apiKey?: string
+      timeout?: number
+    }
+    const provider = API_PROVIDERS.find(p => p.id === parsed.providerId) || fallbackProvider
+    return {
+      provider,
+      baseUrl: parsed.baseUrl || provider.baseUrl,
+      model: parsed.model || provider.defaultModel,
+      apiKey: parsed.apiKey || "",
+      timeout: Math.min(1800, Math.max(60, Number(parsed.timeout) || fallback.timeout)),
+    }
+  } catch {
+    return fallback
+  }
+}
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10)
@@ -156,30 +231,6 @@ function deriveCoreKeywords(strategy: GeoStrategyPlan): string[] {
   return Array.from(keywords)
 }
 
-function deriveSecondaryKeywords(strategy: GeoStrategyPlan, coreSet: Set<string>): string[] {
-  const secondary = new Set<string>()
-  for (const kw of [
-    ...(strategy.keyword_strategy?.weakness_conversion_keywords || []),
-    ...(strategy.keyword_strategy?.pain_advantage_keywords || []),
-  ]) {
-    const k = kw.keyword?.trim()
-    if (k && !coreSet.has(k)) secondary.add(k)
-  }
-  return Array.from(secondary)
-}
-
-function derivePainScenarioKeywords(strategy: GeoStrategyPlan): string[] {
-  const keywords = new Set<string>()
-  for (const kw of [
-    ...(strategy.keyword_strategy?.scenario_keywords || []),
-    ...(strategy.keyword_strategy?.pain_advantage_keywords || []),
-  ]) {
-    const k = kw.keyword?.trim()
-    if (k) keywords.add(k)
-  }
-  return Array.from(keywords)
-}
-
 function readFileContent(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     if (file.type === "text/plain" || file.name.endsWith(".txt") || file.name.endsWith(".md") || file.name.endsWith(".csv")) {
@@ -253,88 +304,39 @@ async function renderPdfToImages(file: File): Promise<UploadedFile[]> {
   return pages
 }
 
-// ==================== Main Page ====================
+// ==================== Main Module ====================
 
-export default function GeoStrategyToolPage() {
-  // Brands state
-  const initialBrand = createBrand("品牌 1")
-  const [brands, setBrands] = useState<Record<string, BrandData>>({ [initialBrand.id]: initialBrand })
-  const [brandOrder, setBrandOrder] = useState<string[]>([initialBrand.id])
-  const [activeBrandId, setActiveBrandId] = useState(initialBrand.id)
+interface Props {
+  client: Client
+  onChangeClient: (patch: Partial<Client>) => void
+}
+
+export default function KeywordStrategyModule({ client, onChangeClient }: Props) {
+  const [activeBrand, setActiveBrand] = useState<BrandData>(() => createBrandFromClient(client))
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const activeBrand = brands[activeBrandId]
-
-  // Generic brand updater – merges a partial update into the active brand
-  function updateBrand(patch: Partial<BrandData>) {
-    setBrands(prev => ({
-      ...prev,
-      [activeBrandId]: { ...prev[activeBrandId], ...patch },
-    }))
-  }
+  // Generic brand updater – merges a partial update into the active client's keyword state.
+  const updateBrand = useCallback((patch: Partial<BrandData>) => {
+    setActiveBrand(prev => {
+      const next = { ...prev, ...patch }
+      onChangeClient({ keywordStrategy: next })
+      return next
+    })
+  }, [onChangeClient])
 
   function setBrandField<K extends keyof BrandData>(field: K, value: BrandData[K]) {
     updateBrand({ [field]: value })
   }
 
-  function addBrand() {
-    const count = brandOrder.length + 1
-    const b = createBrand(`品牌 ${count}`)
-    setBrands(prev => ({ ...prev, [b.id]: b }))
-    setBrandOrder(prev => [...prev, b.id])
-    setActiveBrandId(b.id)
-  }
-
-  function removeBrand(id: string) {
-    if (brandOrder.length <= 1) return // keep at least one
-    setBrands(prev => {
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-    setBrandOrder(prev => prev.filter(bid => bid !== id))
-    if (activeBrandId === id) {
-      setActiveBrandId(brandOrder.find(bid => bid !== id) || brandOrder[0])
-    }
-  }
-
   // API settings (shared across brands)
-  const [apiProvider, setApiProvider] = useState<ApiProviderConfig>(API_PROVIDERS[0])
-  const [apiBaseUrl, setApiBaseUrl] = useState(apiProvider.baseUrl)
-  const [apiModel, setApiModel] = useState(apiProvider.defaultModel)
-  const [apiKey, setApiKey] = useState("")
-  const [apiTimeout, setApiTimeout] = useState(900)
+  const [apiProvider, setApiProvider] = useState<ApiProviderConfig>(() => readApiSettings().provider)
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => readApiSettings().baseUrl)
+  const [apiModel, setApiModel] = useState(() => readApiSettings().model)
+  const [apiKey, setApiKey] = useState(() => readApiSettings().apiKey)
+  const [apiTimeout, setApiTimeout] = useState(() => readApiSettings().timeout)
   const [showApiSettings, setShowApiSettings] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [apiSettingsHydrated, setApiSettingsHydrated] = useState(false)
 
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(API_SETTINGS_STORAGE_KEY)
-      if (saved) {
-        const parsed = JSON.parse(saved) as {
-          providerId?: string
-          baseUrl?: string
-          model?: string
-          apiKey?: string
-          timeout?: number
-        }
-        const provider = API_PROVIDERS.find(p => p.id === parsed.providerId) || API_PROVIDERS[0]
-        setApiProvider(provider)
-        setApiBaseUrl(parsed.baseUrl || provider.baseUrl)
-        setApiModel(parsed.model || provider.defaultModel)
-        setApiKey(parsed.apiKey || "")
-        setApiTimeout(Math.min(1800, Math.max(60, Number(parsed.timeout) || 900)))
-      }
-    } catch {
-      // ignore localStorage parse errors
-    } finally {
-      setApiSettingsHydrated(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!apiSettingsHydrated) return
     try {
       window.localStorage.setItem(API_SETTINGS_STORAGE_KEY, JSON.stringify({
         providerId: apiProvider.id,
@@ -346,7 +348,7 @@ export default function GeoStrategyToolPage() {
     } catch {
       // ignore localStorage write errors
     }
-  }, [apiSettingsHydrated, apiProvider.id, apiBaseUrl, apiModel, apiKey, apiTimeout])
+  }, [apiProvider.id, apiBaseUrl, apiModel, apiKey, apiTimeout])
 
   // Provider change handler
   const handleProviderChange = useCallback((providerId: string) => {
@@ -395,11 +397,11 @@ export default function GeoStrategyToolPage() {
 
     updateBrand({ uploadedFiles: [...activeBrand.uploadedFiles, ...processed] })
     if (e.target) e.target.value = ""
-  }, [activeBrandId, activeBrand.uploadedFiles])
+  }, [activeBrand.uploadedFiles, updateBrand])
 
   const removeFile = useCallback((id: string) => {
     updateBrand({ uploadedFiles: activeBrand.uploadedFiles.filter(f => f.id !== id) })
-  }, [activeBrandId, activeBrand.uploadedFiles])
+  }, [activeBrand.uploadedFiles, updateBrand])
 
   // API config object
   const getApiConfig = useCallback(() => ({
@@ -450,18 +452,17 @@ export default function GeoStrategyToolPage() {
         throw new Error(data.error || `请求失败 (${res.status})`)
       }
 
-      const brand = brands[activeBrandId]
       updateBrand({
         extractedProfile: normalizeExtractedProfile(data as ExtractedProfile),
         step: "extraction",
-        completedSteps: [...new Set([...brand.completedSteps, "extraction" as ToolStep])],
+        completedSteps: [...new Set([...activeBrand.completedSteps, "extraction" as ToolStep])],
       })
     } catch (err) {
       updateBrand({ extractionError: err instanceof Error ? err.message : "提取失败" })
     } finally {
       updateBrand({ extracting: false })
     }
-  }, [activeBrandId, brands, activeBrand.uploadedFiles, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, getApiConfig, apiKey])
+  }, [activeBrand.uploadedFiles, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, activeBrand.completedSteps, getApiConfig, apiKey, updateBrand])
 
   const handleGenerateAdvantages = useCallback(async () => {
     if (!activeBrand.extractedProfile) return
@@ -532,7 +533,7 @@ export default function GeoStrategyToolPage() {
         advantageStatus: "error",
       })
     }
-  }, [activeBrandId, activeBrand.extractedProfile, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, getApiConfig, apiKey])
+  }, [activeBrand.extractedProfile, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, getApiConfig, apiKey, updateBrand])
 
   // Strategy generation
   const handleGenerateStrategy = useCallback(async () => {
@@ -568,7 +569,7 @@ export default function GeoStrategyToolPage() {
         strategyStatus: "error",
       })
     }
-  }, [activeBrandId, activeBrand.extractedProfile, activeBrand.completedSteps, getApiConfig])
+  }, [activeBrand.extractedProfile, activeBrand.completedSteps, getApiConfig, updateBrand])
 
   // Question generation
   const handleGenerateQuestions = useCallback(async () => {
@@ -621,7 +622,7 @@ export default function GeoStrategyToolPage() {
         questionStatus: "error",
       })
     }
-  }, [activeBrandId, activeBrand.strategyPlan, activeBrand.completedSteps, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.layer2Ratio, activeBrand.categoryConfig, getApiConfig])
+  }, [activeBrand.strategyPlan, activeBrand.completedSteps, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.layer2Ratio, activeBrand.categoryConfig, getApiConfig, updateBrand])
 
   // Export
   const handleExportJson = useCallback(() => {
@@ -631,21 +632,21 @@ export default function GeoStrategyToolPage() {
     if (activeBrand.contentCalendar.length) full.content_calendar = activeBrand.contentCalendar
     const blob = new Blob([JSON.stringify(full, null, 2)], { type: "application/json" })
     downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_完整方案.json`)
-  }, [activeBrandId, activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
+  }, [activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
 
   const handleExportMarkdown = useCallback(() => {
     if (!activeBrand.strategyPlan) return
     const md = generateMarkdown(activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar)
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" })
     downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_方案报告.md`)
-  }, [activeBrandId, activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
+  }, [activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
 
   const handleExportWord = useCallback(() => {
     if (!activeBrand.strategyPlan) return
     const html = generateWordHtml(activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar)
     const blob = new Blob([html], { type: "application/msword;charset=utf-8" })
     downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_方案报告.doc`)
-  }, [activeBrandId, activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
+  }, [activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
 
   const handleReExtract = useCallback(async () => {
     await handleExtract()
@@ -656,52 +657,31 @@ export default function GeoStrategyToolPage() {
   const ab = activeBrand
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 flex">
-      {/* Sidebar */}
-      <BrandSidebar
-        open={sidebarOpen}
-        brands={brandOrder.map(id => ({ id, name: brands[id].name, step: brands[id].step }))}
-        activeId={activeBrandId}
-        onSelect={setActiveBrandId}
-        onAdd={addBrand}
-        onDelete={removeBrand}
-        onToggle={() => setSidebarOpen(v => !v)}
-      />
-
-      {/* Main area */}
-      <div className="flex-1 min-w-0">
-        {/* Header */}
-        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-200/60 shadow-sm">
-          <div className="px-4 md:px-8 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setSidebarOpen(v => !v)}
-                className="text-slate-400 hover:text-slate-600 transition p-1 -ml-1"
-              >
-                <ChevronLeft className={`h-4 w-4 transition-transform ${sidebarOpen ? "" : "rotate-180"}`} />
-              </button>
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#004B73] to-[#00B4D8] flex items-center justify-center">
-                <Sparkles className="h-4 w-4 text-white" />
-              </div>
-              <div>
-                <div className="text-sm font-bold tracking-tight bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent">
-                  关键词策略 · GEO 策略生成工具
-                </div>
-                <div className="text-[10px] text-slate-400">生成式引擎优化策略方案</div>
-              </div>
+    <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br from-white via-blue-50/30 to-cyan-50/20 shadow-sm">
+      <div className="border-b border-slate-200/70 bg-white/85 backdrop-blur">
+        <div className="px-3 sm:px-5 lg:px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#004B73] to-[#00B4D8] flex items-center justify-center shrink-0 shadow-md shadow-cyan-200/50">
+              <Sparkles className="h-4 w-4 text-white" />
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400 hidden sm:block">{ab.name}</span>
-              <button
-                onClick={() => setShowApiSettings(v => !v)}
-                className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition"
-              >
-                <Settings className="h-3.5 w-3.5" />
-                API 设置
-              </button>
+            <div className="min-w-0">
+              <div className="text-sm sm:text-base font-semibold tracking-tight bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent">
+                关键词策略 · GEO 策略生成工具
+              </div>
+              <div className="text-[11px] text-slate-500 truncate">
+                当前客户：{client.name}
+              </div>
             </div>
           </div>
-        </header>
+          <button
+            onClick={() => setShowApiSettings(v => !v)}
+            className="w-full sm:w-auto text-xs inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white/80 hover:bg-slate-50 text-slate-600 transition"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            API 设置
+          </button>
+        </div>
+      </div>
 
         {showApiSettings && (
           <ApiSettingsPanel
@@ -719,12 +699,11 @@ export default function GeoStrategyToolPage() {
           />
         )}
 
-        {/* Progress Bar */}
-        <div className="px-4 md:px-8 pt-4">
+        <div className="px-3 sm:px-5 lg:px-6 pt-4 overflow-x-auto">
           <StepProgress current={ab.step} />
         </div>
 
-        <main className="px-4 md:px-8 py-6">
+        <main className="px-3 sm:px-5 lg:px-6 py-5 md:py-6">
           {/* Step 1: Input */}
           {(ab.step === "input") && (
             <InputStep
@@ -800,81 +779,7 @@ export default function GeoStrategyToolPage() {
             />
           )}
         </main>
-      </div>
     </div>
-  )
-}
-
-// ==================== Brand Sidebar ====================
-
-function BrandSidebar({ open, brands, activeId, onSelect, onAdd, onDelete, onToggle }: {
-  open: boolean
-  brands: { id: string; name: string; step: ToolStep }[]
-  activeId: string
-  onSelect: (id: string) => void
-  onAdd: () => void
-  onDelete: (id: string) => void
-  onToggle: () => void
-}) {
-  return (
-    <>
-      {/* Mobile overlay */}
-      {open && (
-        <div className="fixed inset-0 z-30 bg-black/20 sm:hidden" onClick={onToggle} />
-      )}
-      <aside className={`fixed sm:sticky top-0 z-40 sm:z-10 h-screen flex flex-col bg-white border-r border-slate-200/60 shadow-sm transition-all duration-200 ${
-        open ? "translate-x-0 w-64" : "-translate-x-full sm:w-0 sm:translate-x-0 sm:overflow-hidden sm:border-0"
-      }`}>
-        {/* Sidebar header */}
-        <div className="flex items-center justify-between px-4 h-14 border-b border-slate-100 shrink-0">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">品牌列表</span>
-          <button onClick={onToggle} className="text-slate-400 hover:text-slate-600 transition p-1 sm:hidden">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Brand list */}
-        <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-          {brands.map(b => (
-            <button
-              key={b.id}
-              onClick={() => onSelect(b.id)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition text-sm ${
-                b.id === activeId
-                  ? "bg-[#004B73]/10 text-[#004B73] font-semibold shadow-sm"
-                  : "hover:bg-slate-100 text-slate-600"
-              }`}
-            >
-              <div className={`w-2 h-2 rounded-full shrink-0 ${
-                b.step === "input" ? "bg-slate-300" :
-                b.step === "extraction" ? "bg-amber-400" :
-                "bg-emerald-400"
-              }`} />
-              <span className="truncate">{b.name}</span>
-              {brands.length > 1 && (
-                <button
-                  onClick={e => { e.stopPropagation(); onDelete(b.id) }}
-                  className="ml-auto text-slate-300 hover:text-red-400 transition p-0.5 shrink-0"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Add brand */}
-        <div className="px-2 pb-3 shrink-0">
-          <button
-            onClick={onAdd}
-            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50/30 transition text-sm"
-          >
-            <Plus className="h-4 w-4" />
-            新增品牌
-          </button>
-        </div>
-      </aside>
-    </>
   )
 }
 
@@ -891,7 +796,7 @@ function StepProgress({ current }: { current: ToolStep }) {
   const idx = steps.findIndex(s => s.key === current)
 
   return (
-    <div className="flex items-center gap-1 mb-2">
+    <div className="flex min-w-[560px] items-center gap-1 mb-2 sm:min-w-0">
       {steps.map((s, i) => (
         <div key={s.key} className="flex items-center gap-1 flex-1">
           <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full transition-all
@@ -949,7 +854,7 @@ function InputStep({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Upload Area */}
         <div className="lg:col-span-1 space-y-4">
-          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-5 shadow-sm">
+          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
             <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
               <CloudUpload className="h-4 w-4 text-blue-500" />
               上传资料
@@ -990,7 +895,7 @@ function InputStep({
             )}
           </div>
 
-          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-5 shadow-sm">
+          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
             <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
               <Search className="h-4 w-4 text-purple-500" />
               竞争与目标
@@ -1022,7 +927,7 @@ function InputStep({
 
         {/* Right: Form */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-5 shadow-sm">
+          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
             <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
               <ListOrdered className="h-4 w-4 text-emerald-500" />
               基础信息
@@ -1185,10 +1090,10 @@ function ExtractionStep({
 
   return (
     <div className="space-y-6 animate-fade-in-up">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-800">确认资料抽取结果</h1>
-          <p className="text-xs text-slate-500 mt-1">编辑、删除或新增条目后，点击"确认并生成策略"</p>
+          <p className="text-xs text-slate-500 mt-1">编辑、删除或新增条目后，点击「确认并生成策略」</p>
         </div>
         <div className="flex items-center gap-2">
           {profile.source_notes && (
@@ -1198,7 +1103,7 @@ function ExtractionStep({
       </div>
 
       {/* Basic fields */}
-      <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-5 shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-3 sm:p-5">
         <div>
           <label className="text-[11px] font-medium text-slate-500">项目名称</label>
           <input value={profile.project_name} onChange={e => updateField("project_name", e.target.value)}
@@ -1228,8 +1133,8 @@ function ExtractionStep({
 
       {/* Array fields */}
       {sections.map(section => (
-        <div key={section.key} className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
+        <div key={section.key} className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-sm font-semibold text-slate-700">{section.label}</h2>
             <div className="flex items-center gap-2">
               {section.key === "advantages" && (
@@ -1291,18 +1196,18 @@ function ExtractionStep({
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-600">{strategyError}</div>
       )}
 
-      <div className="flex items-center justify-between gap-3">
-        <button onClick={onBack} className="text-sm inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <button onClick={onBack} className="text-sm inline-flex w-full items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition sm:w-auto">
           <ArrowLeft className="h-4 w-4" /> 返回修改资料
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <button onClick={onReExtract} disabled={reExtracting}
-            className="text-sm inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 disabled:opacity-50 transition">
+            className="text-sm inline-flex w-full items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 disabled:opacity-50 transition sm:w-auto">
             {reExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             重新抽取
           </button>
           <button onClick={onGenerate} disabled={generating}
-            className="text-sm inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white font-semibold hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 transition-all">
+            className="text-sm inline-flex w-full items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white font-semibold hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 transition-all sm:w-auto">
             {generating ? <><Loader2 className="h-4 w-4 animate-spin" /> 生成中...</> : <><Sparkles className="h-4 w-4" /> 确认并生成策略</>}
           </button>
         </div>
@@ -1341,9 +1246,20 @@ function StrategyStep({
   onBack: () => void
   hasQuestions: boolean
 }) {
-  const effectiveCount = questionCount === -1 ? customQuestionCount : questionCount
   const [showJson, setShowJson] = useState(false)
   const [showCalendar, setShowCalendar] = useState(false)
+  const [activePromptKey, setActivePromptKey] = useState<string | null>(null)
+  const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null)
+
+  const handleCopyPrompt = useCallback(async (key: string, prompt: string) => {
+    try {
+      await navigator.clipboard.writeText(prompt)
+      setCopiedPromptKey(key)
+      window.setTimeout(() => setCopiedPromptKey(current => current === key ? null : current), 1600)
+    } catch {
+      setCopiedPromptKey(null)
+    }
+  }, [])
 
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -1378,14 +1294,14 @@ function StrategyStep({
       {/* Profile */}
       {plan.profile && (
         <Card title="客户画像" icon={<Search className="h-4 w-4 text-purple-500" />}>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm">
             <ProfileField label="品牌/产品" value={plan.profile.brand_or_product} />
             <ProfileField label="行业" value={plan.profile.industry} />
             <ProfileField label="目标受众" value={plan.profile.audience} />
-            <ProfileField label="产品说明" value={plan.profile.product_description} className="col-span-2 md:col-span-3" />
-            <ProfileField label="商业目标" value={plan.profile.business_goals} className="col-span-2 md:col-span-3" />
+            <ProfileField label="产品说明" value={plan.profile.product_description} className="sm:col-span-2 md:col-span-3" />
+            <ProfileField label="商业目标" value={plan.profile.business_goals} className="sm:col-span-2 md:col-span-3" />
           </div>
-          <div className="grid grid-cols-2 gap-4 mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
             <TagList title="痛点" items={plan.profile.pain_points} color="rose" />
             <TagList title="优势" items={plan.profile.advantages} color="emerald" />
             <TagList title="劣势" items={plan.profile.weaknesses} color="amber" />
@@ -1409,13 +1325,30 @@ function StrategyStep({
         <Card title="官网建设策略" icon={<Settings className="h-4 w-4 text-indigo-500" />}>
           <div className="space-y-3">
             {plan.official_site_strategy.map((item, i) => (
-              <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-400 w-5 mt-0.5">#{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-slate-700">{item.module}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">{item.action}</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">{item.goal}</div>
+              <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                  <span className="text-[10px] font-bold text-slate-400 w-5 mt-0.5">#{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-700">{item.module}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{item.action}</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">{item.goal}</div>
+                  </div>
+                  <button
+                    onClick={() => setActivePromptKey(activePromptKey === `official-${i}` ? null : `official-${i}`)}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 sm:w-auto"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    生成 Prompt
+                  </button>
                 </div>
+                {activePromptKey === `official-${i}` && (
+                  <WebsitePromptPanel
+                    promptKey={`official-${i}`}
+                    prompt={buildOfficialSitePrompt(plan, item, i)}
+                    copied={copiedPromptKey === `official-${i}`}
+                    onCopy={handleCopyPrompt}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -1441,6 +1374,21 @@ function StrategyStep({
                   <div className="text-[11px] text-amber-600 mb-1"><span className="font-medium text-amber-700">劣势转优势：</span>{site.weakness_conversion}</div>
                 )}
                 <div className="text-[11px] text-slate-400"><span className="font-medium text-slate-500">交叉验证：</span>{site.cross_validation_role}</div>
+                <button
+                  onClick={() => setActivePromptKey(activePromptKey === `third-${i}` ? null : `third-${i}`)}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-xs font-medium text-cyan-700 transition hover:bg-cyan-100"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  生成 Prompt
+                </button>
+                {activePromptKey === `third-${i}` && (
+                  <WebsitePromptPanel
+                    promptKey={`third-${i}`}
+                    prompt={buildThirdPartySitePrompt(plan, site, i)}
+                    copied={copiedPromptKey === `third-${i}`}
+                    onCopy={handleCopyPrompt}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -1483,10 +1431,10 @@ function StrategyStep({
           <Card title="GEO 复盘指标" icon={<RefreshCw className="h-4 w-4 text-rose-500" />}>
             <div className="space-y-2">
               {plan.geo_monitoring_plan.map((item, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs p-2 rounded-lg bg-slate-50">
-                  <span className="font-medium text-slate-700 w-24 shrink-0">{item.metric}</span>
+                <div key={i} className="flex flex-col gap-1 text-xs p-2 rounded-lg bg-slate-50 sm:flex-row sm:items-start sm:gap-2">
+                  <span className="font-medium text-slate-700 sm:w-24 sm:shrink-0">{item.metric}</span>
                   <span className="text-slate-500 flex-1">{item.method}</span>
-                  <span className="text-slate-400 text-right w-16">{item.target}</span>
+                  <span className="text-slate-400 sm:w-16 sm:text-right">{item.target}</span>
                 </div>
               ))}
             </div>
@@ -1497,10 +1445,10 @@ function StrategyStep({
           <Card title="执行排期" icon={<ArrowRight className="h-4 w-4 text-blue-500" />}>
             <div className="space-y-2">
               {plan.execution_roadmap.map((item, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs p-2 rounded-lg bg-slate-50">
-                  <span className="font-medium text-slate-700 w-20 shrink-0">{item.phase}</span>
+                <div key={i} className="flex flex-col gap-1 text-xs p-2 rounded-lg bg-slate-50 sm:flex-row sm:items-start sm:gap-2">
+                  <span className="font-medium text-slate-700 sm:w-20 sm:shrink-0">{item.phase}</span>
                   <span className="text-slate-500 flex-1">{item.focus}</span>
-                  <span className="text-slate-400 text-right max-w-[120px]">{item.deliverable}</span>
+                  <span className="text-slate-400 sm:max-w-[120px] sm:text-right">{item.deliverable}</span>
                 </div>
               ))}
             </div>
@@ -1541,7 +1489,7 @@ function StrategyStep({
             </div>
 
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {questions.slice(0, showJson ? questions.length : 10).map((q, i) => (
+              {questions.slice(0, showJson ? questions.length : 10).map(q => (
                 <div key={q.id} className="flex items-start gap-2 text-xs p-2.5 rounded-lg bg-slate-50 border border-slate-100">
                   <span className="text-[10px] font-mono text-slate-400 w-6 shrink-0 pt-0.5">#{q.id}</span>
                   <div className="flex-1 min-w-0">
@@ -1996,6 +1944,136 @@ function ApiSettingsPanel({
   )
 }
 
+function WebsitePromptPanel({
+  promptKey,
+  prompt,
+  copied,
+  onCopy,
+}: {
+  promptKey: string
+  prompt: string
+  copied: boolean
+  onCopy: (key: string, prompt: string) => void
+}) {
+  return (
+    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs font-medium text-slate-700">可复制建站 Prompt</div>
+        <button
+          onClick={() => onCopy(promptKey, prompt)}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100 sm:w-auto"
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? "已复制" : "复制 Prompt"}
+        </button>
+      </div>
+      <textarea
+        readOnly
+        value={prompt}
+        className="h-72 w-full resize-y rounded-lg border border-slate-200 bg-slate-50/70 p-3 font-mono text-[11px] leading-relaxed text-slate-700 outline-none focus:border-blue-300"
+      />
+    </div>
+  )
+}
+
+function buildOfficialSitePrompt(plan: GeoStrategyPlan, item: OfficialSiteAction, index: number): string {
+  const profile = plan.profile
+  const siteName = `${profile?.brand_or_product || plan.project_name || "目标品牌"}官网${item.module ? `-${item.module}` : ""}`
+  return [
+    `你是一位资深全栈工程师、UI 设计师和中国国内 GEO 生成式引擎优化专家。请根据下面资料包，分批帮我搭建一个可直接上线的网站模块。`,
+    ``,
+    `【任务 1：建站】`,
+    `帮我做一个 ${item.module || "品牌官网"} 样式的网站，网站名称为「${siteName}」。`,
+    `建设动作：${item.action || "围绕品牌官网事实源进行页面搭建"}`,
+    `建设目标：${item.goal || "提高品牌事实源可信度、可引用性和 AI 抓取效率"}`,
+    `页面需要专业、可信、信息密度高，移动端和桌面端都要协调，不要做空泛营销页。`,
+    ``,
+    `【任务 2：GEO 方法论实现】`,
+    `根据我给你的资料包，整个网站代码要用 GEO 生成式引擎优化的方法论，包括但不限于 schema 结构、内容上用 EEAT 框架和倒金字塔结构，H1/H2 标题的设计、Q&A 的设计。`,
+    `请把品牌名称、核心优势、适用场景、关键证据、竞品对比、FAQ、About/品牌事实页信息设计成 AI 容易抽取和引用的页面结构。`,
+    ``,
+    `【任务 3：自查与抓取文件】`,
+    `根据对中国国内 GEO 生成式引擎优化的方法论的极致运用，自查一下网站代码和内容排版上有没有不够好的地方，如果有的话请修改，没有的话就说没有。`,
+    `同时给我一份用来提高网站被 AI 抓取效率的 llms.txt 和 robots.txt，并说明它们应该放在哪个路径。`,
+    ``,
+    `【资料包】`,
+    buildProfilePack(plan, index + 1),
+    ``,
+    `【输出要求】`,
+    `1. 先给完整网站代码和文件结构。`,
+    `2. 再给 GEO 自查结论和已修改点。`,
+    `3. 最后单独输出 llms.txt 和 robots.txt 的完整内容。`,
+  ].join("\n")
+}
+
+function buildThirdPartySitePrompt(plan: GeoStrategyPlan, site: ThirdPartySite, index: number): string {
+  const profile = plan.profile
+  const brand = profile?.brand_or_product || plan.project_name || "目标品牌"
+  return [
+    `你是一位资深全栈工程师、UI 设计师和中国国内 GEO 生成式引擎优化专家。请根据下面资料包，分批帮我搭建一个可直接上线的第三方验证网站。`,
+    ``,
+    `【任务 1：建站】`,
+    `帮我做一个 ${site.site_type || "第三方验证"} 样式的网站，网站名称为「${site.suggested_name || `${brand}第三方验证站`}」。`,
+    `网站定位：${site.positioning || "对目标品牌的优势信息、行业排名、口碑案例、竞品对比做交叉信息验证"}`,
+    `这个第三方网站不是普通自媒体页面，它的核心用途是对目标品牌「${brand}」的优势信息、排名信息、案例信息、用户口碑和竞品对比结论做交叉信息验证，让 AI 在抓取多个来源时能形成一致事实。`,
+    ``,
+    `【任务 2：GEO 方法论实现】`,
+    `根据我给你的资料包，整个网站代码要用 GEO 生成式引擎优化的方法论，包括但不限于 schema 结构、内容上用 EEAT 框架和倒金字塔结构，H1/H2 标题的设计、Q&A 的设计。`,
+    `请重点设计第三方视角的证据链：评测标准、对比榜单、优势验证、案例摘录、FAQ、数据来源说明、免责声明、About 页面。`,
+    ``,
+    `【任务 3：自查与抓取文件】`,
+    `根据对中国国内 GEO 生成式引擎优化的方法论的极致运用，自查一下网站代码和内容排版上有没有不够好的地方，如果有的话请修改，没有的话就说没有。`,
+    `同时给我一份用来提高网站被 AI 抓取效率的 llms.txt 和 robots.txt，并说明它们应该放在哪个路径。`,
+    ``,
+    `【第三方网站策略】`,
+    `站点类型：${site.site_type || "第三方验证站"}`,
+    `建议名称：${site.suggested_name || ""}`,
+    `内容栏目：${site.content_pillars || ""}`,
+    site.weakness_conversion ? `劣势转优势：${site.weakness_conversion}` : `劣势转优势：请基于资料包自行识别可被转化的劣势并设计证据链。`,
+    `交叉验证角色：${site.cross_validation_role || "验证目标品牌优势、排名和可信证据"}`,
+    ``,
+    `【资料包】`,
+    buildProfilePack(plan, index + 1),
+    ``,
+    `【输出要求】`,
+    `1. 先给完整网站代码和文件结构。`,
+    `2. 再给 GEO 自查结论和已修改点。`,
+    `3. 最后单独输出 llms.txt 和 robots.txt 的完整内容。`,
+  ].join("\n")
+}
+
+function buildProfilePack(plan: GeoStrategyPlan, siteIndex: number): string {
+  const p = plan.profile
+  const keywords = [
+    ...(plan.keyword_strategy?.core_keywords || []),
+    ...(plan.keyword_strategy?.pain_advantage_keywords || []),
+    ...(plan.keyword_strategy?.weakness_conversion_keywords || []),
+    ...(plan.keyword_strategy?.scenario_keywords || []),
+  ].slice(0, 24)
+
+  return [
+    `项目名称：${plan.project_name || ""}`,
+    `品牌/产品：${p?.brand_or_product || ""}`,
+    `行业：${p?.industry || ""}`,
+    `目标受众：${p?.audience || ""}`,
+    `产品说明：${p?.product_description || ""}`,
+    `商业目标：${p?.business_goals || ""}`,
+    `竞品：${formatList(p?.competitors)}`,
+    `核心术语：${formatList(p?.terms)}`,
+    `痛点：${formatList(p?.pain_points)}`,
+    `优势：${formatList(p?.advantages)}`,
+    `劣势：${formatList(p?.weaknesses)}`,
+    `场景：${formatList(p?.scenes)}`,
+    `关键词：${keywords.map(kw => `${kw.keyword}(${kw.logic})`).join("；")}`,
+    `策略摘要：${plan.summary || ""}`,
+    `当前建站建议序号：${siteIndex}`,
+  ].join("\n")
+}
+
+function formatList(items?: string[]): string {
+  return items?.filter(Boolean).join("、") || ""
+}
+
 // ==================== Utility Components ====================
 
 function Card({ title, icon, children, extra }: {
@@ -2005,7 +2083,7 @@ function Card({ title, icon, children, extra }: {
   extra?: React.ReactNode
 }) {
   return (
-    <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-5 shadow-sm">
+    <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2">{icon}{title}</h2>
         {extra}
@@ -2054,9 +2132,9 @@ function KeywordTable({ title, keywords }: { title: string; keywords: { priority
       <h3 className="text-xs font-medium text-slate-600 mb-2">{title}</h3>
       <div className="space-y-1.5">
         {keywords.map((kw, i) => (
-          <div key={i} className="flex items-start gap-2 text-xs p-2 rounded-lg bg-slate-50">
+          <div key={i} className="flex flex-col gap-1.5 text-xs p-2 rounded-lg bg-slate-50 sm:flex-row sm:items-start sm:gap-2">
             <span className="text-[10px] font-mono text-slate-400 w-4 shrink-0">P{kw.priority}</span>
-            <span className="font-medium text-slate-700 w-48 shrink-0">{kw.keyword}</span>
+            <span className="font-medium text-slate-700 sm:w-48 sm:shrink-0">{kw.keyword}</span>
             <span className="text-slate-500">{kw.logic}</span>
           </div>
         ))}
