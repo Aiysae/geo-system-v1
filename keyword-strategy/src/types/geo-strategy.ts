@@ -66,6 +66,7 @@ export interface ThirdPartySite {
   suggested_name: string
   positioning: string
   content_pillars: string
+  weakness_conversion?: string
   cross_validation_role: string
 }
 
@@ -165,14 +166,23 @@ export type GenerationStatus = "idle" | "generating" | "done" | "error"
 export interface QuestionCategoryConfig {
   /** 每个劣势生成的问题数量 (5-30, 默认 10) */
   weaknessesPerWeakness: number
+  /** 关键词分类分配模式：按比例或自定义精确数量 */
+  allocationMode?: "ratio" | "custom"
   /** 核心关键词占比 (0.30-0.70, 默认 0.30) */
   coreRatio: number
   /** 次关键词占比 (0.05-0.50, 默认 0.35)，痛点/场景占比自动计算 */
   secondaryRatio: number
+  /** 自定义核心关键词问题数 */
+  coreCount?: number
+  /** 自定义次关键词问题数 */
+  secondaryCount?: number
+  /** 自定义痛点/场景关键词问题数 */
+  painScenarioCount?: number
 }
 
 export const DEFAULT_CATEGORY_CONFIG: QuestionCategoryConfig = {
   weaknessesPerWeakness: 10,
+  allocationMode: "ratio",
   coreRatio: 0.30,
   secondaryRatio: 0.35,
 }

@@ -73,6 +73,33 @@ function normalizeItem(item: unknown): { text: string; confidence: "high" | "med
   return { text: String(item || ""), confidence: "medium" as const }
 }
 
+function splitRawItems(value: unknown): { text: string; confidence: "high" | "medium" | "low" }[] {
+  const raw = String(value || "").trim()
+  if (!raw) return []
+  return raw
+    .split(/\n|；|;|、|，|,/)
+    .map(text => text.trim())
+    .filter(Boolean)
+    .map(text => ({ text, confidence: "high" as const }))
+}
+
+function mergeItems(
+  primary: { text: string; confidence: "high" | "medium" | "low" }[],
+  extra: { text: string; confidence: "high" | "medium" | "low" }[],
+): { text: string; confidence: "high" | "medium" | "low" }[] {
+  const seen = new Set<string>()
+  const merged: { text: string; confidence: "high" | "medium" | "low" }[] = []
+
+  for (const item of [...primary, ...extra]) {
+    const text = item.text.trim()
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    merged.push({ ...item, text })
+  }
+
+  return merged
+}
+
 async function handler(req: NextRequest) {
   try {
     const body = await req.json()
@@ -156,10 +183,10 @@ async function handler(req: NextRequest) {
       industry: extracted.industry || projectInfo?.industry || "",
       audience: extracted.audience || projectInfo?.audience || "",
       product_description: extracted.product_description || projectInfo?.product_description || "",
-      pain_points: (extracted.pain_points || []).map(normalizeItem),
-      advantages: (extracted.advantages || []).map(normalizeItem),
+      pain_points: mergeItems((extracted.pain_points || []).map(normalizeItem), splitRawItems(projectInfo?.pain_points_raw)),
+      advantages: mergeItems((extracted.advantages || []).map(normalizeItem), splitRawItems(projectInfo?.core_advantages)),
       weaknesses: (extracted.weaknesses || []).map(normalizeItem),
-      competitors: (extracted.competitors || []).map(normalizeItem),
+      competitors: mergeItems((extracted.competitors || []).map(normalizeItem), splitRawItems(projectInfo?.competitors_raw)),
       scenes: (extracted.scenes || []).map(normalizeItem),
       geo_goals: extracted.geo_goals || projectInfo?.geo_goals || "",
       source_notes: extracted.source_notes || (files.length > 0

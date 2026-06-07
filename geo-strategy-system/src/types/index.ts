@@ -1,4 +1,6 @@
 // ============ Legacy (保留兼容 /api/generate) ============
+import type { KeywordStrategyState } from "./geo-strategy"
+
 export interface BrandInput {
   brandName: string
   brandSlogan: string
@@ -112,27 +114,6 @@ export interface Diagnosis {
   generatedAt: string
 }
 
-export interface StrategyRow {
-  newKeyword: string
-  attackQuestion: string
-  thirdPartyAngle: string
-  priority: "高" | "中" | "低"
-  platform: string
-}
-
-export interface WebsiteMatrixItem {
-  siteType: string
-  strategicIntent: string
-  domainSuggestions: string[]
-  contentFocus: string
-}
-
-export interface StrategyResult {
-  rows: StrategyRow[]
-  websiteMatrix?: WebsiteMatrixItem[]
-  generatedAt: string
-}
-
 export type ResearchMode = "hypothesis" | "ai"
 
 export interface ResearchDimension {
@@ -186,5 +167,5 @@ export interface Client {
   research?: ResearchResult
   competitorCompare?: CompetitorCompareResult
   diagnosis?: Diagnosis
-  strategy?: StrategyResult
+  keywordStrategy?: KeywordStrategyState
 }

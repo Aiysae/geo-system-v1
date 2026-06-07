@@ -247,7 +247,15 @@ function calculateAllocations(
   strategy: Record<string, unknown>,
   coreKeywordsInput: string[],
   totalCount: number,
-  cfg: { weaknessesPerWeakness: number; coreRatio: number; secondaryRatio: number },
+  cfg: {
+    weaknessesPerWeakness: number
+    allocationMode: "ratio" | "custom"
+    coreRatio: number
+    secondaryRatio: number
+    coreCount: number
+    secondaryCount: number
+    painScenarioCount: number
+  },
 ): { allocations: Allocation[]; warnings: string[] } {
   const warnings: string[] = []
   const profile = (strategy.profile || {}) as Record<string, unknown>
@@ -270,9 +278,32 @@ function calculateAllocations(
   const coreMinTotal = Math.ceil(totalCount * 0.30)
 
   // 3. Calculate allocations
-  let coreAlloc = Math.max(Math.floor(remaining * cfg.coreRatio), Math.min(coreMinTotal, remaining))
-  let secondaryAlloc = Math.floor(remaining * cfg.secondaryRatio)
-  let painScenarioAlloc = remaining - coreAlloc - secondaryAlloc
+  let coreAlloc = 0
+  let secondaryAlloc = 0
+  let painScenarioAlloc = 0
+
+  if (cfg.allocationMode === "custom") {
+    coreAlloc = Math.min(Math.max(cfg.coreCount, 0), remaining)
+    secondaryAlloc = Math.min(Math.max(cfg.secondaryCount, 0), remaining)
+    painScenarioAlloc = Math.min(Math.max(cfg.painScenarioCount, 0), remaining)
+
+    const customTotal = coreAlloc + secondaryAlloc + painScenarioAlloc
+    if (customTotal !== remaining) {
+      if (customTotal > remaining) {
+        warnings.push(`关键词自定义数量 (${customTotal}条) 超过剩余关键词空间 (${remaining}条)，已按比例压缩`)
+        const ratio = remaining > 0 ? remaining / customTotal : 0
+        coreAlloc = Math.floor(coreAlloc * ratio)
+        secondaryAlloc = Math.floor(secondaryAlloc * ratio)
+        painScenarioAlloc = remaining - coreAlloc - secondaryAlloc
+      } else {
+        warnings.push(`关键词自定义数量 (${customTotal}条) 少于剩余关键词空间 (${remaining}条)，将只生成 ${customTotal} 条关键词问题`)
+      }
+    }
+  } else {
+    coreAlloc = Math.max(Math.floor(remaining * cfg.coreRatio), Math.min(coreMinTotal, remaining))
+    secondaryAlloc = Math.floor(remaining * cfg.secondaryRatio)
+    painScenarioAlloc = remaining - coreAlloc - secondaryAlloc
+  }
 
   if (painScenarioAlloc < 0) {
     secondaryAlloc = Math.max(0, remaining - coreAlloc)
@@ -290,7 +321,7 @@ function calculateAllocations(
     warnings.push("劣势问题超过总数的60%，其他类别空间有限")
   }
 
-  if (coreAlloc < coreMinTotal && remaining > 0) {
+  if (cfg.allocationMode !== "custom" && coreAlloc < coreMinTotal && remaining > 0) {
     warnings.push(`核心关键词问题 (${coreAlloc}条) 低于总量的30%最低要求 (${coreMinTotal}条)`)
   }
 
@@ -497,10 +528,14 @@ async function handler(req: NextRequest) {
     const cfg = {
       weaknessesPerWeakness: Math.min(Math.max(
         categoryConfig?.weaknessesPerWeakness ?? 10, 5), 30),
+      allocationMode: categoryConfig?.allocationMode === "custom" ? "custom" as const : "ratio" as const,
       coreRatio: Math.min(Math.max(
         categoryConfig?.coreRatio ?? 0.30, 0.30), 0.70),
       secondaryRatio: Math.min(Math.max(
         categoryConfig?.secondaryRatio ?? 0.35, 0.05), 0.50),
+      coreCount: Math.min(Math.max(Number(categoryConfig?.coreCount ?? 0) || 0, 0), 600),
+      secondaryCount: Math.min(Math.max(Number(categoryConfig?.secondaryCount ?? 0) || 0, 0), 600),
+      painScenarioCount: Math.min(Math.max(Number(categoryConfig?.painScenarioCount ?? 0) || 0, 0), 600),
     }
 
     // 1. Calculate allocations

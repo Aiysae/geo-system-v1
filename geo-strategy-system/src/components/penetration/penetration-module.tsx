@@ -10,6 +10,7 @@ import BrandRankingCard from "./brand-ranking-card"
 import ModelRateTrend from "./model-rate-trend"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
+import ModelAvatar from "@/components/model-avatar"
 import { MODEL_LABELS } from "@/lib/llm"
 import { apiFetch } from "@/lib/api-fetch"
 import {
@@ -88,11 +89,11 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   return (
     <Card>
       <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-3 text-base text-slate-800">
+        <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
           <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0077B6] via-[#00B4D8] to-[#48cae4] flex items-center justify-center shadow-lg shadow-cyan-200/50">
             <Target className="h-5 w-5 text-white" />
           </span>
-          <span className="bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent font-semibold">
+          <span className="min-w-0 bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent font-semibold leading-snug">
             模块一 · 关键词渗透率与竞品情报
           </span>
         </CardTitle>
@@ -276,7 +277,10 @@ function RawAnswersPanel({
                     : "bg-white text-slate-600 border border-slate-200 hover:border-[#0077B6]"
                 }`}
               >
-                {MODEL_LABELS[m]} · {byModel[m]?.length ?? 0} 条
+                <span className="inline-flex items-center gap-1.5">
+                  <ModelAvatar model={m} size="xs" />
+                  {MODEL_LABELS[m]} · {byModel[m]?.length ?? 0} 条
+                </span>
               </button>
             ))}
           </div>

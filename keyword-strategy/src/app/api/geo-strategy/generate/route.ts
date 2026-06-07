@@ -11,12 +11,13 @@ const SYSTEM_PROMPT = `你是一个资深 GEO（生成式引擎优化）策略�
 
 必须遵守：
 1. GEO 策略分为官网/第三方网站和自媒体内容两条主线。
-2. 官网/第三方网站负责事实源优化、信息包围和交叉验证。
+2. 官网是第一事实源，必须先给出官网建设策略；第三方网站负责信息包围、劣势转优势和交叉验证。
 3. 自媒体内容负责关键词、疑问句和目标客户真实提问方式覆盖。
 4. 关键词按痛点/优势、主要劣势、客户场景需求三类制定。
 5. 疑问句采用两层挖掘法，第二层比例受控。
-6. 第三方网站策略必须自动给出站点类型、建议命名、定位、内容栏目和交叉验证作用。
-7. 输出必须是严格 JSON，不要输出 Markdown，不要解释 JSON 外的任何文字。`
+6. 第三方网站策略不是普通媒体发布计划，而是“搭建第三方网站”的策略，例如测评类网站、交流论坛、问答知识库、案例口碑站、对比榜单站等。
+7. 每个第三方网站都必须说明它针对哪类劣势，以及如何把这个劣势转化为优势叙事。
+8. 输出必须是严格 JSON，不要输出 Markdown，不要解释 JSON 外的任何文字。`
 
 function buildUserPrompt(profile: Record<string, unknown>): string {
   const sections: string[] = [
@@ -56,8 +57,12 @@ function buildUserPrompt(profile: Record<string, unknown>): string {
     "- 不要把 OCR 噪声、评分表、页码、模型名错误拼进策略。",
     "- 不要编造无法从资料推断的硬事实。",
     "- 可以基于资料做策略推断，但表达要具体。",
+    "- 将优势内容转化为 GEO 可信事实资产：围绕优势中的具体数字，规划官网/第三方/自媒体的引用布局。",
+    "- official_site_strategy 必须是“官网建设策略”，并且排在第三方网站策略之前。至少包含：首页信任首屏、产品/服务详情页、优势数据页、案例/口碑页、FAQ/对比页、结构化数据与 About/品牌事实页。",
     "- keyword_strategy 必须包含 core_keywords、pain_advantage_keywords、weakness_conversion_keywords、scenario_keywords。",
-    "- third_party_site_strategy 至少 5 个站点类型。",
+    "- third_party_site_strategy 必须是“搭建第三方网站”的策略，不要写成知乎、小红书、公众号、百家号、头条号、B站这些自媒体平台。",
+    "- third_party_site_strategy 至少 5 个站点类型，优先包含：测评类网站、交流论坛、问答知识库、案例/口碑站、对比/榜单站、行业资料库。",
+    "- 每个 third_party_site_strategy 条目必须填写 weakness_conversion：说明这个站点迎合哪个劣势，并如何把劣势打造为优势。",
     "- media_plan 至少包含知乎、小红书、公众号、百家号、头条号、B站专栏。",
     "- geo_monitoring_plan 至少包含品牌主动提及率、引用/事实一致性、第三方交叉验证覆盖、疑问句内容覆盖率。",
     "- execution_roadmap 至少包含第1周、第2-3周、第3-5周、持续执行。",
@@ -79,9 +84,9 @@ function buildUserPrompt(profile: Record<string, unknown>): string {
     "weakness_conversion_keywords": [{"priority": "1", "keyword": "", "logic": ""}],
     "scenario_keywords": [{"priority": "1", "keyword": "", "logic": ""}]
   },
-  "official_site_strategy": [{"module": "", "action": "", "goal": ""}],
+  "official_site_strategy": [{"module": "官网建设模块", "action": "具体建设动作", "goal": "作为第一事实源的目标"}],
   "third_party_site_strategy": [
-    {"priority": "1", "site_type": "", "suggested_name": "", "positioning": "", "content_pillars": "", "cross_validation_role": ""}
+    {"priority": "1", "site_type": "", "suggested_name": "", "positioning": "", "content_pillars": "", "weakness_conversion": "", "cross_validation_role": ""}
   ],
   "media_plan": [
     {"platform": "", "role": "", "keyword_focus": "", "sample_title": "", "cadence": ""}

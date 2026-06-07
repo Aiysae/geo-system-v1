@@ -5,8 +5,8 @@ import ClientSidebar from "@/components/sidebar/client-sidebar"
 import PenetrationModule from "@/components/penetration/penetration-module"
 import ResearchModule from "@/components/research/research-module"
 import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
-import StrategyModule from "@/components/strategy/strategy-module"
-import { Sparkles, Printer, Menu } from "lucide-react"
+import KeywordStrategyModule from "@/components/keyword/keyword-strategy-module"
+import { Brain, ListOrdered, Menu, Printer, Radar, Sparkles, Target } from "lucide-react"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { AccountMenu } from "@/components/auth/account-menu"
@@ -141,8 +141,8 @@ function StickyHeader({
   }
   return (
     <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm shadow-slate-200/40 sticky-header">
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 py-2.5 md:py-3 flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
           {/* 移动端汉堡按钮：触发左侧抽屉。md+ 隐藏 */}
           <button
             onClick={onOpenSidebar}
@@ -168,7 +168,7 @@ function StickyHeader({
             )}
           </div>
         </div>
-        <div className="no-print flex items-center gap-2">
+        <div className="no-print order-last flex w-full justify-end sm:order-none sm:w-auto sm:justify-start">
           {client && (
             <button
               onClick={handlePrint}
@@ -180,7 +180,7 @@ function StickyHeader({
             </button>
           )}
         </div>
-        <div className="no-print shrink-0 flex items-center gap-2">
+        <div className="no-print ml-auto shrink-0 flex items-center gap-1.5 sm:gap-2">
           <CreditsPill />
           <RechargeButton />
           <AccountMenu />
@@ -255,8 +255,10 @@ function Dashboard({
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
 }) {
+  const [activeModule, setActiveModule] = useState<DashboardModuleKey>("penetration")
+
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8 animate-fade-in-up print-container">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 py-5 md:py-8 animate-fade-in-up print-container">
       <header className="mb-6 md:mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
         <div>
           <div className="text-[11px] text-slate-400 mb-1.5 tracking-[0.18em] uppercase font-medium">
@@ -277,15 +279,82 @@ function Dashboard({
         </div>
       </header>
 
-      <section className="space-y-6">
-        <PenetrationModule
-          client={client}
-          onChangeClient={onChangeClient}
-        />
-        <ResearchModule client={client} onChangeClient={onChangeClient} />
-        <DiagnosisModule client={client} onChangeClient={onChangeClient} />
-        <StrategyModule client={client} onChangeClient={onChangeClient} />
+      <ModuleNav active={activeModule} onChange={setActiveModule} />
+
+      <section className="mt-5 md:mt-6">
+        {activeModule === "penetration" && (
+          <PenetrationModule
+            client={client}
+            onChangeClient={onChangeClient}
+          />
+        )}
+        {activeModule === "research" && (
+          <ResearchModule client={client} onChangeClient={onChangeClient} />
+        )}
+        {activeModule === "diagnosis" && (
+          <DiagnosisModule client={client} onChangeClient={onChangeClient} />
+        )}
+        {activeModule === "keyword" && (
+          <KeywordStrategyModule client={client} onChangeClient={onChangeClient} />
+        )}
       </section>
     </div>
+  )
+}
+
+type DashboardModuleKey = "penetration" | "research" | "diagnosis" | "keyword"
+
+const DASHBOARD_MODULES: Array<{
+  key: DashboardModuleKey
+  label: string
+  desc: string
+  icon: typeof Target
+}> = [
+  { key: "penetration", label: "渗透率情报", desc: "多模型盲测", icon: Target },
+  { key: "research", label: "独立调研", desc: "品牌画像", icon: Brain },
+  { key: "diagnosis", label: "AI 诊断", desc: "五维评分", icon: Radar },
+  { key: "keyword", label: "关键词策略", desc: "资料抽取与疑问句池", icon: ListOrdered },
+]
+
+function ModuleNav({
+  active,
+  onChange,
+}: {
+  active: DashboardModuleKey
+  onChange: (key: DashboardModuleKey) => void
+}) {
+  return (
+    <nav className="no-print -mx-1 overflow-x-auto pb-1">
+      <div className="inline-flex min-w-full gap-2 rounded-2xl border border-slate-200/70 bg-white/75 p-1.5 shadow-sm backdrop-blur sm:grid sm:grid-cols-4">
+        {DASHBOARD_MODULES.map(item => {
+          const Icon = item.icon
+          const isActive = active === item.key
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => onChange(item.key)}
+              className={`min-w-[148px] sm:min-w-0 flex items-center gap-2 rounded-xl px-3 py-2.5 text-left transition ${
+                isActive
+                  ? "bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white shadow-md shadow-blue-200/50"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                isActive ? "bg-white/18" : "bg-slate-100 text-[#004B73]"
+              }`}>
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-semibold sm:text-sm truncate">{item.label}</span>
+                <span className={`block text-[10px] truncate ${isActive ? "text-blue-50/80" : "text-slate-400"}`}>
+                  {item.desc}
+                </span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </nav>
   )
 }

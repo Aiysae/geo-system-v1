@@ -113,11 +113,11 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
   return (
     <Card>
       <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-3 text-base text-slate-800">
+        <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
           <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-200/50">
             <Brain className="h-5 w-5 text-white" />
           </span>
-          <span className="bg-gradient-to-r from-emerald-600 to-cyan-600 bg-clip-text text-transparent font-semibold">
+          <span className="min-w-0 bg-gradient-to-r from-emerald-600 to-cyan-600 bg-clip-text text-transparent font-semibold leading-snug">
             独立调研 · 豆包深度品牌画像与竞品对比
           </span>
         </CardTitle>

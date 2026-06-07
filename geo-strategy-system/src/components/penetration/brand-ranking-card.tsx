@@ -2,6 +2,7 @@
 
 import { Trophy, TrendingDown } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/llm"
+import ModelAvatar from "@/components/model-avatar"
 import type { PerModelRate } from "@/types"
 
 interface Props {
@@ -49,7 +50,10 @@ export default function BrandRankingCard({
             const pct = Math.round(p.rate * 1000) / 10
             return (
               <div key={p.model} className="flex items-center gap-2 text-xs">
-                <span className="w-16 text-slate-600">{MODEL_LABELS[p.model]}</span>
+                <span className="flex w-20 items-center gap-1.5 text-slate-600">
+                  <ModelAvatar model={p.model} size="xs" />
+                  <span className="truncate">{MODEL_LABELS[p.model]}</span>
+                </span>
                 <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-[#004B73] rounded-full"

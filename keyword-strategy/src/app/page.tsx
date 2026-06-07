@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { API_PROVIDERS, DEFAULT_CATEGORY_CONFIG, type ApiProviderConfig, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type ContentCalendarItem, type QuestionCategoryConfig } from "@/types/geo-strategy"
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, ChevronLeft, CloudUpload, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 
@@ -24,6 +24,8 @@ interface BrandData {
   extracting: boolean
   extractionError: string
   extractedProfile: ExtractedProfile | null
+  advantageStatus: GenerationStatus
+  advantageError: string
   strategyStatus: GenerationStatus
   strategyError: string
   strategyPlan: GeoStrategyPlan | null
@@ -56,6 +58,8 @@ function createBrand(name: string): BrandData {
     extracting: false,
     extractionError: "",
     extractedProfile: null,
+    advantageStatus: "idle",
+    advantageError: "",
     strategyStatus: "idle",
     strategyError: "",
     strategyPlan: null,
@@ -72,8 +76,40 @@ function createBrand(name: string): BrandData {
 
 // ==================== Helpers ====================
 
+const API_SETTINGS_STORAGE_KEY = "geo-strategy-api-settings"
+
 function genId(): string {
   return Math.random().toString(36).slice(2, 10)
+}
+
+function normalizeExtractedItem(item: unknown): ExtractedItem {
+  if (typeof item === "string") {
+    return { id: genId(), text: item, enabled: true, confidence: "medium" }
+  }
+
+  if (item && typeof item === "object") {
+    const obj = item as Partial<ExtractedItem>
+    const confidence = obj.confidence === "high" || obj.confidence === "low" ? obj.confidence : "medium"
+    return {
+      id: obj.id || genId(),
+      text: String(obj.text || ""),
+      enabled: obj.enabled !== false,
+      confidence,
+    }
+  }
+
+  return { id: genId(), text: String(item || ""), enabled: true, confidence: "medium" }
+}
+
+function normalizeExtractedProfile(profile: ExtractedProfile): ExtractedProfile {
+  return {
+    ...profile,
+    pain_points: (profile.pain_points || []).map(normalizeExtractedItem),
+    advantages: (profile.advantages || []).map(normalizeExtractedItem),
+    weaknesses: (profile.weaknesses || []).map(normalizeExtractedItem),
+    competitors: (profile.competitors || []).map(normalizeExtractedItem),
+    scenes: (profile.scenes || []).map(normalizeExtractedItem),
+  }
 }
 
 /** check if a model name suggests it's text-only (no vision support) */
@@ -163,6 +199,60 @@ function readFileContent(file: File): Promise<string> {
   })
 }
 
+async function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as ArrayBuffer)
+    reader.onerror = reject
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+async function renderPdfToImages(file: File): Promise<UploadedFile[]> {
+  const pdfjs = await import("pdfjs-dist/build/pdf.mjs")
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString()
+
+  const buffer = await readFileAsArrayBuffer(file)
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise
+  const maxPages = Math.min(pdf.numPages, 12)
+  const pages: UploadedFile[] = []
+
+  for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+    const page = await pdf.getPage(pageNum)
+    const baseViewport = page.getViewport({ scale: 1 })
+    const scale = Math.min(2, Math.max(1.2, 1600 / Math.max(baseViewport.width, baseViewport.height)))
+    const viewport = page.getViewport({ scale })
+    const canvas = document.createElement("canvas")
+    const context = canvas.getContext("2d")
+    if (!context) continue
+
+    canvas.width = Math.ceil(viewport.width)
+    canvas.height = Math.ceil(viewport.height)
+    await page.render({ canvasContext: context, viewport }).promise
+
+    const content = canvas.toDataURL("image/jpeg", 0.86)
+    pages.push({
+      id: genId(),
+      name: pdf.numPages > 1 ? `${file.name} - 第${pageNum}页.jpg` : `${file.name}.jpg`,
+      type: "image",
+      content,
+      size: Math.round(content.length * 0.75),
+    })
+  }
+
+  if (pdf.numPages > maxPages) {
+    pages.push({
+      id: genId(),
+      name: `${file.name} - 仅转换前${maxPages}页说明.txt`,
+      type: "text",
+      content: `PDF 共 ${pdf.numPages} 页，为控制识别请求大小，本次已转换前 ${maxPages} 页为图片。`,
+      size: 80,
+    })
+  }
+
+  return pages
+}
+
 // ==================== Main Page ====================
 
 export default function GeoStrategyToolPage() {
@@ -216,6 +306,47 @@ export default function GeoStrategyToolPage() {
   const [apiTimeout, setApiTimeout] = useState(900)
   const [showApiSettings, setShowApiSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [apiSettingsHydrated, setApiSettingsHydrated] = useState(false)
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(API_SETTINGS_STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved) as {
+          providerId?: string
+          baseUrl?: string
+          model?: string
+          apiKey?: string
+          timeout?: number
+        }
+        const provider = API_PROVIDERS.find(p => p.id === parsed.providerId) || API_PROVIDERS[0]
+        setApiProvider(provider)
+        setApiBaseUrl(parsed.baseUrl || provider.baseUrl)
+        setApiModel(parsed.model || provider.defaultModel)
+        setApiKey(parsed.apiKey || "")
+        setApiTimeout(Math.min(1800, Math.max(60, Number(parsed.timeout) || 900)))
+      }
+    } catch {
+      // ignore localStorage parse errors
+    } finally {
+      setApiSettingsHydrated(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!apiSettingsHydrated) return
+    try {
+      window.localStorage.setItem(API_SETTINGS_STORAGE_KEY, JSON.stringify({
+        providerId: apiProvider.id,
+        baseUrl: apiBaseUrl,
+        model: apiModel,
+        apiKey,
+        timeout: apiTimeout,
+      }))
+    } catch {
+      // ignore localStorage write errors
+    }
+  }, [apiSettingsHydrated, apiProvider.id, apiBaseUrl, apiModel, apiKey, apiTimeout])
 
   // Provider change handler
   const handleProviderChange = useCallback((providerId: string) => {
@@ -236,13 +367,29 @@ export default function GeoStrategyToolPage() {
 
     for (const file of files) {
       try {
-        const content = await readFileContent(file)
-        const type = file.type.startsWith("image/") ? "image" as const
-          : file.type === "application/pdf" || file.name.endsWith(".pdf") ? "pdf" as const
-          : "text" as const
-        processed.push({ id: genId(), name: file.name, type, content, size: file.size })
+        if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+          const pages = await renderPdfToImages(file)
+          processed.push(...pages)
+        } else {
+          const content = await readFileContent(file)
+          const type = file.type.startsWith("image/") ? "image" as const : "text" as const
+          processed.push({ id: genId(), name: file.name, type, content, size: file.size })
+        }
       } catch {
-        // skip files that can't be read
+        if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+          processed.push({
+            id: genId(),
+            name: `${file.name} - PDF转换失败说明.txt`,
+            type: "text",
+            content: "该 PDF 未能在浏览器中转换为图片，请将 PDF 页面另存为 JPG/PNG 后重新上传。",
+            size: 50,
+          })
+        } else try {
+          const content = await readFileContent(file)
+          processed.push({ id: genId(), name: file.name, type: "text", content, size: file.size })
+        } catch {
+          // skip files that can't be read
+        }
       }
     }
 
@@ -286,7 +433,11 @@ export default function GeoStrategyToolPage() {
             project_name: activeBrand.projectName,
             industry: activeBrand.industry,
             audience: activeBrand.audience,
+            location_terms: activeBrand.locationTerms,
             product_description: activeBrand.productDesc,
+            core_advantages: activeBrand.coreAdvantages,
+            pain_points_raw: activeBrand.painPointsRaw,
+            competitors_raw: activeBrand.competitorsRaw,
             geo_goals: activeBrand.geoGoals,
           },
           apiConfig: getApiConfig(),
@@ -301,7 +452,7 @@ export default function GeoStrategyToolPage() {
 
       const brand = brands[activeBrandId]
       updateBrand({
-        extractedProfile: data as ExtractedProfile,
+        extractedProfile: normalizeExtractedProfile(data as ExtractedProfile),
         step: "extraction",
         completedSteps: [...new Set([...brand.completedSteps, "extraction" as ToolStep])],
       })
@@ -310,7 +461,78 @@ export default function GeoStrategyToolPage() {
     } finally {
       updateBrand({ extracting: false })
     }
-  }, [activeBrandId, brands, activeBrand.uploadedFiles, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.productDesc, activeBrand.geoGoals, getApiConfig, apiKey])
+  }, [activeBrandId, brands, activeBrand.uploadedFiles, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, getApiConfig, apiKey])
+
+  const handleGenerateAdvantages = useCallback(async () => {
+    if (!activeBrand.extractedProfile) return
+    if (!apiKey) {
+      updateBrand({ advantageError: "请填写 API Key" })
+      return
+    }
+
+    updateBrand({ advantageStatus: "generating", advantageError: "" })
+
+    try {
+      const res = await fetch("/api/geo-strategy/advantages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profile: activeBrand.extractedProfile,
+          rawInputs: {
+            project_name: activeBrand.projectName,
+            industry: activeBrand.industry,
+            audience: activeBrand.audience,
+            location_terms: activeBrand.locationTerms,
+            product_description: activeBrand.productDesc,
+            core_advantages: activeBrand.coreAdvantages,
+            pain_points_raw: activeBrand.painPointsRaw,
+            competitors_raw: activeBrand.competitorsRaw,
+            geo_goals: activeBrand.geoGoals,
+          },
+          count: 10,
+          apiConfig: getApiConfig(),
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || `请求失败 (${res.status})`)
+      }
+
+      const generated = ((data.advantages || []) as Array<Partial<ExtractedItem>>)
+        .map(item => ({
+          id: genId(),
+          text: String(item.text || "").trim(),
+          enabled: item.enabled !== false,
+          confidence: item.confidence === "high" || item.confidence === "low" ? item.confidence : "medium" as const,
+        }))
+        .filter(item => item.text)
+
+      const existing = activeBrand.extractedProfile.advantages || []
+      const seen = new Set(existing.map(item => item.text.trim()))
+      const merged = [
+        ...existing,
+        ...generated.filter(item => {
+          if (seen.has(item.text)) return false
+          seen.add(item.text)
+          return true
+        }),
+      ]
+
+      updateBrand({
+        extractedProfile: {
+          ...activeBrand.extractedProfile,
+          advantages: merged,
+        },
+        advantageStatus: "done",
+      })
+    } catch (err) {
+      updateBrand({
+        advantageError: err instanceof Error ? err.message : "优势生成失败",
+        advantageStatus: "error",
+      })
+    }
+  }, [activeBrandId, activeBrand.extractedProfile, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, getApiConfig, apiKey])
 
   // Strategy generation
   const handleGenerateStrategy = useCallback(async () => {
@@ -545,6 +767,9 @@ export default function GeoStrategyToolPage() {
               onGenerate={handleGenerateStrategy}
               generating={ab.strategyStatus === "generating"}
               strategyError={ab.strategyError}
+              advantageStatus={ab.advantageStatus}
+              advantageError={ab.advantageError}
+              onGenerateAdvantages={handleGenerateAdvantages}
               reExtracting={ab.extracting}
               onReExtract={handleReExtract}
             />
@@ -907,7 +1132,9 @@ function InputStep({
 // ==================== Step 2: Extraction Review ====================
 
 function ExtractionStep({
-  profile, onProfileChange, onBack, onGenerate, generating, strategyError, reExtracting, onReExtract,
+  profile, onProfileChange, onBack, onGenerate, generating, strategyError,
+  advantageStatus, advantageError, onGenerateAdvantages,
+  reExtracting, onReExtract,
 }: {
   profile: ExtractedProfile
   onProfileChange: (p: ExtractedProfile) => void
@@ -915,6 +1142,9 @@ function ExtractionStep({
   onGenerate: () => void
   generating: boolean
   strategyError: string
+  advantageStatus: GenerationStatus
+  advantageError: string
+  onGenerateAdvantages: () => void
   reExtracting: boolean
   onReExtract: () => void
 }) {
@@ -1001,17 +1231,35 @@ function ExtractionStep({
         <div key={section.key} className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-5 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-slate-700">{section.label}</h2>
-            <button onClick={() => addItem(section.key)}
-              className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition">
-              <Plus className="h-3 w-3" /> 新增
-            </button>
+            <div className="flex items-center gap-2">
+              {section.key === "advantages" && (
+                <button
+                  onClick={onGenerateAdvantages}
+                  disabled={advantageStatus === "generating"}
+                  className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {advantageStatus === "generating" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  生成优势
+                </button>
+              )}
+              <button onClick={() => addItem(section.key)}
+                className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition">
+                <Plus className="h-3 w-3" /> 新增
+              </button>
+            </div>
           </div>
+          {section.key === "advantages" && advantageError && (
+            <div className="mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-600 flex items-start gap-2">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              {advantageError}
+            </div>
+          )}
           <div className="space-y-2">
             {(profile[section.key] as ExtractedItem[]).length === 0 && (
               <p className="text-xs text-slate-400 py-2">暂无条目</p>
             )}
             {(profile[section.key] as ExtractedItem[]).map((item, i) => (
-              <div key={item.id} className={`flex items-start gap-2 p-3 rounded-xl border transition ${
+              <div key={item.id || `${String(section.key)}-${i}`} className={`flex items-start gap-2 p-3 rounded-xl border transition ${
                 item.enabled ? "bg-white border-slate-200" : "bg-slate-50 border-slate-100 opacity-60"
               }`}>
                 <div className="flex items-center gap-1.5 pt-1">
@@ -1158,7 +1406,7 @@ function StrategyStep({
 
       {/* Official Site Strategy */}
       {plan.official_site_strategy && plan.official_site_strategy.length > 0 && (
-        <Card title="官网优化策略" icon={<Settings className="h-4 w-4 text-indigo-500" />}>
+        <Card title="官网建设策略" icon={<Settings className="h-4 w-4 text-indigo-500" />}>
           <div className="space-y-3">
             {plan.official_site_strategy.map((item, i) => (
               <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
@@ -1189,6 +1437,9 @@ function StrategyStep({
                 <div className="text-sm font-semibold text-slate-700 mb-1">{site.suggested_name}</div>
                 <div className="text-xs text-slate-500 mb-2">{site.positioning}</div>
                 <div className="text-[11px] text-slate-400 mb-1"><span className="font-medium text-slate-500">内容栏目：</span>{site.content_pillars}</div>
+                {site.weakness_conversion && (
+                  <div className="text-[11px] text-amber-600 mb-1"><span className="font-medium text-amber-700">劣势转优势：</span>{site.weakness_conversion}</div>
+                )}
                 <div className="text-[11px] text-slate-400"><span className="font-medium text-slate-500">交叉验证：</span>{site.cross_validation_role}</div>
               </div>
             ))}
@@ -1385,15 +1636,24 @@ function QuestionSettingsPanel({
   const weaknessTotal = weaknesses.length * categoryConfig.weaknessesPerWeakness
   const remainingForKeywords = Math.max(0, effectiveCount - weaknessTotal)
   const coreMin = Math.ceil(effectiveCount * 0.30)
+  const allocationMode = categoryConfig.allocationMode || "ratio"
 
   // Apply ratios to remaining (keywords portion)
-  const coreAlloc = Math.floor(remainingForKeywords * categoryConfig.coreRatio)
-  const secondaryAlloc = Math.floor(remainingForKeywords * categoryConfig.secondaryRatio)
-  const painScenarioAlloc = remainingForKeywords - coreAlloc - secondaryAlloc
+  const ratioCoreAlloc = Math.floor(remainingForKeywords * categoryConfig.coreRatio)
+  const ratioSecondaryAlloc = Math.floor(remainingForKeywords * categoryConfig.secondaryRatio)
+  const ratioPainScenarioAlloc = remainingForKeywords - ratioCoreAlloc - ratioSecondaryAlloc
+  const customCoreAlloc = Math.min(600, Math.max(0, categoryConfig.coreCount ?? ratioCoreAlloc))
+  const customSecondaryAlloc = Math.min(600, Math.max(0, categoryConfig.secondaryCount ?? ratioSecondaryAlloc))
+  const customPainScenarioAlloc = Math.min(600, Math.max(0, categoryConfig.painScenarioCount ?? ratioPainScenarioAlloc))
+  const coreAlloc = allocationMode === "custom" ? customCoreAlloc : ratioCoreAlloc
+  const secondaryAlloc = allocationMode === "custom" ? customSecondaryAlloc : ratioSecondaryAlloc
+  const painScenarioAlloc = allocationMode === "custom" ? customPainScenarioAlloc : ratioPainScenarioAlloc
+  const keywordCustomTotal = customCoreAlloc + customSecondaryAlloc + customPainScenarioAlloc
+  const keywordCustomMismatch = allocationMode === "custom" && keywordCustomTotal !== remainingForKeywords
 
   // Validation
   const weaknessOverflow = weaknessTotal > effectiveCount
-  const coreBelowMin = remainingForKeywords > 0 && coreAlloc < coreMin
+  const coreBelowMin = allocationMode !== "custom" && remainingForKeywords > 0 && coreAlloc < coreMin
   const weaknessTooHeavy = weaknessTotal > effectiveCount * 0.5
 
   const coreKeywords = deriveCoreKeywords(plan)
@@ -1404,7 +1664,23 @@ function QuestionSettingsPanel({
     next.coreRatio = Math.min(0.70, Math.max(0.30, next.coreRatio))
     const maxSecondary = Math.min(0.50, 1.0 - next.coreRatio - 0.05)
     next.secondaryRatio = Math.min(maxSecondary, Math.max(0.05, next.secondaryRatio))
+    next.coreCount = Math.min(600, Math.max(0, Number(next.coreCount ?? 0) || 0))
+    next.secondaryCount = Math.min(600, Math.max(0, Number(next.secondaryCount ?? 0) || 0))
+    next.painScenarioCount = Math.min(600, Math.max(0, Number(next.painScenarioCount ?? 0) || 0))
     onCategoryConfigChange(next)
+  }
+
+  const switchAllocationMode = (mode: "ratio" | "custom") => {
+    if (mode === "custom") {
+      updateConfig({
+        allocationMode: "custom",
+        coreCount: ratioCoreAlloc,
+        secondaryCount: ratioSecondaryAlloc,
+        painScenarioCount: ratioPainScenarioAlloc,
+      })
+    } else {
+      updateConfig({ allocationMode: "ratio" })
+    }
   }
 
   return (
@@ -1487,7 +1763,23 @@ function QuestionSettingsPanel({
 
       {/* Keyword Category Ratios */}
       <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-3">
-        <h3 className="text-xs font-semibold text-slate-600">关键词分类比例（剩余 {remainingForKeywords} 条）</h3>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="text-xs font-semibold text-slate-600">关键词分类（剩余 {remainingForKeywords} 条）</h3>
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+            <button
+              onClick={() => switchAllocationMode("ratio")}
+              className={`text-[11px] px-2.5 py-1 rounded-md transition ${allocationMode === "ratio" ? "bg-[#004B73] text-white" : "text-slate-500 hover:bg-slate-50"}`}
+            >
+              按比例
+            </button>
+            <button
+              onClick={() => switchAllocationMode("custom")}
+              className={`text-[11px] px-2.5 py-1 rounded-md transition ${allocationMode === "custom" ? "bg-[#004B73] text-white" : "text-slate-500 hover:bg-slate-50"}`}
+            >
+              自定义数量
+            </button>
+          </div>
+        </div>
 
         {/* Core keywords */}
         <div>
@@ -1495,11 +1787,19 @@ function QuestionSettingsPanel({
             <label className="text-[11px] font-medium text-slate-500">
               核心关键词（品牌+地域+核心优势，≥30%总量）
             </label>
-            <span className="text-[11px] font-semibold text-blue-600">{Math.round(categoryConfig.coreRatio * 100)}% → {coreAlloc} 条</span>
+            <span className="text-[11px] font-semibold text-blue-600">
+              {allocationMode === "ratio" ? `${Math.round(categoryConfig.coreRatio * 100)}% → ` : ""}{coreAlloc} 条
+            </span>
           </div>
-          <input type="range" min={0.30} max={0.70} step={0.05} value={categoryConfig.coreRatio}
-            onChange={e => updateConfig({ coreRatio: Number(e.target.value) })}
-            className="w-full accent-[#0077B6]" />
+          {allocationMode === "ratio" ? (
+            <input type="range" min={0.30} max={0.70} step={0.05} value={categoryConfig.coreRatio}
+              onChange={e => updateConfig({ coreRatio: Number(e.target.value) })}
+              className="w-full accent-[#0077B6]" />
+          ) : (
+            <input type="number" min={0} max={600} value={customCoreAlloc}
+              onChange={e => updateConfig({ coreCount: Number(e.target.value) })}
+              className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-blue-400 transition" />
+          )}
           {coreKeywords.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {coreKeywords.slice(0, 6).map((kw, i) => (
@@ -1514,27 +1814,50 @@ function QuestionSettingsPanel({
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-[11px] font-medium text-slate-500">次关键词</label>
-            <span className="text-[11px] font-semibold text-purple-600">{Math.round(categoryConfig.secondaryRatio * 100)}% → {secondaryAlloc} 条</span>
-          </div>
-          <input type="range" min={0.05} max={Math.min(0.50, 1.0 - categoryConfig.coreRatio - 0.05)} step={0.05}
-            value={categoryConfig.secondaryRatio}
-            onChange={e => updateConfig({ secondaryRatio: Number(e.target.value) })}
-            className="w-full accent-[#7c3aed]" />
-        </div>
-
-        {/* Pain/Scenario (auto) */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[11px] font-medium text-slate-400">痛点/场景关键词（自动计算）</label>
-            <span className="text-[11px] text-slate-400">
-              {Math.round((1.0 - categoryConfig.coreRatio - categoryConfig.secondaryRatio) * 100)}% → {painScenarioAlloc} 条
+            <span className="text-[11px] font-semibold text-purple-600">
+              {allocationMode === "ratio" ? `${Math.round(categoryConfig.secondaryRatio * 100)}% → ` : ""}{secondaryAlloc} 条
             </span>
           </div>
-          <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 rounded-full"
-              style={{ width: "100%" }} />
-          </div>
+          {allocationMode === "ratio" ? (
+            <input type="range" min={0.05} max={Math.min(0.50, 1.0 - categoryConfig.coreRatio - 0.05)} step={0.05}
+              value={categoryConfig.secondaryRatio}
+              onChange={e => updateConfig({ secondaryRatio: Number(e.target.value) })}
+              className="w-full accent-[#7c3aed]" />
+          ) : (
+            <input type="number" min={0} max={600} value={customSecondaryAlloc}
+              onChange={e => updateConfig({ secondaryCount: Number(e.target.value) })}
+              className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-purple-400 transition" />
+          )}
         </div>
+
+        {/* Pain/Scenario */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[11px] font-medium text-slate-400">
+              痛点/场景关键词{allocationMode === "ratio" ? "（自动计算）" : ""}
+            </label>
+            <span className="text-[11px] text-slate-400">
+              {allocationMode === "ratio" ? `${Math.round((1.0 - categoryConfig.coreRatio - categoryConfig.secondaryRatio) * 100)}% → ` : ""}{painScenarioAlloc} 条
+            </span>
+          </div>
+          {allocationMode === "ratio" ? (
+            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 rounded-full"
+                style={{ width: "100%" }} />
+            </div>
+          ) : (
+            <input type="number" min={0} max={600} value={customPainScenarioAlloc}
+              onChange={e => updateConfig({ painScenarioCount: Number(e.target.value) })}
+              className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-emerald-400 transition" />
+          )}
+        </div>
+
+        {keywordCustomMismatch && (
+          <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-700">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            自定义关键词数量合计 {keywordCustomTotal} 条，需要等于剩余关键词数量 {remainingForKeywords} 条。
+          </div>
+        )}
       </div>
 
       {/* Preview */}
@@ -1561,7 +1884,7 @@ function QuestionSettingsPanel({
           </div>
           <div className="border-t border-slate-200 pt-1.5 flex justify-between">
             <span className="font-medium text-slate-600">总计</span>
-            <span className={`font-bold ${weaknessTotal + remainingForKeywords > effectiveCount ? "text-red-600" : "text-slate-800"}`}>
+            <span className={`font-bold ${weaknessTotal + coreAlloc + secondaryAlloc + painScenarioAlloc !== effectiveCount ? "text-red-600" : "text-slate-800"}`}>
               {weaknessTotal + coreAlloc + secondaryAlloc + painScenarioAlloc} 条
             </span>
           </div>
@@ -1596,7 +1919,7 @@ function QuestionSettingsPanel({
       )}
 
       <button onClick={onGenerateQuestions}
-        disabled={questionStatus === "generating" || weaknessOverflow}
+        disabled={questionStatus === "generating" || weaknessOverflow || keywordCustomMismatch}
         className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:shadow-lg hover:shadow-violet-300/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
         {questionStatus === "generating" ? <><Loader2 className="h-4 w-4 animate-spin" /> 生成中...</> : <><Sparkles className="h-4 w-4" /> 生成疑问句池</>}
       </button>
@@ -1667,7 +1990,7 @@ function ApiSettingsPanel({
               className="w-full mt-3 accent-[#0077B6]" />
           </div>
         </div>
-        <p className="text-[10px] text-slate-400 mt-2">接口地址只需填根地址，系统自动拼接 /v1/chat/completions</p>
+        <p className="text-[10px] text-slate-400 mt-2">接口地址只需填根地址，系统自动拼接 /v1/chat/completions；API 设置会自动保存在本地浏览器，下次打开直接可用。</p>
       </div>
     </div>
   )
@@ -1800,6 +2123,16 @@ function generateMarkdown(
       }
     }
   }
+  if (plan.official_site_strategy?.length) {
+    lines.push(`## 官网建设策略`)
+    lines.push(``)
+    plan.official_site_strategy.forEach((s, i) => {
+      lines.push(`### ${i + 1}. ${s.module}`)
+      lines.push(`- **建设动作**：${s.action}`)
+      lines.push(`- **目标**：${s.goal}`)
+      lines.push(``)
+    })
+  }
   if (plan.third_party_site_strategy?.length) {
     lines.push(`## 第三方网站策略`)
     lines.push(``)
@@ -1808,6 +2141,7 @@ function generateMarkdown(
       lines.push(`- **类型**：${s.site_type}`)
       lines.push(`- **定位**：${s.positioning}`)
       lines.push(`- **内容栏目**：${s.content_pillars}`)
+      if (s.weakness_conversion) lines.push(`- **劣势转优势**：${s.weakness_conversion}`)
       lines.push(`- **交叉验证**：${s.cross_validation_role}`)
       lines.push(``)
     })
@@ -1887,11 +2221,20 @@ function generateWordHtml(
     }
   }
 
+  // Official site
+  if (plan.official_site_strategy?.length) {
+    parts.push(`<h2>官网建设策略</h2><table><tr><th>模块</th><th>建设动作</th><th>目标</th></tr>`)
+    plan.official_site_strategy.forEach(s => {
+      parts.push(`<tr><td>${h(s.module)}</td><td>${h(s.action)}</td><td>${h(s.goal)}</td></tr>`)
+    })
+    parts.push(`</table>`)
+  }
+
   // Third party sites
   if (plan.third_party_site_strategy?.length) {
     parts.push(`<h2>第三方网站策略</h2>`)
     plan.third_party_site_strategy.forEach(s => {
-      parts.push(`<h3>${h(s.suggested_name)}</h3><table><tr><td width="100"><b>类型</b></td><td>${h(s.site_type)}</td></tr><tr><td><b>定位</b></td><td>${h(s.positioning)}</td></tr><tr><td><b>内容栏目</b></td><td>${h(s.content_pillars)}</td></tr><tr><td><b>交叉验证</b></td><td>${h(s.cross_validation_role)}</td></tr></table>`)
+      parts.push(`<h3>${h(s.suggested_name)}</h3><table><tr><td width="100"><b>类型</b></td><td>${h(s.site_type)}</td></tr><tr><td><b>定位</b></td><td>${h(s.positioning)}</td></tr><tr><td><b>内容栏目</b></td><td>${h(s.content_pillars)}</td></tr>${s.weakness_conversion ? `<tr><td><b>劣势转优势</b></td><td>${h(s.weakness_conversion)}</td></tr>` : ""}<tr><td><b>交叉验证</b></td><td>${h(s.cross_validation_role)}</td></tr></table>`)
     })
   }
 
