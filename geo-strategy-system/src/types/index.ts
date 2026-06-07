@@ -133,6 +133,44 @@ export interface StrategyResult {
   generatedAt: string
 }
 
+export type ResearchMode = "hypothesis" | "ai"
+
+export interface ResearchDimension {
+  name: string
+  score: number
+  insight: string
+  evidence: string[]
+}
+
+export interface ResearchResult {
+  mode: ResearchMode
+  hypothesis?: string
+  executiveSummary: string
+  brandImage: string
+  modelMentality: string
+  dimensions: ResearchDimension[]
+  audiencePerception: string[]
+  trustSignals: string[]
+  evidenceGaps: string[]
+  risks: string[]
+  opportunities: string[]
+  recommendations: string[]
+  generatedAt: string
+}
+
+export interface CompetitorCompareResult {
+  competitor: string
+  positioningSummary: string
+  ourAdvantages: string[]
+  competitorAdvantages: string[]
+  ourWeaknesses: string[]
+  competitorWeaknesses: string[]
+  differentiators: string[]
+  userChoiceDrivers: string[]
+  contentActions: string[]
+  generatedAt: string
+}
+
 export interface Client {
   id: string
   name: string
@@ -145,6 +183,8 @@ export interface Client {
   createdAt: string
   updatedAt: string
   penetration?: PenetrationResult
+  research?: ResearchResult
+  competitorCompare?: CompetitorCompareResult
   diagnosis?: Diagnosis
   strategy?: StrategyResult
 }

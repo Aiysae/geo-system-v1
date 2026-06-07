@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import ClientSidebar from "@/components/sidebar/client-sidebar"
 import PenetrationModule from "@/components/penetration/penetration-module"
+import ResearchModule from "@/components/research/research-module"
 import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
 import StrategyModule from "@/components/strategy/strategy-module"
 import { Sparkles, Printer, Menu } from "lucide-react"
@@ -281,6 +282,7 @@ function Dashboard({
           client={client}
           onChangeClient={onChangeClient}
         />
+        <ResearchModule client={client} onChangeClient={onChangeClient} />
         <DiagnosisModule client={client} onChangeClient={onChangeClient} />
         <StrategyModule client={client} onChangeClient={onChangeClient} />
       </section>
