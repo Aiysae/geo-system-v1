@@ -1,7 +1,6 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
-import { useAuth } from "@clerk/nextjs"
 import { Sparkles, X } from "lucide-react"
 import { registerCreditsHandlers, unregisterCreditsHandlers } from "@/lib/api-fetch"
 
@@ -21,7 +20,6 @@ export function useCredits() {
 type ModalState = { required?: number; balance?: number } | null
 
 export function CreditsProvider({ children }: { children: React.ReactNode }) {
-  const { isSignedIn } = useAuth()
   const [balance, setBalance] = useState<number | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
   // 避免短时间内多次成功触发并发 refresh
@@ -35,6 +33,8 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json()
         if (typeof data?.credits === "number") setBalance(data.credits)
+      } else if (res.status === 401) {
+        setBalance(null)
       }
     } catch {
       /* 静默 */
@@ -43,14 +43,12 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // 登录态变化时初始化/清空
+  // 页面加载后初始化积分；未登录页面会收到 401 并保持为空。
   useEffect(() => {
-    if (!isSignedIn) return
-
     queueMicrotask(() => {
       void refresh()
     })
-  }, [isSignedIn, refresh])
+  }, [refresh])
 
   // 注册 fetch 桥接回调
   useEffect(() => {

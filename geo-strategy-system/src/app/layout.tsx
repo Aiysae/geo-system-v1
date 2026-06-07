@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { ClerkProvider } from "@clerk/nextjs";
 import { CreditsProvider } from "@/components/credits/credits-provider";
 import "./globals.css";
 
@@ -14,22 +13,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      proxyUrl="/__clerk"
-      signInUrl="/sign-in"
-      signUpUrl="/sign-up"
-      signInFallbackRedirectUrl="/"
-      signUpFallbackRedirectUrl="/"
-      afterSignOutUrl="/sign-in"
+    <html
+      lang="zh-CN"
+      className="h-full antialiased"
     >
-      <html
-        lang="zh-CN"
-        className="h-full antialiased"
-      >
-        <body className="min-h-full bg-slate-50">
-          <CreditsProvider>{children}</CreditsProvider>
-        </body>
-      </html>
-    </ClerkProvider>
+      <body className="min-h-full bg-slate-50">
+        <CreditsProvider>{children}</CreditsProvider>
+      </body>
+    </html>
   );
 }

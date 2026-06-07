@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
-import { CREDITS_INITIAL, getCredits } from "@/lib/credits"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -11,6 +10,6 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  const credits = await getCredits(user.id)
-  return NextResponse.json({ credits, initial: CREDITS_INITIAL })
+
+  return NextResponse.json({ user })
 }
