@@ -111,8 +111,8 @@ pm2 startup   # 按提示执行生成的 sudo 命令，实现开机自启
 
 ```bash
 pm2 status
-pm2 logs geo --lines 100
-pm2 restart geo
+pm2 logs geo-system --lines 100
+pm2 restart geo-system --update-env
 ```
 
 ---
@@ -162,7 +162,7 @@ sudo certbot --nginx -d your-domain.com -d www.your-domain.com
 服务端日志：
 
 ```bash
-pm2 logs geo --lines 100
+pm2 logs geo-system --lines 100
 ```
 
 ---
@@ -178,7 +178,7 @@ cd geo-strategy-system
 set -a && source ../.env.production && set +a
 npm ci
 npm run build
-pm2 restart geo
+pm2 restart geo-system --update-env
 ```
 
 ### GitHub Actions 自动部署（可选）
@@ -211,9 +211,9 @@ pm2 restart geo
 ### AI 调用无返回 / 一直 loading
 
 1. 检查 `.env.production` 是否包含全部 LLM Key（`DEEPSEEK_*`、`ARK_*`、`DASHSCOPE_*`、`MOONSHOT_*`）
-2. `pm2 logs geo` 搜索 `API Key 未配置`、`HTTP 401`、`402`、`429`
+2. `pm2 logs geo-system` 搜索 `API Key 未配置`、`HTTP 401`、`402`、`429`
 3. Nginx 是否超时：渗透率需 `proxy_read_timeout 300s`（见 `deploy/nginx/geo.conf.example`）
-4. 修改环境变量后执行：`pm2 restart geo`
+4. 修改环境变量后执行：`pm2 restart geo-system --update-env`
 
 ### 401 Unauthorized
 
