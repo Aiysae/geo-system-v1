@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import type { ResearchDimension, ResearchMode, ResearchResult } from "@/types"
+import type { ResearchDimension, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonStrict } from "@/lib/score-utils"
 import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
@@ -71,10 +71,13 @@ ${sampleAnswers.map((item, i) => `${i + 1}. [${item.model}] ${item.hitOur ? "命
 
 function buildPrompt(args: {
   mode: ResearchMode
+  sourceMode: ResearchSourceMode
   ourBrand: string
   industry: string
   website: string
   competitors: string[]
+  region: string
+  aliases: string[]
   hypothesis: string
   penetrationContext: string
 }): { system: string; user: string } {
@@ -105,21 +108,35 @@ function buildPrompt(args: {
   "recommendations": ["具体行动建议，6-10 条"]
 }`
 
+  const sourceNote = args.sourceMode === "manual"
+    ? "本次使用用户手动填写的地区、行业、品牌全称和别名作为独立调研输入，不依赖模块一检测结果。"
+    : "本次优先使用模块一的品牌、行业、官网、竞品和疑问句检测结果作为独立调研输入。"
+
   const user = `请对以下品牌做${args.mode === "hypothesis" ? "假设验证式" : "AI 深度"}调研：
 
+数据来源：${sourceNote}
 品牌名：${args.ourBrand}
+品牌别名：${args.aliases.join("、") || "未提供"}
+地区：${args.region || "未指定"}
 行业：${args.industry || "未指定"}
 官网：${args.website || "未提供"}
 已知竞品：${args.competitors.join("、") || "未提供"}
 调研模式：${args.mode === "hypothesis" ? "假设验证" : "AI 深度调研"}
 用户假设：${args.mode === "hypothesis" ? args.hypothesis || "未填写具体假设，请自行提出可验证假设并评估。" : "无"}
 
-${args.penetrationContext}`
+${args.sourceMode === "module" ? args.penetrationContext : "【疑问句检测摘要】\n手动输入模式未使用模块一检测数据；请基于公开可验证信息和用户填写资料保守调研。"}`
 
   return { system, user }
 }
 
-function normalizeResult(raw: unknown, mode: ResearchMode, hypothesis: string): ResearchResult {
+function normalizeResult(
+  raw: unknown,
+  mode: ResearchMode,
+  sourceMode: ResearchSourceMode,
+  hypothesis: string,
+  region: string,
+  aliases: string[]
+): ResearchResult {
   const data = raw as Record<string, unknown>
   const dimensionsRaw = Array.isArray(data.dimensions) ? data.dimensions : []
   const dimensions: ResearchDimension[] = dimensionsRaw
@@ -137,7 +154,10 @@ function normalizeResult(raw: unknown, mode: ResearchMode, hypothesis: string): 
 
   return {
     mode,
+    sourceMode,
     hypothesis: mode === "hypothesis" ? hypothesis : undefined,
+    region: region || undefined,
+    aliases: aliases.length ? aliases : undefined,
     executiveSummary: text(data.executiveSummary, "豆包已完成调研，但未返回摘要。"),
     brandImage: text(data.brandImage, "暂无品牌形象结论。"),
     modelMentality: text(data.modelMentality, "暂无模型心智解释。"),
@@ -155,9 +175,14 @@ function normalizeResult(raw: unknown, mode: ResearchMode, hypothesis: string): 
 async function handler(req: NextRequest) {
   try {
     const body = await req.json()
+    const sourceMode: ResearchSourceMode = body.sourceMode === "manual" ? "manual" : "module"
+    const aliases: string[] = Array.isArray(body.aliases)
+      ? body.aliases.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 12)
+      : String(body.aliases || "").split(/[\n,，、]/).map(s => s.trim()).filter(Boolean).slice(0, 12)
     const ourBrand = String(body.ourBrand || "").trim()
     const industry = String(body.industry || "").trim()
     const website = String(body.website || "").trim()
+    const region = String(body.region || "").trim()
     const mode = body.mode === "hypothesis" ? "hypothesis" : "ai"
     const hypothesis = String(body.hypothesis || "").trim()
     const competitors: string[] = Array.isArray(body.competitors)
@@ -165,7 +190,10 @@ async function handler(req: NextRequest) {
       : []
 
     if (!ourBrand) {
-      return NextResponse.json({ error: "请填写我方品牌名" }, { status: 400 })
+      return NextResponse.json({ error: sourceMode === "manual" ? "请填写品牌全称" : "请填写我方品牌名" }, { status: 400 })
+    }
+    if (sourceMode === "manual" && !industry) {
+      return NextResponse.json({ error: "请填写行业" }, { status: 400 })
     }
     if (mode === "hypothesis" && !hypothesis) {
       return NextResponse.json({ error: "请填写要验证的假设" }, { status: 400 })
@@ -179,10 +207,13 @@ async function handler(req: NextRequest) {
 
     const { system, user } = buildPrompt({
       mode,
+      sourceMode,
       ourBrand,
       industry,
       website,
       competitors,
+      region,
+      aliases,
       hypothesis,
       penetrationContext: buildPenetrationContext(body.penetration),
     })
@@ -196,7 +227,7 @@ async function handler(req: NextRequest) {
       mode: "judge",
     })
     const parsed = parseJsonStrict<Record<string, unknown>>(raw, "豆包调研")
-    const result = normalizeResult(parsed, mode, hypothesis)
+    const result = normalizeResult(parsed, mode, sourceMode, hypothesis, region, aliases)
 
     await chargeCredits(guard.userId, mode === "hypothesis" ? 5 : 8)
     return NextResponse.json(result, {

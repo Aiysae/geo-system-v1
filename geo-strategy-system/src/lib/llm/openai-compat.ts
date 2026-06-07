@@ -19,6 +19,10 @@ interface ChatArgs {
   seed?: number
   jsonMode?: boolean
   mode?: LlmMode
+  /** Force the provider or adapter to use web search for this answer when supported. */
+  forceWebSearch?: boolean
+  /** Send only the user's question as conversation context; do not inject time/system hints. */
+  rawQuestionOnly?: boolean
 }
 
 export interface RawChatCompletionMessage {
@@ -56,6 +60,7 @@ export interface OpenAICompatRawArgs {
   seed?: number
   jsonMode?: boolean
   tools?: Array<Record<string, unknown>>
+  toolChoice?: Record<string, unknown> | string
   // 透传给厂商的非标准字段（如阿里千问 enable_search、火山方舟联网插件参数等）
   extraBody?: Record<string, unknown>
   extraHeaders?: Record<string, string>
@@ -75,6 +80,7 @@ export async function openaiCompatRaw({
   seed,
   jsonMode = false,
   tools,
+  toolChoice,
   extraBody,
   extraHeaders,
   timeoutMs,
@@ -94,6 +100,7 @@ export async function openaiCompatRaw({
   if (typeof seed === "number") payload.seed = seed
   if (jsonMode) payload.response_format = { type: "json_object" }
   if (tools && tools.length > 0) payload.tools = tools
+  if (toolChoice !== undefined) payload.tool_choice = toolChoice
   if (extraBody) Object.assign(payload, extraBody)
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined
@@ -238,6 +245,7 @@ export async function openaiCompatChat({
   seed,
   jsonMode,
   mode,
+  rawQuestionOnly,
   label,
   extraBody,
   extraHeaders,
@@ -277,16 +285,19 @@ export async function openaiCompatChat({
   const timeoutMs = (timeoutSec && timeoutSec > 0 ? timeoutSec : 300) * 1000
 
   try {
+    const messages: Array<Record<string, unknown>> = []
+    const systemContent = rawQuestionOnly ? system : withBeijingTime(system)
+    if (!rawQuestionOnly || systemContent.trim()) {
+      messages.push({ role: "system", content: systemContent })
+    }
+    messages.push({ role: "user", content: userContent })
+
     const data = await openaiCompatRaw({
       url,
       apiKey,
       model,
       label,
-      messages: [
-        // ★ 头部强制注入"当前北京时间"，覆盖所有走单轮入口的模型（豆包/千问/裁判路径）
-        { role: "system", content: withBeijingTime(system) },
-        { role: "user", content: userContent },
-      ],
+      messages,
       temperature,
       maxTokens,
       seed,

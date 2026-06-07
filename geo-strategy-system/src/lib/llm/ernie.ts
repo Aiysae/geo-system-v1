@@ -28,7 +28,7 @@ export async function chatErnie(args: ChatArgs): Promise<string> {
   const enableSearch = process.env.BAIDU_QIANFAN_ENABLE_SEARCH !== "false"
   const appId = process.env.BAIDU_QIANFAN_APP_ID || process.env.QIANFAN_APP_ID || ""
   const extraBody =
-    args.mode === "consumer" && enableSearch
+    args.forceWebSearch || (args.mode === "consumer" && enableSearch)
       ? { web_search: { enable: true, enable_trace: false } }
       : undefined
   const extraHeaders = appId ? { appid: appId } : undefined

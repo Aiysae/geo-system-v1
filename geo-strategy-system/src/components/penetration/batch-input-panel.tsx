@@ -13,6 +13,7 @@ import {
   Sparkles,
   Pencil,
   X,
+  Globe2,
 } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/llm"
 import { apiFetch } from "@/lib/api-fetch"
@@ -301,6 +302,13 @@ export default function BatchInputPanel({
             )
           })}
         </div>
+      </div>
+
+      <div className="flex items-start gap-2 rounded-lg border border-cyan-200 bg-cyan-50/70 p-2.5 text-[11px] leading-relaxed text-cyan-900">
+        <Globe2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-700" />
+        <span>
+          每条疑问句会逐模型单独联网提问；被测模型只收到该问题本身，不会收到目标品牌、竞品清单或检测意图。命中结果由后端读取真实回答原文后判断。
+        </span>
       </div>
 
       {skipped && skipped.length > 0 && (

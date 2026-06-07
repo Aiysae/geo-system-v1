@@ -253,9 +253,9 @@ function RawAnswersPanel({
             <MessageSquare className="h-3.5 w-3.5 text-white" />
           </span>
           <div className="text-left">
-            <div className="text-sm font-medium text-slate-800">AI 原始回复审计</div>
+            <div className="text-sm font-medium text-slate-800">联网回答命中审计</div>
             <div className="text-[11px] text-slate-500">
-              查看每个模型对每个问题的真实回答（黄色高亮 = 命中我方品牌）
+              每条回答来自独立联网提问；默认展示摘要，黄色高亮为真实提及我方品牌
             </div>
           </div>
         </div>
@@ -349,8 +349,8 @@ function AnswerItem({
   highlightFn: (t: string, b: string) => React.ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
-  const isLong = text.length > 300
-  const displayText = !isLong || expanded ? text : text.slice(0, 300) + "..."
+  const isLong = text.length > 260
+  const displayText = !isLong || expanded ? text : text.slice(0, 260) + "..."
 
   return (
     <div className="pl-7 mb-2">
@@ -362,7 +362,7 @@ function AnswerItem({
           onClick={() => setExpanded(!expanded)}
           className="mt-1.5 text-[11px] font-medium text-[#0077B6] hover:text-[#004B73] transition-colors"
         >
-          {expanded ? "收起完整回答" : "展开完整回答"}
+          {expanded ? "收起完整联网回答" : "展开完整联网回答"}
         </button>
       )}
     </div>

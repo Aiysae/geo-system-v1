@@ -37,7 +37,7 @@ export function isHunyuanConfigured(): boolean {
 export async function chatHunyuan(args: ChatArgs): Promise<string> {
   const enableEnhancement = process.env.TENCENT_HUNYUAN_ENABLE_ENHANCEMENT === "true"
   const extraBody =
-    args.mode === "consumer" && enableEnhancement
+    args.forceWebSearch || (args.mode === "consumer" && enableEnhancement)
       ? { enable_enhancement: true }
       : undefined
 

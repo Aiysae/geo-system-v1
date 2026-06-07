@@ -3,7 +3,8 @@ import { withBeijingTime } from "./time-context"
 
 // Kimi (Moonshot) 适配器
 //
-// 所有调用（含 jsonMode=true 的"裁判"路径）一律开启官方 builtin function "$web_search" 联网检索。
+// 渗透率客观盲测会通过 forceWebSearch 强制开启官方 builtin function "$web_search"；
+// 分析/裁判路径默认带联网工具。
 // 严格按 Moonshot 文档处理 tool_calls 循环：
 //   https://platform.moonshot.cn/docs/api/tool_use#web-search
 //
@@ -52,18 +53,23 @@ function messageText(content: unknown): string {
 export async function chatKimi(args: ChatArgs): Promise<string> {
   const key = apiKey()
   const selectedModel = model()
+  const useSearchTool = args.forceWebSearch || args.mode !== "consumer"
 
   if (!key) {
     console.warn("[Kimi] Moonshot API Key is undefined（process.env.MOONSHOT_API_KEY 为空，请检查 .env.local 是否已加载）")
     throw new Error(`${LABEL} 接口配置缺失：未读取到环境变量 MOONSHOT_API_KEY。`)
   }
 
-  // 所有路径都进 $web_search 工具循环，包括 jsonMode（裁判）。
-  // 顶部注入"当前北京时间"作为时间锚点，避免 Kimi 把"今天"理解错。
-  const messages: Array<Record<string, unknown>> = [
-    { role: "system", content: withBeijingTime(args.system) },
-    { role: "user", content: args.user },
-  ]
+  // 裁判/分析路径注入"当前北京时间"作为时间锚点；客观盲测 rawQuestionOnly
+  // 不注入 system message，保持被测模型只收到用户疑问句本身。
+  const messages: Array<Record<string, unknown>> = []
+  if (!args.rawQuestionOnly || args.system.trim()) {
+    messages.push({
+      role: "system",
+      content: args.rawQuestionOnly ? args.system : withBeijingTime(args.system),
+    })
+  }
+  messages.push({ role: "user", content: args.user })
 
   const MAX_ROUNDS = 4
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -81,7 +87,11 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
         // jsonMode 透传给底层；若上游 400/422 拒绝 tools+response_format，
         // openai-compat 已有去掉 response_format 重试的兜底。
         jsonMode: args.jsonMode,
-        tools: args.mode === "consumer" ? undefined : [WEB_SEARCH_TOOL],
+        tools: useSearchTool ? [WEB_SEARCH_TOOL] : undefined,
+        toolChoice:
+          args.forceWebSearch && round === 0
+            ? { type: "builtin_function", function: { name: "$web_search" } }
+            : undefined,
       })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)

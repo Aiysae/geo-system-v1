@@ -5,8 +5,8 @@
 //   - 豆包 Endpoint 模式（未配 BOT_ID 时走这里兜底）
 //
 // 设计要点：
-// 1) 永远开启 search_web 工具，连"裁判"等 jsonMode=true 的场景也带着，
-//    满足"所有 AI 调用都必须联网"的硬约束。
+// 1) 普通分析/裁判路径会带 search_web 工具；渗透率客观盲测路径会在第一轮
+//    通过 tool_choice 强制调用 search_web，确保回答确实来自联网检索。
 // 2) 把"当前北京时间"注入 system 头部，减少不必要的搜索、稳住"今天"锚点。
 // 3) System 末尾追加搜索纪律：涉及最新资讯/不熟悉品牌必须先搜。
 // 4) 工具循环捕获 search_web 调用，本地 webSearch() 抓真实网页喂回，最多 MAX_ROUNDS 轮。
@@ -68,14 +68,20 @@ interface ToolLoopArgs extends ChatArgs {
 }
 
 export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<string> {
-  const finalSystem = args.mode === 'consumer'
-    ? args.system || ""
-    : (args.system || "") + SEARCH_DIRECTIVE;
+  const useSearchTool = args.forceWebSearch || args.mode !== "consumer"
+  const shouldAddSearchDirective = !args.rawQuestionOnly && args.mode !== "consumer"
+  const finalSystem = shouldAddSearchDirective
+    ? (args.system || "") + SEARCH_DIRECTIVE
+    : args.system || ""
 
-  const messages: Array<Record<string, unknown>> = [
-    { role: "system", content: withBeijingTime(finalSystem) },
-    { role: "user", content: args.user },
-  ]
+  const messages: Array<Record<string, unknown>> = []
+  if (!args.rawQuestionOnly || finalSystem.trim()) {
+    messages.push({
+      role: "system",
+      content: args.rawQuestionOnly ? finalSystem : withBeijingTime(finalSystem),
+    })
+  }
+  messages.push({ role: "user", content: args.user })
 
   const MAX_ROUNDS = 4 // 1 轮原始 + 最多 3 轮工具
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -91,7 +97,11 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
       // ★ 关键：jsonMode 透传，让"裁判"路径也照常拿 JSON 输出，
       //    若供应商不接受 tools+response_format 同时启用，openai-compat 已带 400 重试兜底。
       jsonMode: args.jsonMode,
-      tools: args.mode === 'consumer' ? undefined : [SEARCH_WEB_TOOL],
+      tools: useSearchTool ? [SEARCH_WEB_TOOL] : undefined,
+      toolChoice:
+        args.forceWebSearch && round === 0
+          ? { type: "function", function: { name: "search_web" } }
+          : undefined,
     })
 
     const choice = data.choices?.[0]
