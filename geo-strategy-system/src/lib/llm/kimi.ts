@@ -1,5 +1,6 @@
 import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
 import { chatWithLocalWebSearchTool } from "./tool-loop"
+import { extractSourcesFromUnknown } from "./source-extract"
 import { withBeijingTime } from "./time-context"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
@@ -61,7 +62,7 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
   const config = await getAiProviderRuntimeSetting("kimi")
   const key = config.apiKey
   const selectedModel = config.model
-  const useSearchTool = args.forceWebSearch || args.mode !== "consumer"
+  const useSearchTool = args.forceWebSearch || (args.allowWebSearch !== false && args.mode !== "consumer")
 
   if (!key) {
     console.warn("[Kimi] Moonshot API Key is undefined（请在后台管理页配置 Kimi 模型）")
@@ -112,6 +113,7 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
           args.forceWebSearch && round === 0
             ? { type: "builtin_function", function: { name: "$web_search" } }
             : undefined,
+        extraBody: shouldDisableThinking(selectedModel) ? { thinking: { type: "disabled" } } : undefined,
       })
 
     try {
@@ -153,6 +155,16 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
       })
       for (const tc of msg.tool_calls) {
         if (tc.function?.name === "$web_search") {
+          let parsedArguments: unknown = tc.function.arguments
+          try {
+            parsedArguments = JSON.parse(tc.function.arguments || "{}")
+          } catch {
+            parsedArguments = tc.function.arguments
+          }
+          const sources = extractSourcesFromUnknown(parsedArguments, args.user)
+          if (sources.length > 0) {
+            args.onSearchSources?.({ query: args.user, sources })
+          }
           // Moonshot 协议：$web_search 是 builtin，搜索已在服务器端执行，
           // 客户端只需把 arguments 原样作为 tool 结果回传。
           messages.push({
@@ -176,6 +188,10 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
     const content = messageText(msg.content)
     if (!content.trim()) {
       throw new Error(`${LABEL} 返回空内容（finish_reason=${finish || "unknown"}），请检查模型名、联网工具或上游额度。`)
+    }
+    const nativeSources = extractSourcesFromUnknown(data, args.user)
+    if (nativeSources.length > 0) {
+      args.onSearchSources?.({ query: args.user, sources: nativeSources })
     }
     return content
   }

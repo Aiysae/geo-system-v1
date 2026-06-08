@@ -97,38 +97,53 @@ function parseBing(html: string, max: number): SearchHit[] {
  * 执行一次网页搜索。返回最多 maxResults 条 {title, snippet, url}。
  * 永不抛出：上游搜索失败时返回 []，并在控制台 warn 一笔。
  */
-export async function webSearch(query: string, maxResults = 5): Promise<SearchHit[]> {
+export async function webSearch(query: string, maxResults = 10): Promise<SearchHit[]> {
   const q = query.trim()
   if (!q) return []
+
+  const ddgHits: SearchHit[] = []
+  const bingHits: SearchHit[] = []
 
   // 1) DuckDuckGo HTML
   try {
     const html = await fetchText(
       `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=cn-zh`
     )
-    const hits = parseDuckDuckGo(html, maxResults)
-    if (hits.length > 0) return hits
-    console.warn(`[web-search] DuckDuckGo 返回 0 条，降级 Bing | q="${q}"`)
+    ddgHits.push(...parseDuckDuckGo(html, maxResults))
+    if (ddgHits.length === 0) {
+      console.warn(`[web-search] DuckDuckGo 返回 0 条，继续取 Bing | q="${q}"`)
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.warn(`[web-search] DuckDuckGo 调用失败：${msg}，降级 Bing | q="${q}"`)
+    console.warn(`[web-search] DuckDuckGo 调用失败：${msg}，继续取 Bing | q="${q}"`)
   }
 
-  // 2) Bing 中文站
+  // 2) Bing 中文站：与 DDG 合并去重，来源更充分。
   try {
     const html = await fetchText(
       `https://www.bing.com/search?q=${encodeURIComponent(q)}&mkt=zh-CN`
     )
-    const hits = parseBing(html, maxResults)
-    if (hits.length === 0) {
+    bingHits.push(...parseBing(html, maxResults))
+    if (bingHits.length === 0) {
       console.warn(`[web-search] Bing 也返回 0 条 | q="${q}"`)
     }
-    return hits
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.warn(`[web-search] Bing 调用失败：${msg} | q="${q}"`)
-    return []
   }
+
+  const merged: SearchHit[] = []
+  const seen = new Set<string>()
+  const maxLen = Math.max(ddgHits.length, bingHits.length)
+  for (let i = 0; i < maxLen && merged.length < maxResults; i++) {
+    for (const hit of [ddgHits[i], bingHits[i]]) {
+      if (!hit || seen.has(hit.url)) continue
+      seen.add(hit.url)
+      merged.push(hit)
+      if (merged.length >= maxResults) break
+    }
+  }
+  return merged
 }
 
 /**
@@ -137,13 +152,19 @@ export async function webSearch(query: string, maxResults = 5): Promise<SearchHi
  */
 export function formatHitsForLLM(query: string, hits: SearchHit[]): string {
   if (hits.length === 0) {
-    return `(搜索 "${query}" 未取到任何网页结果，请基于既有知识谨慎作答；若不确定请明说 "不了解"。)`
+    return JSON.stringify({ query, public_web_pages: [] })
   }
-  const lines: string[] = [`关于 "${query}" 的实时网页搜索结果 (Top ${hits.length})：`]
-  hits.forEach((h, i) => {
-    const title = h.title.slice(0, 80)
-    const snippet = h.snippet.slice(0, 200)
-    lines.push(`【${i + 1}】${title}\n  摘要: ${snippet}\n  来源: ${h.url}`)
-  })
-  return lines.join("\n")
+  return JSON.stringify(
+    {
+      query,
+      public_web_pages: hits.map((h, i) => ({
+        index: i + 1,
+        title: h.title.slice(0, 100),
+        snippet: h.snippet.slice(0, 260),
+        url: h.url,
+      })),
+    },
+    null,
+    2
+  )
 }

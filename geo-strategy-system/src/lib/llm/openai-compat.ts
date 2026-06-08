@@ -9,6 +9,7 @@
 //    工具循环类（如 deepseek/kimi）自行拼装 messages 时也应使用 withBeijingTime。
 
 import type { LlmMode, PenetrationSource } from "@/types"
+import { extractSourcesFromUnknown } from "./source-extract"
 import { withBeijingTime } from "./time-context"
 
 export interface SearchSourceEvent {
@@ -26,6 +27,8 @@ export interface ChatArgs {
   mode?: LlmMode
   /** Force the provider or adapter to use web search for this answer when supported. */
   forceWebSearch?: boolean
+  /** Disable default web-search tools for internal JSON/judging calls. */
+  allowWebSearch?: boolean
   /** Send only the user's question as conversation context; do not inject time/system hints. */
   rawQuestionOnly?: boolean
   /** Observe the public web sources used by local search adapters. */
@@ -64,6 +67,24 @@ async function postChatCompletion(args: {
     },
     body: JSON.stringify(args.payload),
   })
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function retryDelayMs(headers: Headers, body: string, attempt: number): number {
+  const headerValue = headers.get("retry-after")
+  const headerSeconds = headerValue ? Number(headerValue) : NaN
+  if (Number.isFinite(headerSeconds) && headerSeconds > 0) {
+    return Math.min(15000, Math.ceil(headerSeconds * 1000))
+  }
+  const bodyMatch = body.match(/try again after\s+([0-9]+(?:\.[0-9]+)?)\s*seconds?/i)
+  if (bodyMatch) {
+    const seconds = Number(bodyMatch[1])
+    if (Number.isFinite(seconds) && seconds > 0) return Math.min(15000, Math.ceil(seconds * 1000))
+  }
+  return Math.min(15000, 1200 * Math.pow(2, attempt))
 }
 
 export interface RawChatCompletionMessage {
@@ -158,6 +179,15 @@ export async function openaiCompatRaw({
     throw new Error(`${label} API 连接失败：${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
   }
   if (timeout) clearTimeout(timeout)
+
+  for (let retry = 0; retry < 3 && res.status === 429; retry++) {
+    const rawTxt = await res.text().catch(() => "")
+    const txt = redactSecrets(rawTxt)
+    const delay = retryDelayMs(res.headers, txt, retry)
+    console.warn(`[${label}·429] 请求触发限流，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`)
+    await sleep(delay)
+    res = await postChatCompletion({ url, apiKey, payload, extraHeaders })
+  }
 
   if (!res.ok) {
     const rawTxt = await res.text().catch(() => "")
@@ -280,6 +310,7 @@ export async function openaiCompatChat({
   extraHeaders,
   images,
   timeoutSec,
+  onSearchSources,
 }: OpenAICompatArgs): Promise<string> {
   if (!apiKey) {
     console.warn(`[${label}] API Key is undefined（请检查后台管理页中的模型配置）`)
@@ -335,6 +366,10 @@ export async function openaiCompatChat({
       extraHeaders,
       timeoutMs,
     })
+    const nativeSources = onSearchSources ? extractSourcesFromUnknown(data, String(user)) : []
+    if (nativeSources.length > 0) {
+      onSearchSources?.({ query: String(user), sources: nativeSources })
+    }
     const choice = data.choices?.[0]
     const content = extractMessageContent(choice?.message, label)
     if (!content.trim()) {

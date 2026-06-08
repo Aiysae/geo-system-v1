@@ -13,14 +13,17 @@
 
 import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
 import { webSearch, formatHitsForLLM, type SearchHit } from "./web-search"
+import { normalizeSourceDomain } from "./source-extract"
 import { withBeijingTime } from "./time-context"
+
+const SEARCH_RESULTS_PER_CALL = 12
 
 const SEARCH_WEB_TOOL = {
   type: "function",
   function: {
     name: "search_web",
     description:
-      "联网搜索引擎。当用户提问涉及『最新资讯/今天日期/近期事件/你不熟悉的具体公司或品牌』时，必须调用此工具获取真实网页结果，严禁凭空猜测。",
+      "后台联网搜索工具。仅用于获取公开网页资料；最终回答必须像普通直接问答，不要提及 search_web、工具、搜索结果、检索过程，也不要说『搜索结果没有直接给出』。",
     parameters: {
       type: "object",
       properties: {
@@ -43,6 +46,9 @@ const SEARCH_DIRECTIVE = `
 - 一次问题最多调用 search_web 3 次，每次 query 要聚焦。
 - 拿到 tool 结果后，要客观引用其中事实，不要逐条复读链接。`
 
+const CONSUMER_TOOL_STYLE_DIRECTIVE =
+  "Final answer style: answer the user's question directly. Do not mention search tools, search results, retrieved pages, or whether the results directly contain the answer."
+
 function messageText(content: unknown): string {
   if (typeof content === "string") return content
   if (Array.isArray(content)) {
@@ -60,15 +66,6 @@ function messageText(content: unknown): string {
   return ""
 }
 
-function normalizeDomain(url: string): string {
-  try {
-    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "")
-    return host || "unknown"
-  } catch {
-    return "unknown"
-  }
-}
-
 function emitSearchSources(args: ToolLoopArgs, query: string, hits: SearchHit[]) {
   if (!args.onSearchSources) return
   args.onSearchSources({
@@ -77,7 +74,7 @@ function emitSearchSources(args: ToolLoopArgs, query: string, hits: SearchHit[])
       title: hit.title,
       snippet: hit.snippet,
       url: hit.url,
-      domain: normalizeDomain(hit.url),
+      domain: normalizeSourceDomain(hit.url),
       query,
     })),
   })
@@ -101,7 +98,7 @@ interface ToolLoopArgs extends ChatArgs {
 
 async function chatWithPresearchedContext(args: ToolLoopArgs): Promise<string> {
   const t0 = Date.now()
-  const hits = await webSearch(args.user, 5)
+  const hits = await webSearch(args.user, SEARCH_RESULTS_PER_CALL)
   emitSearchSources(args, args.user, hits)
   console.log(
     `[${args.label}·presearch] q="${args.user.slice(0, 80)}" hits=${hits.length} ${Date.now() - t0}ms`
@@ -119,7 +116,7 @@ async function chatWithPresearchedContext(args: ToolLoopArgs): Promise<string> {
   const formatted = formatHitsForLLM(args.user, hits)
   messages.push({
     role: "user",
-    content: `${args.user}\n\n【联网搜索结果】\n${formatted}\n\n请基于以上真实联网搜索结果回答原问题；如果搜索结果不足以确认，请明确说明不确定。`,
+    content: `${args.user}\n\n${formatted}`,
   })
 
   const data = await openaiCompatRaw({
@@ -148,12 +145,14 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
     return chatWithPresearchedContext(args)
   }
 
-  const useSearchTool = args.forceWebSearch || args.mode !== "consumer"
-  const shouldAddSearchDirective = !args.rawQuestionOnly && args.mode !== "consumer"
+  const useSearchTool = args.forceWebSearch || (args.allowWebSearch !== false && args.mode !== "consumer")
+  const shouldAddSearchDirective =
+    !args.rawQuestionOnly && args.allowWebSearch !== false && args.mode !== "consumer"
   const finalSystem = shouldAddSearchDirective
     ? (args.system || "") + SEARCH_DIRECTIVE
     : args.system || ""
   const allowSpecifiedToolChoice = args.allowSpecifiedToolChoice !== false
+  const consumerForcedSearch = args.forceWebSearch && args.mode === "consumer"
 
   const messages: Array<Record<string, unknown>> = []
   if (!args.rawQuestionOnly || finalSystem.trim()) {
@@ -178,7 +177,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
       // ★ 关键：jsonMode 透传，让"裁判"路径也照常拿 JSON 输出，
       //    若供应商不接受 tools+response_format 同时启用，openai-compat 已带 400 重试兜底。
       jsonMode: args.jsonMode,
-      tools: useSearchTool ? [SEARCH_WEB_TOOL] : undefined,
+      tools: useSearchTool && !(consumerForcedSearch && round > 0) ? [SEARCH_WEB_TOOL] : undefined,
       toolChoice:
         args.forceWebSearch && allowSpecifiedToolChoice && round === 0
           ? { type: "function", function: { name: "search_web" } }
@@ -200,15 +199,16 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
       })
       for (const tc of msg.tool_calls) {
         if (tc.function?.name === "search_web") {
-          let query = ""
+          let query = consumerForcedSearch && round === 0 ? args.user : ""
           try {
             const parsed = JSON.parse(tc.function.arguments || "{}") as { query?: unknown }
-            query = typeof parsed.query === "string" ? parsed.query : ""
+            if (!query) query = typeof parsed.query === "string" ? parsed.query : ""
           } catch {
-            query = ""
+            if (!query) query = ""
           }
+          if (!query.trim()) query = args.user
           const t0 = Date.now()
-          const hits = await webSearch(query, 5)
+          const hits = await webSearch(query, SEARCH_RESULTS_PER_CALL)
           emitSearchSources(args, query, hits)
           console.log(
             `[${args.label}·search_web] q="${query}" hits=${hits.length} ${Date.now() - t0}ms`
@@ -218,10 +218,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
             role: "tool",
             tool_call_id: tc.id,
             name: "search_web",
-            content:
-              args.mode === "consumer"
-                ? `${formatted}\n\n【要求】请保留关键事实、品牌名、时间、价格、数据与来源细节，不要过度压缩搜索结果。`
-                : formatted,
+            content: args.mode === "consumer" ? `${formatted}\n\n${CONSUMER_TOOL_STYLE_DIRECTIVE}` : formatted,
           })
         } else {
           messages.push({

@@ -28,21 +28,9 @@ export async function chatHunyuan(args: ChatArgs): Promise<string> {
     })
   }
 
-  if (args.forceWebSearch) {
-    return chatWithLocalWebSearchTool({
-      url: buildAiChatUrl(config),
-      apiKey: config.apiKey,
-      model: config.model,
-      label: "腾讯元宝/混元",
-      forceSearchMode: "presearch",
-      allowSpecifiedToolChoice: false,
-      ...args,
-    })
-  }
-
   const enableEnhancement = config.extra.enableEnhancement === true
   const extraBody =
-    args.forceWebSearch || (args.mode === "consumer" && enableEnhancement)
+    args.forceWebSearch || (args.allowWebSearch !== false && args.mode === "consumer" && enableEnhancement)
       ? { enable_enhancement: true }
       : undefined
 
