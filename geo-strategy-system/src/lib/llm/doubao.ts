@@ -12,8 +12,8 @@ import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 //      此路径强制接入本地 search_web Function Calling 兜底（与 DeepSeek 同款）。
 //
 // 因此：
-//   - 在后台配置了 Bot ID：走 bots 入口，吃 Bot 的原生联网插件。
-//   - 否则：走 endpoint + search_web 工具循环外挂，保证依然联网。
+//   - 渗透率客观盲测：只走纯净 Endpoint / 原始模型 ID + 本地 search_web 工具，严禁使用 Bot。
+//   - 非盲测调研/分析：优先走 Bot，吃 Bot 的原生联网插件。
 //
 // 参考文档：
 //   - https://www.volcengine.com/docs/82379/1099475 (Bot 调用)
@@ -43,15 +43,33 @@ export async function isDoubaoConfigured(): Promise<boolean> {
   return !!config.apiKey && (!!botId || !!config.model)
 }
 
+function isRawArkModel(model: string): boolean {
+  return model.startsWith("ep-") || model.startsWith("doubao-")
+}
+
 export async function chatDoubao(args: ChatArgs): Promise<string> {
   const config = await getAiProviderRuntimeSetting("doubao")
   const key = config.apiKey
   const bot = typeof config.extra.botId === "string" ? config.extra.botId : ""
   const endpoint = config.model
 
+  if (args.forceWebSearch) {
+    if (!isRawArkModel(endpoint)) {
+      throw new Error(
+        `豆包客观盲测需要纯净模型：请在后台豆包「模型 / Endpoint」填写 ep- 开头的 Endpoint ID，或官方 doubao- 开头的模型 ID。当前值：「${endpoint || "空"}」。Bot ID 可能带知识库，模块一不会使用。`
+      )
+    }
+    return chatWithLocalWebSearchTool({
+      url: ENDPOINT_URL,
+      apiKey: key,
+      model: endpoint,
+      label: "豆包",
+      ...args,
+    })
+  }
+
   if (bot) {
-    // Bot 模式：原生联网插件，single-shot 即可。渗透率盲测也优先走 Bot，
-    // 避免把后台"模型名"误当 Ark Endpoint ID 传给 /chat/completions。
+    // Bot 模式仅用于非盲测调研/分析；模块一 forceWebSearch 会在上方提前返回。
     return openaiCompatChat({
       url: BOT_URL,
       apiKey: key,
@@ -61,9 +79,9 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
     })
   }
 
-  if (!endpoint.startsWith("ep-")) {
+  if (!isRawArkModel(endpoint)) {
     throw new Error(
-      `豆包 Endpoint ID 配置错误：当前填写的是「${endpoint || "空"}」。火山方舟 /chat/completions 需要 ep- 开头的 Endpoint ID；如果你有 bot- 开头的 Bot，请填到后台豆包配置的 Bot ID 字段。`
+      `豆包 Endpoint/模型配置错误：当前填写的是「${endpoint || "空"}」。火山方舟 /chat/completions 需要 ep- 开头的 Endpoint ID，或官方 doubao- 开头的模型 ID；如果你有 bot- 开头的 Bot，请填到后台豆包配置的 Bot ID 字段。`
     )
   }
 

@@ -255,7 +255,7 @@ function RawAnswersPanel({
           <div className="text-left">
             <div className="text-sm font-medium text-slate-800">联网回答命中审计</div>
             <div className="text-[11px] text-slate-500">
-              每条回答来自独立联网提问；默认展示摘要，黄色高亮为真实提及我方品牌
+              每条回答来自纯净模型独立联网提问；默认展示摘要，黄色高亮为真实提及我方品牌
             </div>
           </div>
         </div>

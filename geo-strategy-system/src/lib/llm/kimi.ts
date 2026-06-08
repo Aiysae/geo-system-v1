@@ -1,4 +1,5 @@
 import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
+import { chatWithLocalWebSearchTool } from "./tool-loop"
 import { withBeijingTime } from "./time-context"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
@@ -15,6 +16,10 @@ import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 // 错误日志：所有失败一律打印【完整错误体】到终端，便于排查 401/400 等鉴权或参数错误。
 
 const LABEL = "Kimi"
+
+function isTokenHub(baseUrl: string): boolean {
+  return /tokenhub\.tencentmaas\.com/i.test(baseUrl)
+}
 
 export async function isKimiConfigured(): Promise<boolean> {
   const config = await getAiProviderRuntimeSetting("kimi")
@@ -56,6 +61,16 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
   if (!key) {
     console.warn("[Kimi] Moonshot API Key is undefined（请在后台管理页配置 Kimi 模型）")
     throw new Error(`${LABEL} 接口配置缺失：请在后台管理页配置 API Key 和模型。`)
+  }
+
+  if (isTokenHub(config.baseUrl)) {
+    return chatWithLocalWebSearchTool({
+      url: buildAiChatUrl(config),
+      apiKey: key,
+      model: selectedModel,
+      label: LABEL,
+      ...args,
+    })
   }
 
   // 裁判/分析路径注入"当前北京时间"作为时间锚点；客观盲测 rawQuestionOnly

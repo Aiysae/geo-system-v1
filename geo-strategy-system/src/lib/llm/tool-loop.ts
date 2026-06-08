@@ -65,6 +65,8 @@ interface ToolLoopArgs extends ChatArgs {
   apiKey: string
   model: string
   label: string
+  extraBody?: Record<string, unknown>
+  extraHeaders?: Record<string, string>
 }
 
 export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<string> {
@@ -102,6 +104,8 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
         args.forceWebSearch && round === 0
           ? { type: "function", function: { name: "search_web" } }
           : undefined,
+      extraBody: args.extraBody,
+      extraHeaders: args.extraHeaders,
     })
 
     const choice = data.choices?.[0]
