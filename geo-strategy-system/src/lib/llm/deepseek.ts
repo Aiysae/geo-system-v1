@@ -12,6 +12,11 @@ import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 const LABEL = "DeepSeek"
 
+function shouldUseToolCompatibleModel(model: string, args: ChatArgs): boolean {
+  if (!args.forceWebSearch && args.mode === "consumer") return false
+  return /reasoner|thinking|r1/i.test(model)
+}
+
 export async function isDeepSeekConfigured(): Promise<boolean> {
   const config = await getAiProviderRuntimeSetting("deepseek")
   return !!config.apiKey
@@ -23,10 +28,14 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     console.warn("[DeepSeek] API Key is undefined（请在后台管理页配置 DeepSeek 模型）")
     throw new Error(`${LABEL} 接口配置缺失：请在后台管理页配置 API Key 和模型。`)
   }
+  const model = shouldUseToolCompatibleModel(config.model, args) ? "deepseek-chat" : config.model
+  if (model !== config.model) {
+    console.log(`[DeepSeek·联网] ${config.model} 不支持强制工具调用，本次联网检测自动切换到 ${model}`)
+  }
   return chatWithLocalWebSearchTool({
     url: buildAiChatUrl(config),
     apiKey: config.apiKey,
-    model: config.model,
+    model,
     label: LABEL,
     ...args,
   })

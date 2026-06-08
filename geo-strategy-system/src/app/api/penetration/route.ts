@@ -419,7 +419,7 @@ async function handler(req: NextRequest) {
         skippedDetail: skipped.map(m => ({
           model: m,
           label: ADAPTERS[m].label,
-          reason: `${ADAPTERS[m].label} 接口配置缺失：后台未配置 API Key，且未读取到对应环境变量`,
+          reason: `${ADAPTERS[m].label} 接口配置缺失：请在后台管理页配置 API Key 和模型`,
         })),
         modelErrors,
         requestId: crypto.randomUUID(),
