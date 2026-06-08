@@ -1,5 +1,6 @@
 import { chatWithLocalWebSearchTool } from "./tool-loop"
 import type { ChatArgs } from "./openai-compat"
+import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 // DeepSeek 适配器
 //
@@ -9,31 +10,23 @@ import type { ChatArgs } from "./openai-compat"
 // 万一上游不接受 tools+response_format 同时启用，openai-compat 的 400 兜底会自动去掉
 // response_format 重试，仍返回可被 parseJsonLoose 解析的内容。
 
-const URL = "https://api.deepseek.com/v1/chat/completions"
 const LABEL = "DeepSeek"
 
-function apiKey(): string {
-  return process.env.DEEPSEEK_API_KEY || ""
-}
-
-function model(): string {
-  return process.env.DEEPSEEK_MODEL || "deepseek-chat"
-}
-
-export function isDeepSeekConfigured(): boolean {
-  return !!apiKey()
+export async function isDeepSeekConfigured(): Promise<boolean> {
+  const config = await getAiProviderRuntimeSetting("deepseek")
+  return !!config.apiKey
 }
 
 export async function chatDeepSeek(args: ChatArgs): Promise<string> {
-  const key = apiKey()
-  if (!key) {
-    console.warn("[DeepSeek] API Key is undefined（process.env.DEEPSEEK_API_KEY 为空，请检查 .env.local）")
-    throw new Error(`${LABEL} 接口配置缺失：未读取到环境变量 DEEPSEEK_API_KEY。`)
+  const config = await getAiProviderRuntimeSetting("deepseek")
+  if (!config.apiKey) {
+    console.warn("[DeepSeek] API Key is undefined（请在后台管理页配置 DeepSeek 模型）")
+    throw new Error(`${LABEL} 接口配置缺失：请在后台管理页配置 API Key 和模型。`)
   }
   return chatWithLocalWebSearchTool({
-    url: URL,
-    apiKey: key,
-    model: model(),
+    url: buildAiChatUrl(config),
+    apiKey: config.apiKey,
+    model: config.model,
     label: LABEL,
     ...args,
   })

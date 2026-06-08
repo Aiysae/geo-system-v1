@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 
 export const runtime = "nodejs"
@@ -146,27 +147,25 @@ function parseJsonResult(raw: string): unknown {
 async function handler(req: NextRequest) {
   try {
     const body = await req.json()
-    const { profile, apiConfig } = body
+    const { profile } = body
 
     if (!profile) {
       return NextResponse.json({ error: "请提供客户资料" }, { status: 400 })
     }
 
-    const baseUrl = (apiConfig?.baseUrl || "https://api.openai.com").replace(/\/+$/, "")
-    const apiKey = apiConfig?.apiKey || ""
-    const model = apiConfig?.model || "gpt-4o"
-    const url = `${baseUrl}${apiConfig?.chatPath || "/v1/chat/completions"}`
+    const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
+    const url = buildAiChatUrl(aiConfig)
 
-    if (!apiKey) {
-      return NextResponse.json({ error: "API Key 未配置" }, { status: 400 })
+    if (!aiConfig.apiKey) {
+      return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
     const userPrompt = buildUserPrompt(profile)
-    const raw = await callLlm(url, apiKey, model, SYSTEM_PROMPT, userPrompt)
+    const raw = await callLlm(url, aiConfig.apiKey, aiConfig.model, SYSTEM_PROMPT, userPrompt)
 
     const parsed = parseJsonResult(raw)
     if (!parsed) {
-      const raw2 = await callLlm(url, apiKey, model,
+      const raw2 = await callLlm(url, aiConfig.apiKey, aiConfig.model,
         SYSTEM_PROMPT + "\n\n重要：上次输出 JSON 解析失败。请只输出纯 JSON，不要任何代码块标记、注释或额外文字。",
         userPrompt + "\n\n请确保输出是纯粹合法的 JSON 对象。",
         1

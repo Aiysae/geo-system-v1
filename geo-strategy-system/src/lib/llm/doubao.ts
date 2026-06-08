@@ -1,5 +1,6 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { chatWithLocalWebSearchTool } from "./tool-loop"
+import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 // 豆包 (Volcengine Ark) 适配器
 //
@@ -11,7 +12,7 @@ import { chatWithLocalWebSearchTool } from "./tool-loop"
 //      此路径强制接入本地 search_web Function Calling 兜底（与 DeepSeek 同款）。
 //
 // 因此：
-//   - 设置了 ARK_DOUBAO_BOT_ID：走 bots 入口，吃 Bot 的原生联网插件。
+//   - 在后台配置了 Bot ID：走 bots 入口，吃 Bot 的原生联网插件。
 //   - 否则：走 endpoint + search_web 工具循环外挂，保证依然联网。
 //
 // 参考文档：
@@ -21,41 +22,32 @@ import { chatWithLocalWebSearchTool } from "./tool-loop"
 const ENDPOINT_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 const BOT_URL = "https://ark.cn-beijing.volces.com/api/v3/bots/chat/completions"
 
-function apiKey(): string {
-  return process.env.ARK_API_KEY || ""
-}
-
-function endpointId(): string {
-  return process.env.ARK_DOUBAO_ENDPOINT_ID || ""
-}
-
-function botId(): string {
-  return process.env.ARK_DOUBAO_BOT_ID || ""
-}
-
 let endpointFallbackInfoOnce = false
 function logEndpointFallbackOnce() {
   if (endpointFallbackInfoOnce) return
   endpointFallbackInfoOnce = true
   console.log(
     [
-      "[豆包·联网] 当前未配置 ARK_DOUBAO_BOT_ID，Endpoint 模式将退化为普通推理（无原生联网能力）。",
+      "[豆包·联网] 当前未配置 Bot ID，Endpoint 模式将使用本地 search_web 工具兜底联网。",
       "若希望启用豆包官方联网搜索，建议：",
       "  1) 在火山方舟控制台创建 Bot 并挂载『联网搜索』插件；",
-      "  2) 在 .env.local 中新增 ARK_DOUBAO_BOT_ID=bot-xxxx；",
-      "  3) 重启服务后本适配器会自动切到 /bots/chat/completions。",
+      "  2) 在后台管理页的豆包模型中填写 Bot ID；",
+      "  3) 保存后本适配器会自动切到 /bots/chat/completions。",
     ].join("\n")
   )
 }
 
-export function isDoubaoConfigured(): boolean {
-  return !!apiKey() && (!!botId() || !!endpointId())
+export async function isDoubaoConfigured(): Promise<boolean> {
+  const config = await getAiProviderRuntimeSetting("doubao")
+  const botId = typeof config.extra.botId === "string" ? config.extra.botId : ""
+  return !!config.apiKey && (!!botId || !!config.model)
 }
 
 export async function chatDoubao(args: ChatArgs): Promise<string> {
-  const key = apiKey()
-  const bot = botId()
-  const endpoint = endpointId()
+  const config = await getAiProviderRuntimeSetting("doubao")
+  const key = config.apiKey
+  const bot = typeof config.extra.botId === "string" ? config.extra.botId : ""
+  const endpoint = config.model
 
   if (args.forceWebSearch && endpoint) {
     // 渗透率客观盲测要求"必须联网搜索"。Endpoint + 本地 search_web 工具

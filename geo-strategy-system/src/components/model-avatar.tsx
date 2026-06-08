@@ -1,7 +1,7 @@
 "use client"
 
 import type { ModelKey } from "@/types"
-import { MODEL_LABELS } from "@/lib/llm"
+import { MODEL_LABELS } from "@/lib/model-labels"
 
 const MODEL_LOGOS: Record<ModelKey, string> = {
   doubao: "/model-logos/doubao.png",
@@ -40,4 +40,3 @@ export default function ModelAvatar({ model, size = "sm", className = "" }: Prop
     </span>
   )
 }
-

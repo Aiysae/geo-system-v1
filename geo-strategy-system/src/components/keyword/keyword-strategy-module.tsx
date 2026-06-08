@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { API_PROVIDERS, DEFAULT_CATEGORY_CONFIG, type ApiProviderConfig, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type ContentCalendarItem, type QuestionCategoryConfig, type OfficialSiteAction, type ThirdPartySite } from "@/types/geo-strategy"
+import { DEFAULT_CATEGORY_CONFIG, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type ContentCalendarItem, type QuestionCategoryConfig, type OfficialSiteAction, type ThirdPartySite } from "@/types/geo-strategy"
 import type { Client } from "@/types"
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
+import type { AiProviderPublicSetting } from "@/types/ai-settings"
 
 // ==================== Brand Data ====================
 
@@ -107,51 +108,6 @@ function createBrandFromClient(client: Client): BrandData {
 }
 
 // ==================== Helpers ====================
-
-const API_SETTINGS_STORAGE_KEY = "geo-strategy-api-settings"
-
-interface ApiSettingsState {
-  provider: ApiProviderConfig
-  baseUrl: string
-  model: string
-  apiKey: string
-  timeout: number
-}
-
-function readApiSettings(): ApiSettingsState {
-  const fallbackProvider = API_PROVIDERS[0]
-  const fallback: ApiSettingsState = {
-    provider: fallbackProvider,
-    baseUrl: fallbackProvider.baseUrl,
-    model: fallbackProvider.defaultModel,
-    apiKey: "",
-    timeout: 900,
-  }
-
-  if (typeof window === "undefined") return fallback
-
-  try {
-    const saved = window.localStorage.getItem(API_SETTINGS_STORAGE_KEY)
-    if (!saved) return fallback
-    const parsed = JSON.parse(saved) as {
-      providerId?: string
-      baseUrl?: string
-      model?: string
-      apiKey?: string
-      timeout?: number
-    }
-    const provider = API_PROVIDERS.find(p => p.id === parsed.providerId) || fallbackProvider
-    return {
-      provider,
-      baseUrl: parsed.baseUrl || provider.baseUrl,
-      model: parsed.model || provider.defaultModel,
-      apiKey: parsed.apiKey || "",
-      timeout: Math.min(1800, Math.max(60, Number(parsed.timeout) || fallback.timeout)),
-    }
-  } catch {
-    return fallback
-  }
-}
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10)
@@ -328,37 +284,22 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     updateBrand({ [field]: value })
   }
 
-  // API settings (shared across brands)
-  const [apiProvider, setApiProvider] = useState<ApiProviderConfig>(() => readApiSettings().provider)
-  const [apiBaseUrl, setApiBaseUrl] = useState(() => readApiSettings().baseUrl)
-  const [apiModel, setApiModel] = useState(() => readApiSettings().model)
-  const [apiKey, setApiKey] = useState(() => readApiSettings().apiKey)
-  const [apiTimeout, setApiTimeout] = useState(() => readApiSettings().timeout)
-  const [showApiSettings, setShowApiSettings] = useState(false)
+  const [keywordModelSetting, setKeywordModelSetting] = useState<AiProviderPublicSetting | null>(null)
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(API_SETTINGS_STORAGE_KEY, JSON.stringify({
-        providerId: apiProvider.id,
-        baseUrl: apiBaseUrl,
-        model: apiModel,
-        apiKey,
-        timeout: apiTimeout,
-      }))
-    } catch {
-      // ignore localStorage write errors
-    }
-  }, [apiProvider.id, apiBaseUrl, apiModel, apiKey, apiTimeout])
-
-  // Provider change handler
-  const handleProviderChange = useCallback((providerId: string) => {
-    const provider = API_PROVIDERS.find(p => p.id === providerId)
-    if (provider && provider.id !== "custom") {
-      setApiProvider(provider)
-      setApiBaseUrl(provider.baseUrl)
-      setApiModel(provider.defaultModel)
-    } else if (provider) {
-      setApiProvider(provider)
+    let cancelled = false
+    fetch("/api/geo-strategy/settings", { cache: "no-store" })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (cancelled) return
+        const setting = data?.keywordStrategy
+        if (setting) setKeywordModelSetting(setting as AiProviderPublicSetting)
+      })
+      .catch(() => {
+        if (!cancelled) setKeywordModelSetting(null)
+      })
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -403,19 +344,10 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     updateBrand({ uploadedFiles: activeBrand.uploadedFiles.filter(f => f.id !== id) })
   }, [activeBrand.uploadedFiles, updateBrand])
 
-  // API config object
-  const getApiConfig = useCallback(() => ({
-    baseUrl: apiBaseUrl,
-    apiKey,
-    model: apiModel,
-    timeout: apiTimeout,
-    chatPath: apiProvider.chatPath || "/v1/chat/completions",
-  }), [apiBaseUrl, apiKey, apiModel, apiTimeout, apiProvider.chatPath])
-
   // Extraction
   const handleExtract = useCallback(async () => {
-    if (!apiKey) {
-      updateBrand({ extractionError: "请填写 API Key" })
+    if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
+      updateBrand({ extractionError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。" })
       return
     }
 
@@ -442,7 +374,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             competitors_raw: activeBrand.competitorsRaw,
             geo_goals: activeBrand.geoGoals,
           },
-          apiConfig: getApiConfig(),
         }),
       })
 
@@ -462,12 +393,12 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     } finally {
       updateBrand({ extracting: false })
     }
-  }, [activeBrand.uploadedFiles, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, activeBrand.completedSteps, getApiConfig, apiKey, updateBrand])
+  }, [activeBrand.uploadedFiles, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, activeBrand.completedSteps, keywordModelSetting, updateBrand])
 
   const handleGenerateAdvantages = useCallback(async () => {
     if (!activeBrand.extractedProfile) return
-    if (!apiKey) {
-      updateBrand({ advantageError: "请填写 API Key" })
+    if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
+      updateBrand({ advantageError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。" })
       return
     }
 
@@ -491,7 +422,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             geo_goals: activeBrand.geoGoals,
           },
           count: 10,
-          apiConfig: getApiConfig(),
         }),
       })
 
@@ -533,7 +463,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         advantageStatus: "error",
       })
     }
-  }, [activeBrand.extractedProfile, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, getApiConfig, apiKey, updateBrand])
+  }, [activeBrand.extractedProfile, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, keywordModelSetting, updateBrand])
 
   // Strategy generation
   const handleGenerateStrategy = useCallback(async () => {
@@ -547,7 +477,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           profile: activeBrand.extractedProfile,
-          apiConfig: getApiConfig(),
         }),
       })
 
@@ -569,11 +498,15 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         strategyStatus: "error",
       })
     }
-  }, [activeBrand.extractedProfile, activeBrand.completedSteps, getApiConfig, updateBrand])
+  }, [activeBrand.extractedProfile, activeBrand.completedSteps, updateBrand])
 
   // Question generation
   const handleGenerateQuestions = useCallback(async () => {
     if (!activeBrand.strategyPlan) return
+    if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
+      updateBrand({ questionError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。", questionStatus: "error" })
+      return
+    }
 
     updateBrand({ questionStatus: "generating", questionError: "" })
 
@@ -596,7 +529,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           strategy: activeBrand.strategyPlan,
-          apiConfig: getApiConfig(),
           totalCount: effectiveCount,
           layer2Ratio: activeBrand.layer2Ratio,
           categoryConfig: activeBrand.categoryConfig,
@@ -622,7 +554,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionStatus: "error",
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.completedSteps, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.layer2Ratio, activeBrand.categoryConfig, getApiConfig, updateBrand])
+  }, [activeBrand.strategyPlan, activeBrand.completedSteps, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.layer2Ratio, activeBrand.categoryConfig, keywordModelSetting, updateBrand])
 
   // Export
   const handleExportJson = useCallback(() => {
@@ -655,6 +587,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   // ==================== Render ====================
 
   const ab = activeBrand
+  const keywordModelName = keywordModelSetting?.model || "后台托管模型"
+  const keywordModelConfigured = keywordModelSetting?.hasApiKey ?? true
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br from-white via-blue-50/30 to-cyan-50/20 shadow-sm">
@@ -673,31 +607,13 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               </div>
             </div>
           </div>
-          <button
-            onClick={() => setShowApiSettings(v => !v)}
-            className="w-full sm:w-auto text-xs inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 bg-white/80 hover:bg-slate-50 text-slate-600 transition"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            API 设置
-          </button>
+          <div className="w-full sm:w-auto inline-flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-600">
+            <span className={`h-2 w-2 rounded-full ${keywordModelConfigured ? "bg-emerald-500" : "bg-amber-500"}`} />
+            <span className="font-medium text-slate-700">{keywordModelName}</span>
+            <span className="text-slate-400">后台托管</span>
+          </div>
         </div>
       </div>
-
-        {showApiSettings && (
-          <ApiSettingsPanel
-            provider={apiProvider}
-            baseUrl={apiBaseUrl}
-            model={apiModel}
-            apiKey={apiKey}
-            timeout={apiTimeout}
-            onProviderChange={handleProviderChange}
-            onBaseUrlChange={setApiBaseUrl}
-            onModelChange={setApiModel}
-            onApiKeyChange={setApiKey}
-            onTimeoutChange={setApiTimeout}
-            onClose={() => setShowApiSettings(false)}
-          />
-        )}
 
         <div className="px-3 sm:px-5 lg:px-6 pt-4 overflow-x-auto">
           <StepProgress current={ab.step} />
@@ -732,8 +648,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               extracting={ab.extracting}
               extractionError={ab.extractionError}
               onExtract={handleExtract}
-              apiKeyConfigured={!!apiKey}
-              apiModel={apiModel}
+              modelConfigured={keywordModelConfigured}
+              modelName={keywordModelName}
             />
           )}
 
@@ -826,7 +742,7 @@ function InputStep({
   uploadedFiles, onRemoveFile,
   fileInputRef, onFilesSelected,
   extracting, extractionError, onExtract,
-  apiKeyConfigured, apiModel,
+  modelConfigured, modelName,
 }: {
   projectName: string; onProjectNameChange: (v: string) => void
   industry: string; onIndustryChange: (v: string) => void
@@ -841,8 +757,8 @@ function InputStep({
   fileInputRef: React.RefObject<HTMLInputElement | null>
   onFilesSelected: (e: React.ChangeEvent<HTMLInputElement>) => void
   extracting: boolean; extractionError: string; onExtract: () => void
-  apiKeyConfigured: boolean
-  apiModel: string
+  modelConfigured: boolean
+  modelName: string
 }) {
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -1007,19 +923,26 @@ function InputStep({
             </div>
           )}
 
-          {uploadedFiles.some(f => f.type === "image" || f.type === "pdf") && isTextOnlyModel(apiModel) && (
+          {!modelConfigured && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              关键词策略模型暂未在后台配置，配置完成后即可抽取资料。
+            </div>
+          )}
+
+          {uploadedFiles.some(f => f.type === "image" || f.type === "pdf") && isTextOnlyModel(modelName) && (
             <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-xs text-amber-800 flex items-start gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <div>
                 <div className="font-semibold mb-1">当前模型不支持图片/PDF</div>
-                <div><code className="bg-amber-100 px-1 rounded">{apiModel}</code> 是纯文本模型，无法识别图片和 PDF 中的内容。请将模型名改为：<code className="bg-green-100 px-1 rounded text-green-800">qwen3-vl-plus</code></div>
+                <div><code className="bg-amber-100 px-1 rounded">{modelName}</code> 是纯文本模型，无法识别图片和 PDF 中的内容。请将模型名改为：<code className="bg-green-100 px-1 rounded text-green-800">qwen3-vl-plus</code></div>
               </div>
             </div>
           )}
 
           <button
             onClick={onExtract}
-            disabled={extracting || !apiKeyConfigured}
+            disabled={extracting || !modelConfigured}
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white hover:shadow-lg hover:shadow-blue-300/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0 transition-all"
           >
             {extracting ? (
@@ -1871,75 +1794,6 @@ function QuestionSettingsPanel({
         className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:shadow-lg hover:shadow-violet-300/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
         {questionStatus === "generating" ? <><Loader2 className="h-4 w-4 animate-spin" /> 生成中...</> : <><Sparkles className="h-4 w-4" /> 生成疑问句池</>}
       </button>
-    </div>
-  )
-}
-
-// ==================== API Settings Panel ====================
-
-function ApiSettingsPanel({
-  provider, baseUrl, model, apiKey, timeout,
-  onProviderChange, onBaseUrlChange, onModelChange, onApiKeyChange, onTimeoutChange, onClose,
-}: {
-  provider: ApiProviderConfig
-  baseUrl: string
-  model: string
-  apiKey: string
-  timeout: number
-  onProviderChange: (id: string) => void
-  onBaseUrlChange: (v: string) => void
-  onModelChange: (v: string) => void
-  onApiKeyChange: (v: string) => void
-  onTimeoutChange: (v: number) => void
-  onClose: () => void
-}) {
-  return (
-    <div className="border-b border-slate-200 bg-white/90 backdrop-blur-md">
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-slate-700">API 设置</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          <div>
-            <label className="text-[11px] font-medium text-slate-500">供应商</label>
-            <select value={provider.id} onChange={e => onProviderChange(e.target.value)}
-              className="w-full mt-1 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none">
-              {API_PROVIDERS.map(p => (
-                <option key={p.id} value={p.id}>{p.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-medium text-slate-500">接口地址</label>
-            <input value={baseUrl} onChange={e => onBaseUrlChange(e.target.value)}
-              placeholder="https://api.openai.com"
-              className="w-full mt-1 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 transition" />
-          </div>
-          <div>
-            <label className="text-[11px] font-medium text-slate-500">模型名</label>
-            <input value={model} onChange={e => onModelChange(e.target.value)}
-              placeholder="gpt-4o"
-              className="w-full mt-1 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 transition" />
-          </div>
-          <div>
-            <label className="text-[11px] font-medium text-slate-500">API Key</label>
-            <input value={apiKey} onChange={e => onApiKeyChange(e.target.value)}
-              type="password"
-              placeholder="sk-..."
-              className="w-full mt-1 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 transition" />
-          </div>
-          <div>
-            <label className="text-[11px] font-medium text-slate-500">超时(秒) {timeout}s</label>
-            <input type="range" min={60} max={1800} step={30} value={timeout}
-              onChange={e => onTimeoutChange(Number(e.target.value))}
-              className="w-full mt-3 accent-[#0077B6]" />
-          </div>
-        </div>
-        <p className="text-[10px] text-slate-400 mt-2">接口地址只需填根地址，系统自动拼接 /v1/chat/completions；API 设置会自动保存在本地浏览器，下次打开直接可用。</p>
-      </div>
     </div>
   )
 }

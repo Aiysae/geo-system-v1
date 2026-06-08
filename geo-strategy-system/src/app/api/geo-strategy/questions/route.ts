@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 
 export const runtime = "nodejs"
@@ -506,7 +507,7 @@ async function handler(req: NextRequest) {
   try {
     const body = await req.json()
     const {
-      strategy, apiConfig, totalCount = 40, layer2Ratio = 0.35,
+      strategy, totalCount = 40, layer2Ratio = 0.35,
       categoryConfig, coreKeywords = [],
     } = body
 
@@ -514,15 +515,13 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "请提供策略方案" }, { status: 400 })
     }
 
-    const baseUrl = (apiConfig?.baseUrl || "https://api.openai.com").replace(/\/+$/, "")
-    const apiKey = apiConfig?.apiKey || ""
-    const model = apiConfig?.model || "gpt-4o"
-    const url = `${baseUrl}${apiConfig?.chatPath || "/v1/chat/completions"}`
+    const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
+    const url = buildAiChatUrl(aiConfig)
     const ratio = Math.min(Math.max(layer2Ratio, 0.15), 0.45)
     const count = Math.min(Math.max(totalCount, 10), 600)
 
-    if (!apiKey) {
-      return NextResponse.json({ error: "API Key 未配置" }, { status: 400 })
+    if (!aiConfig.apiKey) {
+      return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
     const cfg = {
@@ -551,7 +550,7 @@ async function handler(req: NextRequest) {
     for (const alloc of allocations) {
       if (alloc.count === 0) continue
       const result = await generateCategoryQuestions(
-        url, apiKey, model, alloc, strategy, ratio, currentId,
+        url, aiConfig.apiKey, aiConfig.model, alloc, strategy, ratio, currentId,
       )
       allQuestions.push(...result.questions)
       allWarnings.push(...result.warnings)
@@ -569,7 +568,7 @@ async function handler(req: NextRequest) {
     if (reindexed.length > 0) {
       const calendarTokens = 8192
       const calendarRaw = await callLlm(
-        url, apiKey, model,
+        url, aiConfig.apiKey, aiConfig.model,
         CALENDAR_SYSTEM,
         buildCalendarUserPrompt(reindexed, strategy),
         calendarTokens,

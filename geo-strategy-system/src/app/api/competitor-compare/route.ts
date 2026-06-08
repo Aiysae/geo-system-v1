@@ -163,7 +163,7 @@ async function handler(req: NextRequest) {
     if (rawSelectedCompetitors.length > 5) {
       return NextResponse.json({ error: "最多只能选择 5 个竞品" }, { status: 400 })
     }
-    if (!ADAPTERS.doubao.configured()) {
+    if (!(await ADAPTERS.doubao.configured())) {
       return NextResponse.json({ error: "豆包 API 未配置，无法生成竞品对比报告" }, { status: 400 })
     }
 

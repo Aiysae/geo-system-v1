@@ -3,7 +3,9 @@ import Link from "next/link"
 import { ShieldCheck, Sparkles, Inbox } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser } from "@/lib/auth"
+import { listAiProviderPublicSettings } from "@/lib/ai-settings"
 import { listPending } from "@/lib/recharge"
+import { AiSettingsManager } from "./ai-settings-manager"
 import { RechargeRow } from "./recharge-row"
 
 export const dynamic = "force-dynamic"
@@ -28,7 +30,10 @@ export default async function AdminRechargePage() {
     )
   }
 
-  const pending = await listPending()
+  const [pending, aiSettings] = await Promise.all([
+    listPending(),
+    listAiProviderPublicSettings(),
+  ])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
@@ -45,12 +50,20 @@ export default async function AdminRechargePage() {
               <div className="text-[11px] text-slate-500 mt-0.5">积分充值审批</div>
             </div>
           </div>
-          <Link
-            href="/"
-            className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
-          >
-            返回主页
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin"
+              className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+            >
+              用户管理
+            </Link>
+            <Link
+              href="/"
+              className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+            >
+              返回主页
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -96,6 +109,8 @@ export default async function AdminRechargePage() {
             </table>
           </div>
         )}
+
+        <AiSettingsManager settings={aiSettings} />
       </main>
     </div>
   )

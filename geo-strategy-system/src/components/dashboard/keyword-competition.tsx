@@ -14,7 +14,7 @@ import {
 import { Flame, Gem, Activity } from "lucide-react"
 import type { ModelKey } from "@/types"
 import type { KeywordCompetitionItem } from "@/lib/dashboard-aggregations"
-import { MODEL_LABELS } from "@/lib/llm"
+import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
 
 type SortOrder = "redOcean" | "blueOcean"

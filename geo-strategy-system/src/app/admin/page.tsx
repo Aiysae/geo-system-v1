@@ -57,7 +57,7 @@ export default async function AdminPage() {
               href="/admin/recharge"
               className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
             >
-              充值审批
+              充值审批 / 模型配置
             </Link>
             <Link
               href="/"

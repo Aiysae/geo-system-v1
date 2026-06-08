@@ -87,8 +87,8 @@ export async function openaiCompatRaw({
 }: OpenAICompatRawArgs): Promise<RawChatCompletion> {
   if (!apiKey) {
     // 请求前显式校验：把缺失的 Key 用 console.warn 打印出来，便于在终端立刻定位
-    console.warn(`[${label}] API Key is undefined（请检查 .env.local 中对应环境变量是否已加载）`)
-    throw new Error(`${label} API Key 未配置（缺少对应环境变量），后端已阻断该模型调用。`)
+    console.warn(`[${label}] API Key is undefined（请检查后台管理页中的模型配置）`)
+    throw new Error(`${label} API Key 未配置，请在后台管理页补全后重试。`)
   }
 
   const payload: Record<string, unknown> = {
@@ -122,7 +122,7 @@ export async function openaiCompatRaw({
   } catch (fetchErr) {
     if (timeout) clearTimeout(timeout)
     if (fetchErr instanceof DOMException && fetchErr.name === "AbortError") {
-      throw new Error(`${label} 请求超时 (${(timeoutMs || 300000) / 1000}s)，图片/PDF 识别耗时较长，请在 API 设置中增加超时时间`)
+      throw new Error(`${label} 请求超时 (${(timeoutMs || 300000) / 1000}s)，图片/PDF 识别耗时较长，请在后台管理页增加模型超时时间`)
     }
     throw new Error(`${label} API 连接失败：${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
   }
@@ -253,8 +253,8 @@ export async function openaiCompatChat({
   timeoutSec,
 }: OpenAICompatArgs): Promise<string> {
   if (!apiKey) {
-    console.warn(`[${label}] API Key is undefined`)
-    throw new Error(`${label} API Key 未配置`)
+    console.warn(`[${label}] API Key is undefined（请检查后台管理页中的模型配置）`)
+    throw new Error(`${label} API Key 未配置，请在后台管理页补全后重试。`)
   }
 
   // Trim oversized images (each capped at ~5MB to avoid payload issues)

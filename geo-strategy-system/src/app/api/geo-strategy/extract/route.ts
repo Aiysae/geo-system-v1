@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 
 export const runtime = "nodejs"
@@ -121,14 +122,6 @@ interface ExtractProjectInfo {
   [key: string]: string | undefined
 }
 
-interface ApiConfigPayload {
-  baseUrl?: string
-  apiKey?: string
-  model?: string
-  chatPath?: string
-  timeout?: number
-}
-
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
 }
@@ -138,20 +131,14 @@ async function handler(req: NextRequest) {
     const body = await req.json() as {
       files?: UploadedPayloadFile[]
       projectInfo?: ExtractProjectInfo
-      apiConfig?: ApiConfigPayload
     }
     const files = Array.isArray(body.files) ? body.files : []
     const projectInfo = body.projectInfo || {}
-    const apiConfig = body.apiConfig || {}
+    const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
+    const url = buildAiChatUrl(aiConfig)
 
-    const baseUrl = (apiConfig?.baseUrl || "https://api.openai.com").replace(/\/+$/, "")
-    const apiKey = apiConfig?.apiKey || ""
-    const model = apiConfig?.model || "gpt-4o"
-    const chatPath = apiConfig?.chatPath || "/v1/chat/completions"
-    const url = `${baseUrl}${chatPath}`
-
-    if (!apiKey) {
-      return NextResponse.json({ error: "API Key 未配置，请在页面中填写" }, { status: 400 })
+    if (!aiConfig.apiKey) {
+      return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
     // Separate text files from image/PDF files
@@ -165,7 +152,7 @@ async function handler(req: NextRequest) {
 
     // Detect text-only models (don't send images to them)
     const textOnlyModels = ["deepseek", "moonshot", "gpt-3.5"]
-    const isTextOnly = textOnlyModels.some(p => model.toLowerCase().includes(p))
+    const isTextOnly = textOnlyModels.some(p => aiConfig.model.toLowerCase().includes(p))
 
     let userPrompt = buildExtractionUserPrompt(textFiles, projectInfo || {})
 
@@ -174,19 +161,19 @@ async function handler(req: NextRequest) {
     if (isTextOnly && mediaFiles.length > 0) {
       const fileNames = mediaFiles.map(f => f.name).join("、")
       userPrompt += `\n\n（用户上传了以下图片/PDF文件，当前模型不支持视觉识别，已跳过：${fileNames}）`
-      console.log(`[GEO提取] 模型 ${model} 不支持视觉，跳过 ${mediaFiles.length} 个图片/PDF`)
+      console.log(`[GEO提取] 模型 ${aiConfig.model} 不支持视觉，跳过 ${mediaFiles.length} 个图片/PDF`)
     } else if (mediaDataUrls.length > 0) {
       imagesToSend = mediaDataUrls
     }
 
-    const timeoutSec = apiConfig?.timeout || 300
+    const timeoutSec = aiConfig.timeout || 300
 
-    console.log(`[GEO提取] 请求: ${model} @ ${url} | 文本文件: ${textFiles.length} | 图片/PDF: ${mediaFiles.length} | 超时: ${timeoutSec}s`)
+    console.log(`[GEO提取] 请求: ${aiConfig.model} @ ${url} | 文本文件: ${textFiles.length} | 图片/PDF: ${mediaFiles.length} | 超时: ${timeoutSec}s`)
 
     const raw = await openaiCompatChat({
       url,
-      apiKey,
-      model,
+      apiKey: aiConfig.apiKey,
+      model: aiConfig.model,
       system: EXTRACTION_SYSTEM,
       user: userPrompt,
       temperature: 0.3,

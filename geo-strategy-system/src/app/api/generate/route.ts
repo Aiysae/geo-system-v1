@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
-
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ""
-const DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
 export const runtime = "nodejs"
 export const maxDuration = 90
@@ -10,7 +8,6 @@ export const dynamic = "force-dynamic"
 
 async function handler(req: NextRequest) {
   console.log("[势途 GEO API] === 开始处理生成请求 ===")
-  console.log("[势途 GEO API] DEEPSEEK_API_KEY 已加载?", !!DEEPSEEK_API_KEY)
 
   try {
     const guard = await authAndCheckCredits(20)
@@ -25,9 +22,14 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "品牌名称不能为空" }, { status: 400 })
     }
 
-    if (!DEEPSEEK_API_KEY) {
+    const aiConfig = await getAiProviderRuntimeSetting("deepseek")
+    const apiUrl = buildAiChatUrl(aiConfig)
+    const timeoutSec = aiConfig.timeout || 60
+    console.log("[势途 GEO API] DeepSeek 后台配置已加载?", !!aiConfig.apiKey, "model:", aiConfig.model)
+
+    if (!aiConfig.apiKey) {
       return NextResponse.json(
-        { error: "服务器未配置 DEEPSEEK_API_KEY，请在 .env.local 中填入你的 DeepSeek API Key" },
+        { error: "后台未配置 DeepSeek API Key，请联系管理员在后台管理页配置" },
         { status: 500 }
       )
     }
@@ -116,18 +118,18 @@ async function handler(req: NextRequest) {
     console.time("[势途 GEO API] DeepSeek 请求耗时")
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 60000)
+    const timeout = setTimeout(() => controller.abort(), timeoutSec * 1000)
 
-    const response = await fetch(DEEPSEEK_API_URL, {
+    const response = await fetch(apiUrl, {
       method: "POST",
       cache: "no-store",
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${aiConfig.apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: aiConfig.model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -148,7 +150,7 @@ async function handler(req: NextRequest) {
 
       if (response.status === 401) {
         return NextResponse.json(
-          { error: "DeepSeek API Key 认证失败，请检查 .env.local 中的 DEEPSEEK_API_KEY 是否正确" },
+          { error: "DeepSeek API Key 认证失败，请检查后台管理页中的模型配置" },
           { status: 502 }
         )
       }

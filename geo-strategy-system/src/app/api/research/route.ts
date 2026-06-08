@@ -198,7 +198,7 @@ async function handler(req: NextRequest) {
     if (mode === "hypothesis" && !hypothesis) {
       return NextResponse.json({ error: "请填写要验证的假设" }, { status: 400 })
     }
-    if (!ADAPTERS.doubao.configured()) {
+    if (!(await ADAPTERS.doubao.configured())) {
       return NextResponse.json({ error: "豆包 API 未配置，无法执行调研" }, { status: 400 })
     }
 
