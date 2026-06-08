@@ -11,7 +11,7 @@
 import type { LlmMode } from "@/types"
 import { withBeijingTime } from "./time-context"
 
-interface ChatArgs {
+export interface ChatArgs {
   system: string
   user: string
   temperature?: number
@@ -31,8 +31,12 @@ function redactSecrets(text: string): string {
     .replace(/Bearer\s+[A-Za-z0-9._\-]{16,}/gi, "Bearer ***")
 }
 
-function isTemperatureOneOnlyError(message: string): boolean {
-  return /invalid temperature/i.test(message) && /only\s+1\s+is\s+allowed/i.test(message)
+function parseOnlyAllowedTemperature(message: string): number | null {
+  if (!/invalid temperature/i.test(message)) return null
+  const match = message.match(/only\s+([0-9]+(?:\.[0-9]+)?)\s+is\s+allowed/i)
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isFinite(value) ? value : null
 }
 
 async function postChatCompletion(args: {
@@ -151,12 +155,9 @@ export async function openaiCompatRaw({
   if (!res.ok) {
     const rawTxt = await res.text().catch(() => "")
     const txt = redactSecrets(rawTxt)
-    if (
-      res.status === 400 &&
-      payload.temperature !== 1 &&
-      isTemperatureOneOnlyError(txt)
-    ) {
-      const retryPayload = { ...payload, temperature: 1 }
+    const allowedTemperature = parseOnlyAllowedTemperature(txt)
+    if (res.status === 400 && allowedTemperature !== null && payload.temperature !== allowedTemperature) {
+      const retryPayload = { ...payload, temperature: allowedTemperature }
       const retry = await postChatCompletion({ url, apiKey, payload: retryPayload, extraHeaders })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
@@ -357,5 +358,3 @@ export async function openaiCompatChat({
     throw err
   }
 }
-
-export type { ChatArgs }
