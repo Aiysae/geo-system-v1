@@ -5,8 +5,9 @@ import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 // Kimi (Moonshot) 适配器
 //
-// 渗透率客观盲测会通过 forceWebSearch 强制开启官方 builtin function "$web_search"；
-// 分析/裁判路径默认带联网工具。
+// 渗透率客观盲测会通过 forceWebSearch 强制接入本地 search_web 工具；
+// 分析/裁判路径默认带联网工具。Kimi K2 thinking 模型不兼容指定官方
+// "$web_search" tool_choice，因此模块一用普通 function calling 保证强制联网。
 // 严格按 Moonshot 文档处理 tool_calls 循环：
 //   https://platform.moonshot.cn/docs/api/tool_use#web-search
 //
@@ -19,6 +20,10 @@ const LABEL = "Kimi"
 
 function isTokenHub(baseUrl: string): boolean {
   return /tokenhub\.tencentmaas\.com/i.test(baseUrl)
+}
+
+function shouldDisableThinking(model: string): boolean {
+  return /k2|thinking/i.test(model)
 }
 
 export async function isKimiConfigured(): Promise<boolean> {
@@ -63,12 +68,13 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
     throw new Error(`${LABEL} 接口配置缺失：请在后台管理页配置 API Key 和模型。`)
   }
 
-  if (isTokenHub(config.baseUrl)) {
+  if (useSearchTool || isTokenHub(config.baseUrl)) {
     return chatWithLocalWebSearchTool({
       url: buildAiChatUrl(config),
       apiKey: key,
       model: selectedModel,
       label: LABEL,
+      extraBody: shouldDisableThinking(selectedModel) ? { thinking: { type: "disabled" } } : undefined,
       ...args,
     })
   }

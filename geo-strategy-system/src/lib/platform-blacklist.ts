@@ -26,6 +26,7 @@ const PLATFORM_NAMES: string[] = [
   // 电商
   "淘宝", "taobao",
   "天猫", "tmall",
+  "1688", "阿里巴巴", "alibaba",
   "京东", "jd", "jd.com",
   "拼多多", "pdd", "pinduoduo",
   "唯品会",

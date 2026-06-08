@@ -22,9 +22,13 @@ function stripTags(s: string): string {
   return s
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")
+    .replace(/&ensp;/g, " ")
+    .replace(/&emsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCharCode(parseInt(dec, 10)))
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/\s+/g, " ")
@@ -77,7 +81,7 @@ function parseDuckDuckGo(html: string, max: number): SearchHit[] {
 
 function parseBing(html: string, max: number): SearchHit[] {
   const out: SearchHit[] = []
-  const blockRe = /<li class="b_algo"[\s\S]*?<h2>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/g
+  const blockRe = /<li class="b_algo"[\s\S]*?<h2[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/g
   let m: RegExpExecArray | null
   while ((m = blockRe.exec(html)) && out.length < max) {
     const url = m[1]

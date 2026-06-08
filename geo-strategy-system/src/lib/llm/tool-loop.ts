@@ -67,14 +67,69 @@ interface ToolLoopArgs extends ChatArgs {
   label: string
   extraBody?: Record<string, unknown>
   extraHeaders?: Record<string, string>
+  /**
+   * Some OpenAI-compatible gateways do not allow a specified tool_choice.
+   * For those providers, run the web search locally first and pass only the
+   * question plus public search results into the final model call.
+   */
+  forceSearchMode?: "tool" | "presearch"
+  allowSpecifiedToolChoice?: boolean
+}
+
+async function chatWithPresearchedContext(args: ToolLoopArgs): Promise<string> {
+  const t0 = Date.now()
+  const hits = await webSearch(args.user, 5)
+  console.log(
+    `[${args.label}·presearch] q="${args.user.slice(0, 80)}" hits=${hits.length} ${Date.now() - t0}ms`
+  )
+
+  const messages: Array<Record<string, unknown>> = []
+  const system = args.system || ""
+  if (!args.rawQuestionOnly || system.trim()) {
+    messages.push({
+      role: "system",
+      content: args.rawQuestionOnly ? system : withBeijingTime(system),
+    })
+  }
+
+  const formatted = formatHitsForLLM(args.user, hits)
+  messages.push({
+    role: "user",
+    content: `${args.user}\n\n【联网搜索结果】\n${formatted}\n\n请基于以上真实联网搜索结果回答原问题；如果搜索结果不足以确认，请明确说明不确定。`,
+  })
+
+  const data = await openaiCompatRaw({
+    url: args.url,
+    apiKey: args.apiKey,
+    model: args.model,
+    label: args.label,
+    messages,
+    temperature: args.temperature,
+    maxTokens: args.maxTokens,
+    seed: args.seed,
+    jsonMode: args.jsonMode,
+    extraBody: args.extraBody,
+    extraHeaders: args.extraHeaders,
+  })
+
+  const content = messageText(data.choices?.[0]?.message?.content)
+  if (!content.trim()) {
+    throw new Error(`${args.label} 预联网后返回空内容，请检查模型名、上游额度或搜索结果。`)
+  }
+  return content
 }
 
 export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<string> {
+  if (args.forceWebSearch && args.forceSearchMode === "presearch") {
+    return chatWithPresearchedContext(args)
+  }
+
   const useSearchTool = args.forceWebSearch || args.mode !== "consumer"
   const shouldAddSearchDirective = !args.rawQuestionOnly && args.mode !== "consumer"
   const finalSystem = shouldAddSearchDirective
     ? (args.system || "") + SEARCH_DIRECTIVE
     : args.system || ""
+  const allowSpecifiedToolChoice = args.allowSpecifiedToolChoice !== false
 
   const messages: Array<Record<string, unknown>> = []
   if (!args.rawQuestionOnly || finalSystem.trim()) {
@@ -101,7 +156,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
       jsonMode: args.jsonMode,
       tools: useSearchTool ? [SEARCH_WEB_TOOL] : undefined,
       toolChoice:
-        args.forceWebSearch && round === 0
+        args.forceWebSearch && allowSpecifiedToolChoice && round === 0
           ? { type: "function", function: { name: "search_web" } }
           : undefined,
       extraBody: args.extraBody,
@@ -162,5 +217,27 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
     return content
   }
 
-  throw new Error(`${args.label} 工具调用循环超过 ${MAX_ROUNDS} 轮仍未收敛，已阻断。`)
+  messages.push({
+    role: "user",
+    content: "请基于上面的联网搜索结果直接回答原问题，不要再调用工具。",
+  })
+
+  const finalData = await openaiCompatRaw({
+    url: args.url,
+    apiKey: args.apiKey,
+    model: args.model,
+    label: args.label,
+    messages,
+    temperature: args.temperature,
+    maxTokens: args.maxTokens,
+    seed: args.seed,
+    jsonMode: args.jsonMode,
+    extraBody: args.extraBody,
+    extraHeaders: args.extraHeaders,
+  })
+
+  const finalContent = messageText(finalData.choices?.[0]?.message?.content)
+  if (finalContent.trim()) return finalContent
+
+  throw new Error(`${args.label} 工具调用循环超过 ${MAX_ROUNDS} 轮后仍返回空内容，已阻断。`)
 }

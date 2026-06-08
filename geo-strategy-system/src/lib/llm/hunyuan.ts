@@ -22,6 +22,8 @@ export async function chatHunyuan(args: ChatArgs): Promise<string> {
       apiKey: config.apiKey,
       model: config.model,
       label: "腾讯元宝/混元",
+      forceSearchMode: args.forceWebSearch ? "presearch" : undefined,
+      allowSpecifiedToolChoice: false,
       ...args,
     })
   }
