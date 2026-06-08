@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import type { ModelKey, PenetrationByModel, PenetrationItem } from "@/types"
+import type {
+  ModelKey,
+  PenetrationByModel,
+  PenetrationItem,
+  PenetrationSource,
+  SourceDomainCount,
+} from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { aggregatePenetration, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
@@ -93,16 +99,47 @@ function answerMentionsBrand(answer: string, brand: string): boolean {
   return a.includes(b)
 }
 
+function dedupeSources(sources: PenetrationSource[]): PenetrationSource[] {
+  const seen = new Set<string>()
+  const out: PenetrationSource[] = []
+  for (const source of sources) {
+    const key = `${source.query}::${source.url}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(source)
+  }
+  return out
+}
+
+function summarizeSourceDomains(sources: PenetrationSource[]): SourceDomainCount[] {
+  const counts = new Map<string, number>()
+  for (const source of sources) {
+    const domain = source.domain.trim()
+    if (!domain || domain === "unknown") continue
+    counts.set(domain, (counts.get(domain) ?? 0) + 1)
+  }
+  return Array.from(counts.entries())
+    .map(([domain, count]) => ({ domain, count }))
+    .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
+}
+
 // ============================================================================
 // Stage A · 客观联网单问
 // ============================================================================
 async function blindQuery(
   model: ModelKey,
   question: string
-): Promise<{ answer: string; error?: string }> {
+): Promise<{
+  answer: string
+  error?: string
+  searchSources: PenetrationSource[]
+  sourceDomains: SourceDomainCount[]
+  topSourceDomain: SourceDomainCount | null
+}> {
   const adapter = ADAPTERS[model]
   const seed = deriveSeed(model, question)
   const t0 = Date.now()
+  const collectedSources: PenetrationSource[] = []
 
   try {
     const raw = await adapter.chat({
@@ -115,17 +152,35 @@ async function blindQuery(
       maxTokens: 4096,
       forceWebSearch: true,
       rawQuestionOnly: true,
+      onSearchSources: event => {
+        collectedSources.push(...event.sources)
+      },
     })
     const answer = raw || ""
+    const searchSources = dedupeSources(collectedSources)
+    const sourceDomains = summarizeSourceDomains(searchSources)
     console.log(
-      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | forcedSearch=true | rawQuestionOnly=true | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
+      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | forcedSearch=true | rawQuestionOnly=true | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
     )
     console.log(`[penetration·blind-answer] preservedLen=${answer.length}`)
-    return { answer }
+    return {
+      answer,
+      searchSources,
+      sourceDomains,
+      topSourceDomain: sourceDomains[0] ?? null,
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "未知错误"
+    const searchSources = dedupeSources(collectedSources)
+    const sourceDomains = summarizeSourceDomains(searchSources)
     console.error(`[penetration·blind] ✗ ${adapter.label} | ${msg} | q="${question.slice(0, 30)}..."`)
-    return { answer: "", error: `${adapter.label} 接口调用失败：${msg}` }
+    return {
+      answer: "",
+      error: `${adapter.label} 接口调用失败：${msg}`,
+      searchSources,
+      sourceDomains,
+      topSourceDomain: sourceDomains[0] ?? null,
+    }
   }
 }
 
@@ -234,6 +289,9 @@ async function processSlot(args: {
       answer: "",
       mentionedBrands: [],
       topRecommended: null,
+      searchSources: blind.searchSources,
+      sourceDomains: blind.sourceDomains,
+      topSourceDomain: blind.topSourceDomain,
       hitOur: false,
       error: blind.error || "回答为空",
     }
@@ -284,6 +342,9 @@ async function processSlot(args: {
     answer: blind.answer,
     mentionedBrands: verifiedBrands,
     topRecommended: top,
+    searchSources: blind.searchSources,
+    sourceDomains: blind.sourceDomains,
+    topSourceDomain: blind.topSourceDomain,
     hitOur,
     judgeError,
   }

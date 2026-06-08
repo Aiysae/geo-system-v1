@@ -8,8 +8,13 @@
 // 4. 单轮入口 openaiCompatChat 会自动在 system prompt 头部注入"当前北京时间"，
 //    工具循环类（如 deepseek/kimi）自行拼装 messages 时也应使用 withBeijingTime。
 
-import type { LlmMode } from "@/types"
+import type { LlmMode, PenetrationSource } from "@/types"
 import { withBeijingTime } from "./time-context"
+
+export interface SearchSourceEvent {
+  query: string
+  sources: PenetrationSource[]
+}
 
 export interface ChatArgs {
   system: string
@@ -23,6 +28,8 @@ export interface ChatArgs {
   forceWebSearch?: boolean
   /** Send only the user's question as conversation context; do not inject time/system hints. */
   rawQuestionOnly?: boolean
+  /** Observe the public web sources used by local search adapters. */
+  onSearchSources?: (event: SearchSourceEvent) => void
 }
 
 function redactSecrets(text: string): string {
