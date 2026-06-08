@@ -31,6 +31,30 @@ function redactSecrets(text: string): string {
     .replace(/Bearer\s+[A-Za-z0-9._\-]{16,}/gi, "Bearer ***")
 }
 
+function isTemperatureOneOnlyError(message: string): boolean {
+  return /invalid temperature/i.test(message) && /only\s+1\s+is\s+allowed/i.test(message)
+}
+
+async function postChatCompletion(args: {
+  url: string
+  apiKey: string
+  payload: Record<string, unknown>
+  extraHeaders?: Record<string, string>
+  signal?: AbortSignal
+}): Promise<Response> {
+  return fetch(args.url, {
+    method: "POST",
+    cache: "no-store",
+    signal: args.signal,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${args.apiKey}`,
+      ...args.extraHeaders,
+    },
+    body: JSON.stringify(args.payload),
+  })
+}
+
 export interface RawChatCompletionMessage {
   role: string
   content:
@@ -114,17 +138,7 @@ export async function openaiCompatRaw({
 
   let res: Response
   try {
-    res = await fetch(url, {
-      method: "POST",
-      cache: "no-store",
-      signal: controller?.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        ...extraHeaders,
-      },
-      body: JSON.stringify(payload),
-    })
+    res = await postChatCompletion({ url, apiKey, payload, extraHeaders, signal: controller?.signal })
   } catch (fetchErr) {
     if (timeout) clearTimeout(timeout)
     if (fetchErr instanceof DOMException && fetchErr.name === "AbortError") {
@@ -137,20 +151,20 @@ export async function openaiCompatRaw({
   if (!res.ok) {
     const rawTxt = await res.text().catch(() => "")
     const txt = redactSecrets(rawTxt)
+    if (
+      res.status === 400 &&
+      payload.temperature !== 1 &&
+      isTemperatureOneOnlyError(txt)
+    ) {
+      const retryPayload = { ...payload, temperature: 1 }
+      const retry = await postChatCompletion({ url, apiKey, payload: retryPayload, extraHeaders })
+      if (retry.ok) return (await retry.json()) as RawChatCompletion
+    }
     // 部分供应商不支持 response_format=json_object，遇到 400/422 时去掉重试一次
     if (jsonMode && (res.status === 400 || res.status === 422)) {
       const fallback = { ...payload }
       delete (fallback as Record<string, unknown>).response_format
-      const retry = await fetch(url, {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          ...extraHeaders,
-        },
-        body: JSON.stringify(fallback),
-      })
+      const retry = await postChatCompletion({ url, apiKey, payload: fallback, extraHeaders })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
 

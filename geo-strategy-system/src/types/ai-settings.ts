@@ -9,6 +9,17 @@ export interface AiProviderExtraField {
   inputType?: "text" | "checkbox"
 }
 
+export interface AiProviderPreset {
+  key: string
+  label: string
+  description?: string
+  baseUrl?: string
+  chatPath?: string
+  model?: string
+  timeout?: number
+  extra?: Record<string, string | boolean>
+}
+
 export interface AiProviderPublicSetting {
   key: AiProviderKey
   label: string
@@ -21,6 +32,7 @@ export interface AiProviderPublicSetting {
   apiKeyPreview: string
   extra: Record<string, string | boolean>
   extraFields: AiProviderExtraField[]
+  presets: AiProviderPreset[]
   updatedAt?: string
 }
 

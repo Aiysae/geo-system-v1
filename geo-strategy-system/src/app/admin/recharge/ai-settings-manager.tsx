@@ -1,9 +1,9 @@
 "use client"
 
-import { useActionState } from "react"
+import { useActionState, useState } from "react"
 import { KeyRound, Save } from "lucide-react"
 import { saveAiSettingAction, type SaveAiSettingState } from "./actions"
-import type { AiProviderPublicSetting } from "@/types/ai-settings"
+import type { AiProviderPreset, AiProviderPublicSetting } from "@/types/ai-settings"
 
 const initialState: SaveAiSettingState = {}
 
@@ -36,6 +36,19 @@ export function AiSettingsManager({ settings }: { settings: AiProviderPublicSett
 function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
   const [state, action, pending] = useActionState(saveAiSettingAction, initialState)
   const isCurrent = state.key === setting.key
+  const [baseUrl, setBaseUrl] = useState(setting.baseUrl)
+  const [chatPath, setChatPath] = useState(setting.chatPath)
+  const [model, setModel] = useState(setting.model)
+  const [timeout, setTimeoutValue] = useState(setting.timeout)
+  const [extra, setExtra] = useState<Record<string, string | boolean>>(setting.extra)
+
+  function applyPreset(preset: AiProviderPreset) {
+    if (preset.baseUrl !== undefined) setBaseUrl(preset.baseUrl)
+    if (preset.chatPath !== undefined) setChatPath(preset.chatPath)
+    if (preset.model !== undefined) setModel(preset.model)
+    if (preset.timeout !== undefined) setTimeoutValue(preset.timeout)
+    if (preset.extra) setExtra(prev => ({ ...prev, ...preset.extra }))
+  }
 
   return (
     <form action={action} className="p-4 sm:p-5">
@@ -56,7 +69,24 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="space-y-3">
+          {setting.presets.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {setting.presets.map(preset => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  title={preset.description}
+                  onClick={() => applyPreset(preset)}
+                  className="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-[#006AA3] transition hover:border-[#0077B6] hover:bg-blue-100"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <label className="text-xs">
             <span className="mb-1.5 block font-medium text-slate-500">API Key</span>
             <input
@@ -72,7 +102,8 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
             <span className="mb-1.5 block font-medium text-slate-500">模型 / Endpoint</span>
             <input
               name="model"
-              defaultValue={setting.model}
+              value={model}
+              onChange={event => setModel(event.target.value)}
               placeholder="模型名或 endpoint id"
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
             />
@@ -82,7 +113,8 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
             <span className="mb-1.5 block font-medium text-slate-500">接口根地址</span>
             <input
               name="baseUrl"
-              defaultValue={setting.baseUrl}
+              value={baseUrl}
+              onChange={event => setBaseUrl(event.target.value)}
               placeholder="https://api.example.com"
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
             />
@@ -92,7 +124,8 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
             <span className="mb-1.5 block font-medium text-slate-500">Chat Path</span>
             <input
               name="chatPath"
-              defaultValue={setting.chatPath}
+              value={chatPath}
+              onChange={event => setChatPath(event.target.value)}
               placeholder="/v1/chat/completions"
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
             />
@@ -106,7 +139,8 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
               min={30}
               max={1800}
               step={30}
-              defaultValue={setting.timeout}
+              value={timeout}
+              onChange={event => setTimeoutValue(Number(event.target.value))}
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
             />
           </label>
@@ -119,14 +153,16 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
                   <input
                     name={`extra.${field.key}`}
                     type="checkbox"
-                    defaultChecked={setting.extra[field.key] === true}
+                    checked={extra[field.key] === true}
+                    onChange={event => setExtra(prev => ({ ...prev, [field.key]: event.target.checked }))}
                     className="accent-[#0077B6]"
                   />
                 </span>
               ) : (
                 <input
                   name={`extra.${field.key}`}
-                  defaultValue={typeof setting.extra[field.key] === "string" ? String(setting.extra[field.key]) : ""}
+                  value={typeof extra[field.key] === "string" ? String(extra[field.key]) : ""}
+                  onChange={event => setExtra(prev => ({ ...prev, [field.key]: event.target.value }))}
                   placeholder={field.placeholder}
                   className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
                 />
@@ -153,6 +189,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
                 {state.message}
               </span>
             )}
+          </div>
           </div>
         </div>
       </div>

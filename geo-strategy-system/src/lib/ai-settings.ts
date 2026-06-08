@@ -4,6 +4,7 @@ import { kv } from "@vercel/kv"
 import type {
   AiProviderExtraField,
   AiProviderKey,
+  AiProviderPreset,
   AiProviderPublicSetting,
   AiProviderRuntimeSetting,
 } from "@/types/ai-settings"
@@ -25,6 +26,7 @@ interface AiProviderDefinition {
   extraEnv?: Record<string, string[]>
   extraDefaults?: Record<string, string | boolean>
   extraFields?: AiProviderExtraField[]
+  presets?: AiProviderPreset[]
 }
 
 interface StoredAiProviderSetting {
@@ -67,7 +69,24 @@ const DEFINITIONS: AiProviderDefinition[] = [
     modelEnv: ["ARK_DOUBAO_ENDPOINT_ID"],
     extraEnv: { botId: ["ARK_DOUBAO_BOT_ID"] },
     extraFields: [
-      { key: "botId", label: "Bot ID（可选）", placeholder: "bot-xxxx，优先用于非强制联网场景" },
+      { key: "botId", label: "Bot ID（仅调研用）", placeholder: "bot-xxxx，模块一客观盲测不会使用 Bot" },
+    ],
+    presets: [
+      {
+        key: "doubao-official-seed-lite",
+        label: "纯净盲测 · 豆包 Seed 2.0 Lite",
+        description: "模块一推荐：走火山方舟原始 Chat Completions，不读取 Bot 知识库。",
+        baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+        chatPath: "/chat/completions",
+        model: "doubao-seed-2-0-lite-260215",
+      },
+      {
+        key: "doubao-endpoint",
+        label: "纯净盲测 · 自有 Endpoint",
+        description: "使用火山方舟 ep- 开头的 Endpoint ID；适合已发布专属 Endpoint 的账号。",
+        baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+        chatPath: "/chat/completions",
+      },
     ],
   },
   {
@@ -80,6 +99,24 @@ const DEFINITIONS: AiProviderDefinition[] = [
     defaultTimeout: 300,
     apiKeyEnv: ["DEEPSEEK_API_KEY"],
     modelEnv: ["DEEPSEEK_MODEL"],
+    presets: [
+      {
+        key: "deepseek-official-chat",
+        label: "DeepSeek 官方 · deepseek-chat",
+        description: "模块一推荐：支持本地 search_web 工具循环，避免 thinking 模型 tool_choice 报错。",
+        baseUrl: "https://api.deepseek.com",
+        chatPath: "/v1/chat/completions",
+        model: "deepseek-chat",
+      },
+      {
+        key: "deepseek-tokenhub-flash",
+        label: "腾讯 TokenHub · DeepSeek Flash",
+        description: "如果你的 Key 来自腾讯 TokenHub，使用这个预设。",
+        baseUrl: "https://tokenhub.tencentmaas.com",
+        chatPath: "/v1/chat/completions",
+        model: "deepseek-v4-flash",
+      },
+    ],
   },
   {
     key: "qwen",
@@ -91,6 +128,16 @@ const DEFINITIONS: AiProviderDefinition[] = [
     defaultTimeout: 300,
     apiKeyEnv: ["DASHSCOPE_API_KEY"],
     modelEnv: ["DASHSCOPE_MODEL"],
+    presets: [
+      {
+        key: "qwen-official-plus",
+        label: "通义官方 · qwen-plus",
+        description: "DashScope OpenAI 兼容模式，支持 enable_search 联网参数。",
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
+        chatPath: "/v1/chat/completions",
+        model: "qwen-plus",
+      },
+    ],
   },
   {
     key: "kimi",
@@ -102,6 +149,24 @@ const DEFINITIONS: AiProviderDefinition[] = [
     defaultTimeout: 300,
     apiKeyEnv: ["MOONSHOT_API_KEY"],
     modelEnv: ["MOONSHOT_MODEL"],
+    presets: [
+      {
+        key: "kimi-moonshot-k2",
+        label: "Moonshot 官方 · Kimi K2",
+        description: "使用 Moonshot 官方接口和内置 $web_search 联网工具。",
+        baseUrl: "https://api.moonshot.cn",
+        chatPath: "/v1/chat/completions",
+        model: "kimi-k2.5",
+      },
+      {
+        key: "kimi-tokenhub-k26",
+        label: "腾讯 TokenHub · Kimi K2.6",
+        description: "如果你的 Key 来自腾讯 TokenHub，使用这个预设；系统会自动处理 temperature=1。",
+        baseUrl: "https://tokenhub.tencentmaas.com",
+        chatPath: "/v1/chat/completions",
+        model: "kimi-k2.6",
+      },
+    ],
   },
   {
     key: "ernie",
@@ -141,6 +206,26 @@ const DEFINITIONS: AiProviderDefinition[] = [
     extraEnv: { enableEnhancement: ["TENCENT_HUNYUAN_ENABLE_ENHANCEMENT"] },
     extraFields: [
       { key: "enableEnhancement", label: "启用增强联网", inputType: "checkbox" },
+    ],
+    presets: [
+      {
+        key: "hunyuan-official",
+        label: "腾讯混元官方 · Turbos",
+        description: "使用腾讯混元官方 OpenAI 兼容接口；可开启增强联网。",
+        baseUrl: "https://api.hunyuan.cloud.tencent.com",
+        chatPath: "/v1/chat/completions",
+        model: "hunyuan-turbos-latest",
+        extra: { enableEnhancement: true },
+      },
+      {
+        key: "hunyuan-tokenhub-hy3",
+        label: "腾讯 TokenHub · HY3 Preview",
+        description: "如果你的 Key 来自腾讯 TokenHub，使用这个预设；模块一会走本地 search_web 工具循环。",
+        baseUrl: "https://tokenhub.tencentmaas.com",
+        chatPath: "/v1/chat/completions",
+        model: "hy3-preview",
+        extra: { enableEnhancement: false },
+      },
     ],
   },
 ]
@@ -271,6 +356,7 @@ export async function listAiProviderPublicSettings(): Promise<AiProviderPublicSe
       apiKeyPreview: maskKey(runtime.apiKey),
       extra: runtime.extra,
       extraFields: def.extraFields || [],
+      presets: def.presets || [],
       updatedAt: stored[def.key]?.updatedAt,
     }
   })
