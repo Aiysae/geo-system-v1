@@ -52,11 +52,27 @@ export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "huny
 
 export type LlmMode = "consumer" | "judge"
 
+export interface PenetrationSource {
+  title: string
+  snippet: string
+  url: string
+  domain: string
+  query: string
+}
+
+export interface SourceDomainCount {
+  domain: string
+  count: number
+}
+
 export interface PenetrationItem {
   question: string
   answer: string
   mentionedBrands: string[]
   topRecommended: string | null
+  searchSources?: PenetrationSource[]
+  sourceDomains?: SourceDomainCount[]
+  topSourceDomain?: SourceDomainCount | null
   // 客观判分结果：盲测回答文本中是否真实出现了我方品牌（代码层 includes 匹配，忽略大小写/空格）
   hitOur: boolean
 }

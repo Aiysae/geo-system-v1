@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Target, ChevronDown, MessageSquare, BarChart3 } from "lucide-react"
+import { Target, ChevronDown, MessageSquare, BarChart3, Globe2, ExternalLink } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
 import PenetrationDonut from "./penetration-donut"
 import IndustryShareChart from "./industry-share-chart"
@@ -22,7 +22,14 @@ import type {
   BrandVoiceItem,
   KeywordCompetitionItem,
 } from "@/lib/dashboard-aggregations"
-import type { Client, ModelKey, PenetrationResult } from "@/types"
+import type {
+  Client,
+  ModelKey,
+  PenetrationItem,
+  PenetrationResult,
+  PenetrationSource,
+  SourceDomainCount,
+} from "@/types"
 
 interface Props {
   client: Client
@@ -221,7 +228,9 @@ function RawAnswersPanel({
   const models = (Object.keys(byModel) as ModelKey[]).filter(m => byModel[m]?.length)
   const [open, setOpen] = useState(false)
   const [activeModel, setActive] = useState<ModelKey | null>(models[0] ?? null)
-  if (models.length === 0 || !activeModel) return null
+  const currentModel = activeModel && models.includes(activeModel) ? activeModel : models[0] ?? null
+
+  if (models.length === 0 || !currentModel) return null
 
   function highlight(text: string, brand: string): React.ReactNode {
     const b = brand.trim()
@@ -241,7 +250,11 @@ function RawAnswersPanel({
     )
   }
 
-  const items = byModel[activeModel] ?? []
+  const items = byModel[currentModel] ?? []
+  const modelDomainStats = getModelDomainStats(items)
+  const topSource = modelDomainStats[0] ?? null
+  const sourceTotal = modelDomainStats.reduce((sum, item) => sum + item.count, 0)
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
       <button
@@ -272,7 +285,7 @@ function RawAnswersPanel({
                 key={m}
                 onClick={() => setActive(m)}
                 className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${
-                  activeModel === m
+                  currentModel === m
                     ? "bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white shadow"
                     : "bg-white text-slate-600 border border-slate-200 hover:border-[#0077B6]"
                 }`}
@@ -283,6 +296,57 @@ function RawAnswersPanel({
                 </span>
               </button>
             ))}
+          </div>
+          <div className="px-4 py-3 bg-cyan-50/40 border-b border-cyan-100">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 w-6 h-6 rounded-lg bg-white border border-cyan-100 flex items-center justify-center text-cyan-700">
+                  <Globe2 className="h-3.5 w-3.5" />
+                </span>
+                <div>
+                  <div className="text-xs font-semibold text-slate-800">来源域名统计</div>
+                  <div className="text-[11px] text-slate-500 leading-relaxed">
+                    统计 {MODEL_LABELS[currentModel]} 本次联网搜索结果中被提供给模型参考的公开网页来源。
+                  </div>
+                </div>
+              </div>
+              {topSource && (
+                <div className="text-[11px] text-cyan-900 bg-white/80 border border-cyan-100 rounded-lg px-2.5 py-1.5">
+                  最高频：<span className="font-semibold">{topSource.domain}</span> · {topSource.count} 次
+                </div>
+              )}
+            </div>
+            {modelDomainStats.length > 0 ? (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {modelDomainStats.slice(0, 9).map(source => (
+                  <div
+                    key={source.domain}
+                    className="bg-white border border-cyan-100 rounded-lg px-2.5 py-2 min-w-0"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium text-slate-700 truncate">
+                        {source.domain}
+                      </span>
+                      <span className="text-[10px] font-semibold text-cyan-700 whitespace-nowrap">
+                        {source.count} 次
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                        style={{
+                          width: `${Math.max(10, Math.round((source.count / sourceTotal) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 text-[11px] text-slate-500 bg-white/70 border border-dashed border-cyan-100 rounded-lg px-3 py-2">
+                该模型本次未返回可审计来源域名；若使用厂商原生联网参数，供应商可能只返回回答文本，不返回引用列表。
+              </div>
+            )}
           </div>
           <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
             {items.map((it, i) => {
@@ -310,6 +374,7 @@ function RawAnswersPanel({
                     )}
                   </div>
                   <AnswerItem text={it.answer} ourBrand={ourBrand} highlightFn={highlight} />
+                  <SourceAuditSnippet item={it} />
                   {it.mentionedBrands.length > 0 && (
                     <div className="flex flex-wrap gap-1 pl-7">
                       {it.mentionedBrands.map((b, j) => {
@@ -335,6 +400,92 @@ function RawAnswersPanel({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function summarizeSourcesByDomain(sources: PenetrationSource[]): SourceDomainCount[] {
+  const counts = new Map<string, number>()
+  for (const source of sources) {
+    if (!source.domain) continue
+    counts.set(source.domain, (counts.get(source.domain) ?? 0) + 1)
+  }
+  return Array.from(counts.entries())
+    .map(([domain, count]) => ({ domain, count }))
+    .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
+}
+
+function getModelDomainStats(items: PenetrationItem[]): SourceDomainCount[] {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const domains =
+      item.sourceDomains && item.sourceDomains.length > 0
+        ? item.sourceDomains
+        : summarizeSourcesByDomain(item.searchSources ?? [])
+    for (const source of domains) {
+      counts.set(source.domain, (counts.get(source.domain) ?? 0) + source.count)
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([domain, count]) => ({ domain, count }))
+    .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
+}
+
+function uniqueSources(sources: PenetrationSource[]): PenetrationSource[] {
+  const seen = new Set<string>()
+  const out: PenetrationSource[] = []
+  for (const source of sources) {
+    if (seen.has(source.url)) continue
+    seen.add(source.url)
+    out.push(source)
+  }
+  return out
+}
+
+function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
+  const domains =
+    item.sourceDomains && item.sourceDomains.length > 0
+      ? item.sourceDomains
+      : summarizeSourcesByDomain(item.searchSources ?? [])
+  const sources = uniqueSources(item.searchSources ?? []).slice(0, 3)
+
+  if (domains.length === 0 && sources.length === 0) return null
+
+  return (
+    <div className="pl-7 mb-2">
+      <div className="rounded-lg border border-slate-100 bg-slate-50/70 px-2.5 py-2">
+        {domains.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-medium text-slate-500">参考域名</span>
+            {domains.slice(0, 5).map(source => (
+              <span
+                key={source.domain}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600"
+              >
+                {source.domain} · {source.count} 次
+              </span>
+            ))}
+          </div>
+        )}
+        {sources.length > 0 && (
+          <div className="mt-1.5 flex flex-col gap-1">
+            {sources.map(source => (
+              <a
+                key={source.url}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="group flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-[#0077B6] min-w-0"
+                title={source.title}
+              >
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="truncate">{source.title || source.domain}</span>
+                <span className="shrink-0 text-slate-400">({source.domain})</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

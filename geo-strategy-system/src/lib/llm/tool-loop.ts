@@ -12,7 +12,7 @@
 // 4) 工具循环捕获 search_web 调用，本地 webSearch() 抓真实网页喂回，最多 MAX_ROUNDS 轮。
 
 import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
-import { webSearch, formatHitsForLLM } from "./web-search"
+import { webSearch, formatHitsForLLM, type SearchHit } from "./web-search"
 import { withBeijingTime } from "./time-context"
 
 const SEARCH_WEB_TOOL = {
@@ -60,6 +60,29 @@ function messageText(content: unknown): string {
   return ""
 }
 
+function normalizeDomain(url: string): string {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "")
+    return host || "unknown"
+  } catch {
+    return "unknown"
+  }
+}
+
+function emitSearchSources(args: ToolLoopArgs, query: string, hits: SearchHit[]) {
+  if (!args.onSearchSources) return
+  args.onSearchSources({
+    query,
+    sources: hits.map(hit => ({
+      title: hit.title,
+      snippet: hit.snippet,
+      url: hit.url,
+      domain: normalizeDomain(hit.url),
+      query,
+    })),
+  })
+}
+
 interface ToolLoopArgs extends ChatArgs {
   url: string
   apiKey: string
@@ -79,6 +102,7 @@ interface ToolLoopArgs extends ChatArgs {
 async function chatWithPresearchedContext(args: ToolLoopArgs): Promise<string> {
   const t0 = Date.now()
   const hits = await webSearch(args.user, 5)
+  emitSearchSources(args, args.user, hits)
   console.log(
     `[${args.label}·presearch] q="${args.user.slice(0, 80)}" hits=${hits.length} ${Date.now() - t0}ms`
   )
@@ -185,6 +209,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
           }
           const t0 = Date.now()
           const hits = await webSearch(query, 5)
+          emitSearchSources(args, query, hits)
           console.log(
             `[${args.label}·search_web] q="${query}" hits=${hits.length} ${Date.now() - t0}ms`
           )

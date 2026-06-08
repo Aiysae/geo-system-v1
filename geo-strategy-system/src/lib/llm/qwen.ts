@@ -1,4 +1,5 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
+import { chatWithLocalWebSearchTool } from "./tool-loop"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 // 通义千问 (DashScope) 适配器。
@@ -13,6 +14,18 @@ export async function isQwenConfigured(): Promise<boolean> {
 
 export async function chatQwen(args: ChatArgs): Promise<string> {
   const config = await getAiProviderRuntimeSetting("qwen")
+  if (args.forceWebSearch) {
+    return chatWithLocalWebSearchTool({
+      url: buildAiChatUrl(config),
+      apiKey: config.apiKey,
+      model: config.model,
+      label: "通义千问",
+      forceSearchMode: "presearch",
+      allowSpecifiedToolChoice: false,
+      ...args,
+    })
+  }
+
   const extraBody =
     args.forceWebSearch || args.mode !== "consumer"
       ? {
