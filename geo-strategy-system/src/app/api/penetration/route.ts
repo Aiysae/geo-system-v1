@@ -7,6 +7,8 @@ import type {
   SourceDomainCount,
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
+import { webSearch, type SearchHit } from "@/lib/llm/web-search"
+import { normalizeSourceDomain } from "@/lib/llm/source-extract"
 import { aggregatePenetration, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
 import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
@@ -123,6 +125,25 @@ function summarizeSourceDomains(sources: PenetrationSource[]): SourceDomainCount
     .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
 }
 
+function hitsToSources(query: string, hits: SearchHit[]): PenetrationSource[] {
+  return hits.map(hit => ({
+    title: hit.title,
+    snippet: hit.snippet,
+    url: hit.url,
+    domain: normalizeSourceDomain(hit.url),
+    query,
+  }))
+}
+
+async function ensureAuditSources(
+  question: string,
+  sources: PenetrationSource[]
+): Promise<PenetrationSource[]> {
+  if (sources.length > 0) return sources
+  const hits = await webSearch(question, 12)
+  return hitsToSources(question, hits)
+}
+
 // ============================================================================
 // Stage A · 客观联网单问
 // ============================================================================
@@ -157,7 +178,7 @@ async function blindQuery(
       },
     })
     const answer = raw || ""
-    const searchSources = dedupeSources(collectedSources)
+    const searchSources = dedupeSources(await ensureAuditSources(question, collectedSources))
     const sourceDomains = summarizeSourceDomains(searchSources)
     console.log(
       `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | forcedSearch=true | rawQuestionOnly=true | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
@@ -224,6 +245,7 @@ async function judgeAnswer(
       mode: "judge",
       jsonMode: true,
       maxTokens: 2048,
+      allowWebSearch: false,
     })
     const parsed = parseJsonLoose(raw) as
       | { hitOur?: unknown; hitEvidence?: unknown; mentionedBrands?: unknown; topRecommended?: unknown }
@@ -354,12 +376,41 @@ async function processSlot(args: {
 // 选裁判模型：优先 DeepSeek（结构化输出最稳/最便宜），依次降级
 // 强约束：裁判应尽量与"出题模型"不同，避免自证；只有当所有可用模型都被占用时才允许相同。
 // ============================================================================
-function pickJudge(activeModels: ModelKey[]): ModelKey | null {
+async function pickJudge(activeModels: ModelKey[]): Promise<ModelKey | null> {
   const order: ModelKey[] = ["deepseek", "qwen", "ernie", "hunyuan", "doubao", "kimi"]
   for (const m of order) {
-    if (activeModels.includes(m)) return m
+    if (!activeModels.includes(m) && (await ADAPTERS[m].configured())) return m
+  }
+  for (const m of order) {
+    if (activeModels.includes(m) && (await ADAPTERS[m].configured())) return m
   }
   return null
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let cursor = 0
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      out[index] = await worker(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return out
+}
+
+function modelConcurrency(model: ModelKey): number {
+  if (model === "kimi") return 1
+  return 2
 }
 
 async function handler(req: NextRequest) {
@@ -412,7 +463,7 @@ async function handler(req: NextRequest) {
     const guard = await authAndCheckCredits(requiredCredits)
     if (!guard.ok) return guard.response
 
-    const judgeModel = pickJudge(activeModels)
+    const judgeModel = await pickJudge(activeModels)
     if (!judgeModel) {
       return NextResponse.json(
         { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
@@ -427,21 +478,22 @@ async function handler(req: NextRequest) {
     )
     const t0 = Date.now()
 
-    const tasks: Array<Promise<{ model: ModelKey; item: PenetrationItem & { error?: string; judgeError?: string } }>> = []
-    for (const m of activeModels) {
-      for (const q of questions) {
-        tasks.push(
-          processSlot({
+    const groupedResults = await Promise.all(
+      activeModels.map(m =>
+        mapWithConcurrency(questions, modelConcurrency(m), async (q, index) => {
+          if (m === "kimi" && index > 0) await sleep(1200)
+          const item = await processSlot({
             model: m,
             judgeModel,
             question: q,
             ourBrand,
             competitors,
-          }).then(item => ({ model: m, item }))
-        )
-      }
-    }
-    const results = await Promise.all(tasks)
+          })
+          return { model: m, item }
+        })
+      )
+    )
+    const results = groupedResults.flat()
     console.log(`[penetration] 全部完成 耗时 ${Date.now() - t0}ms`)
 
     // 按 model → 题目顺序整理

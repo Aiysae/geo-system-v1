@@ -1,5 +1,4 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
-import { chatWithLocalWebSearchTool } from "./tool-loop"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 // 文心一言 / 百度千帆 V2 适配器（OpenAI 兼容接口）。
@@ -16,21 +15,8 @@ export async function chatErnie(args: ChatArgs): Promise<string> {
   const enableSearch = config.extra.enableSearch !== false
   const appId = typeof config.extra.appId === "string" ? config.extra.appId : ""
   const extraHeaders = appId ? { appid: appId } : undefined
-  if (args.forceWebSearch) {
-    return chatWithLocalWebSearchTool({
-      url: buildAiChatUrl(config),
-      apiKey: config.apiKey,
-      model: config.model,
-      label: "文心一言",
-      forceSearchMode: "presearch",
-      allowSpecifiedToolChoice: false,
-      extraHeaders,
-      ...args,
-    })
-  }
-
   const extraBody =
-    args.forceWebSearch || (args.mode === "consumer" && enableSearch)
+    args.forceWebSearch || (args.allowWebSearch !== false && args.mode === "consumer" && enableSearch)
       ? { web_search: { enable: true, enable_trace: false } }
       : undefined
 

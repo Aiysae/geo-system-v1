@@ -306,7 +306,7 @@ function RawAnswersPanel({
                 <div>
                   <div className="text-xs font-semibold text-slate-800">来源域名统计</div>
                   <div className="text-[11px] text-slate-500 leading-relaxed">
-                    统计 {MODEL_LABELS[currentModel]} 本次联网搜索结果中被提供给模型参考的公开网页来源。
+                    统计 {MODEL_LABELS[currentModel]} 本次可审计公开网页来源；优先读取模型返回引用，未暴露引用时使用同题联网采样补充。
                   </div>
                 </div>
               </div>
@@ -344,7 +344,7 @@ function RawAnswersPanel({
               </div>
             ) : (
               <div className="mt-3 text-[11px] text-slate-500 bg-white/70 border border-dashed border-cyan-100 rounded-lg px-3 py-2">
-                该模型本次未返回可审计来源域名；若使用厂商原生联网参数，供应商可能只返回回答文本，不返回引用列表。
+                该模型本次未返回可审计来源域名；请重新检测，系统会尝试补充同题公开网页采样。
               </div>
             )}
           </div>
