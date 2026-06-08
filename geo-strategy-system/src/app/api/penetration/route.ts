@@ -327,16 +327,20 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "请至少选择一个模型" }, { status: 400 })
     }
 
-    // ★ 强校验环境变量：勾选但未配置 Key 的模型必须显式跳过，绝不返回 Mock
-    const activeModels = models.filter(m => ADAPTERS[m].configured())
-    const skipped = models.filter(m => !ADAPTERS[m].configured())
+    // ★ 强校验后台/环境模型配置：勾选但未配置 Key 的模型必须显式跳过，绝不返回 Mock
+    const activeModels: ModelKey[] = []
+    const skipped: ModelKey[] = []
+    for (const m of models) {
+      if (await ADAPTERS[m].configured()) activeModels.push(m)
+      else skipped.push(m)
+    }
 
     if (activeModels.length === 0) {
       return NextResponse.json(
         {
           error: `所选模型均未配置 API Key（缺失: ${skipped
             .map(m => ADAPTERS[m].label)
-            .join("、")}）。请在 .env.local 中配置对应密钥后重试。`,
+            .join("、")}）。请在后台管理页配置对应密钥后重试。`,
           skipped: skipped.map(m => ({ model: m, label: ADAPTERS[m].label })),
         },
         { status: 400 }
@@ -350,7 +354,7 @@ async function handler(req: NextRequest) {
     const judgeModel = pickJudge(activeModels)
     if (!judgeModel) {
       return NextResponse.json(
-        { error: "没有任何已配置的大模型可作为裁判，请先在 .env.local 配置至少一个 API Key" },
+        { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
         { status: 400 }
       )
     }
@@ -415,7 +419,7 @@ async function handler(req: NextRequest) {
         skippedDetail: skipped.map(m => ({
           model: m,
           label: ADAPTERS[m].label,
-          reason: `${ADAPTERS[m].label} 接口配置缺失：未读取到对应环境变量`,
+          reason: `${ADAPTERS[m].label} 接口配置缺失：后台未配置 API Key，且未读取到对应环境变量`,
         })),
         modelErrors,
         requestId: crypto.randomUUID(),

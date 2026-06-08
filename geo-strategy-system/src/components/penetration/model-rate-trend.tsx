@@ -12,7 +12,7 @@ import {
   CartesianGrid,
   LabelList,
 } from "recharts"
-import { MODEL_LABELS } from "@/lib/llm"
+import { MODEL_LABELS } from "@/lib/model-labels"
 import type { PerModelRate } from "@/types"
 
 interface Props {

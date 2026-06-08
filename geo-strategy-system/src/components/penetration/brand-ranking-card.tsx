@@ -1,7 +1,7 @@
 "use client"
 
 import { Trophy, TrendingDown } from "lucide-react"
-import { MODEL_LABELS } from "@/lib/llm"
+import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
 import type { PerModelRate } from "@/types"
 

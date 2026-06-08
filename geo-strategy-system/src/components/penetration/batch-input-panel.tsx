@@ -15,7 +15,7 @@ import {
   X,
   Globe2,
 } from "lucide-react"
-import { MODEL_LABELS } from "@/lib/llm"
+import { MODEL_LABELS } from "@/lib/model-labels"
 import { apiFetch } from "@/lib/api-fetch"
 import ModelAvatar from "@/components/model-avatar"
 import type { Client, ModelKey } from "@/types"

@@ -1,5 +1,6 @@
 import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
 import { withBeijingTime } from "./time-context"
+import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 // Kimi (Moonshot) 适配器
 //
@@ -13,19 +14,11 @@ import { withBeijingTime } from "./time-context"
 //
 // 错误日志：所有失败一律打印【完整错误体】到终端，便于排查 401/400 等鉴权或参数错误。
 
-const URL = "https://api.moonshot.cn/v1/chat/completions"
 const LABEL = "Kimi"
 
-function apiKey(): string {
-  return process.env.MOONSHOT_API_KEY || ""
-}
-
-function model(): string {
-  return process.env.MOONSHOT_MODEL || "moonshot-v1-8k"
-}
-
-export function isKimiConfigured(): boolean {
-  return !!apiKey()
+export async function isKimiConfigured(): Promise<boolean> {
+  const config = await getAiProviderRuntimeSetting("kimi")
+  return !!config.apiKey
 }
 
 const WEB_SEARCH_TOOL = {
@@ -51,13 +44,14 @@ function messageText(content: unknown): string {
 }
 
 export async function chatKimi(args: ChatArgs): Promise<string> {
-  const key = apiKey()
-  const selectedModel = model()
+  const config = await getAiProviderRuntimeSetting("kimi")
+  const key = config.apiKey
+  const selectedModel = config.model
   const useSearchTool = args.forceWebSearch || args.mode !== "consumer"
 
   if (!key) {
-    console.warn("[Kimi] Moonshot API Key is undefined（process.env.MOONSHOT_API_KEY 为空，请检查 .env.local 是否已加载）")
-    throw new Error(`${LABEL} 接口配置缺失：未读取到环境变量 MOONSHOT_API_KEY。`)
+    console.warn("[Kimi] Moonshot API Key is undefined（请在后台管理页配置 Kimi 模型）")
+    throw new Error(`${LABEL} 接口配置缺失：请在后台管理页配置 API Key 和模型。`)
   }
 
   // 裁判/分析路径注入"当前北京时间"作为时间锚点；客观盲测 rawQuestionOnly
@@ -76,7 +70,7 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
     let data
     try {
       data = await openaiCompatRaw({
-        url: URL,
+        url: buildAiChatUrl(config),
         apiKey: key,
         model: selectedModel,
         label: LABEL,

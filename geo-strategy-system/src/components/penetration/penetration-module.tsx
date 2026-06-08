@@ -11,7 +11,7 @@ import ModelRateTrend from "./model-rate-trend"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
-import { MODEL_LABELS } from "@/lib/llm"
+import { MODEL_LABELS } from "@/lib/model-labels"
 import { apiFetch } from "@/lib/api-fetch"
 import {
   getBrandVoiceAction,

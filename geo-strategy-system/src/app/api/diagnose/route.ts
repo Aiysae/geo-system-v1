@@ -91,10 +91,16 @@ async function handler(req: NextRequest) {
 
     // 优先用 DeepSeek（便宜稳）做诊断，未配置就降级到首个可用
     const order = ["deepseek", "doubao", "qwen", "kimi"] as const
-    const picked = order.find(k => ADAPTERS[k].configured())
+    let picked: (typeof order)[number] | undefined
+    for (const key of order) {
+      if (await ADAPTERS[key].configured()) {
+        picked = key
+        break
+      }
+    }
     if (!picked) {
       return NextResponse.json(
-        { error: "没有任何已配置的大模型可用，请先在 .env.local 配置至少一个 API Key" },
+        { error: "没有任何已配置的大模型可用，请先在后台管理页配置至少一个 API Key" },
         { status: 400 }
       )
     }
