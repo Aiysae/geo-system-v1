@@ -49,20 +49,9 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
   const bot = typeof config.extra.botId === "string" ? config.extra.botId : ""
   const endpoint = config.model
 
-  if (args.forceWebSearch && endpoint) {
-    // 渗透率客观盲测要求"必须联网搜索"。Endpoint + 本地 search_web 工具
-    // 可以在第一轮强制 tool_choice，便于审计搜索是否真实发生。
-    return chatWithLocalWebSearchTool({
-      url: ENDPOINT_URL,
-      apiKey: key,
-      model: endpoint,
-      label: "豆包",
-      ...args,
-    })
-  }
-
   if (bot) {
-    // Bot 模式：原生联网插件，single-shot 即可。
+    // Bot 模式：原生联网插件，single-shot 即可。渗透率盲测也优先走 Bot，
+    // 避免把后台"模型名"误当 Ark Endpoint ID 传给 /chat/completions。
     return openaiCompatChat({
       url: BOT_URL,
       apiKey: key,
@@ -70,6 +59,12 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
       label: "豆包",
       ...args,
     })
+  }
+
+  if (!endpoint.startsWith("ep-")) {
+    throw new Error(
+      `豆包 Endpoint ID 配置错误：当前填写的是「${endpoint || "空"}」。火山方舟 /chat/completions 需要 ep- 开头的 Endpoint ID；如果你有 bot- 开头的 Bot，请填到后台豆包配置的 Bot ID 字段。`
+    )
   }
 
   logEndpointFallbackOnce()

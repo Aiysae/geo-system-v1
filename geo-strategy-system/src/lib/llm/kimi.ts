@@ -43,6 +43,10 @@ function messageText(content: unknown): string {
   return ""
 }
 
+function isTemperatureOneOnlyError(message: string): boolean {
+  return /invalid temperature/i.test(message) && /only\s+1\s+is\s+allowed/i.test(message)
+}
+
 export async function chatKimi(args: ChatArgs): Promise<string> {
   const config = await getAiProviderRuntimeSetting("kimi")
   const key = config.apiKey
@@ -66,16 +70,17 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
   messages.push({ role: "user", content: args.user })
 
   const MAX_ROUNDS = 4
+  let forceTemperatureOne = false
   for (let round = 0; round < MAX_ROUNDS; round++) {
     let data
-    try {
-      data = await openaiCompatRaw({
+    const callMoonshot = (temperature: number | undefined) =>
+      openaiCompatRaw({
         url: buildAiChatUrl(config),
         apiKey: key,
         model: selectedModel,
         label: LABEL,
         messages,
-        temperature: args.temperature,
+        temperature,
         maxTokens: args.maxTokens,
         seed: args.seed,
         // jsonMode 透传给底层；若上游 400/422 拒绝 tools+response_format，
@@ -87,13 +92,30 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
             ? { type: "builtin_function", function: { name: "$web_search" } }
             : undefined,
       })
+
+    try {
+      data = await callMoonshot(forceTemperatureOne ? 1 : args.temperature)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
+      if (!forceTemperatureOne && isTemperatureOneOnlyError(msg)) {
+        forceTemperatureOne = true
+        console.warn(`[${LABEL}] 当前模型只允许 temperature=1，已自动用 temperature=1 重试。`)
+        data = await callMoonshot(1)
+      } else {
+        console.error(
+          `[${LABEL}·tool-loop] 第 ${round + 1}/${MAX_ROUNDS} 轮调用失败 | model=${selectedModel} | error=`,
+          msg
+        )
+        throw e
+      }
+    }
+
+    if (!data) {
       console.error(
         `[${LABEL}·tool-loop] 第 ${round + 1}/${MAX_ROUNDS} 轮调用失败 | model=${selectedModel} | error=`,
-        msg
+        "empty response"
       )
-      throw e
+      throw new Error(`${LABEL} 返回结构异常：空响应。`)
     }
 
     const choice = data.choices?.[0]

@@ -25,6 +25,12 @@ interface ChatArgs {
   rawQuestionOnly?: boolean
 }
 
+function redactSecrets(text: string): string {
+  return text
+    .replace(/sk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
+    .replace(/Bearer\s+[A-Za-z0-9._\-]{16,}/gi, "Bearer ***")
+}
+
 export interface RawChatCompletionMessage {
   role: string
   content:
@@ -129,7 +135,8 @@ export async function openaiCompatRaw({
   if (timeout) clearTimeout(timeout)
 
   if (!res.ok) {
-    const txt = await res.text().catch(() => "")
+    const rawTxt = await res.text().catch(() => "")
+    const txt = redactSecrets(rawTxt)
     // 部分供应商不支持 response_format=json_object，遇到 400/422 时去掉重试一次
     if (jsonMode && (res.status === 400 || res.status === 422)) {
       const fallback = { ...payload }
