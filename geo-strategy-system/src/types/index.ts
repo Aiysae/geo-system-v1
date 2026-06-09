@@ -73,7 +73,7 @@ export interface PenetrationItem {
   searchSources?: PenetrationSource[]
   sourceDomains?: SourceDomainCount[]
   topSourceDomain?: SourceDomainCount | null
-  // 客观判分结果：盲测回答文本中是否真实出现了我方品牌（代码层 includes 匹配，忽略大小写/空格）
+  // 客观判分结果：盲测回答中是否出现我方全称，或出现经原文字面校验的同品牌简称/别名。
   hitOur: boolean
 }
 

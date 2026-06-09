@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Target, ChevronDown, MessageSquare, BarChart3, Globe2, ExternalLink } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
@@ -18,6 +18,7 @@ import {
   getKeywordCompetitionAction,
 } from "@/app/actions/dashboards"
 import { useCredits } from "@/components/credits/credits-provider"
+import { aggregatePenetration } from "@/lib/score-utils"
 import type {
   BrandVoiceItem,
   KeywordCompetitionItem,
@@ -101,7 +102,14 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     }
   }
 
-  const pen = client.penetration
+  // 旧报告也在展示时按最新规则重算，避免历史 hitOur=false 把简称命中显示成 0%。
+  const pen = useMemo(() => {
+    if (!client.penetration) return undefined
+    return {
+      ...client.penetration,
+      aggregated: aggregatePenetration(client.penetration.byModel, client.ourBrand),
+    }
+  }, [client.penetration, client.ourBrand])
   const topIndustryShare = pen?.aggregated.industryShare.slice(0, 10) ?? []
 
   return (

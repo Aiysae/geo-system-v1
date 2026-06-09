@@ -42,17 +42,19 @@ export function aggregatePenetration(
   for (const [model, items] of Object.entries(byModel)) {
     if (!items) continue
     let modelMentions = 0
+    let validModelSlots = 0
     for (const it of items) {
+      // API 失败、熔断和空回复不属于有效模型回答，不能稀释渗透率。
+      if (!it.answer?.trim()) continue
       allQuestions.add(it.question)
       totalSlots++
+      validModelSlots++
       const cleanBrands = it.mentionedBrands.filter(b => !isPlatformName(b))
 
-      // ★ 命中判定的"唯一真理"来自 route 层的 it.hitOur（基于盲测回答文本的 includes 匹配）。
-      // 兼容旧数据（无 hitOur 字段）时，回退到对 mentionedBrands 的同品牌匹配。
+      // hitOur=true 是直接命中；裁判从原文抽取并校验过的简称/别名也可命中全称。
+      // 这样能修复“排行榜识别到我方品牌，但提及率仍为 0%”的不一致。
       const hitOurInThisSlot =
-        typeof it.hitOur === "boolean"
-          ? it.hitOur
-          : cleanBrands.some(b => isSameBrand(b, ourBrand))
+        it.hitOur === true || cleanBrands.some(b => isSameBrand(b, ourBrand))
       if (hitOurInThisSlot) {
         ourMentions++
         modelMentions++
@@ -82,9 +84,9 @@ export function aggregatePenetration(
     }
     perModelRate.push({
       model: model as ModelKey,
-      total: items.length,
+      total: validModelSlots,
       mentions: modelMentions,
-      rate: items.length ? modelMentions / items.length : 0,
+      rate: validModelSlots ? modelMentions / validModelSlots : 0,
     })
   }
 
