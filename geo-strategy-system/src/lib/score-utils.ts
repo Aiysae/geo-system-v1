@@ -94,6 +94,7 @@ export function aggregatePenetration(
       brand: v.displayName,
       count: v.count,
       ratio: totalMentionsAll ? v.count / totalMentionsAll : 0,
+      penetrationRate: totalSlots ? v.count / totalSlots : 0,
     }))
     .sort((a, b) => b.count - a.count)
 
@@ -111,7 +112,7 @@ export function aggregatePenetration(
     penetrationRate: totalSlots ? ourMentions / totalSlots : 0,
     ourMentions,
     totalSlots,
-    industryShare: industryShare.slice(0, 10),
+    industryShare,
     ourRanking,
     perModelRate,
     missedQuestions,

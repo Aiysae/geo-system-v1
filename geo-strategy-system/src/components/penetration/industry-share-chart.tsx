@@ -16,19 +16,27 @@ import { isSameBrand } from "@/lib/score-utils"
 interface Props {
   items: IndustryShareItem[]
   ourBrand: string
+  totalSlots: number
 }
 
-export default function IndustryShareChart({ items, ourBrand }: Props) {
+export default function IndustryShareChart({ items, ourBrand, totalSlots }: Props) {
   const data = items.map(it => ({
     brand: it.brand,
     count: it.count,
     ratio: Math.round(it.ratio * 1000) / 10,
+    penetrationRate:
+      Math.round(
+        (it.penetrationRate ?? (totalSlots > 0 ? it.count / totalSlots : 0)) * 1000
+      ) / 10,
     isOur: isSameBrand(it.brand, ourBrand),
   }))
 
   if (data.length === 0) {
     return <div className="text-sm text-slate-400 py-8 text-center">暂无数据</div>
   }
+
+  const compactBrandLabel = (value: string) =>
+    value.length > 9 ? `${value.slice(0, 8)}...` : value
 
   return (
     <div className="w-full" style={{ height: Math.max(data.length * 36 + 32, 320) }}>
@@ -51,6 +59,7 @@ export default function IndustryShareChart({ items, ourBrand }: Props) {
             type="category"
             width={110}
             tick={{ fontSize: 12, fill: "#475569" }}
+            tickFormatter={compactBrandLabel}
             axisLine={false}
             tickLine={false}
           />
@@ -64,22 +73,31 @@ export default function IndustryShareChart({ items, ourBrand }: Props) {
               boxShadow: "0 8px 24px -8px rgba(0,75,115,0.18)",
             }}
             formatter={(value, _name, item) => {
-              const payload = (item as { payload?: { ratio?: number; isOur?: boolean } } | undefined)?.payload
+              const payload = (
+                item as {
+                  payload?: {
+                    ratio?: number
+                    count?: number
+                    isOur?: boolean
+                  }
+                } | undefined
+              )?.payload
               const ratio = payload?.ratio ?? 0
-              const label = payload?.isOur ? "我方提及频次" : "提及频次"
-              return [`${value} 次 (${ratio}%)`, label]
+              const count = payload?.count ?? 0
+              const label = payload?.isOur ? "我方品牌渗透率" : "品牌渗透率"
+              return [`${value}% · ${count} 次提及 · 声量占比 ${ratio}%`, label]
             }}
           />
-          <Bar dataKey="count" radius={[0, 8, 8, 0]} barSize={20}>
+          <Bar dataKey="penetrationRate" radius={[0, 8, 8, 0]} barSize={20}>
             {data.map((d, i) => (
               <Cell key={i} fill={d.isOur ? "url(#barOur)" : "url(#barOther)"} />
             ))}
             <LabelList
-              dataKey="count"
+              dataKey="penetrationRate"
               position="right"
               fontSize={11}
               fill="#64748b"
-              formatter={(v) => `${v ?? 0} 次`}
+              formatter={(v) => `${v ?? 0}%`}
             />
           </Bar>
         </BarChart>

@@ -18,6 +18,10 @@ import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 // 错误日志：所有失败一律打印【完整错误体】到终端，便于排查 401/400 等鉴权或参数错误。
 
 const LABEL = "Kimi"
+const PENETRATION_REQUEST_GAP_MS = 1500
+
+let penetrationQueue: Promise<void> = Promise.resolve()
+let lastPenetrationCompletedAt = 0
 
 function isTokenHub(baseUrl: string): boolean {
   return /tokenhub\.tencentmaas\.com/i.test(baseUrl)
@@ -58,7 +62,7 @@ function isTemperatureOneOnlyError(message: string): boolean {
   return /invalid temperature/i.test(message) && /only\s+1\s+is\s+allowed/i.test(message)
 }
 
-export async function chatKimi(args: ChatArgs): Promise<string> {
+async function chatKimiDirect(args: ChatArgs): Promise<string> {
   const config = await getAiProviderRuntimeSetting("kimi")
   const key = config.apiKey
   const selectedModel = config.model
@@ -197,4 +201,34 @@ export async function chatKimi(args: ChatArgs): Promise<string> {
   }
 
   throw new Error(`${LABEL} 工具调用循环超过 ${MAX_ROUNDS} 轮仍未收敛，已阻断。`)
+}
+
+async function enqueuePenetrationRequest<T>(task: () => Promise<T>): Promise<T> {
+  const previous = penetrationQueue
+  let release: (() => void) | undefined
+  penetrationQueue = new Promise<void>(resolve => {
+    release = resolve
+  })
+
+  await previous
+  const waitMs = Math.max(
+    0,
+    PENETRATION_REQUEST_GAP_MS - (Date.now() - lastPenetrationCompletedAt)
+  )
+  if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs))
+
+  try {
+    return await task()
+  } finally {
+    lastPenetrationCompletedAt = Date.now()
+    release?.()
+  }
+}
+
+export async function chatKimi(args: ChatArgs): Promise<string> {
+  const isPenetrationBlindQuery =
+    args.forceWebSearch === true && args.mode === "consumer" && args.rawQuestionOnly === true
+  return isPenetrationBlindQuery
+    ? enqueuePenetrationRequest(() => chatKimiDirect(args))
+    : chatKimiDirect(args)
 }
