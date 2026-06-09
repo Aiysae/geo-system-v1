@@ -14,7 +14,7 @@ import { isPlatformName } from "@/lib/platform-blacklist"
 import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
-export const maxDuration = 180
+export const maxDuration = 300
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
@@ -161,6 +161,8 @@ async function blindQuery(
   const seed = deriveSeed(model, question)
   const t0 = Date.now()
   const collectedSources: PenetrationSource[] = []
+  const auditFallback =
+    model === "qwen" || model === "ernie" ? webSearch(question, 12) : null
 
   try {
     const raw = await adapter.chat({
@@ -178,7 +180,11 @@ async function blindQuery(
       },
     })
     const answer = raw || ""
-    const searchSources = dedupeSources(await ensureAuditSources(question, collectedSources))
+    const fallbackSources =
+      collectedSources.length === 0 && auditFallback
+        ? hitsToSources(question, await auditFallback)
+        : collectedSources
+    const searchSources = dedupeSources(await ensureAuditSources(question, fallbackSources))
     const sourceDomains = summarizeSourceDomains(searchSources)
     console.log(
       `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | forcedSearch=true | rawQuestionOnly=true | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
@@ -298,7 +304,8 @@ async function judgeAnswer(
 // ============================================================================
 async function processSlot(args: {
   model: ModelKey
-  judgeModel: ModelKey
+  judgeModel: ModelKey | null
+  useAiJudge: boolean
   question: string
   ourBrand: string
   competitors: string[]
@@ -319,11 +326,29 @@ async function processSlot(args: {
     }
   }
 
-  const { result: judged, error: judgeError } = await judgeAnswer(args.judgeModel, {
-    ourBrand: args.ourBrand,
-    competitors: args.competitors,
-    answer: blind.answer,
-  })
+  const deterministicBrands = [args.ourBrand, ...args.competitors]
+    .map(x => x.trim())
+    .filter((brand, index, all) => {
+      if (!brand || isPlatformName(brand) || !answerMentionsBrand(blind.answer, brand)) return false
+      return all.findIndex(other => normalize(other) === normalize(brand)) === index
+    })
+
+  const judgedResult: { result: JudgeResult; error?: string } = args.useAiJudge && args.judgeModel
+    ? await judgeAnswer(args.judgeModel, {
+        ourBrand: args.ourBrand,
+        competitors: args.competitors,
+        answer: blind.answer,
+      })
+    : {
+        result: {
+          hitOur: answerMentionsBrand(blind.answer, args.ourBrand),
+          hitEvidence: "",
+          mentionedBrands: deterministicBrands,
+          topRecommended: null,
+        } satisfies JudgeResult,
+      }
+  const judged = judgedResult.result
+  const judgeError = judgedResult.error
 
   // ---- Stage C · 代码层安全网 ----
   // 1) hitOur 最终真理 = 代码 includes()；裁判结论仅作参考
@@ -408,9 +433,8 @@ async function mapWithConcurrency<T, R>(
   return out
 }
 
-function modelConcurrency(model: ModelKey): number {
-  if (model === "kimi") return 1
-  return 2
+function modelConcurrency(): number {
+  return 3
 }
 
 async function handler(req: NextRequest) {
@@ -463,8 +487,10 @@ async function handler(req: NextRequest) {
     const guard = await authAndCheckCredits(requiredCredits)
     if (!guard.ok) return guard.response
 
-    const judgeModel = await pickJudge(activeModels)
-    if (!judgeModel) {
+    const totalSlots = activeModels.length * questions.length
+    const useAiJudge = totalSlots <= 6
+    const judgeModel = useAiJudge ? await pickJudge(activeModels) : null
+    if (useAiJudge && !judgeModel) {
       return NextResponse.json(
         { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
         { status: 400 }
@@ -474,17 +500,22 @@ async function handler(req: NextRequest) {
     console.log(
       `[penetration] 启动 ${activeModels.length} 模型 × ${questions.length} 问题 = ${
         activeModels.length * questions.length
-      } 个 slot（Stage A 客观联网单问 + Stage B 独立裁判 [${ADAPTERS[judgeModel].label}] + Stage C 代码安全网）`
+      } 个 slot（Stage A 客观联网单问 + ${
+        useAiJudge && judgeModel
+          ? `Stage B 独立裁判 [${ADAPTERS[judgeModel].label}]`
+          : "大批量快速审计（代码精确匹配目标品牌与已知竞品）"
+      } + Stage C 代码安全网）`
     )
     const t0 = Date.now()
 
     const groupedResults = await Promise.all(
       activeModels.map(m =>
-        mapWithConcurrency(questions, modelConcurrency(m), async (q, index) => {
+        mapWithConcurrency(questions, modelConcurrency(), async (q, index) => {
           if (m === "kimi" && index > 0) await sleep(1200)
           const item = await processSlot({
             model: m,
             judgeModel,
+            useAiJudge,
             question: q,
             ourBrand,
             competitors,
@@ -527,7 +558,7 @@ async function handler(req: NextRequest) {
         aggregated,
         generatedAt: new Date().toISOString(),
         judgeModel,
-        judgeLabel: ADAPTERS[judgeModel].label,
+        judgeLabel: judgeModel ? ADAPTERS[judgeModel].label : "代码精确匹配",
         skipped: skipped.map(m => ADAPTERS[m].label),
         skippedDetail: skipped.map(m => ({
           model: m,

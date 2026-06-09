@@ -53,3 +53,27 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
   return res
 }
+
+export async function readApiJson<T = Record<string, unknown>>(
+  res: Response,
+  label = "请求"
+): Promise<T> {
+  const text = await res.text()
+  if (!text.trim()) {
+    throw new Error(`${label}未返回数据（HTTP ${res.status}），请稍后重试。`)
+  }
+
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    const looksLikeHtml = /^\s*</.test(text) || /<!doctype\s+html/i.test(text)
+    if (looksLikeHtml) {
+      const timedOut = [408, 502, 503, 504].includes(res.status) || /timeout|timed out/i.test(text)
+      if (timedOut) {
+        throw new Error(`${label}处理时间过长，服务网关已中断。请重新发起检测。`)
+      }
+      throw new Error(`${label}服务返回了异常页面（HTTP ${res.status}），请刷新后重试。`)
+    }
+    throw new Error(`${label}返回格式异常（HTTP ${res.status}），请稍后重试。`)
+  }
+}

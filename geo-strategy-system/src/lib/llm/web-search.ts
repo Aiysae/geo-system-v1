@@ -35,7 +35,7 @@ function stripTags(s: string): string {
     .trim()
 }
 
-async function fetchText(url: string, timeoutMs = 8000): Promise<string> {
+async function fetchText(url: string, timeoutMs = 5000): Promise<string> {
   const ctl = new AbortController()
   const t = setTimeout(() => ctl.abort(), timeoutMs)
   try {
@@ -101,35 +101,28 @@ export async function webSearch(query: string, maxResults = 10): Promise<SearchH
   const q = query.trim()
   if (!q) return []
 
-  const ddgHits: SearchHit[] = []
-  const bingHits: SearchHit[] = []
+  const [ddgResult, bingResult] = await Promise.allSettled([
+    fetchText(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=cn-zh`),
+    fetchText(`https://www.bing.com/search?q=${encodeURIComponent(q)}&mkt=zh-CN`),
+  ])
 
-  // 1) DuckDuckGo HTML
-  try {
-    const html = await fetchText(
-      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=cn-zh`
-    )
-    ddgHits.push(...parseDuckDuckGo(html, maxResults))
-    if (ddgHits.length === 0) {
-      console.warn(`[web-search] DuckDuckGo 返回 0 条，继续取 Bing | q="${q}"`)
-    }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.warn(`[web-search] DuckDuckGo 调用失败：${msg}，继续取 Bing | q="${q}"`)
+  const ddgHits =
+    ddgResult.status === "fulfilled" ? parseDuckDuckGo(ddgResult.value, maxResults) : []
+  const bingHits =
+    bingResult.status === "fulfilled" ? parseBing(bingResult.value, maxResults) : []
+
+  if (ddgResult.status === "rejected") {
+    const msg = ddgResult.reason instanceof Error ? ddgResult.reason.message : String(ddgResult.reason)
+    console.warn(`[web-search] DuckDuckGo 调用失败：${msg} | q="${q}"`)
+  } else if (ddgHits.length === 0) {
+    console.warn(`[web-search] DuckDuckGo 返回 0 条 | q="${q}"`)
   }
 
-  // 2) Bing 中文站：与 DDG 合并去重，来源更充分。
-  try {
-    const html = await fetchText(
-      `https://www.bing.com/search?q=${encodeURIComponent(q)}&mkt=zh-CN`
-    )
-    bingHits.push(...parseBing(html, maxResults))
-    if (bingHits.length === 0) {
-      console.warn(`[web-search] Bing 也返回 0 条 | q="${q}"`)
-    }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+  if (bingResult.status === "rejected") {
+    const msg = bingResult.reason instanceof Error ? bingResult.reason.message : String(bingResult.reason)
     console.warn(`[web-search] Bing 调用失败：${msg} | q="${q}"`)
+  } else if (bingHits.length === 0) {
+    console.warn(`[web-search] Bing 返回 0 条 | q="${q}"`)
   }
 
   const merged: SearchHit[] = []

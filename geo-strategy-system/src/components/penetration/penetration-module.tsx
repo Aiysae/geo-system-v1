@@ -12,7 +12,7 @@ import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
 import { MODEL_LABELS } from "@/lib/model-labels"
-import { apiFetch } from "@/lib/api-fetch"
+import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import {
   getBrandVoiceAction,
   getKeywordCompetitionAction,
@@ -69,10 +69,20 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           models: params.models,
         }),
       })
-      const data = await res.json()
+      const data = await readApiJson<{
+        error?: string
+        skipped?: string[]
+        byModel?: PenetrationResult["byModel"]
+        aggregated?: PenetrationResult["aggregated"]
+        generatedAt?: string
+        modelErrors?: Partial<Record<ModelKey, string>>
+      }>(res, "疑问句检测")
       if (!res.ok) {
         if (Array.isArray(data.skipped)) setSkipped(data.skipped)
         throw new Error(data.error || "请求失败")
+      }
+      if (!data.byModel || !data.aggregated || !data.generatedAt) {
+        throw new Error("疑问句检测返回数据不完整，请重新检测。")
       }
       const result: PenetrationResult = {
         byModel: data.byModel,
