@@ -7,8 +7,6 @@ import type {
   SourceDomainCount,
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
-import { webSearch, type SearchHit } from "@/lib/llm/web-search"
-import { normalizeSourceDomain } from "@/lib/llm/source-extract"
 import { aggregatePenetration, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
 import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
@@ -26,10 +24,10 @@ export const revalidate = 0
 //     - 通过模型原生联网参数或 search_web 工具选择强制联网搜索
 //     - 输出：纯自然语言回答（不强制 JSON）
 //
-//   Stage B · 独立裁判 AI 检测
-//     - 由一个独立的"裁判模型"对每条盲测回答单独审阅
-//     - 裁判看不到原始疑问句，只看："目标品牌"+"AI 回答原文"+"参考竞品清单"
-//     - 输出严格 JSON：是否命中我方、文中提到的所有具体品牌、最被推荐的那个
+//   Stage B · 独立裁判 AI 批量检测
+//     - 每个被测模型的多条回答打包后交给裁判，减少请求次数与网关耗时
+//     - 裁判不联网，只审阅回答原文，避免引入原回答没有出现的新品牌
+//     - 输出严格 JSON：每条回答中提到的所有具体品牌、最被推荐的那个
 //
 //   Stage C · 代码层最终安全网
 //     - 不论裁判说什么，hitOur 的最终真理是 answer.includes(ourBrand)
@@ -39,43 +37,42 @@ export const revalidate = 0
 
 // ---------- Stage B · 裁判 System Prompt ----------
 function buildJudgeSystemPrompt(): string {
-  return `你是一个严谨的"品牌识别引擎"。你的唯一任务是审阅一段"AI 对用户提问的回答原文"，从中客观抽取被提到的具体品牌/公司/产品/服务商名称。
+  return `你是一个严谨的"品牌识别引擎"。你的唯一任务是逐条审阅一组 AI 回答原文，从中客观抽取被提到的具体品牌、公司、产品或服务商名称。
 
 【硬性纪律 — 严禁幻觉】
-1. **只识别真实出现在回答原文里的名字。** 严禁补充、推测、扩展任何原文没有写出的品牌。
+1. 只识别真实出现在对应回答原文里的名字，保持原文写法。严禁补充、推测、扩展任何原文没有写出的品牌。
 2. 排除以下"平台/媒体/渠道/通用 AI 工具"类目（这些不是行业品牌）：
    - 内容平台：小红书、抖音、快手、B站、知乎、微博、微信、公众号、视频号、今日头条、百家号、CSDN、掘金、简书、豆瓣、贴吧、虎扑
    - 电商：淘宝、天猫、京东、拼多多、唯品会、苏宁、美团、大众点评
    - 搜索/通用：百度、谷歌、Google、Bing、必应、搜狗、360、夸克
    - AI 通用大模型本体：豆包、DeepSeek、通义千问、Kimi、文心一言、腾讯元宝、混元、ChatGPT、Claude
-3. 用户会告诉你"目标品牌名"，你只需如实判断：原文里有没有出现该品牌（含同义变体，例如"势途"和"势途 GEO"视为同一品牌）。**没出现就是没出现，绝对不要为了讨好用户而强行说命中。**
+3. 已知竞品清单只用于帮助识别名称，绝不能因此把原文没有出现的品牌写进结果。
+4. 每个输入 id 必须且只能对应一个输出项，不得遗漏或新增 id。
 
 【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止任何额外文字】
 {
-  "hitOur": true 或 false,
-  "hitEvidence": "若 hitOur=true，从原文里**逐字**复制能证明命中的最短片段（10~40 字）；否则填 \"\"",
-  "mentionedBrands": ["原文中确实出现的所有具体品牌/产品/服务商（不含平台/渠道；去重；保持与原文完全一致的写法）"],
-  "topRecommended": "原文中事实上排第一/最被推荐的那个品牌名（若并列、无明显倾向、或原文里 AI 自陈不了解，则填 \"\"）"
+  "items": [
+    {
+      "id": "输入中的 id",
+      "mentionedBrands": ["原文中确实出现的全部具体品牌/公司/产品/服务商；去重"],
+      "topRecommended": "原文中明确排第一或最被推荐的品牌；没有明确倾向则填空字符串"
+    }
+  ]
 }`
 }
 
 function buildJudgeUserPrompt(args: {
-  ourBrand: string
   competitors: string[]
-  answer: string
+  entries: Array<{ id: string; answer: string }>
 }): string {
   const compLine =
     args.competitors.length > 0
-      ? `【已知主要竞品参考清单 — 仅供判断时辅助，绝不要因此添加原文里没出现的品牌】\n${args.competitors.join("、")}\n\n`
+      ? `【已知主要竞品参考清单 — 仅供识别，原文没出现就不能输出】\n${args.competitors.join("、")}\n\n`
       : ""
-  return `【目标品牌】${args.ourBrand}
+  return `${compLine}【待审阅回答列表】
+${JSON.stringify(args.entries)}
 
-${compLine}【待审阅的 AI 回答原文】
-"""
-${args.answer}
-"""
-
-请严格按 system 中给定的 JSON 格式回复，不要写任何其它内容。`
+请逐条抽取全部品牌，并严格按 system 规定返回 JSON。`
 }
 
 // 用 (model, question) 哈希派生稳定 seed
@@ -125,25 +122,6 @@ function summarizeSourceDomains(sources: PenetrationSource[]): SourceDomainCount
     .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
 }
 
-function hitsToSources(query: string, hits: SearchHit[]): PenetrationSource[] {
-  return hits.map(hit => ({
-    title: hit.title,
-    snippet: hit.snippet,
-    url: hit.url,
-    domain: normalizeSourceDomain(hit.url),
-    query,
-  }))
-}
-
-async function ensureAuditSources(
-  question: string,
-  sources: PenetrationSource[]
-): Promise<PenetrationSource[]> {
-  if (sources.length > 0) return sources
-  const hits = await webSearch(question, 12)
-  return hitsToSources(question, hits)
-}
-
 // ============================================================================
 // Stage A · 客观联网单问
 // ============================================================================
@@ -161,30 +139,39 @@ async function blindQuery(
   const seed = deriveSeed(model, question)
   const t0 = Date.now()
   const collectedSources: PenetrationSource[] = []
-  const auditFallback =
-    model === "qwen" || model === "ernie" ? webSearch(question, 12) : null
 
   try {
-    const raw = await adapter.chat({
-      system: "",
-      user: question,
-      temperature: 0,
-      seed,
-      mode: "consumer",
-      jsonMode: false,
-      maxTokens: 4096,
-      forceWebSearch: true,
-      rawQuestionOnly: true,
-      onSearchSources: event => {
-        collectedSources.push(...event.sources)
-      },
-    })
-    const answer = raw || ""
-    const fallbackSources =
-      collectedSources.length === 0 && auditFallback
-        ? hitsToSources(question, await auditFallback)
-        : collectedSources
-    const searchSources = dedupeSources(await ensureAuditSources(question, fallbackSources))
+    const maxAttempts = model === "kimi" ? 2 : 1
+    let answer = ""
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const raw = await adapter.chat({
+        system: "",
+        user: question,
+        temperature: 0,
+        seed: seed + attempt,
+        mode: "consumer",
+        jsonMode: false,
+        maxTokens: 4096,
+        forceWebSearch: true,
+        rawQuestionOnly: true,
+        onSearchSources: event => {
+          collectedSources.push(...event.sources)
+        },
+      })
+      answer = (raw || "").trim()
+      const incomplete =
+        answer.length < 80 ||
+        /^(?:根据)?搜索结果(?:没有|未能)(?:直接)?(?:给出|找到|返回)/u.test(answer)
+      if (!incomplete || attempt === maxAttempts - 1) break
+      console.warn(
+        `[penetration·blind] ${adapter.label} 返回不完整（${answer.length} 字），将串行重试一次。`
+      )
+      await sleep(1500)
+    }
+    if (answer.trim().length < 20) {
+      throw new Error(`返回内容过短（${answer.trim().length} 字），自动重试后仍不完整`)
+    }
+    const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
     console.log(
       `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | forcedSearch=true | rawQuestionOnly=true | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
@@ -214,87 +201,81 @@ async function blindQuery(
 // ============================================================================
 // Stage B · 独立裁判 AI 检测
 // ============================================================================
-interface JudgeResult {
-  hitOur: boolean
-  hitEvidence: string
+interface BatchJudgeItem {
+  id: string
   mentionedBrands: string[]
   topRecommended: string | null
 }
 
-async function judgeAnswer(
+async function judgeAnswersBatch(
   judgeModel: ModelKey,
-  args: { ourBrand: string; competitors: string[]; answer: string }
-): Promise<{ result: JudgeResult; error?: string }> {
-  const empty: JudgeResult = {
-    hitOur: false,
-    hitEvidence: "",
-    mentionedBrands: [],
-    topRecommended: null,
+  args: {
+    competitors: string[]
+    entries: Array<{ id: string; answer: string }>
   }
-
-  // 答案空字符串没必要走裁判
-  if (!args.answer.trim()) return { result: empty }
-
+): Promise<{ items: BatchJudgeItem[]; error?: string }> {
+  if (args.entries.length === 0) return { items: [] }
   const adapter = ADAPTERS[judgeModel]
   const sys = buildJudgeSystemPrompt()
   const user = buildJudgeUserPrompt(args)
   const t0 = Date.now()
 
-  async function attempt(extraHint = ""): Promise<JudgeResult | null> {
-    console.log(`[penetration·judge-input] len=${args.answer.length}`)
-
+  async function attempt(extraHint = ""): Promise<BatchJudgeItem[] | null> {
     const raw = await adapter.chat({
       system: sys + extraHint,
       user,
       temperature: 0,
-      seed: 42,
+      seed: 43,
       mode: "judge",
       jsonMode: true,
-      maxTokens: 2048,
+      maxTokens: 4096,
       allowWebSearch: false,
     })
-    const parsed = parseJsonLoose(raw) as
-      | { hitOur?: unknown; hitEvidence?: unknown; mentionedBrands?: unknown; topRecommended?: unknown }
-      | null
-    if (!parsed) return null
-
-    const brandsRaw = Array.isArray(parsed.mentionedBrands)
-      ? (parsed.mentionedBrands as unknown[]).map(x => String(x).trim()).filter(s => s.length > 0)
-      : []
-    const top =
-      typeof parsed.topRecommended === "string" && parsed.topRecommended.trim()
-        ? parsed.topRecommended.trim()
-        : null
-
-    return {
-      hitOur: parsed.hitOur === true,
-      hitEvidence: typeof parsed.hitEvidence === "string" ? parsed.hitEvidence : "",
-      mentionedBrands: brandsRaw,
-      topRecommended: top,
-    }
+    const parsed = parseJsonLoose(raw) as { items?: unknown } | null
+    if (!parsed || !Array.isArray(parsed.items)) return null
+    return parsed.items
+      .map((value): BatchJudgeItem | null => {
+        if (!value || typeof value !== "object") return null
+        const item = value as {
+          id?: unknown
+          mentionedBrands?: unknown
+          topRecommended?: unknown
+        }
+        const id = typeof item.id === "string" ? item.id.trim() : ""
+        if (!id) return null
+        const mentionedBrands = Array.isArray(item.mentionedBrands)
+          ? item.mentionedBrands.map(x => String(x).trim()).filter(Boolean)
+          : []
+        const topRecommended =
+          typeof item.topRecommended === "string" && item.topRecommended.trim()
+            ? item.topRecommended.trim()
+            : null
+        return { id, mentionedBrands, topRecommended }
+      })
+      .filter((item): item is BatchJudgeItem => !!item)
   }
 
   try {
-    let result = await attempt()
-    if (!result) {
-      result = await attempt("\n\n【再次强调】必须严格返回上述 JSON，不要任何前后缀、不要 markdown 代码块。")
+    let items = await attempt()
+    if (!items) {
+      items = await attempt("\n\n必须返回包含 items 数组的严格 JSON；每个输入 id 都要有对应项。")
     }
-    if (!result) {
+    if (!items) {
       return {
-        result: empty,
-        error: `${adapter.label} 裁判返回非 JSON，已降级为代码层兜底判定`,
+        items: [],
+        error: `${adapter.label} 批量裁判返回非 JSON，已保留代码层已知品牌匹配结果`,
       }
     }
     console.log(
-      `[penetration·judge] ✓ ${adapter.label} | ${Date.now() - t0}ms | hitOur=${result.hitOur} | brands=${result.mentionedBrands.length}`
+      `[penetration·batch-judge] ✓ ${adapter.label} | ${Date.now() - t0}ms | inputs=${args.entries.length} | outputs=${items.length}`
     )
-    return { result }
+    return { items }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "未知错误"
-    console.error(`[penetration·judge] ✗ ${adapter.label} | ${msg}`)
+    console.error(`[penetration·batch-judge] ✗ ${adapter.label} | ${msg}`)
     return {
-      result: empty,
-      error: `${adapter.label} 裁判接口调用失败：${msg}（已降级为代码层兜底判定）`,
+      items: [],
+      error: `${adapter.label} 批量裁判接口调用失败：${msg}（已保留代码层已知品牌匹配结果）`,
     }
   }
 }
@@ -304,8 +285,6 @@ async function judgeAnswer(
 // ============================================================================
 async function processSlot(args: {
   model: ModelKey
-  judgeModel: ModelKey | null
-  useAiJudge: boolean
   question: string
   ourBrand: string
   competitors: string[]
@@ -326,75 +305,96 @@ async function processSlot(args: {
     }
   }
 
-  const deterministicBrands = [args.ourBrand, ...args.competitors]
+  const mentionedBrands = [args.ourBrand, ...args.competitors]
     .map(x => x.trim())
     .filter((brand, index, all) => {
       if (!brand || isPlatformName(brand) || !answerMentionsBrand(blind.answer, brand)) return false
       return all.findIndex(other => normalize(other) === normalize(brand)) === index
     })
 
-  const judgedResult: { result: JudgeResult; error?: string } = args.useAiJudge && args.judgeModel
-    ? await judgeAnswer(args.judgeModel, {
-        ourBrand: args.ourBrand,
-        competitors: args.competitors,
-        answer: blind.answer,
-      })
-    : {
-        result: {
-          hitOur: answerMentionsBrand(blind.answer, args.ourBrand),
-          hitEvidence: "",
-          mentionedBrands: deterministicBrands,
-          topRecommended: null,
-        } satisfies JudgeResult,
-      }
-  const judged = judgedResult.result
-  const judgeError = judgedResult.error
-
-  // ---- Stage C · 代码层安全网 ----
-  // 1) hitOur 最终真理 = 代码 includes()；裁判结论仅作参考
   const codeHit = answerMentionsBrand(blind.answer, args.ourBrand)
-  const hitOur = codeHit
-
-  // 2) 裁判说命中但代码找不到 / 代码命中但裁判没认 → 日志记一笔，便于审计
-  if (judged.hitOur !== codeHit) {
-    console.warn(
-      `[penetration·xcheck] 裁判与代码不一致：judge=${judged.hitOur} code=${codeHit} | ourBrand="${args.ourBrand}" | answer="${blind.answer.slice(0, 80)}..." | evidence="${judged.hitEvidence}"`
-    )
-  }
-
-  // 3) 裁判抽取的 mentionedBrands 必须被代码 cross-check 在原文里真实存在，否则丢弃
-  const verifiedBrands = judged.mentionedBrands.filter(
-    b => !isPlatformName(b) && answerMentionsBrand(blind.answer, b)
-  )
-
-  // 4) 若代码判定命中，但裁判漏写我方品牌，自动补入，保证渗透率与行业占有率口径一致
-  if (
-    hitOur &&
-    args.ourBrand &&
-    !verifiedBrands.some(b => normalize(b) === normalize(args.ourBrand))
-  ) {
-    verifiedBrands.push(args.ourBrand.trim())
-  }
-
-  // 5) topRecommended 也要 cross-check
-  const top =
-    judged.topRecommended &&
-    !isPlatformName(judged.topRecommended) &&
-    answerMentionsBrand(blind.answer, judged.topRecommended)
-      ? judged.topRecommended
-      : null
 
   return {
     question: args.question,
     answer: blind.answer,
-    mentionedBrands: verifiedBrands,
-    topRecommended: top,
+    mentionedBrands,
+    topRecommended: null,
     searchSources: blind.searchSources,
     sourceDomains: blind.sourceDomains,
     topSourceDomain: blind.topSourceDomain,
-    hitOur,
-    judgeError,
+    hitOur: codeHit,
   }
+}
+
+type ProcessedSlot = {
+  model: ModelKey
+  item: PenetrationItem & { error?: string; judgeError?: string }
+}
+
+function mergeVerifiedBrands(
+  item: PenetrationItem,
+  candidates: string[],
+  ourBrand: string
+): string[] {
+  const merged = [...item.mentionedBrands, ...candidates]
+    .map(brand => brand.trim())
+    .filter(brand => {
+      return !!brand && !isPlatformName(brand) && answerMentionsBrand(item.answer, brand)
+    })
+
+  if (item.hitOur && ourBrand.trim()) merged.push(ourBrand.trim())
+
+  return merged.filter((brand, index, all) => {
+    return all.findIndex(other => normalize(other) === normalize(brand)) === index
+  })
+}
+
+async function enrichWithBatchJudge(
+  results: ProcessedSlot[],
+  judgeModel: ModelKey,
+  competitors: string[],
+  ourBrand: string
+): Promise<void> {
+  const jobs: Array<{
+    model: ModelKey
+    slots: Array<{ id: string; item: ProcessedSlot["item"] }>
+  }> = []
+
+  for (const model of Array.from(new Set(results.map(result => result.model)))) {
+    const slots = results
+      .filter(result => result.model === model && !!result.item.answer.trim())
+      .map((result, index) => ({
+        id: `${model}-${index + 1}`,
+        item: result.item,
+      }))
+    for (let start = 0; start < slots.length; start += 5) {
+      jobs.push({ model, slots: slots.slice(start, start + 5) })
+    }
+  }
+
+  await mapWithConcurrency(jobs, 2, async job => {
+    const judged = await judgeAnswersBatch(judgeModel, {
+      competitors,
+      entries: job.slots.map(slot => ({ id: slot.id, answer: slot.item.answer })),
+    })
+    const judgedById = new Map(judged.items.map(item => [item.id, item]))
+
+    for (const slot of job.slots) {
+      const result = judgedById.get(slot.id)
+      slot.item.mentionedBrands = mergeVerifiedBrands(
+        slot.item,
+        result?.mentionedBrands ?? [],
+        ourBrand
+      )
+      slot.item.topRecommended =
+        result?.topRecommended &&
+        !isPlatformName(result.topRecommended) &&
+        answerMentionsBrand(slot.item.answer, result.topRecommended)
+          ? result.topRecommended
+          : null
+      if (judged.error) slot.item.judgeError = judged.error
+    }
+  })
 }
 
 // ============================================================================
@@ -433,8 +433,8 @@ async function mapWithConcurrency<T, R>(
   return out
 }
 
-function modelConcurrency(): number {
-  return 3
+function modelConcurrency(model: ModelKey): number {
+  return model === "kimi" ? 1 : 3
 }
 
 async function handler(req: NextRequest) {
@@ -487,10 +487,8 @@ async function handler(req: NextRequest) {
     const guard = await authAndCheckCredits(requiredCredits)
     if (!guard.ok) return guard.response
 
-    const totalSlots = activeModels.length * questions.length
-    const useAiJudge = totalSlots <= 6
-    const judgeModel = useAiJudge ? await pickJudge(activeModels) : null
-    if (useAiJudge && !judgeModel) {
+    const judgeModel = await pickJudge(activeModels)
+    if (!judgeModel) {
       return NextResponse.json(
         { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
         { status: 400 }
@@ -500,22 +498,17 @@ async function handler(req: NextRequest) {
     console.log(
       `[penetration] 启动 ${activeModels.length} 模型 × ${questions.length} 问题 = ${
         activeModels.length * questions.length
-      } 个 slot（Stage A 客观联网单问 + ${
-        useAiJudge && judgeModel
-          ? `Stage B 独立裁判 [${ADAPTERS[judgeModel].label}]`
-          : "大批量快速审计（代码精确匹配目标品牌与已知竞品）"
-      } + Stage C 代码安全网）`
+      } 个 slot（Stage A 客观联网单问 + Stage B 非联网批量裁判 [${
+        ADAPTERS[judgeModel].label
+      }] + Stage C 原文交叉校验）`
     )
     const t0 = Date.now()
 
     const groupedResults = await Promise.all(
       activeModels.map(m =>
-        mapWithConcurrency(questions, modelConcurrency(), async (q, index) => {
-          if (m === "kimi" && index > 0) await sleep(1200)
+        mapWithConcurrency(questions, modelConcurrency(m), async q => {
           const item = await processSlot({
             model: m,
-            judgeModel,
-            useAiJudge,
             question: q,
             ourBrand,
             competitors,
@@ -525,6 +518,7 @@ async function handler(req: NextRequest) {
       )
     )
     const results = groupedResults.flat()
+    await enrichWithBatchJudge(results, judgeModel, [ourBrand, ...competitors], ourBrand)
     console.log(`[penetration] 全部完成 耗时 ${Date.now() - t0}ms`)
 
     // 按 model → 题目顺序整理
@@ -538,14 +532,19 @@ async function handler(req: NextRequest) {
 
     // 各模型错误透传（用于前端在对应栏显示红色提示）
     const modelErrors: Partial<Record<ModelKey, string>> = {}
+    const judgeErrors: Partial<Record<ModelKey, string>> = {}
     for (const m of activeModels) {
-      const slots = (byModel[m] ?? []) as Array<PenetrationItem & { error?: string }>
+      const slots = (byModel[m] ?? []) as Array<
+        PenetrationItem & { error?: string; judgeError?: string }
+      >
       const errs = slots.map(it => it.error).filter((x): x is string => !!x)
+      const judgeErrs = slots.map(it => it.judgeError).filter((x): x is string => !!x)
       if (errs.length > 0 && errs.length === slots.length) {
         modelErrors[m] = errs[0]
       } else if (errs.length > 0) {
         modelErrors[m] = `部分请求失败（${errs.length}/${slots.length}）：${errs[0]}`
       }
+      if (judgeErrs.length > 0) judgeErrors[m] = judgeErrs[0]
     }
 
     const aggregated = aggregatePenetration(byModel, ourBrand)
@@ -558,7 +557,7 @@ async function handler(req: NextRequest) {
         aggregated,
         generatedAt: new Date().toISOString(),
         judgeModel,
-        judgeLabel: judgeModel ? ADAPTERS[judgeModel].label : "代码精确匹配",
+        judgeLabel: `${ADAPTERS[judgeModel].label}（批量品牌裁判，不联网）`,
         skipped: skipped.map(m => ADAPTERS[m].label),
         skippedDetail: skipped.map(m => ({
           model: m,
@@ -566,6 +565,7 @@ async function handler(req: NextRequest) {
           reason: `${ADAPTERS[m].label} 接口配置缺失：请在后台管理页配置 API Key 和模型`,
         })),
         modelErrors,
+        judgeErrors,
         requestId: crypto.randomUUID(),
       },
       {

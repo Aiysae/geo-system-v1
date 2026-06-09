@@ -102,6 +102,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   }
 
   const pen = client.penetration
+  const topIndustryShare = pen?.aggregated.industryShare.slice(0, 10) ?? []
 
   return (
     <Card>
@@ -116,8 +117,8 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
-          <div className="lg:border-r lg:border-slate-100 lg:pr-6">
+        <div className="grid min-w-0 gap-6 lg:grid-cols-[400px_minmax(0,1fr)]">
+          <div className="min-w-0 lg:border-r lg:border-slate-100 lg:pr-6">
             <BatchInputPanel
               key={client.id}
               client={client}
@@ -130,7 +131,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
             />
           </div>
 
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-5">
             {!pen ? (
               <div className="flex h-full min-h-[300px] items-center justify-center text-center">
                 <div>
@@ -142,8 +143,8 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               </div>
             ) : (
               <>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-xl border border-slate-200 p-4 bg-gradient-to-br from-slate-50 to-white">
+                <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+                  <div className="min-w-0 rounded-xl border border-slate-200 p-4 bg-gradient-to-br from-slate-50 to-white">
                     <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-1">
                       渗透率
                     </div>
@@ -153,7 +154,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                       totalSlots={pen.aggregated.totalSlots}
                     />
                   </div>
-                  <div className="rounded-xl border border-slate-200 p-4 bg-white">
+                  <div className="min-w-0 rounded-xl border border-slate-200 p-4 bg-white">
                     <BrandRankingCard
                       ranking={pen.aggregated.ourRanking}
                       totalBrands={pen.aggregated.industryShare.length}
@@ -163,18 +164,19 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 p-4 bg-white">
+                <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 p-4 bg-white">
                   <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-3">
-                    行业占有率 Top {pen.aggregated.industryShare.length}
+                    全品牌渗透率 Top {topIndustryShare.length}
                   </div>
                   <IndustryShareChart
-                    items={pen.aggregated.industryShare}
+                    items={topIndustryShare}
                     ourBrand={client.ourBrand}
+                    totalSlots={pen.aggregated.totalSlots}
                   />
                 </div>
 
                 {pen.aggregated.perModelRate.length > 0 && (
-                  <div className="rounded-xl border border-slate-200 p-4 bg-gradient-to-br from-white via-slate-50/40 to-blue-50/30">
+                  <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 p-4 bg-gradient-to-br from-white via-slate-50/40 to-blue-50/30">
                     <div className="flex items-center justify-between mb-3">
                       <div className="text-[11px] uppercase tracking-wider text-slate-400">
                         各模型渗透率对比 · 趋势图

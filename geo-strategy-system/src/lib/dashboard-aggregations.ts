@@ -7,6 +7,7 @@ export interface BrandVoiceItem {
   brand: string
   mentions: number
   ratio: number
+  penetrationRate: number
   models: ModelKey[]
   modelCount: number
   isTarget: boolean
@@ -81,11 +82,13 @@ export function computeBrandVoice(
   }
 
   const totalMentions = Array.from(acc.values()).reduce((s, v) => s + v.mentions, 0)
+  const totalSlots = Object.values(byModel).reduce((sum, items) => sum + (items?.length ?? 0), 0)
   const list = Array.from(acc.values())
     .map(v => ({
       brand: v.display,
       mentions: v.mentions,
       ratio: totalMentions > 0 ? v.mentions / totalMentions : 0,
+      penetrationRate: totalSlots > 0 ? v.mentions / totalSlots : 0,
       models: Array.from(v.models),
       modelCount: v.models.size,
       isTarget: v.isOur,

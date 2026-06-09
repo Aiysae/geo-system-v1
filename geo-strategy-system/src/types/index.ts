@@ -83,6 +83,7 @@ export interface IndustryShareItem {
   brand: string
   count: number
   ratio: number
+  penetrationRate: number
 }
 
 export interface PerModelRate {

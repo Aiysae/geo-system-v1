@@ -46,12 +46,13 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
       ) : (
         <>
           <div className="overflow-x-auto">
-            <div className="min-w-[680px]">
-              <div className="grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_60px] items-center gap-4 px-5 py-2.5 text-[11px] uppercase tracking-wider text-slate-500 bg-slate-800/40">
+            <div className="min-w-[780px]">
+              <div className="grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_70px_60px] items-center gap-4 px-5 py-2.5 text-[11px] uppercase tracking-wider text-slate-500 bg-slate-800/40">
                 <div>排名</div>
                 <div>品牌</div>
                 <div>声量强度</div>
-                <div className="text-right">百分比</div>
+                <div className="text-right">渗透率</div>
+                <div className="text-right">声量占比</div>
                 <div className="text-right">提及</div>
                 <div className="text-right">模型</div>
               </div>
@@ -75,7 +76,7 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
               >
                 <div className="overflow-hidden">
                   <div className="overflow-x-auto border-t border-slate-800/60">
-                    <div className="min-w-[680px] divide-y divide-slate-800/60">
+                    <div className="min-w-[780px] divide-y divide-slate-800/60">
                     {extraBatch.map(item => (
                       <BrandRow key={item.brand} item={item} maxMentions={maxMentions} />
                     ))}
@@ -115,10 +116,13 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
 function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: number }) {
   const widthPct = maxMentions > 0 ? Math.max(2, (item.mentions / maxMentions) * 100) : 0
   const ratioPct = (item.ratio * 100).toFixed(item.ratio < 0.001 ? 2 : 1)
+  const penetrationPct = (item.penetrationRate * 100).toFixed(
+    item.penetrationRate < 0.001 ? 2 : 1
+  )
 
   return (
     <div
-      className={`grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_60px] items-center gap-4 px-5 py-3.5 transition-colors ${
+      className={`grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_70px_60px] items-center gap-4 px-5 py-3.5 transition-colors ${
         item.isTarget
           ? "bg-gradient-to-r from-amber-500/15 via-amber-500/[0.06] to-transparent ring-1 ring-inset ring-amber-400/30"
           : "hover:bg-slate-800/30"
@@ -164,6 +168,13 @@ function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: nu
         />
       </div>
 
+      <div
+        className={`text-sm tabular-nums text-right ${
+          item.isTarget ? "text-amber-200" : "text-slate-300"
+        }`}
+      >
+        {penetrationPct}%
+      </div>
       <div
         className={`text-sm tabular-nums text-right ${
           item.isTarget ? "text-amber-200" : "text-slate-300"
