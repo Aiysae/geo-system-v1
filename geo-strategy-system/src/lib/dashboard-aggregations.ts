@@ -58,6 +58,7 @@ export function computeBrandVoice(
     if (!items) continue
     const mk = model as ModelKey
     for (const slot of items) {
+      if (!slot.answer?.trim()) continue
       const cleaned = extractValidBrands(slot.mentionedBrands, ourBrand)
       for (const b of cleaned) {
         const prev = acc.get(b.key)
@@ -82,7 +83,10 @@ export function computeBrandVoice(
   }
 
   const totalMentions = Array.from(acc.values()).reduce((s, v) => s + v.mentions, 0)
-  const totalSlots = Object.values(byModel).reduce((sum, items) => sum + (items?.length ?? 0), 0)
+  const totalSlots = Object.values(byModel).reduce(
+    (sum, items) => sum + (items?.filter(slot => slot.answer?.trim()).length ?? 0),
+    0
+  )
   const list = Array.from(acc.values())
     .map(v => ({
       brand: v.display,
@@ -114,6 +118,7 @@ export function computeKeywordCompetition(
     if (!items) continue
     const mk = model as ModelKey
     for (const slot of items) {
+      if (!slot.answer?.trim()) continue
       // 拒答 / 空回答 视为"该模型未参与"，提及计数为 0
       const validBrands = slot.mentionedBrands.filter(b => !isPlatformName(b) && b.trim())
       const count = validBrands.length

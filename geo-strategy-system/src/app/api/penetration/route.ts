@@ -7,7 +7,7 @@ import type {
   SourceDomainCount,
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
-import { aggregatePenetration, parseJsonLoose } from "@/lib/score-utils"
+import { aggregatePenetration, isSameBrand, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
 import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
 
@@ -30,7 +30,7 @@ export const revalidate = 0
 //     - 输出严格 JSON：每条回答中提到的所有具体品牌、最被推荐的那个
 //
 //   Stage C · 代码层最终安全网
-//     - 不论裁判说什么，hitOur 的最终真理是 answer.includes(ourBrand)
+//     - 全称直接命中，或裁判抽取且通过回答原文字面校验的同品牌简称/别名命中
 //     - 裁判给出的 mentionedBrands 也必须能在 answer 文本里找到对应字面，
 //       否则丢弃（防止裁判反过来又产生幻觉）
 // ============================================================================
@@ -96,6 +96,22 @@ function answerMentionsBrand(answer: string, brand: string): boolean {
   const b = normalize(brand)
   if (b.length < 2) return false
   return a.includes(b)
+}
+
+function isPermanentProviderError(message: string): boolean {
+  return /AccountOverdueError|overdue balance|insufficient balance|余额不足|欠费|invalid[_ ]api[_ ]key|incorrect api key|unauthorized|does not exist or you do not have access|InvalidEndpointOrModel/i.test(
+    message
+  )
+}
+
+function formatProviderError(model: ModelKey, message: string): string {
+  if (model === "doubao" && /AccountOverdueError|overdue balance|余额不足|欠费/i.test(message)) {
+    return "火山方舟账号存在欠费，当前豆包 API Key 已被平台拒绝调用。请在火山方舟结清欠费或在后台管理页更换一个有余额的 ARK_API_KEY。系统已停止本轮其余豆包请求，失败项不会计入渗透率分母。"
+  }
+  if (model === "doubao" && /InvalidEndpointOrModel|does not exist or you do not have access/i.test(message)) {
+    return "豆包 Endpoint/模型不存在或当前账号无权访问。请在后台管理页选择“纯净盲测 · 豆包 Seed 2.0 Lite”，或填写当前账号已发布的 ep- Endpoint。系统已停止本轮其余豆包请求，失败项不会计入渗透率分母。"
+  }
+  return message
 }
 
 function dedupeSources(sources: PenetrationSource[]): PenetrationSource[] {
@@ -386,6 +402,11 @@ async function enrichWithBatchJudge(
         result?.mentionedBrands ?? [],
         ourBrand
       )
+      // 裁判抽出的品牌必须先通过回答原文字面校验。通过后，再允许简称/公司全称
+      // 之间的同品牌匹配回写 hitOur，例如“木点点”命中“木点点整装（深圳）有限公司”。
+      slot.item.hitOur =
+        slot.item.hitOur ||
+        slot.item.mentionedBrands.some(brand => isSameBrand(brand, ourBrand))
       slot.item.topRecommended =
         result?.topRecommended &&
         !isPlatformName(result.topRecommended) &&
@@ -434,7 +455,7 @@ async function mapWithConcurrency<T, R>(
 }
 
 function modelConcurrency(model: ModelKey): number {
-  return model === "kimi" ? 1 : 3
+  return model === "kimi" || model === "doubao" ? 1 : 3
 }
 
 async function handler(req: NextRequest) {
@@ -505,17 +526,38 @@ async function handler(req: NextRequest) {
     const t0 = Date.now()
 
     const groupedResults = await Promise.all(
-      activeModels.map(m =>
-        mapWithConcurrency(questions, modelConcurrency(m), async q => {
+      activeModels.map(m => {
+        let permanentError = ""
+        return mapWithConcurrency(questions, modelConcurrency(m), async q => {
+          if (permanentError) {
+            return {
+              model: m,
+              item: {
+                question: q,
+                answer: "",
+                mentionedBrands: [],
+                topRecommended: null,
+                searchSources: [],
+                sourceDomains: [],
+                topSourceDomain: null,
+                hitOur: false,
+                error: permanentError,
+              },
+            }
+          }
           const item = await processSlot({
             model: m,
             question: q,
             ourBrand,
             competitors,
           })
+          if (item.error && isPermanentProviderError(item.error)) {
+            permanentError = formatProviderError(m, item.error)
+            item.error = permanentError
+          }
           return { model: m, item }
         })
-      )
+      })
     )
     const results = groupedResults.flat()
     await enrichWithBatchJudge(results, judgeModel, [ourBrand, ...competitors], ourBrand)
@@ -549,7 +591,10 @@ async function handler(req: NextRequest) {
 
     const aggregated = aggregatePenetration(byModel, ourBrand)
 
-    await chargeCredits(guard.userId, requiredCredits)
+    const successfulSlots = results.filter(result => result.item.answer.trim().length > 0).length
+    if (successfulSlots > 0) {
+      await chargeCredits(guard.userId, successfulSlots)
+    }
 
     return NextResponse.json(
       {

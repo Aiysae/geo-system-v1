@@ -23,11 +23,13 @@ interface Props {
 const COLORS = ["#004B73", "#0077B6", "#00B4D8", "#48cae4", "#10b981", "#f43f5e"]
 
 export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
-  if (perModelRate.length === 0) {
+  const validRates = perModelRate.filter(item => item.total > 0)
+
+  if (validRates.length === 0) {
     return <div className="text-sm text-slate-400 py-8 text-center">暂无数据</div>
   }
 
-  const data = perModelRate.map((r, i) => ({
+  const data = validRates.map((r, i) => ({
     model: MODEL_LABELS[r.model],
     rate: Math.round(r.rate * 1000) / 10,
     mentions: r.mentions,

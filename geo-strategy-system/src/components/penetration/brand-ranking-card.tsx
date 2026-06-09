@@ -48,6 +48,7 @@ export default function BrandRankingCard({
         <div className="space-y-1.5">
           {perModelRate.map(p => {
             const pct = Math.round(p.rate * 1000) / 10
+            const hasValidAnswer = p.total > 0
             return (
               <div key={p.model} className="flex items-center gap-2 text-xs">
                 <span className="flex w-20 items-center gap-1.5 text-slate-600">
@@ -57,11 +58,15 @@ export default function BrandRankingCard({
                 <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-[#004B73] rounded-full"
-                    style={{ width: `${Math.min(pct, 100)}%` }}
+                    style={{ width: `${hasValidAnswer ? Math.min(pct, 100) : 0}%` }}
                   />
                 </div>
-                <span className="w-12 text-right tabular-nums text-slate-700 font-medium">
-                  {pct}%
+                <span
+                  className={`w-20 text-right tabular-nums font-medium ${
+                    hasValidAnswer ? "text-slate-700" : "text-red-500"
+                  }`}
+                >
+                  {hasValidAnswer ? `${p.mentions}/${p.total} · ${pct}%` : "调用失败"}
                 </span>
               </div>
             )
