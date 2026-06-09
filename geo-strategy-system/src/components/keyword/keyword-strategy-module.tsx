@@ -1,10 +1,11 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { DEFAULT_CATEGORY_CONFIG, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type ContentCalendarItem, type QuestionCategoryConfig, type OfficialSiteAction, type ThirdPartySite } from "@/types/geo-strategy"
+import { DEFAULT_CATEGORY_CONFIG, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type ContentCalendarItem, type QuestionCategoryConfig, type ThirdPartySite } from "@/types/geo-strategy"
 import type { Client } from "@/types"
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
+import { apiFetch, readApiJson } from "@/lib/api-fetch"
 
 // ==================== Brand Data ====================
 
@@ -1173,6 +1174,9 @@ function StrategyStep({
   const [showCalendar, setShowCalendar] = useState(false)
   const [activePromptKey, setActivePromptKey] = useState<string | null>(null)
   const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null)
+  const [officialPrompt, setOfficialPrompt] = useState("")
+  const [officialPromptLoading, setOfficialPromptLoading] = useState(false)
+  const [officialPromptError, setOfficialPromptError] = useState("")
 
   const handleCopyPrompt = useCallback(async (key: string, prompt: string) => {
     try {
@@ -1183,6 +1187,33 @@ function StrategyStep({
       setCopiedPromptKey(null)
     }
   }, [])
+
+  const handleGenerateOfficialPrompt = useCallback(async () => {
+    setOfficialPromptLoading(true)
+    setOfficialPromptError("")
+
+    try {
+      const res = await apiFetch("/api/geo-strategy/website-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      })
+      const data = await readApiJson<{ prompt?: string; model?: string; error?: string }>(
+        res,
+        "官网 Prompt 生成"
+      )
+
+      if (!res.ok || !data.prompt) {
+        throw new Error(data.error || "官网 Prompt 生成失败，请稍后重试")
+      }
+
+      setOfficialPrompt(data.prompt)
+    } catch (error) {
+      setOfficialPromptError(error instanceof Error ? error.message : "官网 Prompt 生成失败")
+    } finally {
+      setOfficialPromptLoading(false)
+    }
+  }, [plan])
 
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -1246,6 +1277,44 @@ function StrategyStep({
       {/* Official Site Strategy */}
       {plan.official_site_strategy && plan.official_site_strategy.length > 0 && (
         <Card title="官网建设策略" icon={<Settings className="h-4 w-4 text-indigo-500" />}>
+          <div className="mb-4 flex flex-col gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-700">完整官网建设 Prompt</div>
+              <div className="mt-1 text-xs leading-relaxed text-slate-500">
+                通义千问会把下方全部建议合并为一个可直接建站的完整 Prompt，品牌资料由你另外提供。
+              </div>
+            </div>
+            <button
+              onClick={handleGenerateOfficialPrompt}
+              disabled={officialPromptLoading}
+              className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {officialPromptLoading
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Sparkles className="h-3.5 w-3.5" />}
+              {officialPromptLoading ? "通义千问生成中..." : officialPrompt ? "重新生成完整 Prompt" : "生成完整官网 Prompt"}
+            </button>
+          </div>
+
+          {officialPromptError && (
+            <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-600">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{officialPromptError}</span>
+            </div>
+          )}
+
+          {officialPrompt && (
+            <div className="mb-4">
+              <WebsitePromptPanel
+                promptKey="official-complete"
+                prompt={officialPrompt}
+                copied={copiedPromptKey === "official-complete"}
+                onCopy={handleCopyPrompt}
+                title="完整官网建设 Prompt"
+              />
+            </div>
+          )}
+
           <div className="space-y-3">
             {plan.official_site_strategy.map((item, i) => (
               <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
@@ -1256,22 +1325,7 @@ function StrategyStep({
                     <div className="text-xs text-slate-500 mt-0.5">{item.action}</div>
                     <div className="text-[11px] text-slate-400 mt-0.5">{item.goal}</div>
                   </div>
-                  <button
-                    onClick={() => setActivePromptKey(activePromptKey === `official-${i}` ? null : `official-${i}`)}
-                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 sm:w-auto"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    生成 Prompt
-                  </button>
                 </div>
-                {activePromptKey === `official-${i}` && (
-                  <WebsitePromptPanel
-                    promptKey={`official-${i}`}
-                    prompt={buildOfficialSitePrompt(plan, item, i)}
-                    copied={copiedPromptKey === `official-${i}`}
-                    onCopy={handleCopyPrompt}
-                  />
-                )}
               </div>
             ))}
           </div>
@@ -1803,16 +1857,18 @@ function WebsitePromptPanel({
   prompt,
   copied,
   onCopy,
+  title = "可复制建站 Prompt",
 }: {
   promptKey: string
   prompt: string
   copied: boolean
   onCopy: (key: string, prompt: string) => void
+  title?: string
 }) {
   return (
     <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
       <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs font-medium text-slate-700">可复制建站 Prompt</div>
+        <div className="text-xs font-medium text-slate-700">{title}</div>
         <button
           onClick={() => onCopy(promptKey, prompt)}
           className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100 sm:w-auto"
@@ -1828,36 +1884,6 @@ function WebsitePromptPanel({
       />
     </div>
   )
-}
-
-function buildOfficialSitePrompt(plan: GeoStrategyPlan, item: OfficialSiteAction, index: number): string {
-  const profile = plan.profile
-  const siteName = `${profile?.brand_or_product || plan.project_name || "目标品牌"}官网${item.module ? `-${item.module}` : ""}`
-  return [
-    `你是一位资深全栈工程师、UI 设计师和中国国内 GEO 生成式引擎优化专家。请根据下面资料包，分批帮我搭建一个可直接上线的网站模块。`,
-    ``,
-    `【任务 1：建站】`,
-    `帮我做一个 ${item.module || "品牌官网"} 样式的网站，网站名称为「${siteName}」。`,
-    `建设动作：${item.action || "围绕品牌官网事实源进行页面搭建"}`,
-    `建设目标：${item.goal || "提高品牌事实源可信度、可引用性和 AI 抓取效率"}`,
-    `页面需要专业、可信、信息密度高，移动端和桌面端都要协调，不要做空泛营销页。`,
-    ``,
-    `【任务 2：GEO 方法论实现】`,
-    `根据我给你的资料包，整个网站代码要用 GEO 生成式引擎优化的方法论，包括但不限于 schema 结构、内容上用 EEAT 框架和倒金字塔结构，H1/H2 标题的设计、Q&A 的设计。`,
-    `请把品牌名称、核心优势、适用场景、关键证据、竞品对比、FAQ、About/品牌事实页信息设计成 AI 容易抽取和引用的页面结构。`,
-    ``,
-    `【任务 3：自查与抓取文件】`,
-    `根据对中国国内 GEO 生成式引擎优化的方法论的极致运用，自查一下网站代码和内容排版上有没有不够好的地方，如果有的话请修改，没有的话就说没有。`,
-    `同时给我一份用来提高网站被 AI 抓取效率的 llms.txt 和 robots.txt，并说明它们应该放在哪个路径。`,
-    ``,
-    `【资料包】`,
-    buildProfilePack(plan, index + 1),
-    ``,
-    `【输出要求】`,
-    `1. 先给完整网站代码和文件结构。`,
-    `2. 再给 GEO 自查结论和已修改点。`,
-    `3. 最后单独输出 llms.txt 和 robots.txt 的完整内容。`,
-  ].join("\n")
 }
 
 function buildThirdPartySitePrompt(plan: GeoStrategyPlan, site: ThirdPartySite, index: number): string {
