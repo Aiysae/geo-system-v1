@@ -164,6 +164,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
   messages.push({ role: "user", content: args.user })
 
   const MAX_ROUNDS = 4 // 1 轮原始 + 最多 3 轮工具
+  const searchCache = new Map<string, SearchHit[]>()
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const data = await openaiCompatRaw({
       url: args.url,
@@ -208,11 +209,15 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
           }
           if (!query.trim()) query = args.user
           const t0 = Date.now()
-          const hits = await webSearch(query, SEARCH_RESULTS_PER_CALL)
-          emitSearchSources(args, query, hits)
-          console.log(
-            `[${args.label}·search_web] q="${query}" hits=${hits.length} ${Date.now() - t0}ms`
-          )
+          let hits = searchCache.get(query)
+          if (!hits) {
+            hits = await webSearch(query, SEARCH_RESULTS_PER_CALL)
+            searchCache.set(query, hits)
+            emitSearchSources(args, query, hits)
+            console.log(
+              `[${args.label}·search_web] q="${query}" hits=${hits.length} ${Date.now() - t0}ms`
+            )
+          }
           const formatted = formatHitsForLLM(query, hits)
           messages.push({
             role: "tool",
