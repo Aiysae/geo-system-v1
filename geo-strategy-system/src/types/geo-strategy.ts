@@ -186,7 +186,7 @@ export interface GeoStrategyPlan {
 export interface UploadedFile {
   id: string
   name: string
-  type: "pdf" | "image" | "text"
+  type: "pdf" | "image" | "text" | "word" | "excel"
   content: string
   size: number
 }
