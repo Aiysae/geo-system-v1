@@ -216,6 +216,49 @@ async function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
   })
 }
 
+const MAX_OFFICE_TEXT_LENGTH = 60_000
+
+function limitOfficeText(text: string): string {
+  const trimmed = text.trim()
+  if (trimmed.length <= MAX_OFFICE_TEXT_LENGTH) return trimmed
+  return `${trimmed.slice(0, MAX_OFFICE_TEXT_LENGTH)}\n\n[内容较长，已截取前 ${MAX_OFFICE_TEXT_LENGTH} 个字符用于策略抽取]`
+}
+
+async function readWordDocument(file: File): Promise<string> {
+  const buffer = await readFileAsArrayBuffer(file)
+  const mammoth = await import("mammoth")
+  const result = await mammoth.extractRawText({ arrayBuffer: buffer })
+  const content = limitOfficeText(result.value)
+  if (!content) throw new Error("Word 文档没有可提取的文字")
+  return `【Word 文档：${file.name}】\n${content}`
+}
+
+async function readExcelWorkbook(file: File): Promise<string> {
+  const { default: readXlsxFile } = await import("read-excel-file/browser")
+
+  const formatCell = (value: unknown): string => {
+    if (value == null) return ""
+    if (value instanceof Date) return value.toISOString()
+    return String(value)
+  }
+
+  const escapeCsv = (value: string): string =>
+    /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+
+  const workbookSheets = await readXlsxFile(file)
+  const sheets: string[] = []
+  for (const sheet of workbookSheets) {
+    const csvRows = sheet.data
+      .slice(0, 2000)
+      .map(row => row.map(value => escapeCsv(formatCell(value))).join(","))
+      .filter(row => row.replace(/,/g, "").trim())
+    if (csvRows.length > 0) sheets.push(`【工作表：${sheet.sheet}】\n${csvRows.join("\n")}`)
+  }
+
+  if (sheets.length === 0) throw new Error("Excel 表格没有可提取的数据")
+  return limitOfficeText(`【Excel 文件：${file.name}】\n${sheets.join("\n\n")}`)
+}
+
 async function renderPdfToImages(file: File): Promise<UploadedFile[]> {
   const pdfjs = await import("pdfjs-dist/build/pdf.mjs")
   pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString()
@@ -308,10 +351,24 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   const handleFilesSelected = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     const processed: UploadedFile[] = []
+    const uploadErrors: string[] = []
 
     for (const file of files) {
+      const lowerName = file.name.toLowerCase()
       try {
-        if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+        if (lowerName.endsWith(".doc")) {
+          throw new Error("暂不支持旧版 .doc，请在 Word 中另存为 .docx 后上传")
+        }
+        if (lowerName.endsWith(".xls")) {
+          throw new Error("暂不支持旧版 .xls，请在 Excel 中另存为 .xlsx 或 .csv 后上传")
+        }
+        if (lowerName.endsWith(".docx")) {
+          const content = await readWordDocument(file)
+          processed.push({ id: genId(), name: file.name, type: "word", content, size: file.size })
+        } else if (lowerName.endsWith(".xlsx")) {
+          const content = await readExcelWorkbook(file)
+          processed.push({ id: genId(), name: file.name, type: "excel", content, size: file.size })
+        } else if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) {
           const pages = await renderPdfToImages(file)
           processed.push(...pages)
         } else {
@@ -319,8 +376,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           const type = file.type.startsWith("image/") ? "image" as const : "text" as const
           processed.push({ id: genId(), name: file.name, type, content, size: file.size })
         }
-      } catch {
-        if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+      } catch (error) {
+        if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) {
           processed.push({
             id: genId(),
             name: `${file.name} - PDF转换失败说明.txt`,
@@ -328,16 +385,23 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             content: "该 PDF 未能在浏览器中转换为图片，请将 PDF 页面另存为 JPG/PNG 后重新上传。",
             size: 50,
           })
-        } else try {
-          const content = await readFileContent(file)
-          processed.push({ id: genId(), name: file.name, type: "text", content, size: file.size })
-        } catch {
-          // skip files that can't be read
+        } else if (!lowerName.endsWith(".docx") && !lowerName.endsWith(".doc") && !lowerName.endsWith(".xlsx") && !lowerName.endsWith(".xls")) {
+          try {
+            const content = await readFileContent(file)
+            processed.push({ id: genId(), name: file.name, type: "text", content, size: file.size })
+          } catch {
+            uploadErrors.push(`${file.name}：文件读取失败`)
+          }
+        } else {
+          uploadErrors.push(`${file.name}：${error instanceof Error ? error.message : "文件解析失败"}`)
         }
       }
     }
 
-    updateBrand({ uploadedFiles: [...activeBrand.uploadedFiles, ...processed] })
+    updateBrand({
+      uploadedFiles: [...activeBrand.uploadedFiles, ...processed],
+      extractionError: uploadErrors.join("；"),
+    })
     if (e.target) e.target.value = ""
   }, [activeBrand.uploadedFiles, updateBrand])
 
@@ -781,14 +845,14 @@ function InputStep({
               onClick={() => fileInputRef.current?.click()}
             >
               <FileText className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-xs text-slate-500">点击上传 PDF / JPG / PNG / 文本文件</p>
-              <p className="text-[10px] text-slate-400 mt-1">支持调研报告、截图、笔记等</p>
-              <p className="text-[10px] text-amber-500 mt-1">⚠ 图片/PDF 需使用支持视觉识别的模型（gpt-4o、qwen-vl-plus 等），DeepSeek 不支持</p>
+              <p className="text-xs text-slate-500">点击上传 PDF / Word / Excel / 图片 / 文本</p>
+              <p className="text-[10px] text-slate-400 mt-1">支持 .docx、.xlsx、调研报告、截图和笔记</p>
+              <p className="text-[10px] text-amber-500 mt-1">图片/PDF 需视觉模型；Word/Excel 会自动提取文字和表格</p>
               <input
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,.jpg,.jpeg,.png,.txt,.md,.csv"
+                accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png,.txt,.md,.csv"
                 className="hidden"
                 onChange={onFilesSelected}
               />
@@ -801,7 +865,15 @@ function InputStep({
                     <FileText className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                     <span className="truncate flex-1 text-slate-600">{f.name}</span>
                     <span className="text-[10px] text-slate-400">
-                      {f.type === "image" ? "图片" : f.type === "pdf" ? "PDF" : "文本"}
+                      {f.type === "image"
+                        ? "图片"
+                        : f.type === "pdf"
+                          ? "PDF"
+                          : f.type === "word"
+                            ? "Word"
+                            : f.type === "excel"
+                              ? "Excel"
+                              : "文本"}
                     </span>
                     <button onClick={() => onRemoveFile(f.id)} className="text-slate-300 hover:text-red-400 transition">
                       <X className="h-3.5 w-3.5" />
