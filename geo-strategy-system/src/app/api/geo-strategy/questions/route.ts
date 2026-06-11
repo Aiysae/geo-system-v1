@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import { parseJsonLoose } from "@/lib/score-utils"
+import type { ContentCalendarItem, QuestionItem } from "@/types/geo-strategy"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
-const BATCH_SIZE = 80
+const BATCH_SIZE = 20
+const BATCH_CONCURRENCY = 3
+const MAX_STRUCTURED_ATTEMPTS = 3
 
 // ==================== System Prompts ====================
 
@@ -365,51 +369,100 @@ async function callLlm(
   url: string, apiKey: string, model: string,
   system: string, user: string,
   maxTokens: number, label: string,
-  retries = 1,
+  timeoutSec: number,
 ): Promise<string> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const result = await openaiCompatChat({
-        url,
-        apiKey,
-        model,
-        system: attempt === 0 ? system : `${system}\n\n注意：上次输出 JSON 解析失败，请确保输出合法 JSON。`,
-        user,
-        temperature: 0.4,
-        maxTokens,
-        jsonMode: true,
-        label,
-      })
-      return result
-    } catch (err) {
-      if (attempt === retries) throw err
-    }
-  }
-  throw new Error("LLM 调用全部失败")
+  return openaiCompatChat({
+    url,
+    apiKey,
+    model,
+    system,
+    user,
+    temperature: 0.3,
+    maxTokens,
+    jsonMode: true,
+    label,
+    timeoutSec,
+  })
 }
 
 function cleanAndParse(raw: string): unknown {
-  let s = raw.trim()
-
-  const fm = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-  if (fm) s = fm[1].trim()
-  else if (s.startsWith("```")) s = s.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim()
-
-  try { return JSON.parse(s) } catch { /* fall through */ }
-  try { return JSON.parse(s.replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1")) } catch { /* fall through */ }
-
-  const objMatch = s.match(/\{[\s\S]*\}/)
-  if (objMatch) {
-    const extracted = objMatch[0]
-    try { return JSON.parse(extracted) } catch { /* fall through */ }
-    try { return JSON.parse(extracted.replace(/\/\/.*$/gm, "").replace(/,\s*([}\]])/g, "$1")) } catch { return null }
-  }
-
-  return null
+  return parseJsonLoose(raw)
 }
 
 function estimateTokensPerQuestion(): number {
-  return 250
+  return 220
+}
+
+function text(value: unknown, fallback = ""): string {
+  const result =
+    typeof value === "string" || typeof value === "number"
+      ? String(value).trim()
+      : ""
+  return result || fallback
+}
+
+function normalizeQuestion(value: unknown, category: string): Omit<QuestionItem, "id"> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const data = value as Record<string, unknown>
+  const question = text(data.question)
+  if (!question) return null
+
+  return {
+    layer: data.layer === "第二层" ? "第二层" : "第一层",
+    category: text(data.category, category),
+    difficulty: text(data.difficulty, "中"),
+    keyword: text(data.keyword),
+    question,
+    intent: text(data.intent, "了解并解决相关决策问题"),
+    content_angle: text(data.content_angle, "围绕用户问题提供事实、对比与行动建议"),
+    suggested_channel: text(data.suggested_channel, "知乎"),
+  }
+}
+
+function normalizeCalendarItem(value: unknown): ContentCalendarItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const data = value as Record<string, unknown>
+  const question = text(data.question)
+  const articleTitle = text(data.article_title)
+  if (!question && !articleTitle) return null
+
+  return {
+    week: text(data.week, "待排期"),
+    platform: text(data.platform, "知乎"),
+    question,
+    article_title: articleTitle || question,
+    content_type: text(data.content_type, "问答文章"),
+    geo_goal: text(data.geo_goal, "覆盖目标疑问句并建立可信事实"),
+  }
+}
+
+function extractArray(raw: string, key: string): unknown[] | null {
+  const parsed = cleanAndParse(raw)
+  if (Array.isArray(parsed)) return parsed
+  if (!parsed || typeof parsed !== "object") return null
+  const value = (parsed as Record<string, unknown>)[key]
+  return Array.isArray(value) ? value : null
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++
+      results[index] = await mapper(items[index], index)
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  )
+  return results
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -439,8 +492,9 @@ async function generateCategoryQuestions(
   strategy: Record<string, unknown>,
   layer2Ratio: number,
   startIdOffset: number,
-): Promise<{ questions: unknown[]; warnings: string[] }> {
-  const allQuestions: unknown[] = []
+  timeoutSec: number,
+): Promise<{ questions: Array<Omit<QuestionItem, "id">>; warnings: string[] }> {
+  const allQuestions: Array<Omit<QuestionItem, "id">> = []
   const warnings: string[] = []
 
   if (allocation.count === 0) {
@@ -449,56 +503,148 @@ async function generateCategoryQuestions(
 
   const batchCount = Math.ceil(allocation.count / BATCH_SIZE)
 
-  for (let batch = 0; batch < batchCount; batch++) {
-    const startId = startIdOffset + batch * BATCH_SIZE + 1
-    const thisBatchSize = Math.min(BATCH_SIZE, allocation.count - batch * BATCH_SIZE)
+  const batchIndexes = Array.from({ length: batchCount }, (_, index) => index)
+  const batchResults = await mapWithConcurrency(
+    batchIndexes,
+    BATCH_CONCURRENCY,
+    async batch => {
+      const startId = startIdOffset + batch * BATCH_SIZE + 1
+      const thisBatchSize = Math.min(BATCH_SIZE, allocation.count - batch * BATCH_SIZE)
+      const categoryLabel = CATEGORY_LABELS[allocation.category] || allocation.category
+      const basePrompt = allocation.category === "weakness_spin"
+        ? buildWeaknessSpinPrompt(
+            strategy, thisBatchSize, startId, layer2Ratio,
+            allocation.weaknesses || [],
+          )
+        : buildKeywordPrompt(
+            strategy,
+            categoryLabel,
+            categoryLabel,
+            thisBatchSize,
+            startId,
+            layer2Ratio,
+            allocation.keywords,
+            EXTRA_INSTRUCTIONS[allocation.category] || "",
+          )
+      const baseSystem = batch === 0
+        ? SYSTEM_TEMPLATE
+        : `${SYSTEM_TEMPLATE}\n\n这是第 ${batch + 1}/${batchCount} 批，请生成新的疑问句，id 从 ${startId} 开始。`
+      const tokensPerBatch = Math.min(8192, thisBatchSize * estimateTokensPerQuestion() + 1536)
+      const minimumAcceptable = Math.max(1, Math.ceil(thisBatchSize * 0.7))
+      let bestResult: Array<Omit<QuestionItem, "id">> = []
 
-    let userPrompt: string
+      for (let attempt = 0; attempt < MAX_STRUCTURED_ATTEMPTS; attempt++) {
+        const retryInstruction = attempt === 0
+          ? ""
+          : `\n\n上一次输出无法解析或字段不完整。这次必须只输出完整 JSON，question_strategy 必须是数组，并生成 ${thisBatchSize} 条有效问题。不要使用 Markdown 代码块。`
+        let raw = ""
+        try {
+          raw = await callLlm(
+            url,
+            apiKey,
+            model,
+            `${baseSystem}${retryInstruction}`,
+            basePrompt,
+            tokensPerBatch,
+            `GEO问题-${allocation.category}-批次${batch + 1}-尝试${attempt + 1}`,
+            timeoutSec,
+          )
+        } catch (error) {
+          if (attempt === MAX_STRUCTURED_ATTEMPTS - 1) throw error
+          console.warn(
+            `[geo-questions] ${categoryLabel}批次 ${batch + 1} 第 ${attempt + 1} 次请求失败，准备重试：`,
+            error
+          )
+          continue
+        }
+        const items = extractArray(raw, "question_strategy")
+        const normalized = (items || [])
+          .map(item => normalizeQuestion(item, categoryLabel))
+          .filter((item): item is Omit<QuestionItem, "id"> => item !== null)
 
-    if (allocation.category === "weakness_spin") {
-      userPrompt = buildWeaknessSpinPrompt(
-        strategy, thisBatchSize, startId, layer2Ratio,
-        allocation.weaknesses || [],
-      )
-    } else {
-      const label = CATEGORY_LABELS[allocation.category] || allocation.category
-      const extra = EXTRA_INSTRUCTIONS[allocation.category] || ""
-      userPrompt = buildKeywordPrompt(
-        strategy, label, label, thisBatchSize, startId, layer2Ratio,
-        allocation.keywords, extra,
-      )
+        if (normalized.length > bestResult.length) bestResult = normalized
+        if (normalized.length >= minimumAcceptable) {
+          if (normalized.length < thisBatchSize) warnings.push(
+            `${categoryLabel}批次 ${batch + 1} 计划 ${thisBatchSize} 条，实际返回 ${normalized.length} 条`
+          )
+          return normalized.slice(0, thisBatchSize)
+        }
+
+        console.warn(
+          `[geo-questions] ${categoryLabel}批次 ${batch + 1} 第 ${attempt + 1} 次仅得到 ${normalized.length}/${thisBatchSize} 条有效问题`
+        )
+      }
+
+      if (bestResult.length > 0) {
+        warnings.push(
+          `${categoryLabel}批次 ${batch + 1} 自动重试后仍只生成 ${bestResult.length}/${thisBatchSize} 条`
+        )
+        return bestResult.slice(0, thisBatchSize)
+      }
+
+      warnings.push(`${categoryLabel}批次 ${batch + 1} 返回格式异常，自动重试后已跳过`)
+      return []
     }
+  )
 
-    const system = batch === 0
-      ? SYSTEM_TEMPLATE
-      : `${SYSTEM_TEMPLATE}\n\n注意：这是第 ${batch + 1}/${batchCount} 批，请继续生成新的疑问句，不要与之前的重复。id 从 ${startId} 开始。`
-
-    const tokensPerBatch = thisBatchSize * estimateTokensPerQuestion() + 2048
-    const raw = await callLlm(url, apiKey, model, system, userPrompt,
-      tokensPerBatch, `GEO问题-${allocation.category}-批次${batch + 1}`)
-
-    const parsed = cleanAndParse(raw)
-    if (!parsed || typeof parsed !== "object") {
-      warnings.push(`${CATEGORY_LABELS[allocation.category]} 批次 ${batch + 1} 返回格式异常，已跳过`)
-      continue
+  const seen = new Set<string>()
+  for (const batchQuestions of batchResults) {
+    for (const question of batchQuestions) {
+      const key = question.question.replace(/\s+/g, "").toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      allQuestions.push(question)
     }
-
-    const batchQuestions = (parsed as Record<string, unknown>).question_strategy
-    if (!Array.isArray(batchQuestions)) {
-      warnings.push(`${CATEGORY_LABELS[allocation.category]} 批次 ${batch + 1} 缺少 question_strategy，已跳过`)
-      continue
-    }
-
-    allQuestions.push(...batchQuestions)
   }
 
-  if (allQuestions.length < allocation.count * 0.5) {
+  if (allQuestions.length < allocation.count) {
     warnings.push(
       `${CATEGORY_LABELS[allocation.category]}: 仅生成 ${allQuestions.length}/${allocation.count} 条问题`
     )
   }
 
   return { questions: allQuestions, warnings }
+}
+
+async function generateContentCalendar(args: {
+  url: string
+  apiKey: string
+  model: string
+  questions: QuestionItem[]
+  strategy: Record<string, unknown>
+  timeoutSec: number
+}): Promise<ContentCalendarItem[]> {
+  const prompt = buildCalendarUserPrompt(args.questions, args.strategy)
+
+  for (let attempt = 0; attempt < MAX_STRUCTURED_ATTEMPTS; attempt++) {
+    const retryInstruction = attempt === 0
+      ? ""
+      : "\n\n上一次输出无法解析。请只输出完整 JSON，content_calendar 必须是数组，不要使用 Markdown 代码块。"
+    let raw = ""
+    try {
+      raw = await callLlm(
+        args.url,
+        args.apiKey,
+        args.model,
+        `${CALENDAR_SYSTEM}${retryInstruction}`,
+        prompt,
+        6144,
+        `GEO日历-尝试${attempt + 1}`,
+        args.timeoutSec,
+      )
+    } catch (error) {
+      if (attempt === MAX_STRUCTURED_ATTEMPTS - 1) throw error
+      console.warn(`[geo-questions] 内容日历第 ${attempt + 1} 次请求失败，准备重试：`, error)
+      continue
+    }
+    const items = extractArray(raw, "content_calendar")
+    const normalized = (items || [])
+      .map(normalizeCalendarItem)
+      .filter((item): item is ContentCalendarItem => item !== null)
+    if (normalized.length > 0) return normalized
+  }
+
+  throw new Error("内容日历返回格式异常，自动重试后仍无法解析")
 }
 
 // ==================== Handler ====================
@@ -517,8 +663,11 @@ async function handler(req: NextRequest) {
 
     const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
     const url = buildAiChatUrl(aiConfig)
-    const ratio = Math.min(Math.max(layer2Ratio, 0.15), 0.45)
-    const count = Math.min(Math.max(totalCount, 10), 600)
+    const ratioInput = Number(layer2Ratio)
+    const countInput = Number(totalCount)
+    const ratio = Math.min(Math.max(Number.isFinite(ratioInput) ? ratioInput : 0.35, 0.15), 0.45)
+    const count = Math.min(Math.max(Number.isFinite(countInput) ? Math.round(countInput) : 40, 10), 600)
+    const timeoutSec = Math.min(aiConfig.timeout || 300, 240)
 
     if (!aiConfig.apiKey) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
@@ -543,55 +692,81 @@ async function handler(req: NextRequest) {
     )
 
     // 2. Generate per category sequentially (ensures sequential IDs)
-    const allQuestions: unknown[] = []
+    const allQuestions: Array<Omit<QuestionItem, "id">> = []
     let currentId = 0
     const allWarnings = [...allocWarnings]
 
     for (const alloc of allocations) {
       if (alloc.count === 0) continue
       const result = await generateCategoryQuestions(
-        url, aiConfig.apiKey, aiConfig.model, alloc, strategy, ratio, currentId,
+        url, aiConfig.apiKey, aiConfig.model, alloc, strategy, ratio, currentId, timeoutSec,
       )
       allQuestions.push(...result.questions)
       allWarnings.push(...result.warnings)
       currentId += alloc.count
     }
 
+    const seenQuestions = new Set<string>()
+    const uniqueQuestions = allQuestions.filter(question => {
+      const key = question.question.replace(/\s+/g, "").toLowerCase()
+      if (!key || seenQuestions.has(key)) return false
+      seenQuestions.add(key)
+      return true
+    })
+    if (uniqueQuestions.length < allQuestions.length) {
+      allWarnings.push(`已自动移除 ${allQuestions.length - uniqueQuestions.length} 条重复疑问句`)
+    }
+
     // 3. Re-index IDs to ensure sequential order
-    const reindexed = allQuestions.map((q, i) => ({
-      ...(q as Record<string, unknown>),
+    const reindexed: QuestionItem[] = uniqueQuestions.map((q, i) => ({
+      ...q,
       id: String(i + 1),
     }))
 
-    // 4. Generate content calendar
-    let contentCalendar: unknown[] = []
-    if (reindexed.length > 0) {
-      const calendarTokens = 8192
-      const calendarRaw = await callLlm(
-        url, aiConfig.apiKey, aiConfig.model,
-        CALENDAR_SYSTEM,
-        buildCalendarUserPrompt(reindexed, strategy),
-        calendarTokens,
-        "GEO日历",
+    if (reindexed.length === 0) {
+      return NextResponse.json(
+        { error: "模型没有生成可用的疑问句，系统自动重试后仍未恢复，请重新生成。" },
+        { status: 422 }
       )
+    }
 
-      const calendarParsed = cleanAndParse(calendarRaw)
-      if (calendarParsed && typeof calendarParsed === "object") {
-        contentCalendar = ((calendarParsed as Record<string, unknown>).content_calendar as unknown[]) || []
-      }
+    // 4. Generate content calendar
+    let contentCalendar: ContentCalendarItem[] = []
+    try {
+      contentCalendar = await generateContentCalendar({
+        url,
+        apiKey: aiConfig.apiKey,
+        model: aiConfig.model,
+        questions: reindexed,
+        strategy,
+        timeoutSec,
+      })
+    } catch (calendarError) {
+      console.warn("[geo-questions] 内容日历生成失败，保留疑问句结果：", calendarError)
+      allWarnings.push("疑问句已生成，但内容日历暂时生成失败，可稍后重新生成疑问句池")
     }
 
     return NextResponse.json({
       question_strategy: reindexed,
       content_calendar: contentCalendar,
-      warnings: allWarnings.length > 0 ? allWarnings : undefined,
+      warnings: allWarnings.length > 0 ? Array.from(new Set(allWarnings)) : undefined,
     })
   } catch (error) {
     console.error("[geo-questions]", error)
     const message = error instanceof Error ? error.message : "未知错误"
-    if (message.includes("API Key")) return NextResponse.json({ error: "API Key 无效或无权限" }, { status: 401 })
-    if (message.includes("timeout")) return NextResponse.json({ error: "模型响应超时，请增加超时时间后重试" }, { status: 504 })
-    return NextResponse.json({ error: `疑问句生成失败: ${message}` }, { status: 500 })
+    if (/API Key|HTTP 401|unauthorized/i.test(message)) {
+      return NextResponse.json({ error: "关键词策略模型 API Key 无效或无权限" }, { status: 401 })
+    }
+    if (/timeout|timed out|超时|abort/i.test(message)) {
+      return NextResponse.json({ error: "疑问句生成时间过长，请减少生成数量后重试，或增加后台模型超时时间" }, { status: 504 })
+    }
+    if (/格式异常|无法解析|JSON/i.test(message)) {
+      return NextResponse.json({ error: "模型返回的数据格式不完整，系统自动重试后仍未恢复，请重新生成。" }, { status: 422 })
+    }
+    if (/fetch|连接失败|network/i.test(message)) {
+      return NextResponse.json({ error: "关键词策略模型连接失败，请检查网络或后台接口配置" }, { status: 502 })
+    }
+    return NextResponse.json({ error: `疑问句生成失败：${message}` }, { status: 500 })
   }
 }
 

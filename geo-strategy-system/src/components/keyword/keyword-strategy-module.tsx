@@ -217,6 +217,8 @@ async function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
 }
 
 const MAX_OFFICE_TEXT_LENGTH = 60_000
+const ZIP_SIGNATURE = [0x50, 0x4b]
+const OLE_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]
 
 function limitOfficeText(text: string): string {
   const trimmed = text.trim()
@@ -224,11 +226,50 @@ function limitOfficeText(text: string): string {
   return `${trimmed.slice(0, MAX_OFFICE_TEXT_LENGTH)}\n\n[内容较长，已截取前 ${MAX_OFFICE_TEXT_LENGTH} 个字符用于策略抽取]`
 }
 
+function hasFileSignature(bytes: Uint8Array, signature: number[]): boolean {
+  return signature.every((value, index) => bytes[index] === value)
+}
+
+async function extractWordOnServer(file: File): Promise<string> {
+  const formData = new FormData()
+  formData.append("file", file)
+
+  const res = await apiFetch("/api/geo-strategy/parse-word", {
+    method: "POST",
+    body: formData,
+  })
+  const data = await readApiJson<{ content?: string; format?: "doc" | "docx"; error?: string }>(
+    res,
+    "Word 文档解析"
+  )
+
+  if (!res.ok || !data.content) {
+    throw new Error(data.error || "Word 文档解析失败，请另存为新的 .docx 文件后重试")
+  }
+  return data.content
+}
+
 async function readWordDocument(file: File): Promise<string> {
   const buffer = await readFileAsArrayBuffer(file)
-  const mammoth = await import("mammoth")
-  const result = await mammoth.extractRawText({ arrayBuffer: buffer })
-  const content = limitOfficeText(result.value)
+  const bytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 8))
+  let rawContent: string
+
+  if (hasFileSignature(bytes, OLE_SIGNATURE)) {
+    rawContent = await extractWordOnServer(file)
+  } else if (hasFileSignature(bytes, ZIP_SIGNATURE)) {
+    try {
+      const mammoth = await import("mammoth")
+      const result = await mammoth.extractRawText({ arrayBuffer: buffer })
+      rawContent = result.value
+    } catch (error) {
+      console.warn("[keyword-strategy] DOCX browser parse failed, retrying on server:", error)
+      rawContent = await extractWordOnServer(file)
+    }
+  } else {
+    throw new Error("文件后缀虽然是 Word，但实际内容不是有效的 .doc 或 .docx 文档")
+  }
+
+  const content = limitOfficeText(rawContent)
   if (!content) throw new Error("Word 文档没有可提取的文字")
   return `【Word 文档：${file.name}】\n${content}`
 }
@@ -356,13 +397,10 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     for (const file of files) {
       const lowerName = file.name.toLowerCase()
       try {
-        if (lowerName.endsWith(".doc")) {
-          throw new Error("暂不支持旧版 .doc，请在 Word 中另存为 .docx 后上传")
-        }
         if (lowerName.endsWith(".xls")) {
           throw new Error("暂不支持旧版 .xls，请在 Excel 中另存为 .xlsx 或 .csv 后上传")
         }
-        if (lowerName.endsWith(".docx")) {
+        if (lowerName.endsWith(".docx") || lowerName.endsWith(".doc")) {
           const content = await readWordDocument(file)
           processed.push({ id: genId(), name: file.name, type: "word", content, size: file.size })
         } else if (lowerName.endsWith(".xlsx")) {
@@ -589,8 +627,9 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     const coreKeywords = deriveCoreKeywords(activeBrand.strategyPlan)
 
     try {
-      const res = await fetch("/api/geo-strategy/questions", {
+      const res = await apiFetch("/api/geo-strategy/questions", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           strategy: activeBrand.strategyPlan,
@@ -601,15 +640,24 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         }),
       })
 
-      const data = await res.json()
+      const data = await readApiJson<{
+        question_strategy?: QuestionItem[]
+        content_calendar?: ContentCalendarItem[]
+        warnings?: string[]
+        error?: string
+      }>(res, "疑问句生成")
 
       if (!res.ok) {
         throw new Error(data.error || `请求失败 (${res.status})`)
       }
+      if (!Array.isArray(data.question_strategy) || data.question_strategy.length === 0) {
+        throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
+      }
 
       updateBrand({
-        questions: data.question_strategy || [],
-        contentCalendar: data.content_calendar || [],
+        questions: data.question_strategy,
+        contentCalendar: Array.isArray(data.content_calendar) ? data.content_calendar : [],
+        questionError: Array.isArray(data.warnings) ? data.warnings.join("；") : "",
         questionStatus: "done",
         completedSteps: [...new Set([...activeBrand.completedSteps, "questions" as ToolStep])],
       })
@@ -846,13 +894,13 @@ function InputStep({
             >
               <FileText className="h-8 w-8 text-slate-300 mx-auto mb-2" />
               <p className="text-xs text-slate-500">点击上传 PDF / Word / Excel / 图片 / 文本</p>
-              <p className="text-[10px] text-slate-400 mt-1">支持 .docx、.xlsx、调研报告、截图和笔记</p>
+              <p className="text-[10px] text-slate-400 mt-1">支持 .doc、.docx、.xlsx、调研报告、截图和笔记</p>
               <p className="text-[10px] text-amber-500 mt-1">图片/PDF 需视觉模型；Word/Excel 会自动提取文字和表格</p>
               <input
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png,.txt,.md,.csv"
+                accept=".pdf,.doc,.docx,.xlsx,.jpg,.jpeg,.png,.txt,.md,.csv"
                 className="hidden"
                 onChange={onFilesSelected}
               />
@@ -1515,6 +1563,12 @@ function StrategyStep({
           ) : undefined
         }
       >
+        {hasQuestions && questionError && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{questionError}</span>
+          </div>
+        )}
         {!hasQuestions ? (
           <QuestionSettingsPanel
             plan={plan}

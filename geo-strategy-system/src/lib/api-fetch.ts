@@ -32,6 +32,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : "网络连接失败"
+    if (/failed to fetch|fetch failed|load failed|networkerror/i.test(message)) {
+      throw new Error("网络请求未完成，可能是服务响应超时或网络连接中断，请稍后重试。")
+    }
     throw new Error(`请求失败：${message}`)
   }
 
