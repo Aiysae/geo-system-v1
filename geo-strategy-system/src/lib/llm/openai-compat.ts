@@ -31,6 +31,8 @@ export interface ChatArgs {
   allowWebSearch?: boolean
   /** Send only the user's question as conversation context; do not inject time/system hints. */
   rawQuestionOnly?: boolean
+  /** Per-provider request timeout in seconds. */
+  timeoutSec?: number
   /** Observe the public web sources used by local search adapters. */
   onSearchSources?: (event: SearchSourceEvent) => void
 }
@@ -276,8 +278,6 @@ interface OpenAICompatArgs extends ChatArgs {
   extraHeaders?: Record<string, string>
   /** data URLs for vision (image/jpeg, image/png, application/pdf) */
   images?: string[]
-  /** timeout in seconds (default 300) */
-  timeoutSec?: number
 }
 
 /** compress a data URL if it exceeds maxBytes by stripping it (API will reject oversized payloads) */

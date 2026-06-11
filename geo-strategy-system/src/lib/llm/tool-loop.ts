@@ -49,6 +49,10 @@ const SEARCH_DIRECTIVE = `
 const CONSUMER_TOOL_STYLE_DIRECTIVE =
   "Final answer style: answer the user's question directly. Do not mention search tools, search results, retrieved pages, or whether the results directly contain the answer."
 
+function timeoutMs(args: ToolLoopArgs): number {
+  return (args.timeoutSec && args.timeoutSec > 0 ? args.timeoutSec : 300) * 1000
+}
+
 function messageText(content: unknown): string {
   if (typeof content === "string") return content
   if (Array.isArray(content)) {
@@ -131,6 +135,7 @@ async function chatWithPresearchedContext(args: ToolLoopArgs): Promise<string> {
     jsonMode: args.jsonMode,
     extraBody: args.extraBody,
     extraHeaders: args.extraHeaders,
+    timeoutMs: timeoutMs(args),
   })
 
   const content = messageText(data.choices?.[0]?.message?.content)
@@ -185,6 +190,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
           : undefined,
       extraBody: args.extraBody,
       extraHeaders: args.extraHeaders,
+      timeoutMs: timeoutMs(args),
     })
 
     const choice = data.choices?.[0]
@@ -261,6 +267,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
     jsonMode: args.jsonMode,
     extraBody: args.extraBody,
     extraHeaders: args.extraHeaders,
+    timeoutMs: timeoutMs(args),
   })
 
   const finalContent = messageText(finalData.choices?.[0]?.message?.content)

@@ -24,7 +24,8 @@
     "react-to-print": "^3.3.0",
     "read-excel-file": "^9.1.1",
     "recharts": "^3.8.1",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "word-extractor": "^1.0.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

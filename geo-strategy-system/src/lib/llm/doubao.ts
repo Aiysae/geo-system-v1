@@ -65,6 +65,7 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
       model: endpoint,
       label: "豆包",
       ...args,
+      timeoutSec: args.timeoutSec ?? config.timeout,
     })
   }
 
@@ -76,6 +77,7 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
       model: bot,
       label: "豆包",
       ...args,
+      timeoutSec: args.timeoutSec ?? config.timeout,
     })
   }
 
@@ -92,5 +94,6 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
     model: endpoint,
     label: "豆包",
     ...args,
+    timeoutSec: args.timeoutSec ?? config.timeout,
   })
 }

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { apiFetch } from "@/lib/api-fetch"
+import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import type { Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import {
   BarChart3,
@@ -136,7 +136,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
           penetration: researchSourceMode === "module" ? client.penetration : undefined,
         }),
       })
-      const data = await res.json()
+      const data = await readApiJson<ResearchResult & { error?: string }>(res, "独立调研")
       if (!res.ok) throw new Error(data.error || "调研失败")
       onChangeClient({ research: data as ResearchResult })
     } catch (error) {
@@ -166,8 +166,14 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
           penetration: compareSourceMode === "module" ? client.penetration : undefined,
         }),
       })
-      const data = await res.json()
+      const data = await readApiJson<CompetitorCompareResult & { error?: string }>(
+        res,
+        "竞品优劣势对比"
+      )
       if (!res.ok) throw new Error(data.error || "竞品对比失败")
+      if (!data.generatedAt || (!data.comparisons?.length && !data.competitor)) {
+        throw new Error("竞品优劣势对比返回数据不完整，请重新生成。")
+      }
       onChangeClient({ competitorCompare: data as CompetitorCompareResult })
     } catch (error) {
       setCompareError(error instanceof Error ? error.message : "未知错误")
