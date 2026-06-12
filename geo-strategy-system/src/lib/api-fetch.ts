@@ -73,7 +73,7 @@ export async function readApiJson<T = Record<string, unknown>>(
     if (looksLikeHtml) {
       const timedOut = [408, 502, 503, 504].includes(res.status) || /timeout|timed out/i.test(text)
       if (timedOut) {
-        throw new Error(`${label}处理时间过长，服务网关已中断。请重新发起检测。`)
+        throw new Error(`${label}处理时间过长，服务网关已中断。请减少单次任务量或稍后重新发起。`)
       }
       throw new Error(`${label}服务返回了异常页面（HTTP ${res.status}），请刷新后重试。`)
     }
