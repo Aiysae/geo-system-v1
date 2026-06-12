@@ -575,18 +575,22 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     updateBrand({ strategyStatus: "generating", strategyError: "" })
 
     try {
-      const res = await fetch("/api/geo-strategy/generate", {
+      const res = await apiFetch("/api/geo-strategy/generate", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           profile: activeBrand.extractedProfile,
         }),
       })
 
-      const data = await res.json()
+      const data = await readApiJson<GeoStrategyPlan & { error?: string }>(res, "策略生成")
 
       if (!res.ok) {
         throw new Error(data.error || `请求失败 (${res.status})`)
+      }
+      if (!data.project_name || !data.profile || !data.keyword_strategy) {
+        throw new Error("策略生成返回数据不完整，请重新生成。")
       }
 
       updateBrand({
