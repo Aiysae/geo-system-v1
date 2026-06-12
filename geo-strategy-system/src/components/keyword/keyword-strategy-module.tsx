@@ -9,6 +9,15 @@ import { apiFetch, readApiJson } from "@/lib/api-fetch"
 
 // ==================== Brand Data ====================
 
+const QUESTION_GENERATION_LIMIT = 120
+
+function clampQuestionCount(value: unknown, fallback = 40, allowCustomMarker = false): number {
+  const numeric = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric === -1) return allowCustomMarker ? -1 : fallback
+  return Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(numeric)))
+}
+
 interface BrandData {
   id: string
   name: string
@@ -98,6 +107,8 @@ function createBrandFromClient(client: Client): BrandData {
     projectName: saved.projectName || client.ourBrand || client.name,
     industry: saved.industry || client.industry,
     competitorsRaw: saved.competitorsRaw || client.competitors.join("\n"),
+    questionCount: clampQuestionCount(saved.questionCount, fallback.questionCount, true),
+    customQuestionCount: clampQuestionCount(saved.customQuestionCount, fallback.customQuestionCount),
     uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : [],
     categoryConfig: {
       ...DEFAULT_CATEGORY_CONFIG,
@@ -617,7 +628,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
 
     updateBrand({ questionStatus: "generating", questionError: "" })
 
-    const effectiveCount = activeBrand.questionCount === -1 ? activeBrand.customQuestionCount : activeBrand.questionCount
+    const requestedCount = activeBrand.questionCount === -1 ? activeBrand.customQuestionCount : activeBrand.questionCount
+    const effectiveCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(requestedCount)))
     const weaknessCount = (activeBrand.strategyPlan.profile?.weaknesses?.length || 0) * activeBrand.categoryConfig.weaknessesPerWeakness
 
     if (weaknessCount > effectiveCount) {
@@ -1686,7 +1698,8 @@ function QuestionSettingsPanel({
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
   onGenerateQuestions: () => void
 }) {
-  const effectiveCount = questionCount === -1 ? customQuestionCount : questionCount
+  const rawEffectiveCount = questionCount === -1 ? customQuestionCount : questionCount
+  const effectiveCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(rawEffectiveCount)))
   const weaknesses = plan.profile?.weaknesses || []
   const weaknessTotal = weaknesses.length * categoryConfig.weaknessesPerWeakness
   const remainingForKeywords = Math.max(0, effectiveCount - weaknessTotal)
@@ -1697,9 +1710,9 @@ function QuestionSettingsPanel({
   const ratioCoreAlloc = Math.floor(remainingForKeywords * categoryConfig.coreRatio)
   const ratioSecondaryAlloc = Math.floor(remainingForKeywords * categoryConfig.secondaryRatio)
   const ratioPainScenarioAlloc = remainingForKeywords - ratioCoreAlloc - ratioSecondaryAlloc
-  const customCoreAlloc = Math.min(600, Math.max(0, categoryConfig.coreCount ?? ratioCoreAlloc))
-  const customSecondaryAlloc = Math.min(600, Math.max(0, categoryConfig.secondaryCount ?? ratioSecondaryAlloc))
-  const customPainScenarioAlloc = Math.min(600, Math.max(0, categoryConfig.painScenarioCount ?? ratioPainScenarioAlloc))
+  const customCoreAlloc = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, categoryConfig.coreCount ?? ratioCoreAlloc))
+  const customSecondaryAlloc = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, categoryConfig.secondaryCount ?? ratioSecondaryAlloc))
+  const customPainScenarioAlloc = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, categoryConfig.painScenarioCount ?? ratioPainScenarioAlloc))
   const coreAlloc = allocationMode === "custom" ? customCoreAlloc : ratioCoreAlloc
   const secondaryAlloc = allocationMode === "custom" ? customSecondaryAlloc : ratioSecondaryAlloc
   const painScenarioAlloc = allocationMode === "custom" ? customPainScenarioAlloc : ratioPainScenarioAlloc
@@ -1719,9 +1732,9 @@ function QuestionSettingsPanel({
     next.coreRatio = Math.min(0.70, Math.max(0.30, next.coreRatio))
     const maxSecondary = Math.min(0.50, 1.0 - next.coreRatio - 0.05)
     next.secondaryRatio = Math.min(maxSecondary, Math.max(0.05, next.secondaryRatio))
-    next.coreCount = Math.min(600, Math.max(0, Number(next.coreCount ?? 0) || 0))
-    next.secondaryCount = Math.min(600, Math.max(0, Number(next.secondaryCount ?? 0) || 0))
-    next.painScenarioCount = Math.min(600, Math.max(0, Number(next.painScenarioCount ?? 0) || 0))
+    next.coreCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, Number(next.coreCount ?? 0) || 0))
+    next.secondaryCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, Number(next.secondaryCount ?? 0) || 0))
+    next.painScenarioCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, Number(next.painScenarioCount ?? 0) || 0))
     onCategoryConfigChange(next)
   }
 
@@ -1754,17 +1767,14 @@ function QuestionSettingsPanel({
               <option value={40}>40 条</option>
               <option value={80}>80 条</option>
               <option value={120}>120 条</option>
-              <option value={160}>160 条</option>
-              <option value={200}>200 条</option>
-              <option value={320}>320 条</option>
               <option value={-1}>自定义</option>
             </select>
           </div>
           {questionCount === -1 && (
             <div>
-              <label className="text-[11px] font-medium text-slate-500">自定义数量 (最多600)</label>
-              <input type="number" min={10} max={600} value={customQuestionCount}
-                onChange={e => onCustomQuestionCountChange(Math.min(600, Math.max(10, Number(e.target.value) || 10)))}
+              <label className="text-[11px] font-medium text-slate-500">自定义数量 (最多{QUESTION_GENERATION_LIMIT})</label>
+              <input type="number" min={10} max={QUESTION_GENERATION_LIMIT} value={customQuestionCount}
+                onChange={e => onCustomQuestionCountChange(Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Number(e.target.value) || 10)))}
                 className="mt-1 block w-24 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none" />
             </div>
           )}
@@ -1777,6 +1787,9 @@ function QuestionSettingsPanel({
               第一层 {Math.round(effectiveCount * (1 - layer2Ratio))} 条 · 第二层 {Math.round(effectiveCount * layer2Ratio)} 条
             </div>
           </div>
+        </div>
+        <div className="text-[10px] text-slate-400">
+          为避免线上网关中断，单次稳定生成上限为 {QUESTION_GENERATION_LIMIT} 条；需要更多时建议分批生成。
         </div>
       </div>
 
@@ -1851,7 +1864,7 @@ function QuestionSettingsPanel({
               onChange={e => updateConfig({ coreRatio: Number(e.target.value) })}
               className="w-full accent-[#0077B6]" />
           ) : (
-            <input type="number" min={0} max={600} value={customCoreAlloc}
+            <input type="number" min={0} max={QUESTION_GENERATION_LIMIT} value={customCoreAlloc}
               onChange={e => updateConfig({ coreCount: Number(e.target.value) })}
               className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-blue-400 transition" />
           )}
@@ -1879,7 +1892,7 @@ function QuestionSettingsPanel({
               onChange={e => updateConfig({ secondaryRatio: Number(e.target.value) })}
               className="w-full accent-[#7c3aed]" />
           ) : (
-            <input type="number" min={0} max={600} value={customSecondaryAlloc}
+            <input type="number" min={0} max={QUESTION_GENERATION_LIMIT} value={customSecondaryAlloc}
               onChange={e => updateConfig({ secondaryCount: Number(e.target.value) })}
               className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-purple-400 transition" />
           )}
@@ -1901,7 +1914,7 @@ function QuestionSettingsPanel({
                 style={{ width: "100%" }} />
             </div>
           ) : (
-            <input type="number" min={0} max={600} value={customPainScenarioAlloc}
+            <input type="number" min={0} max={QUESTION_GENERATION_LIMIT} value={customPainScenarioAlloc}
               onChange={e => updateConfig({ painScenarioCount: Number(e.target.value) })}
               className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-emerald-400 transition" />
           )}
