@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import { parseJsonLoose } from "@/lib/score-utils"
+import type { GeoStrategyPlan } from "@/types/geo-strategy"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -100,48 +102,92 @@ function buildUserPrompt(profile: Record<string, unknown>): string {
   return sections.join("\n")
 }
 
-async function callLlm(url: string, apiKey: string, model: string, system: string, user: string, retries = 2): Promise<string> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const result = await openaiCompatChat({
-        url,
-        apiKey,
-        model,
-        system: attempt === 0 ? system : `${system}\n\n注意：上次输出 JSON 解析失败，请严格输出合法 JSON，不要包含任何额外文字、代码块标记或注释。`,
-        user,
-        temperature: attempt === 0 ? 0.4 : 0.2,
-        maxTokens: 16384,
-        jsonMode: true,
-        label: "GEO策略",
-      })
-      return result
-    } catch (err) {
-      if (attempt === retries) throw err
-      console.warn(`[geo-strategy] LLM call attempt ${attempt + 1} failed, retrying...`, err)
-    }
-  }
-  throw new Error("LLM 调用全部失败")
+async function callLlm(args: {
+  url: string
+  apiKey: string
+  model: string
+  system: string
+  user: string
+  attempt: number
+  timeoutSec: number
+}): Promise<string> {
+  return openaiCompatChat({
+    url: args.url,
+    apiKey: args.apiKey,
+    model: args.model,
+    system: args.attempt === 0
+      ? args.system
+      : `${args.system}\n\n注意：上次输出无法解析或字段不完整。请严格输出一个完整合法 JSON 对象，不要包含任何额外文字、代码块标记或注释。`,
+    user: args.attempt === 0
+      ? args.user
+      : `${args.user}\n\n请确保本次只输出完整 JSON 对象，并包含 project_name、summary、profile、keyword_strategy、official_site_strategy、third_party_site_strategy、media_plan、geo_monitoring_plan、execution_roadmap。`,
+    temperature: args.attempt === 0 ? 0.35 : 0.2,
+    maxTokens: 16384,
+    jsonMode: true,
+    label: `GEO策略-尝试${args.attempt + 1}`,
+    timeoutSec: args.timeoutSec,
+  })
 }
 
 function parseJsonResult(raw: string): unknown {
-  let cleaned = raw.trim()
-  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-  if (fenceMatch) cleaned = fenceMatch[1].trim()
-  else if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim()
+  return parseJsonLoose(raw)
+}
 
-  try {
-    return JSON.parse(cleaned)
-  } catch {
-    const repaired = cleaned
-      .replace(/\/\/.*$/gm, "")
-      .replace(/,\s*([}\]])/g, "$1")
-      .replace(/'/g, '"')
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function hasRequiredStrategyShape(value: unknown): value is GeoStrategyPlan {
+  if (!isRecord(value)) return false
+  if (!value.project_name || !value.summary) return false
+  if (!isRecord(value.profile)) return false
+  if (!isRecord(value.keyword_strategy)) return false
+  if (!Array.isArray(value.official_site_strategy)) return false
+  if (!Array.isArray(value.third_party_site_strategy)) return false
+  if (!Array.isArray(value.media_plan)) return false
+  if (!Array.isArray(value.geo_monitoring_plan)) return false
+  if (!Array.isArray(value.execution_roadmap)) return false
+  return true
+}
+
+async function generateStrategyWithRetries(args: {
+  url: string
+  apiKey: string
+  model: string
+  userPrompt: string
+  timeoutSec: number
+}): Promise<GeoStrategyPlan> {
+  let lastRaw = ""
+  let lastError = ""
+
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return JSON.parse(repaired)
-    } catch {
-      return null
+      lastRaw = await callLlm({
+        url: args.url,
+        apiKey: args.apiKey,
+        model: args.model,
+        system: SYSTEM_PROMPT,
+        user: args.userPrompt,
+        attempt,
+        timeoutSec: args.timeoutSec,
+      })
+      const parsed = parseJsonResult(lastRaw)
+      if (hasRequiredStrategyShape(parsed)) return parsed
+      lastError = parsed
+        ? "AI 返回 JSON 但缺少必要策略字段"
+        : "AI 返回内容无法解析为 JSON"
+      console.warn(`[geo-strategy] attempt ${attempt + 1} invalid: ${lastError}`)
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+      console.warn(`[geo-strategy] attempt ${attempt + 1} failed:`, error)
+      if (attempt === 2) throw error
     }
   }
+
+  const rawPreview = lastRaw.trim().slice(0, 1200)
+  throw new Error(
+    `${lastError || "AI 返回格式异常"}${rawPreview ? `。原始片段：${rawPreview}` : ""}`
+  )
 }
 
 async function handler(req: NextRequest) {
@@ -155,43 +201,36 @@ async function handler(req: NextRequest) {
 
     const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
     const url = buildAiChatUrl(aiConfig)
+    const timeoutSec = Math.min(aiConfig.timeout || 300, 240)
 
     if (!aiConfig.apiKey) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
     const userPrompt = buildUserPrompt(profile)
-    const raw = await callLlm(url, aiConfig.apiKey, aiConfig.model, SYSTEM_PROMPT, userPrompt)
+    const strategy = await generateStrategyWithRetries({
+      url,
+      apiKey: aiConfig.apiKey,
+      model: aiConfig.model,
+      userPrompt,
+      timeoutSec,
+    })
 
-    const parsed = parseJsonResult(raw)
-    if (!parsed) {
-      const raw2 = await callLlm(url, aiConfig.apiKey, aiConfig.model,
-        SYSTEM_PROMPT + "\n\n重要：上次输出 JSON 解析失败。请只输出纯 JSON，不要任何代码块标记、注释或额外文字。",
-        userPrompt + "\n\n请确保输出是纯粹合法的 JSON 对象。",
-        1
-      )
-      const parsed2 = parseJsonResult(raw2)
-      if (!parsed2) {
-        return NextResponse.json({
-          error: "AI 返回格式异常，即使重试后仍无法解析",
-          raw: raw2.slice(0, 2000),
-        }, { status: 422 })
-      }
-      return NextResponse.json(parsed2)
-    }
-
-    return NextResponse.json(parsed)
+    return NextResponse.json(strategy)
   } catch (error) {
     console.error("[geo-strategy]", error)
     const message = error instanceof Error ? error.message : "未知错误"
     if (message.includes("API Key") || message.includes("401")) {
       return NextResponse.json({ error: "API Key 无效或无权限" }, { status: 401 })
     }
-    if (message.includes("timeout") || message.includes("timed out")) {
-      return NextResponse.json({ error: "模型响应超时（LLM 思考时间过长），请增加超时时间后重试" }, { status: 504 })
+    if (message.includes("timeout") || message.includes("timed out") || message.includes("超时")) {
+      return NextResponse.json({ error: "策略生成时间过长，请稍后重试，或在后台增加关键词策略模型超时时间" }, { status: 504 })
     }
-    if (message.includes("fetch")) {
+    if (message.includes("fetch") || message.includes("连接失败")) {
       return NextResponse.json({ error: "API 连接失败，请检查接口地址和网络连接" }, { status: 502 })
+    }
+    if (/JSON|无法解析|格式异常|缺少必要策略字段/i.test(message)) {
+      return NextResponse.json({ error: "AI 返回的策略格式不完整，系统自动重试后仍未恢复，请重新生成。" }, { status: 422 })
     }
     return NextResponse.json({ error: `策略生成失败: ${message}` }, { status: 500 })
   }
