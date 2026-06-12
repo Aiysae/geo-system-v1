@@ -395,6 +395,25 @@ function text(value: unknown, fallback = ""): string {
   return result || fallback
 }
 
+function questionKey(question: string): string {
+  return question.replace(/\s+/g, "").toLowerCase()
+}
+
+function buildAvoidQuestionsInstruction(questions: string[]): string {
+  const list = questions
+    .map(item => item.trim())
+    .filter(Boolean)
+    .slice(0, 80)
+
+  if (list.length === 0) return ""
+
+  return [
+    "【避免重复】",
+    "下面这些问题已经生成过，本批不要重复或近似改写：",
+    ...list.map((question, index) => `${index + 1}. ${question}`),
+  ].join("\n")
+}
+
 function normalizeQuestion(value: unknown, category: string): Omit<QuestionItem, "id"> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const data = value as Record<string, unknown>
@@ -471,9 +490,11 @@ async function generateCategoryQuestions(
   startIdOffset: number,
   modelTimeoutSec: number,
   deadlineMs: number,
+  avoidQuestions: string[],
 ): Promise<{ questions: Array<Omit<QuestionItem, "id">>; warnings: string[] }> {
   const allQuestions: Array<Omit<QuestionItem, "id">> = []
   const warnings: string[] = []
+  const avoidInstruction = buildAvoidQuestionsInstruction(avoidQuestions)
 
   if (allocation.count === 0) {
     return { questions: [], warnings: [] }
@@ -510,6 +531,7 @@ async function generateCategoryQuestions(
             allocation.keywords,
             EXTRA_INSTRUCTIONS[allocation.category] || "",
           )
+      const prompt = avoidInstruction ? `${basePrompt}\n\n${avoidInstruction}` : basePrompt
       const baseSystem = batch === 0
         ? SYSTEM_TEMPLATE
         : `${SYSTEM_TEMPLATE}\n\n这是第 ${batch + 1}/${batchCount} 批，请生成新的疑问句，id 从 ${startId} 开始。`
@@ -534,7 +556,7 @@ async function generateCategoryQuestions(
             apiKey,
             model,
             `${baseSystem}${retryInstruction}`,
-            basePrompt,
+            prompt,
             tokensPerBatch,
             `GEO问题-${allocation.category}-批次${batch + 1}-尝试${attempt + 1}`,
             callTimeoutSec,
@@ -585,10 +607,10 @@ async function generateCategoryQuestions(
     }
   )
 
-  const seen = new Set<string>()
+  const seen = new Set(avoidQuestions.map(questionKey))
   for (const batchQuestions of batchResults) {
     for (const question of batchQuestions) {
-      const key = question.question.replace(/\s+/g, "").toLowerCase()
+      const key = questionKey(question.question)
       if (!key || seen.has(key)) continue
       seen.add(key)
       allQuestions.push(question)
@@ -646,7 +668,7 @@ async function handler(req: NextRequest) {
     const body = await req.json()
     const {
       strategy, totalCount = 40, layer2Ratio = 0.35,
-      categoryConfig, coreKeywords = [],
+      categoryConfig, coreKeywords = [], avoidQuestions = [],
     } = body
 
     if (!strategy) {
@@ -662,6 +684,9 @@ async function handler(req: NextRequest) {
     const count = Math.min(requestedCount, MAX_SINGLE_RUN_QUESTION_COUNT)
     const modelTimeoutSec = Math.min(aiConfig.timeout || 300, MAX_LLM_CALL_TIMEOUT_SEC)
     const deadlineMs = Date.now() + REQUEST_BUDGET_MS
+    const avoidQuestionTexts = Array.isArray(avoidQuestions)
+      ? avoidQuestions.map(item => String(item).trim()).filter(Boolean).slice(0, 300)
+      : []
 
     if (!aiConfig.apiKey) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
@@ -714,6 +739,7 @@ async function handler(req: NextRequest) {
         item.startIdOffset,
         modelTimeoutSec,
         deadlineMs,
+        avoidQuestionTexts,
       )
     )
     for (const result of categoryResults) {
@@ -723,7 +749,7 @@ async function handler(req: NextRequest) {
 
     const seenQuestions = new Set<string>()
     const uniqueQuestions = allQuestions.filter(question => {
-      const key = question.question.replace(/\s+/g, "").toLowerCase()
+      const key = questionKey(question.question)
       if (!key || seenQuestions.has(key)) return false
       seenQuestions.add(key)
       return true

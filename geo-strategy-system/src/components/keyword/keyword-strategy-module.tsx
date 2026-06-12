@@ -9,13 +9,50 @@ import { apiFetch, readApiJson } from "@/lib/api-fetch"
 
 // ==================== Brand Data ====================
 
-const QUESTION_GENERATION_LIMIT = 120
+const QUESTION_GENERATION_LIMIT = 200
+const QUESTION_SINGLE_REQUEST_LIMIT = 100
 
 function clampQuestionCount(value: unknown, fallback = 40, allowCustomMarker = false): number {
   const numeric = typeof value === "number" ? value : Number(value)
   if (!Number.isFinite(numeric)) return fallback
   if (numeric === -1) return allowCustomMarker ? -1 : fallback
   return Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(numeric)))
+}
+
+function questionKey(question: string): string {
+  return question.replace(/\s+/g, "").toLowerCase()
+}
+
+function buildLocalContentCalendar(
+  questions: QuestionItem[],
+  strategy: GeoStrategyPlan,
+): ContentCalendarItem[] {
+  const platforms = Array.from(new Set(
+    (strategy.media_plan || [])
+      .map(item => item.platform?.trim())
+      .filter(Boolean)
+  ))
+  const fallbackPlatforms = ["知乎", "小红书", "公众号", "百家号", "头条号", "B站专栏"]
+  const channelPool = platforms.length > 0 ? platforms : fallbackPlatforms
+  const contentTypes = ["问答文章", "避坑清单", "对比测评", "案例解析", "FAQ短文", "视频脚本"]
+  const goals = [
+    "覆盖高频用户疑问，建立官网与第三方内容的事实一致性",
+    "承接用户决策顾虑，提升生成式引擎可引用的信息密度",
+    "围绕痛点和场景输出可验证内容，增强品牌被推荐概率",
+    "补充对比、案例和避坑信息，强化第三方交叉验证",
+  ]
+
+  return questions.slice(0, Math.min(questions.length, 36)).map((question, index) => {
+    const clean = question.question.replace(/[？?]\s*$/, "").trim()
+    return {
+      week: `第 ${Math.floor(index / 6) + 1} 周`,
+      platform: question.suggested_channel || channelPool[index % channelPool.length],
+      question: question.question,
+      article_title: clean.length > 34 ? `${clean.slice(0, 34)}...怎么判断？` : `${clean || "围绕目标疑问句的内容选题"}？一篇讲清选择逻辑`,
+      content_type: contentTypes[index % contentTypes.length],
+      geo_goal: goals[index % goals.length],
+    }
+  })
 }
 
 interface BrandData {
@@ -620,7 +657,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
 
   // Question generation
   const handleGenerateQuestions = useCallback(async () => {
-    if (!activeBrand.strategyPlan) return
+    const strategyPlan = activeBrand.strategyPlan
+    if (!strategyPlan) return
     if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
       updateBrand({ questionError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。", questionStatus: "error" })
       return
@@ -630,7 +668,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
 
     const requestedCount = activeBrand.questionCount === -1 ? activeBrand.customQuestionCount : activeBrand.questionCount
     const effectiveCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(requestedCount)))
-    const weaknessCount = (activeBrand.strategyPlan.profile?.weaknesses?.length || 0) * activeBrand.categoryConfig.weaknessesPerWeakness
+    const weaknessCount = (strategyPlan.profile?.weaknesses?.length || 0) * activeBrand.categoryConfig.weaknessesPerWeakness
 
     if (weaknessCount > effectiveCount) {
       updateBrand({
@@ -640,40 +678,88 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       return
     }
 
-    const coreKeywords = deriveCoreKeywords(activeBrand.strategyPlan)
+    const coreKeywords = deriveCoreKeywords(strategyPlan)
 
     try {
-      const res = await apiFetch("/api/geo-strategy/questions", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          strategy: activeBrand.strategyPlan,
-          totalCount: effectiveCount,
-          layer2Ratio: activeBrand.layer2Ratio,
-          categoryConfig: activeBrand.categoryConfig,
-          coreKeywords,
-        }),
-      })
-
-      const data = await readApiJson<{
+      type QuestionsResponse = {
         question_strategy?: QuestionItem[]
         content_calendar?: ContentCalendarItem[]
         warnings?: string[]
         error?: string
-      }>(res, "疑问句生成")
-
-      if (!res.ok) {
-        throw new Error(data.error || `请求失败 (${res.status})`)
       }
-      if (!Array.isArray(data.question_strategy) || data.question_strategy.length === 0) {
+
+      async function requestQuestionBatch(totalCount: number, avoidQuestions: string[]): Promise<QuestionsResponse> {
+        const res = await apiFetch("/api/geo-strategy/questions", {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            strategy: strategyPlan,
+            totalCount,
+            layer2Ratio: activeBrand.layer2Ratio,
+            categoryConfig: activeBrand.categoryConfig,
+            coreKeywords,
+            avoidQuestions,
+          }),
+        })
+
+        const data = await readApiJson<QuestionsResponse>(res, "疑问句生成")
+
+        if (!res.ok) {
+          throw new Error(data.error || `请求失败 (${res.status})`)
+        }
+        if (!Array.isArray(data.question_strategy) || data.question_strategy.length === 0) {
+          throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
+        }
+
+        return data
+      }
+
+      const batchCounts: number[] = []
+      let remaining = effectiveCount
+      while (remaining > 0) {
+        const next = Math.min(QUESTION_SINGLE_REQUEST_LIMIT, remaining)
+        batchCounts.push(next)
+        remaining -= next
+      }
+
+      const mergedQuestions: QuestionItem[] = []
+      const seen = new Set<string>()
+      const warnings: string[] = batchCounts.length > 1
+        ? [`已自动拆分为 ${batchCounts.length} 批生成，避免服务网关中断。`]
+        : []
+
+      for (let index = 0; index < batchCounts.length; index++) {
+        const data = await requestQuestionBatch(
+          batchCounts[index],
+          mergedQuestions.map(item => item.question)
+        )
+
+        for (const question of data.question_strategy || []) {
+          const key = questionKey(question.question)
+          if (!key || seen.has(key)) continue
+          seen.add(key)
+          mergedQuestions.push(question)
+        }
+        if (Array.isArray(data.warnings)) warnings.push(...data.warnings)
+      }
+
+      const reindexed = mergedQuestions.map((question, index) => ({
+        ...question,
+        id: String(index + 1),
+      }))
+
+      if (reindexed.length === 0) {
         throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
+      }
+      if (reindexed.length < effectiveCount) {
+        warnings.push(`计划生成 ${effectiveCount} 条，去重后得到 ${reindexed.length} 条。`)
       }
 
       updateBrand({
-        questions: data.question_strategy,
-        contentCalendar: Array.isArray(data.content_calendar) ? data.content_calendar : [],
-        questionError: Array.isArray(data.warnings) ? data.warnings.join("；") : "",
+        questions: reindexed,
+        contentCalendar: buildLocalContentCalendar(reindexed, strategyPlan),
+        questionError: warnings.length > 0 ? Array.from(new Set(warnings)).join("；") : "",
         questionStatus: "done",
         completedSteps: [...new Set([...activeBrand.completedSteps, "questions" as ToolStep])],
       })
@@ -1767,6 +1853,8 @@ function QuestionSettingsPanel({
               <option value={40}>40 条</option>
               <option value={80}>80 条</option>
               <option value={120}>120 条</option>
+              <option value={160}>160 条</option>
+              <option value={200}>200 条</option>
               <option value={-1}>自定义</option>
             </select>
           </div>
@@ -1789,7 +1877,7 @@ function QuestionSettingsPanel({
           </div>
         </div>
         <div className="text-[10px] text-slate-400">
-          为避免线上网关中断，单次稳定生成上限为 {QUESTION_GENERATION_LIMIT} 条；需要更多时建议分批生成。
+          超过 {QUESTION_SINGLE_REQUEST_LIMIT} 条会自动拆分为多批短请求生成，避免线上网关中断。
         </div>
       </div>
 
