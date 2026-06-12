@@ -28,5 +28,6 @@ export async function chatErnie(args: ChatArgs): Promise<string> {
     ...args,
     extraBody,
     extraHeaders,
+    timeoutSec: args.timeoutSec ?? config.timeout,
   })
 }

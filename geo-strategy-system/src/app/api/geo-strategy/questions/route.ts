@@ -8,15 +8,15 @@ export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
-const BATCH_SIZE = 12
-const BATCH_CONCURRENCY = 2
+const BATCH_SIZE = 8
+const BATCH_CONCURRENCY = 1
 const CATEGORY_CONCURRENCY = 2
 const MAX_STRUCTURED_ATTEMPTS = 2
-const MAX_SINGLE_RUN_QUESTION_COUNT = 120
-const REQUEST_BUDGET_MS = 170_000
+const MAX_SINGLE_RUN_QUESTION_COUNT = 60
+const REQUEST_BUDGET_MS = 150_000
 const REQUEST_WRAP_UP_MS = 8_000
 const MIN_CALL_BUDGET_MS = 20_000
-const MAX_LLM_CALL_TIMEOUT_SEC = 60
+const MAX_LLM_CALL_TIMEOUT_SEC = 45
 
 // ==================== System Prompts ====================
 

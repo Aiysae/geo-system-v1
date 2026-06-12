@@ -28,5 +28,6 @@ export async function chatQwen(args: ChatArgs): Promise<string> {
     label: "通义千问",
     ...args,
     extraBody,
+    timeoutSec: args.timeoutSec ?? config.timeout,
   })
 }

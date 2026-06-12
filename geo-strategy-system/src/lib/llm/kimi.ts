@@ -81,6 +81,7 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
       label: LABEL,
       extraBody: shouldDisableThinking(selectedModel) ? { thinking: { type: "disabled" } } : undefined,
       ...args,
+      timeoutSec: args.timeoutSec ?? config.timeout,
     })
   }
 
@@ -118,6 +119,7 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
             ? { type: "builtin_function", function: { name: "$web_search" } }
             : undefined,
         extraBody: shouldDisableThinking(selectedModel) ? { thinking: { type: "disabled" } } : undefined,
+        timeoutMs: (args.timeoutSec ?? config.timeout) * 1000,
       })
 
     try {

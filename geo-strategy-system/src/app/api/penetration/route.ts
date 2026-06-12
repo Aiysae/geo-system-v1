@@ -16,6 +16,11 @@ export const maxDuration = 300
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
+const BLIND_QUERY_TIMEOUT_SEC = 75
+const BLIND_QUERY_MAX_TOKENS = 2048
+const JUDGE_BATCH_TIMEOUT_SEC = 45
+const JUDGE_BATCH_MAX_TOKENS = 3072
+
 // ============================================================================
 // 两阶段管线
 //   Stage A · 客观联网单问
@@ -167,7 +172,8 @@ async function blindQuery(
         seed: seed + attempt,
         mode: "consumer",
         jsonMode: false,
-        maxTokens: 4096,
+        maxTokens: BLIND_QUERY_MAX_TOKENS,
+        timeoutSec: BLIND_QUERY_TIMEOUT_SEC,
         forceWebSearch: true,
         rawQuestionOnly: true,
         onSearchSources: event => {
@@ -244,7 +250,8 @@ async function judgeAnswersBatch(
       seed: 43,
       mode: "judge",
       jsonMode: true,
-      maxTokens: 4096,
+      maxTokens: JUDGE_BATCH_MAX_TOKENS,
+      timeoutSec: JUDGE_BATCH_TIMEOUT_SEC,
       allowWebSearch: false,
     })
     const parsed = parseJsonLoose(raw) as { items?: unknown } | null

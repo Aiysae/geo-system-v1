@@ -32,6 +32,7 @@ interface Props {
   error: string | null
   skipped?: string[]
   modelErrors?: Partial<Record<ModelKey, string>>
+  progressLabel?: string
 }
 
 export default function BatchInputPanel({
@@ -42,6 +43,7 @@ export default function BatchInputPanel({
   error,
   skipped,
   modelErrors,
+  progressLabel,
 }: Props) {
   const [questionsText, setQuestionsText] = useState(() => client.questions.join("\n"))
   const [competitorsText, setCompetitorsText] = useState(() => client.competitors.join("\n"))
@@ -351,7 +353,7 @@ export default function BatchInputPanel({
         {loading ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
-            正在并行检测...
+            {progressLabel || "正在并行检测..."}
           </>
         ) : (
           <>
