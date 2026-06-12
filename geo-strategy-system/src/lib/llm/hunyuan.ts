@@ -25,6 +25,7 @@ export async function chatHunyuan(args: ChatArgs): Promise<string> {
       forceSearchMode: args.forceWebSearch ? "presearch" : undefined,
       allowSpecifiedToolChoice: false,
       ...args,
+      timeoutSec: args.timeoutSec ?? config.timeout,
     })
   }
 
@@ -41,5 +42,6 @@ export async function chatHunyuan(args: ChatArgs): Promise<string> {
     label: "腾讯元宝/混元",
     ...args,
     extraBody,
+    timeoutSec: args.timeoutSec ?? config.timeout,
   })
 }

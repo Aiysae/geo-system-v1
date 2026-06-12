@@ -37,11 +37,53 @@ interface Props {
   onChangeClient: (patch: Partial<Client>) => void
 }
 
+const PENETRATION_BATCH_SLOT_LIMIT = 6
+const PENETRATION_BATCH_QUESTION_LIMIT = 4
+
+type PenetrationApiResponse = {
+  error?: string
+  skipped?: string[]
+  byModel?: PenetrationResult["byModel"]
+  aggregated?: PenetrationResult["aggregated"]
+  generatedAt?: string
+  modelErrors?: Partial<Record<ModelKey, string>>
+}
+
+function buildDetectionBatches(
+  questions: string[],
+  models: ModelKey[]
+): Array<{ questions: string[]; models: ModelKey[] }> {
+  const questionBatchSize = Math.max(
+    1,
+    Math.min(
+      PENETRATION_BATCH_QUESTION_LIMIT,
+      Math.floor(PENETRATION_BATCH_SLOT_LIMIT / Math.max(1, models.length))
+    )
+  )
+  const batches: Array<{ questions: string[]; models: ModelKey[] }> = []
+  for (let start = 0; start < questions.length; start += questionBatchSize) {
+    batches.push({
+      questions: questions.slice(start, start + questionBatchSize),
+      models,
+    })
+  }
+  return batches
+}
+
+function cloneByModel(byModel: PenetrationResult["byModel"]): PenetrationResult["byModel"] {
+  const cloned: PenetrationResult["byModel"] = {}
+  for (const [model, items] of Object.entries(byModel) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
+    if (items?.length) cloned[model] = [...items]
+  }
+  return cloned
+}
+
 export default function PenetrationModule({ client, onChangeClient }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
   const [modelErrors, setModelErrors] = useState<Partial<Record<ModelKey, string>>>({})
+  const [progressLabel, setProgressLabel] = useState("")
   const { balance } = useCredits()
 
   async function handleRun(params: { questions: string[]; models: ModelKey[] }) {
@@ -57,48 +99,90 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     setError(null)
     setSkipped([])
     setModelErrors({})
+    setProgressLabel("")
     try {
-      const res = await apiFetch("/api/penetration", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ourBrand: client.ourBrand,
-          industry: client.industry,
-          questions: params.questions,
-          competitors: client.competitors,
-          models: params.models,
-        }),
-      })
-      const data = await readApiJson<{
-        error?: string
-        skipped?: string[]
-        byModel?: PenetrationResult["byModel"]
-        aggregated?: PenetrationResult["aggregated"]
-        generatedAt?: string
-        modelErrors?: Partial<Record<ModelKey, string>>
-      }>(res, "疑问句检测")
-      if (!res.ok) {
-        if (Array.isArray(data.skipped)) setSkipped(data.skipped)
-        throw new Error(data.error || "请求失败")
+      async function requestBatch(
+        questions: string[],
+        models: ModelKey[]
+      ): Promise<PenetrationApiResponse> {
+        const res = await apiFetch("/api/penetration", {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ourBrand: client.ourBrand,
+            industry: client.industry,
+            questions,
+            competitors: client.competitors,
+            models,
+          }),
+        })
+        const data = await readApiJson<PenetrationApiResponse>(res, "疑问句检测")
+        if (!res.ok) {
+          if (Array.isArray(data.skipped)) setSkipped(data.skipped)
+          throw new Error(data.error || "请求失败")
+        }
+        if (!data.byModel || !data.generatedAt) {
+          throw new Error("疑问句检测返回数据不完整，请重新检测。")
+        }
+        return data
       }
-      if (!data.byModel || !data.aggregated || !data.generatedAt) {
-        throw new Error("疑问句检测返回数据不完整，请重新检测。")
+
+      const batches = buildDetectionBatches(params.questions, params.models)
+      const mergedByModel: PenetrationResult["byModel"] = {}
+      const skippedLabels = new Set<string>()
+      const mergedModelErrors: Partial<Record<ModelKey, string>> = {}
+
+      function publishMergedResult(generatedAt: string) {
+        const byModel = cloneByModel(mergedByModel)
+        onChangeClient({
+          penetration: {
+            byModel,
+            aggregated: aggregatePenetration(byModel, client.ourBrand),
+            generatedAt,
+          },
+        })
       }
-      const result: PenetrationResult = {
-        byModel: data.byModel,
-        aggregated: data.aggregated,
-        generatedAt: data.generatedAt,
+
+      let generatedAt = new Date().toISOString()
+      for (let index = 0; index < batches.length; index++) {
+        const batch = batches[index]
+        setProgressLabel(
+          batches.length > 1
+            ? `正在检测第 ${index + 1}/${batches.length} 批（${batch.models.length} × ${batch.questions.length}）...`
+            : "正在并行检测..."
+        )
+
+        const data = await requestBatch(batch.questions, batch.models)
+        generatedAt = data.generatedAt || new Date().toISOString()
+
+        for (const [model, items] of Object.entries(data.byModel || {}) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
+          if (!items?.length) continue
+          mergedByModel[model] = [...(mergedByModel[model] || []), ...items]
+        }
+        for (const item of data.skipped || []) skippedLabels.add(item)
+        if (data.modelErrors && typeof data.modelErrors === "object") {
+          for (const [model, message] of Object.entries(data.modelErrors) as Array<[ModelKey, string]>) {
+            if (!message) continue
+            mergedModelErrors[model] = mergedModelErrors[model]
+              ? `${mergedModelErrors[model]}；${message}`
+              : message
+          }
+        }
+
+        setSkipped(Array.from(skippedLabels))
+        setModelErrors(mergedModelErrors)
+        publishMergedResult(generatedAt)
       }
-      onChangeClient({ penetration: result })
-      if (Array.isArray(data.skipped)) setSkipped(data.skipped)
-      if (data.modelErrors && typeof data.modelErrors === "object") {
-        setModelErrors(data.modelErrors)
+
+      if (Object.keys(mergedByModel).length === 0) {
+        throw new Error("疑问句检测没有返回有效结果，请重新检测。")
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "未知错误")
     } finally {
       setLoading(false)
+      setProgressLabel("")
     }
   }
 
@@ -136,6 +220,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               error={error}
               skipped={skipped}
               modelErrors={modelErrors}
+              progressLabel={progressLabel}
             />
           </div>
 

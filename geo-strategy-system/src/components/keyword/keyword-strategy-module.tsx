@@ -10,7 +10,7 @@ import { apiFetch, readApiJson } from "@/lib/api-fetch"
 // ==================== Brand Data ====================
 
 const QUESTION_GENERATION_LIMIT = 200
-const QUESTION_SINGLE_REQUEST_LIMIT = 100
+const QUESTION_SINGLE_REQUEST_LIMIT = 50
 
 function clampQuestionCount(value: unknown, fallback = 40, allowCustomMarker = false): number {
   const numeric = typeof value === "number" ? value : Number(value)
