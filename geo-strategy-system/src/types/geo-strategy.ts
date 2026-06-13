@@ -43,7 +43,6 @@ export interface KeywordStrategyState {
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]
-  contentCalendar: ContentCalendarItem[]
 }
 
 /** 基础项目信息 */
@@ -140,17 +139,6 @@ export interface QuestionItem {
   question: string
   intent: string
   content_angle: string
-  suggested_channel: string
-}
-
-/** 内容日历 */
-export interface ContentCalendarItem {
-  week: string
-  platform: string
-  question: string
-  article_title: string
-  content_type: string
-  geo_goal: string
 }
 
 /** 完整策略方案 */
@@ -182,7 +170,6 @@ export interface GeoStrategyPlan {
   geo_monitoring_plan: GeoMonitoringItem[]
   execution_roadmap: ExecutionPhase[]
   question_strategy?: QuestionItem[]
-  content_calendar?: ContentCalendarItem[]
 }
 
 /** 上传文件信息 */
@@ -213,7 +200,6 @@ export interface QuestionJobRecord extends QuestionJobProgress {
   status: QuestionJobStatus
   completedBatches: number
   questions: QuestionItem[]
-  contentCalendar: ContentCalendarItem[]
   warnings: string[]
   error?: string
   createdAt: string

@@ -3,7 +3,6 @@ import "server-only"
 import { randomUUID } from "crypto"
 import { kv } from "@vercel/kv"
 import type {
-  ContentCalendarItem,
   GeoStrategyPlan,
   QuestionCategoryConfig,
   QuestionItem,
@@ -38,7 +37,6 @@ type StoredQuestionJobRecord = QuestionJobRecord & {
 
 type QuestionsResponse = {
   question_strategy?: QuestionItem[]
-  content_calendar?: ContentCalendarItem[]
   warnings?: string[]
   error?: string
 }
@@ -259,42 +257,6 @@ function buildQuestionBatchPlans(
   return plans
 }
 
-function buildArticleTitle(question: string): string {
-  const clean = question.replace(/[？?]\s*$/, "").trim()
-  if (!clean) return "围绕目标疑问句的内容选题"
-  if (clean.length > 34) return `${clean.slice(0, 34)}...怎么判断？`
-  return `${clean}？一篇讲清选择逻辑`
-}
-
-function buildLocalContentCalendar(
-  questions: QuestionItem[],
-  strategy: GeoStrategyPlan,
-): ContentCalendarItem[] {
-  const platforms = Array.from(new Set(
-    (strategy.media_plan || [])
-      .map(item => item.platform?.trim())
-      .filter(Boolean)
-  ))
-  const fallbackPlatforms = ["知乎", "小红书", "公众号", "百家号", "头条号", "B站专栏"]
-  const channelPool = platforms.length > 0 ? platforms : fallbackPlatforms
-  const contentTypes = ["问答文章", "避坑清单", "对比测评", "案例解析", "FAQ短文", "视频脚本"]
-  const goals = [
-    "覆盖高频用户疑问，建立官网与第三方内容的事实一致性",
-    "承接用户决策顾虑，提升生成式引擎可引用的信息密度",
-    "围绕痛点和场景输出可验证内容，增强品牌被推荐概率",
-    "补充对比、案例和避坑信息，强化第三方交叉验证",
-  ]
-
-  return questions.slice(0, Math.min(questions.length, 36)).map((question, index) => ({
-    week: `第 ${Math.floor(index / 6) + 1} 周`,
-    platform: question.suggested_channel || channelPool[index % channelPool.length],
-    question: question.question,
-    article_title: buildArticleTitle(question.question),
-    content_type: contentTypes[index % contentTypes.length],
-    geo_goal: goals[index % goals.length],
-  }))
-}
-
 function buildQuestionTextSeed(keyword: string, index: number): string {
   const scenarios = [
     "初次了解时",
@@ -375,7 +337,6 @@ function buildFallbackQuestions(
       question,
       intent: "补充覆盖目标关键词下的用户真实决策问题",
       content_angle: "围绕用户选择标准、场景适配和避坑判断提供事实型内容",
-      suggested_channel: "知乎",
     })
   }
 
@@ -522,7 +483,6 @@ async function runQuestionJob(jobId: string): Promise<void> {
         totalBatches: batchPlans.length,
         completedCount: mergedQuestions.length,
         questions: reindexQuestions(mergedQuestions, job.totalCount),
-        contentCalendar: buildLocalContentCalendar(mergedQuestions, job.request.strategy),
         warnings,
       }) || job
 
@@ -563,7 +523,6 @@ async function runQuestionJob(jobId: string): Promise<void> {
         completedBatches: index + 1,
         completedCount: Math.min(mergedQuestions.length, job.totalCount),
         questions: reindexQuestions(mergedQuestions, job.totalCount),
-        contentCalendar: buildLocalContentCalendar(mergedQuestions, job.request.strategy),
         warnings,
       }) || job
     }
@@ -599,7 +558,6 @@ async function runQuestionJob(jobId: string): Promise<void> {
       job = await patchQuestionJob(job.id, {
         completedCount: Math.min(mergedQuestions.length, job.totalCount),
         questions: reindexQuestions(mergedQuestions, job.totalCount),
-        contentCalendar: buildLocalContentCalendar(mergedQuestions, job.request.strategy),
         warnings,
       }) || job
     }
@@ -633,7 +591,6 @@ async function runQuestionJob(jobId: string): Promise<void> {
       totalBatches: batchPlans.length,
       completedCount: reindexed.length,
       questions: reindexed,
-      contentCalendar: buildLocalContentCalendar(reindexed, job.request.strategy),
       warnings,
       finishedAt: nowIso(),
     })
@@ -675,7 +632,6 @@ export async function createQuestionJob(
     totalBatches: batchPlans.length,
     completedBatches: 0,
     questions: [],
-    contentCalendar: [],
     warnings: batchPlans.length > 1
       ? [`已创建后台长任务，共 ${batchPlans.length} 批。生成过程中可以保持页面打开查看进度。`]
       : [],
