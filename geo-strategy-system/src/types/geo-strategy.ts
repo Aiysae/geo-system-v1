@@ -35,6 +35,8 @@ export interface KeywordStrategyState {
   strategyPlan: GeoStrategyPlan | null
   questionStatus: GenerationStatus
   questionError: string
+  questionJobId?: string
+  questionJobProgress?: QuestionJobProgress
   questionCount: number
   customQuestionCount: number
   questionCustomKeywords: string
@@ -196,6 +198,28 @@ export interface UploadedFile {
 export type ToolStep = "input" | "extraction" | "strategy" | "questions" | "export"
 
 export type GenerationStatus = "idle" | "generating" | "done" | "error"
+
+export type QuestionJobStatus = "queued" | "running" | "succeeded" | "failed"
+
+export interface QuestionJobProgress {
+  completedCount: number
+  totalCount: number
+  currentBatch: number
+  totalBatches: number
+}
+
+export interface QuestionJobRecord extends QuestionJobProgress {
+  id: string
+  status: QuestionJobStatus
+  completedBatches: number
+  questions: QuestionItem[]
+  contentCalendar: ContentCalendarItem[]
+  warnings: string[]
+  error?: string
+  createdAt: string
+  updatedAt: string
+  finishedAt?: string
+}
 
 /** 疑问句生成分类配置 */
 export interface QuestionCategoryConfig {
