@@ -1,7 +1,28 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { DEFAULT_CATEGORY_CONFIG, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type QuestionCategoryConfig, type ThirdPartySite, type QuestionJobProgress, type QuestionJobRecord } from "@/types/geo-strategy"
+import {
+  DEFAULT_CATEGORY_CONFIG,
+  DEFAULT_QUESTION_MODEL_PROVIDER,
+  QUESTION_MODEL_OPTIONS,
+  QUESTION_MODEL_OPTIONS_LAST_VERIFIED,
+  QUESTION_MODEL_PROVIDER_LABELS,
+  getDefaultQuestionModel,
+  normalizeQuestionModel,
+  normalizeQuestionModelProvider,
+  type ExtractedProfile,
+  type ExtractedItem,
+  type GeoStrategyPlan,
+  type ToolStep,
+  type GenerationStatus,
+  type UploadedFile,
+  type QuestionItem,
+  type QuestionCategoryConfig,
+  type ThirdPartySite,
+  type QuestionJobProgress,
+  type QuestionJobRecord,
+  type QuestionModelProvider,
+} from "@/types/geo-strategy"
 import type { Client } from "@/types"
 import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
@@ -47,6 +68,8 @@ interface BrandData {
   questionJobProgress?: QuestionJobProgress
   questionCount: number
   customQuestionCount: number
+  questionModelProvider: QuestionModelProvider
+  questionModel: string
   questionCustomKeywords: string
   questionCustomPainScenarios: string
   layer2Ratio: number
@@ -84,6 +107,8 @@ function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandDat
     questionJobProgress: undefined,
     questionCount: 40,
     customQuestionCount: 120,
+    questionModelProvider: DEFAULT_QUESTION_MODEL_PROVIDER,
+    questionModel: getDefaultQuestionModel(DEFAULT_QUESTION_MODEL_PROVIDER),
     questionCustomKeywords: "",
     questionCustomPainScenarios: "",
     layer2Ratio: 0.35,
@@ -105,6 +130,8 @@ function createBrandFromClient(client: Client): BrandData {
   const saved = client.keywordStrategy
   if (!saved) return fallback
 
+  const questionModelProvider = normalizeQuestionModelProvider(saved.questionModelProvider)
+
   return {
     ...fallback,
     ...saved,
@@ -115,6 +142,8 @@ function createBrandFromClient(client: Client): BrandData {
     competitorsRaw: saved.competitorsRaw || client.competitors.join("\n"),
     questionCount: clampQuestionCount(saved.questionCount, fallback.questionCount, true),
     customQuestionCount: clampQuestionCount(saved.customQuestionCount, fallback.customQuestionCount),
+    questionModelProvider,
+    questionModel: normalizeQuestionModel(questionModelProvider, saved.questionModel),
     questionCustomKeywords: typeof saved.questionCustomKeywords === "string" ? saved.questionCustomKeywords : "",
     questionCustomPainScenarios: typeof saved.questionCustomPainScenarios === "string" ? saved.questionCustomPainScenarios : "",
     questionJobId: typeof saved.questionJobId === "string" ? saved.questionJobId : undefined,
@@ -557,6 +586,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   }
 
   const [keywordModelSetting, setKeywordModelSetting] = useState<AiProviderPublicSetting | null>(null)
+  const [questionProviderSettings, setQuestionProviderSettings] = useState<Partial<Record<QuestionModelProvider, AiProviderPublicSetting>>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -566,9 +596,17 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         if (cancelled) return
         const setting = data?.keywordStrategy
         if (setting) setKeywordModelSetting(setting as AiProviderPublicSetting)
+        const providers = data?.questionProviders || {}
+        setQuestionProviderSettings({
+          qwen: providers.qwen as AiProviderPublicSetting | undefined,
+          doubao: providers.doubao as AiProviderPublicSetting | undefined,
+        })
       })
       .catch(() => {
-        if (!cancelled) setKeywordModelSetting(null)
+        if (!cancelled) {
+          setKeywordModelSetting(null)
+          setQuestionProviderSettings({})
+        }
       })
     return () => {
       cancelled = true
@@ -798,8 +836,12 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   const handleGenerateQuestions = useCallback(async () => {
     const strategyPlan = activeBrand.strategyPlan
     if (!strategyPlan) return
-    if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
-      updateBrand({ questionError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。", questionStatus: "error" })
+    const selectedQuestionSetting = questionProviderSettings[activeBrand.questionModelProvider]
+    if (selectedQuestionSetting && !selectedQuestionSetting.hasApiKey) {
+      updateBrand({
+        questionError: `后台未配置${QUESTION_MODEL_PROVIDER_LABELS[activeBrand.questionModelProvider]} API Key，请联系管理员在后台管理页配置。`,
+        questionStatus: "error",
+      })
       return
     }
 
@@ -893,6 +935,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           totalCount: effectiveCount,
           layer2Ratio: activeBrand.layer2Ratio,
           categoryConfig: activeBrand.categoryConfig,
+          questionModelProvider: activeBrand.questionModelProvider,
+          questionModel: activeBrand.questionModel,
           coreKeywords,
           customKeywords: customQuestionKeywords,
           painScenarioKeywords,
@@ -931,7 +975,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionJobProgress: undefined,
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.layer2Ratio, activeBrand.categoryConfig, keywordModelSetting, updateBrand])
+  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.layer2Ratio, activeBrand.categoryConfig, questionProviderSettings, updateBrand])
 
   const handleStopGenerateQuestions = useCallback(async () => {
     const jobId = activeBrand.questionJobId
@@ -1229,15 +1273,23 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               questionJobProgress={ab.questionJobProgress}
               questionCount={ab.questionCount}
               customQuestionCount={ab.customQuestionCount}
+              questionModelProvider={ab.questionModelProvider}
+              questionModel={ab.questionModel}
               questionCustomKeywords={ab.questionCustomKeywords}
               questionCustomPainScenarios={ab.questionCustomPainScenarios}
               layer2Ratio={ab.layer2Ratio}
               onQuestionCountChange={v => setBrandField("questionCount", v)}
               onCustomQuestionCountChange={v => setBrandField("customQuestionCount", v)}
+              onQuestionModelProviderChange={provider => updateBrand({
+                questionModelProvider: provider,
+                questionModel: getDefaultQuestionModel(provider),
+              })}
+              onQuestionModelChange={v => setBrandField("questionModel", normalizeQuestionModel(ab.questionModelProvider, v))}
               onQuestionCustomKeywordsChange={v => setBrandField("questionCustomKeywords", v)}
               onQuestionCustomPainScenariosChange={v => setBrandField("questionCustomPainScenarios", v)}
               onLayer2RatioChange={v => setBrandField("layer2Ratio", v)}
               categoryConfig={ab.categoryConfig}
+              questionProviderSettings={questionProviderSettings}
               onCategoryConfigChange={v => setBrandField("categoryConfig", v)}
               onGenerateQuestions={handleGenerateQuestions}
               onStopQuestions={handleStopGenerateQuestions}
@@ -1708,9 +1760,9 @@ function ExtractionStep({
 function StrategyStep({
   plan, questions, questionStatus, questionError,
   questionJobProgress,
-  questionCount, customQuestionCount, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio,
-  categoryConfig, onCategoryConfigChange,
-  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange, onGenerateQuestions, onStopQuestions,
+  questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio,
+  categoryConfig, questionProviderSettings, onCategoryConfigChange,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange, onGenerateQuestions, onStopQuestions,
   onExportJson, onExportMarkdown, onExportWord, onExportQuestionsCsv, onExportQuestionsWord, onBack,
   hasQuestions,
 }: {
@@ -1721,13 +1773,18 @@ function StrategyStep({
   questionJobProgress?: QuestionJobProgress
   questionCount: number
   customQuestionCount: number
+  questionModelProvider: QuestionModelProvider
+  questionModel: string
   questionCustomKeywords: string
   questionCustomPainScenarios: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
+  questionProviderSettings: Partial<Record<QuestionModelProvider, AiProviderPublicSetting>>
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
   onQuestionCountChange: (v: number) => void
   onCustomQuestionCountChange: (v: number) => void
+  onQuestionModelProviderChange: (v: QuestionModelProvider) => void
+  onQuestionModelChange: (v: string) => void
   onQuestionCustomKeywordsChange: (v: string) => void
   onQuestionCustomPainScenariosChange: (v: string) => void
   onLayer2RatioChange: (v: number) => void
@@ -2044,8 +2101,13 @@ function StrategyStep({
             questionStatus={questionStatus}
             questionError={questionError}
             questionJobProgress={questionJobProgress}
+            questionModelProvider={questionModelProvider}
+            questionModel={questionModel}
+            questionProviderSettings={questionProviderSettings}
             onQuestionCountChange={onQuestionCountChange}
             onCustomQuestionCountChange={onCustomQuestionCountChange}
+            onQuestionModelProviderChange={onQuestionModelProviderChange}
+            onQuestionModelChange={onQuestionModelChange}
             onQuestionCustomKeywordsChange={onQuestionCustomKeywordsChange}
             onQuestionCustomPainScenariosChange={onQuestionCustomPainScenariosChange}
             onLayer2RatioChange={onLayer2RatioChange}
@@ -2100,8 +2162,13 @@ function StrategyStep({
                   questionStatus={questionStatus}
                   questionError={questionError}
                   questionJobProgress={questionJobProgress}
+                  questionModelProvider={questionModelProvider}
+                  questionModel={questionModel}
+                  questionProviderSettings={questionProviderSettings}
                   onQuestionCountChange={onQuestionCountChange}
                   onCustomQuestionCountChange={onCustomQuestionCountChange}
+                  onQuestionModelProviderChange={onQuestionModelProviderChange}
+                  onQuestionModelChange={onQuestionModelChange}
                   onQuestionCustomKeywordsChange={onQuestionCustomKeywordsChange}
                   onQuestionCustomPainScenariosChange={onQuestionCustomPainScenariosChange}
                   onLayer2RatioChange={onLayer2RatioChange}
@@ -2180,14 +2247,16 @@ function QuestionJobProgressBar({ progress }: { progress: QuestionJobProgress })
 }
 
 function QuestionSettingsPanel({
-  plan, questionCount, customQuestionCount, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio, categoryConfig,
-  questionStatus, questionError, questionJobProgress,
-  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange,
+  plan, questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio, categoryConfig,
+  questionStatus, questionError, questionJobProgress, questionProviderSettings,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange,
   onCategoryConfigChange, onGenerateQuestions, onStopQuestions,
 }: {
   plan: GeoStrategyPlan
   questionCount: number
   customQuestionCount: number
+  questionModelProvider: QuestionModelProvider
+  questionModel: string
   questionCustomKeywords: string
   questionCustomPainScenarios: string
   layer2Ratio: number
@@ -2195,8 +2264,11 @@ function QuestionSettingsPanel({
   questionStatus: GenerationStatus
   questionError: string
   questionJobProgress?: QuestionJobProgress
+  questionProviderSettings: Partial<Record<QuestionModelProvider, AiProviderPublicSetting>>
   onQuestionCountChange: (v: number) => void
   onCustomQuestionCountChange: (v: number) => void
+  onQuestionModelProviderChange: (v: QuestionModelProvider) => void
+  onQuestionModelChange: (v: string) => void
   onQuestionCustomKeywordsChange: (v: string) => void
   onQuestionCustomPainScenariosChange: (v: string) => void
   onLayer2RatioChange: (v: number) => void
@@ -2220,7 +2292,20 @@ function QuestionSettingsPanel({
   const noSectionsSelected = sectionPlan.totalCount <= 0
   const keywordCustomMissing = sectionPlan.counts.keyword > 0 && keywordSource === "custom" && customKeywords.length === 0
   const painCustomMissing = sectionPlan.counts.painScenario > 0 && painScenarioSource === "custom" && customPainScenarios.length === 0
-  const generateDisabled = totalTooHigh || noSectionsSelected || keywordCustomMissing || painCustomMissing
+  const selectedProviderSetting = questionProviderSettings[questionModelProvider]
+  const selectedProviderMissingKey = selectedProviderSetting?.hasApiKey === false
+  const selectedProviderStatusTone = selectedProviderMissingKey
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : selectedProviderSetting
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-slate-200 bg-slate-50 text-slate-500"
+  const selectedProviderStatusText = selectedProviderMissingKey
+    ? "后台 API Key 未配置"
+    : selectedProviderSetting
+      ? "后台 API Key 已配置"
+      : "正在读取后台配置"
+  const selectedModelOption = QUESTION_MODEL_OPTIONS[questionModelProvider].find(option => option.model === questionModel)
+  const generateDisabled = totalTooHigh || noSectionsSelected || keywordCustomMissing || painCustomMissing || selectedProviderMissingKey
 
   const updateConfig = (patch: Partial<QuestionCategoryConfig>) => {
     const next = { ...categoryConfig, ...patch }
@@ -2280,6 +2365,47 @@ function QuestionSettingsPanel({
 
       <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-3">
         <h3 className="text-xs font-semibold text-slate-600">基础设置</h3>
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold text-slate-600">AI 模型</div>
+              <div className="text-[10px] text-slate-400">模型名称已按官方文档核对至 {QUESTION_MODEL_OPTIONS_LAST_VERIFIED}</div>
+            </div>
+            <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+              {(["qwen", "doubao"] as QuestionModelProvider[]).map(provider => (
+                <button
+                  key={provider}
+                  type="button"
+                  onClick={() => onQuestionModelProviderChange(provider)}
+                  className={`text-[11px] px-3 py-1.5 rounded-md transition ${questionModelProvider === provider ? "bg-[#004B73] text-white shadow-sm" : "text-slate-500 hover:bg-white"}`}
+                >
+                  {QUESTION_MODEL_PROVIDER_LABELS[provider]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+            <div>
+              <label className="text-[11px] font-medium text-slate-500">具体模型</label>
+              <select
+                value={questionModel}
+                onChange={e => onQuestionModelChange(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              >
+                {QUESTION_MODEL_OPTIONS[questionModelProvider].map(option => (
+                  <option key={option.model} value={option.model}>{option.label} · {option.model}</option>
+                ))}
+              </select>
+              <div className="mt-1 text-[10px] leading-4 text-slate-400">
+                {selectedModelOption?.description || "请选择一个可用模型。"}
+              </div>
+            </div>
+            <div className={`rounded-lg border px-3 py-2 text-[11px] ${selectedProviderStatusTone}`}>
+              <div className="font-semibold">{QUESTION_MODEL_PROVIDER_LABELS[questionModelProvider]}</div>
+              <div>{selectedProviderStatusText}</div>
+            </div>
+          </div>
+        </div>
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <label className="text-[11px] font-medium text-slate-500">系统建议总量</label>
