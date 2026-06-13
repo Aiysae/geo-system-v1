@@ -46,9 +46,11 @@ const QUESTION_JOB_SINGLE_REQUEST_LIMIT = 30
 const QUESTION_JOB_MAX_BATCH_ATTEMPTS = 3
 const QUESTION_JOB_BATCH_TIMEOUT_MS = 10 * 60 * 1000
 const QUESTION_JOB_TTL_SECONDS = 60 * 60 * 24
+const QUESTION_JOB_CANCELLED_MESSAGE = "用户已停止生成"
 
 const memoryJobs = new Map<string, StoredQuestionJobRecord>()
 const activeJobs = new Set<string>()
+const activeAbortControllers = new Map<string, Set<AbortController>>()
 
 const jobKey = (id: string) => `geo:question-jobs:${id}`
 
@@ -118,9 +120,40 @@ async function patchQuestionJob(
 ): Promise<StoredQuestionJobRecord | null> {
   const current = await getStoredQuestionJob(id)
   if (!current) return null
+  if (current.status === "cancelled" && patch.status !== "cancelled") return current
   const next = { ...current, ...patch, updatedAt: nowIso() }
   await saveStoredQuestionJob(next)
   return next
+}
+
+class QuestionJobCancelledError extends Error {
+  constructor() {
+    super(QUESTION_JOB_CANCELLED_MESSAGE)
+    this.name = "QuestionJobCancelledError"
+  }
+}
+
+function isQuestionJobCancelledError(error: unknown): boolean {
+  return error instanceof QuestionJobCancelledError
+    || (error instanceof Error && error.name === "QuestionJobCancelledError")
+}
+
+function registerAbortController(jobId: string, controller: AbortController): () => void {
+  const controllers = activeAbortControllers.get(jobId) || new Set<AbortController>()
+  controllers.add(controller)
+  activeAbortControllers.set(jobId, controllers)
+
+  return () => {
+    controllers.delete(controller)
+    if (controllers.size === 0) activeAbortControllers.delete(jobId)
+  }
+}
+
+async function assertQuestionJobNotCancelled(jobId: string): Promise<void> {
+  const current = await getStoredQuestionJob(jobId)
+  if (current?.status === "cancelled") {
+    throw new QuestionJobCancelledError()
+  }
 }
 
 function clampQuestionCount(value: unknown): number {
@@ -370,9 +403,14 @@ async function fetchQuestionBatch(
   let lastError: unknown
 
   for (let attempt = 0; attempt < QUESTION_JOB_MAX_BATCH_ATTEMPTS; attempt++) {
+    await assertQuestionJobNotCancelled(job.id)
+
     for (const baseUrl of job.batchBaseUrls) {
+      await assertQuestionJobNotCancelled(job.id)
+
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), QUESTION_JOB_BATCH_TIMEOUT_MS)
+      const unregisterAbortController = registerAbortController(job.id, controller)
       try {
         const res = await fetch(`${baseUrl}/api/geo-strategy/questions`, {
           method: "POST",
@@ -390,7 +428,6 @@ async function fetchQuestionBatch(
           }),
           signal: controller.signal,
         })
-        clearTimeout(timeout)
 
         const data = await readBatchResponse(res)
         if (!res.ok) {
@@ -399,16 +436,23 @@ async function fetchQuestionBatch(
         if (!Array.isArray(data.question_strategy) || data.question_strategy.length === 0) {
           throw new Error("疑问句批次没有返回有效问题。")
         }
+        await assertQuestionJobNotCancelled(job.id)
         return data
       } catch (error) {
-        clearTimeout(timeout)
+        if (controller.signal.aborted) {
+          await assertQuestionJobNotCancelled(job.id)
+        }
         lastError = error
         if (isPermanentQuestionError(error)) throw error
+      } finally {
+        clearTimeout(timeout)
+        unregisterAbortController()
       }
     }
 
     if (attempt < QUESTION_JOB_MAX_BATCH_ATTEMPTS - 1) {
       await new Promise(resolve => setTimeout(resolve, 1500 * (attempt + 1)))
+      await assertQuestionJobNotCancelled(job.id)
     }
   }
 
@@ -445,12 +489,13 @@ async function runQuestionJob(jobId: string): Promise<void> {
     let job = await getStoredQuestionJob(jobId)
     if (!job) return
 
-    if (job.status === "succeeded" || job.status === "failed") return
+    if (job.status === "succeeded" || job.status === "failed" || job.status === "cancelled") return
 
     job = await patchQuestionJob(job.id, {
       status: "running",
       error: undefined,
     }) || job
+    await assertQuestionJobNotCancelled(job.id)
 
     const allocationCounts = calculateQuestionAllocationCounts(
       job.request.strategy,
@@ -477,6 +522,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
       index < batchPlans.length && mergedQuestions.length < job.totalCount;
       index++
     ) {
+      await assertQuestionJobNotCancelled(job.id)
       const plan = batchPlans[index]
       job = await patchQuestionJob(job.id, {
         currentBatch: index + 1,
@@ -485,6 +531,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
         questions: reindexQuestions(mergedQuestions, job.totalCount),
         warnings,
       }) || job
+      await assertQuestionJobNotCancelled(job.id)
 
       try {
         const data = await fetchQuestionBatch(
@@ -492,6 +539,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
           plan,
           mergedQuestions.map(item => item.question),
         )
+        await assertQuestionJobNotCancelled(job.id)
         appendQuestionItems(
           mergedQuestions,
           seen,
@@ -503,6 +551,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
         )
         if (Array.isArray(data.warnings)) warnings = mergeWarnings(warnings, data.warnings)
       } catch (error) {
+        if (isQuestionJobCancelledError(error)) throw error
         if (isPermanentQuestionError(error)) throw error
         warnings = mergeWarnings(warnings, [`第 ${index + 1} 批模型生成失败，已用本地模板补齐该批次。`])
         appendQuestionItems(
@@ -525,9 +574,11 @@ async function runQuestionJob(jobId: string): Promise<void> {
         questions: reindexQuestions(mergedQuestions, job.totalCount),
         warnings,
       }) || job
+      await assertQuestionJobNotCancelled(job.id)
     }
 
     for (let topUp = 0; topUp < 3 && mergedQuestions.length < job.totalCount; topUp++) {
+      await assertQuestionJobNotCancelled(job.id)
       const need = Math.min(QUESTION_JOB_SINGLE_REQUEST_LIMIT, job.totalCount - mergedQuestions.length)
       const before = mergedQuestions.length
       try {
@@ -539,6 +590,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
           },
           mergedQuestions.map(item => item.question),
         )
+        await assertQuestionJobNotCancelled(job.id)
         appendQuestionItems(
           mergedQuestions,
           seen,
@@ -550,6 +602,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
         )
         if (Array.isArray(data.warnings)) warnings = mergeWarnings(warnings, data.warnings)
       } catch (error) {
+        if (isQuestionJobCancelledError(error)) throw error
         if (isPermanentQuestionError(error)) throw error
         warnings = mergeWarnings(warnings, [`补齐批次 ${topUp + 1} 模型生成失败，已继续尝试本地补齐。`])
         break
@@ -560,8 +613,10 @@ async function runQuestionJob(jobId: string): Promise<void> {
         questions: reindexQuestions(mergedQuestions, job.totalCount),
         warnings,
       }) || job
+      await assertQuestionJobNotCancelled(job.id)
     }
 
+    await assertQuestionJobNotCancelled(job.id)
     if (mergedQuestions.length < job.totalCount) {
       const missing = job.totalCount - mergedQuestions.length
       appendQuestionItems(
@@ -579,6 +634,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
       warnings = mergeWarnings(warnings, [`模型去重后不足 ${job.totalCount} 条，已用本地模板补齐 ${missing} 条。`])
     }
 
+    await assertQuestionJobNotCancelled(job.id)
     const reindexed = reindexQuestions(mergedQuestions, job.totalCount)
     if (reindexed.length === 0) {
       throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
@@ -595,6 +651,14 @@ async function runQuestionJob(jobId: string): Promise<void> {
       finishedAt: nowIso(),
     })
   } catch (error) {
+    if (isQuestionJobCancelledError(error)) {
+      await patchQuestionJob(jobId, {
+        status: "cancelled",
+        error: QUESTION_JOB_CANCELLED_MESSAGE,
+        finishedAt: nowIso(),
+      })
+      return
+    }
     console.error("[question-jobs] job failed:", error)
     const message = error instanceof Error ? error.message : "疑问句后台任务失败"
     await patchQuestionJob(jobId, {
@@ -604,6 +668,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
     })
   } finally {
     activeJobs.delete(jobId)
+    activeAbortControllers.delete(jobId)
   }
 }
 
@@ -660,4 +725,29 @@ export async function getQuestionJob(id: string): Promise<QuestionJobRecord | nu
   }
 
   return toPublicJob(job)
+}
+
+export async function cancelQuestionJob(id: string): Promise<QuestionJobRecord | null> {
+  const job = await getStoredQuestionJob(id)
+  if (!job) return null
+
+  if (job.status === "succeeded" || job.status === "failed" || job.status === "cancelled") {
+    return toPublicJob(job)
+  }
+
+  const cancelled = await patchQuestionJob(id, {
+    status: "cancelled",
+    error: QUESTION_JOB_CANCELLED_MESSAGE,
+    finishedAt: nowIso(),
+  }) || job
+
+  const controllers = activeAbortControllers.get(id)
+  if (controllers) {
+    for (const controller of controllers) {
+      controller.abort()
+    }
+    activeAbortControllers.delete(id)
+  }
+
+  return toPublicJob(cancelled)
 }
