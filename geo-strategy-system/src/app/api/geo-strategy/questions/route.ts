@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { parseJsonLoose } from "@/lib/score-utils"
-import type { QuestionItem } from "@/types/geo-strategy"
+import {
+  DEFAULT_QUESTION_MODEL_PROVIDER,
+  QUESTION_MODEL_PROVIDER_LABELS,
+  normalizeQuestionModel,
+  normalizeQuestionModelProvider,
+  type QuestionItem,
+} from "@/types/geo-strategy"
 
 export const runtime = "nodejs"
 export const maxDuration = 900
@@ -730,6 +736,8 @@ async function handler(req: NextRequest) {
       strategy, totalCount = 40, layer2Ratio = 0.35,
       categoryConfig, coreKeywords = [], customKeywords = [],
       painScenarioKeywords = [], customPainScenarios = [],
+      questionModelProvider = DEFAULT_QUESTION_MODEL_PROVIDER,
+      questionModel,
       allocationOverrides = [], avoidQuestions = [],
     } = body
 
@@ -737,7 +745,10 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "请提供策略方案" }, { status: 400 })
     }
 
-    const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
+    const selectedProvider = normalizeQuestionModelProvider(questionModelProvider)
+    const selectedModel = normalizeQuestionModel(selectedProvider, questionModel)
+    const providerLabel = QUESTION_MODEL_PROVIDER_LABELS[selectedProvider]
+    const aiConfig = await getAiProviderRuntimeSetting(selectedProvider)
     const url = buildAiChatUrl(aiConfig)
     const ratioInput = Number(layer2Ratio)
     const countInput = Number(totalCount)
@@ -768,7 +779,7 @@ async function handler(req: NextRequest) {
     )
 
     if (!aiConfig.apiKey) {
-      return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
+      return NextResponse.json({ error: `后台未配置${providerLabel} API Key，请联系管理员在后台管理页配置` }, { status: 400 })
     }
 
     const countWarnings = requestedCount > count
@@ -780,6 +791,7 @@ async function handler(req: NextRequest) {
     const painScenarioWarnings = normalizedCustomPainScenarios.length > 0
       ? [`已使用 ${normalizedCustomPainScenarios.length} 个自定义痛点/场景作为疑问句生成素材。`]
       : []
+    const modelWarnings = [`本次疑问句生成使用 ${providerLabel} · ${selectedModel}。`]
 
     const cfg = {
       weaknessesPerWeakness: Math.min(Math.max(
@@ -803,7 +815,7 @@ async function handler(req: NextRequest) {
 
     // 2. Generate categories concurrently with bounded LLM pressure.
     const allQuestions: Array<Omit<QuestionItem, "id">> = []
-    const allWarnings = [...countWarnings, ...keywordWarnings, ...painScenarioWarnings, ...allocWarnings]
+    const allWarnings = [...modelWarnings, ...countWarnings, ...keywordWarnings, ...painScenarioWarnings, ...allocWarnings]
     let offset = 0
     const activeAllocations = allocations
       .map((alloc) => {
@@ -819,7 +831,7 @@ async function handler(req: NextRequest) {
       item => generateCategoryQuestions(
         url,
         aiConfig.apiKey,
-        aiConfig.model,
+        selectedModel,
         item.alloc,
         strategy,
         ratio,
@@ -866,7 +878,10 @@ async function handler(req: NextRequest) {
     console.error("[geo-questions]", error)
     const message = error instanceof Error ? error.message : "未知错误"
     if (/API Key|HTTP 401|unauthorized/i.test(message)) {
-      return NextResponse.json({ error: "关键词策略模型 API Key 无效或无权限" }, { status: 401 })
+      return NextResponse.json({ error: "疑问句生成模型 API Key 无效或无权限" }, { status: 401 })
+    }
+    if (/InvalidEndpointOrModel|does not exist|model.*not.*found|模型不存在|无此模型/i.test(message)) {
+      return NextResponse.json({ error: "疑问句生成模型不存在或当前账号无权限，请切换到已开通的模型后重试。" }, { status: 400 })
     }
     if (/timeout|timed out|超时|abort/i.test(message)) {
       return NextResponse.json({ error: "疑问句生成时间过长，请减少生成数量后重试，或增加后台模型超时时间" }, { status: 504 })
@@ -875,7 +890,7 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "模型返回的数据格式不完整，系统自动重试后仍未恢复，请重新生成。" }, { status: 422 })
     }
     if (/fetch|连接失败|network/i.test(message)) {
-      return NextResponse.json({ error: "关键词策略模型连接失败，请检查网络或后台接口配置" }, { status: 502 })
+      return NextResponse.json({ error: "疑问句生成模型连接失败，请检查网络或后台接口配置" }, { status: 502 })
     }
     return NextResponse.json({ error: `疑问句生成失败：${message}` }, { status: 500 })
   }

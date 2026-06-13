@@ -7,6 +7,12 @@ import type {
   QuestionCategoryConfig,
   QuestionItem,
   QuestionJobRecord,
+  QuestionModelProvider,
+} from "@/types/geo-strategy"
+import {
+  DEFAULT_QUESTION_MODEL_PROVIDER,
+  normalizeQuestionModel,
+  normalizeQuestionModelProvider,
 } from "@/types/geo-strategy"
 
 type QuestionCategoryKey = "weakness_spin" | "core_keywords" | "secondary_keywords" | "pain_scenario"
@@ -26,6 +32,8 @@ interface QuestionJobRequest {
   totalCount: number
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
+  questionModelProvider?: QuestionModelProvider
+  questionModel?: string
   coreKeywords: string[]
   customKeywords: string[]
   painScenarioKeywords?: string[]
@@ -469,6 +477,8 @@ async function fetchQuestionBatch(
             totalCount: plan.totalCount,
             layer2Ratio: job.request.layer2Ratio,
             categoryConfig: job.request.categoryConfig,
+            questionModelProvider: job.request.questionModelProvider,
+            questionModel: job.request.questionModel,
             coreKeywords: job.request.coreKeywords,
             customKeywords: job.request.customKeywords,
             painScenarioKeywords: job.request.painScenarioKeywords || [],
@@ -751,6 +761,9 @@ export async function createQuestionJob(
     input.categoryConfig,
   )
   const batchPlans = buildQuestionBatchPlans(allocationCounts)
+  const questionModelProvider = normalizeQuestionModelProvider(
+    input.questionModelProvider || DEFAULT_QUESTION_MODEL_PROVIDER,
+  )
   const now = nowIso()
   const stored: StoredQuestionJobRecord = {
     id: `qjob_${randomUUID().replace(/-/g, "")}`,
@@ -769,6 +782,8 @@ export async function createQuestionJob(
     request: {
       ...input,
       totalCount,
+      questionModelProvider,
+      questionModel: normalizeQuestionModel(questionModelProvider, input.questionModel),
       coreKeywords: input.coreKeywords || [],
       customKeywords: input.customKeywords || [],
       painScenarioKeywords: input.painScenarioKeywords || [],

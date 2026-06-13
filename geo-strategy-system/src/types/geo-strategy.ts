@@ -39,6 +39,8 @@ export interface KeywordStrategyState {
   questionJobProgress?: QuestionJobProgress
   questionCount: number
   customQuestionCount: number
+  questionModelProvider: QuestionModelProvider
+  questionModel: string
   questionCustomKeywords: string
   questionCustomPainScenarios: string
   layer2Ratio: number
@@ -206,6 +208,85 @@ export interface QuestionJobRecord extends QuestionJobProgress {
   createdAt: string
   updatedAt: string
   finishedAt?: string
+}
+
+/** 疑问句生成可选模型供应商 */
+export type QuestionModelProvider = "qwen" | "doubao"
+
+export interface QuestionModelOption {
+  model: string
+  label: string
+  description: string
+}
+
+export const QUESTION_MODEL_OPTIONS_LAST_VERIFIED = "2026-06-14"
+
+export const QUESTION_MODEL_PROVIDER_LABELS: Record<QuestionModelProvider, string> = {
+  qwen: "通义千问",
+  doubao: "豆包",
+}
+
+export const QUESTION_MODEL_OPTIONS: Record<QuestionModelProvider, QuestionModelOption[]> = {
+  qwen: [
+    {
+      model: "qwen3-max",
+      label: "Qwen3 Max",
+      description: "千问通用文本旗舰稳定别名，当前指向 qwen3-max-2026-01-23。",
+    },
+    {
+      model: "qwen3-max-2026-01-23",
+      label: "Qwen3 Max 2026-01-23",
+      description: "千问旗舰固定快照，便于复现同一批生成效果。",
+    },
+    {
+      model: "qwen3-max-preview",
+      label: "Qwen3 Max Preview",
+      description: "千问旗舰预览版，适合想尝试预览能力的生成任务。",
+    },
+    {
+      model: "qwen-plus-latest",
+      label: "Qwen Plus Latest",
+      description: "千问 Plus 最新别名，适合较大批量的性价比生成。",
+    },
+  ],
+  doubao: [
+    {
+      model: "doubao-seed-2-0-pro-260215",
+      label: "Doubao Seed 2.0 Pro",
+      description: "豆包 Seed 2.0 Pro，适合高质量疑问句生成。",
+    },
+    {
+      model: "doubao-seed-2-0-lite-260428",
+      label: "Doubao Seed 2.0 Lite",
+      description: "豆包 Seed 2.0 Lite，适合较大批量快速生成。",
+    },
+    {
+      model: "doubao-seed-2-0-mini-260428",
+      label: "Doubao Seed 2.0 Mini",
+      description: "豆包 Seed 2.0 Mini，适合低成本批量补充。",
+    },
+  ],
+}
+
+export const DEFAULT_QUESTION_MODEL_PROVIDER: QuestionModelProvider = "qwen"
+
+export function getDefaultQuestionModel(provider: QuestionModelProvider): string {
+  return QUESTION_MODEL_OPTIONS[provider][0]?.model || ""
+}
+
+export function normalizeQuestionModelProvider(value: unknown): QuestionModelProvider {
+  return value === "doubao" ? "doubao" : "qwen"
+}
+
+export function normalizeQuestionModel(
+  provider: QuestionModelProvider,
+  value: unknown,
+): string {
+  const model = typeof value === "string" ? value.trim() : ""
+  const options = QUESTION_MODEL_OPTIONS[provider]
+  return options.some(option => option.model === model)
+    ? model
+    : getDefaultQuestionModel(provider)
 }
 
 /** 疑问句生成分类配置 */
