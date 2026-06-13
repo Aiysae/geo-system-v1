@@ -219,6 +219,34 @@ function parseQuestionKeywords(input: string): string[] {
   return keywords
 }
 
+function questionJobProgressFromRecord(job: QuestionJobRecord): QuestionJobProgress {
+  return {
+    completedCount: job.completedCount,
+    totalCount: job.totalCount,
+    currentBatch: job.currentBatch,
+    totalBatches: job.totalBatches,
+  }
+}
+
+function isStoppedQuestionMessage(message: string): boolean {
+  return message.startsWith("已停止生成")
+}
+
+function waitForQuestionPoll(signal: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+
+    const timeout = window.setTimeout(resolve, 2000)
+    signal.addEventListener("abort", () => {
+      window.clearTimeout(timeout)
+      resolve()
+    }, { once: true })
+  })
+}
+
 function readFileContent(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     if (file.type === "text/plain" || file.name.endsWith(".txt") || file.name.endsWith(".md") || file.name.endsWith(".csv")) {
@@ -386,6 +414,21 @@ interface Props {
 export default function KeywordStrategyModule({ client, onChangeClient }: Props) {
   const [activeBrand, setActiveBrand] = useState<BrandData>(() => createBrandFromClient(client))
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const mountedRef = useRef(true)
+  const questionRunIdRef = useRef(0)
+  const questionAbortRef = useRef<AbortController | null>(null)
+  const questionJobCreatingRef = useRef(false)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      questionRunIdRef.current += 1
+      questionAbortRef.current?.abort()
+      questionAbortRef.current = null
+      questionJobCreatingRef.current = false
+    }
+  }, [])
 
   // Generic brand updater – merges a partial update into the active client's keyword state.
   const updateBrand = useCallback((patch: Partial<BrandData>) => {
@@ -679,11 +722,24 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       questions: [],
     })
 
+    questionRunIdRef.current += 1
+    const runId = questionRunIdRef.current
+    questionAbortRef.current?.abort()
+    const controller = new AbortController()
+    questionAbortRef.current = controller
+    questionJobCreatingRef.current = true
+    const isCurrentRun = () => (
+      mountedRef.current
+      && questionRunIdRef.current === runId
+      && !controller.signal.aborted
+    )
+
     try {
       const createRes = await apiFetch("/api/geo-strategy/question-jobs", {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           strategy: strategyPlan,
           totalCount: effectiveCount,
@@ -693,7 +749,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           customKeywords: customQuestionKeywords,
         }),
       })
-      let job = await readApiJson<QuestionJobRecord & { error?: string }>(createRes, "疑问句任务创建")
+      const job = await readApiJson<QuestionJobRecord & { error?: string }>(createRes, "疑问句任务创建")
 
       if (!createRes.ok) {
         throw new Error(job.error || `任务创建失败 (${createRes.status})`)
@@ -702,79 +758,188 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         throw new Error("疑问句任务创建失败：未返回任务 ID")
       }
 
+      if (!isCurrentRun()) return
+      questionJobCreatingRef.current = false
+      if (questionAbortRef.current === controller) questionAbortRef.current = null
+
       updateBrand({
         questionJobId: job.id,
-        questionJobProgress: {
-          completedCount: job.completedCount,
-          totalCount: job.totalCount,
-          currentBatch: job.currentBatch,
-          totalBatches: job.totalBatches,
-        },
+        questionJobProgress: questionJobProgressFromRecord(job),
+        questions: job.questions,
+        questionStatus: "generating",
       })
-
-      let failedPolls = 0
-      const maxPolls = 900
-
-      for (let poll = 0; poll < maxPolls; poll++) {
-        if (job.questions.length > 0) {
-          updateBrand({
-            questions: job.questions,
-            questionJobProgress: {
-              completedCount: job.completedCount,
-              totalCount: job.totalCount,
-              currentBatch: job.currentBatch,
-              totalBatches: job.totalBatches,
-            },
-            questionStatus: "generating",
-          })
-        }
-
-        if (job.status === "succeeded") {
-          updateBrand({
-            questions: job.questions,
-            questionError: job.warnings.length > 0 ? job.warnings.join("；") : "",
-            questionStatus: "done",
-            questionJobProgress: {
-              completedCount: job.completedCount,
-              totalCount: job.totalCount,
-              currentBatch: job.currentBatch,
-              totalBatches: job.totalBatches,
-            },
-            completedSteps: [...new Set([...activeBrand.completedSteps, "questions" as ToolStep])],
-          })
-          return
-        }
-
-        if (job.status === "failed") {
-          throw new Error(job.error || "疑问句后台任务失败")
-        }
-
-        await new Promise(resolve => window.setTimeout(resolve, 2000))
-
-        try {
-          const pollRes = await apiFetch(`/api/geo-strategy/question-jobs/${job.id}`, {
-            cache: "no-store",
-          })
-          const nextJob = await readApiJson<QuestionJobRecord & { error?: string }>(pollRes, "疑问句任务查询")
-          if (!pollRes.ok) {
-            throw new Error(nextJob.error || `任务查询失败 (${pollRes.status})`)
-          }
-          failedPolls = 0
-          job = nextJob
-        } catch (error) {
-          failedPolls += 1
-          if (failedPolls >= 5) throw error
-        }
-      }
-
-      throw new Error("疑问句后台任务等待时间过长，请稍后刷新任务状态或重新发起。")
     } catch (err) {
+      questionJobCreatingRef.current = false
+      if (!isCurrentRun()) return
+      if (questionAbortRef.current === controller) questionAbortRef.current = null
+
       updateBrand({
         questionError: err instanceof Error ? err.message : "生成失败",
         questionStatus: "error",
+        questionJobId: undefined,
+        questionJobProgress: undefined,
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.completedSteps, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionCustomKeywords, activeBrand.layer2Ratio, activeBrand.categoryConfig, keywordModelSetting, updateBrand])
+  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionCustomKeywords, activeBrand.layer2Ratio, activeBrand.categoryConfig, keywordModelSetting, updateBrand])
+
+  const handleStopGenerateQuestions = useCallback(async () => {
+    const jobId = activeBrand.questionJobId
+    const retainedCount = activeBrand.questions.length
+
+    questionRunIdRef.current += 1
+    questionAbortRef.current?.abort()
+    questionAbortRef.current = null
+    questionJobCreatingRef.current = false
+
+    updateBrand({
+      questionStatus: "idle",
+      questionError: retainedCount > 0
+        ? `已停止生成，已保留当前 ${retainedCount} 条疑问句。`
+        : "已停止生成。",
+      questionJobId: undefined,
+      questionJobProgress: undefined,
+    })
+
+    if (!jobId) return
+
+    try {
+      await apiFetch(`/api/geo-strategy/question-jobs/${jobId}`, {
+        method: "PATCH",
+        cache: "no-store",
+      })
+    } catch (error) {
+      console.warn("[keyword-strategy] stop question job failed:", error)
+    }
+  }, [activeBrand.questionJobId, activeBrand.questions.length, updateBrand])
+
+  useEffect(() => {
+    if (
+      activeBrand.questionStatus !== "generating"
+      || activeBrand.questionJobId
+      || questionJobCreatingRef.current
+    ) {
+      return
+    }
+
+    updateBrand({
+      questionStatus: "idle",
+      questionError: "上一次疑问句任务未完成创建，已停止等待。",
+      questionJobProgress: undefined,
+    })
+  }, [activeBrand.questionJobId, activeBrand.questionStatus, updateBrand])
+
+  useEffect(() => {
+    const jobId = activeBrand.questionJobId
+    if (activeBrand.questionStatus !== "generating" || !jobId) return
+
+    const controller = new AbortController()
+    questionRunIdRef.current += 1
+    const runId = questionRunIdRef.current
+    questionAbortRef.current?.abort()
+    questionAbortRef.current = controller
+    let failedPolls = 0
+    const maxPolls = 900
+
+    const isCurrentRun = () => (
+      mountedRef.current
+      && questionRunIdRef.current === runId
+      && !controller.signal.aborted
+    )
+
+    ;(async () => {
+      try {
+        for (let poll = 0; poll < maxPolls; poll++) {
+          let job: QuestionJobRecord & { error?: string }
+
+          try {
+            const pollRes = await apiFetch(`/api/geo-strategy/question-jobs/${jobId}`, {
+              cache: "no-store",
+              signal: controller.signal,
+            })
+            job = await readApiJson<QuestionJobRecord & { error?: string }>(pollRes, "疑问句任务查询")
+            if (!pollRes.ok) {
+              throw new Error(job.error || `任务查询失败 (${pollRes.status})`)
+            }
+            failedPolls = 0
+          } catch (error) {
+            if (!isCurrentRun()) return
+            failedPolls += 1
+            if (failedPolls >= 5) throw error
+            await waitForQuestionPoll(controller.signal)
+            if (!isCurrentRun()) return
+            continue
+          }
+
+          if (!isCurrentRun()) return
+
+          const progress = questionJobProgressFromRecord(job)
+
+          if (job.status === "succeeded") {
+            updateBrand({
+              questions: job.questions,
+              questionError: job.warnings.length > 0 ? job.warnings.join("；") : "",
+              questionStatus: "done",
+              questionJobId: undefined,
+              questionJobProgress: progress,
+              completedSteps: [...new Set([...activeBrand.completedSteps, "questions" as ToolStep])],
+            })
+            return
+          }
+
+          if (job.status === "failed") {
+            throw new Error(job.error || "疑问句后台任务失败")
+          }
+
+          if (job.status === "cancelled") {
+            updateBrand({
+              questions: job.questions,
+              questionError: job.questions.length > 0
+                ? `已停止生成，已保留当前 ${job.questions.length} 条疑问句。`
+                : "已停止生成。",
+              questionStatus: "idle",
+              questionJobId: undefined,
+              questionJobProgress: undefined,
+            })
+            return
+          }
+
+          updateBrand({
+            questions: job.questions,
+            questionJobProgress: progress,
+            questionStatus: "generating",
+          })
+
+          await waitForQuestionPoll(controller.signal)
+          if (!isCurrentRun()) return
+        }
+
+        throw new Error("疑问句后台任务等待时间过长，请稍后刷新任务状态或重新发起。")
+      } catch (err) {
+        if (!isCurrentRun()) return
+
+        updateBrand({
+          questionError: err instanceof Error ? err.message : "生成失败",
+          questionStatus: "error",
+          questionJobId: undefined,
+          questionJobProgress: undefined,
+        })
+      } finally {
+        if (questionAbortRef.current === controller) {
+          questionAbortRef.current = null
+        }
+      }
+    })()
+
+    return () => {
+      if (questionRunIdRef.current === runId) {
+        questionRunIdRef.current += 1
+      }
+      controller.abort()
+      if (questionAbortRef.current === controller) {
+        questionAbortRef.current = null
+      }
+    }
+  }, [activeBrand.completedSteps, activeBrand.questionJobId, activeBrand.questionStatus, updateBrand])
 
   // Export
   const handleExportJson = useCallback(() => {
@@ -908,6 +1073,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               categoryConfig={ab.categoryConfig}
               onCategoryConfigChange={v => setBrandField("categoryConfig", v)}
               onGenerateQuestions={handleGenerateQuestions}
+              onStopQuestions={handleStopGenerateQuestions}
               onExportJson={handleExportJson}
               onExportMarkdown={handleExportMarkdown}
               onExportWord={handleExportWord}
@@ -1375,7 +1541,7 @@ function StrategyStep({
   questionJobProgress,
   questionCount, customQuestionCount, questionCustomKeywords, layer2Ratio,
   categoryConfig, onCategoryConfigChange,
-  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onLayer2RatioChange, onGenerateQuestions,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onLayer2RatioChange, onGenerateQuestions, onStopQuestions,
   onExportJson, onExportMarkdown, onExportWord, onBack,
   hasQuestions,
 }: {
@@ -1395,6 +1561,7 @@ function StrategyStep({
   onQuestionCustomKeywordsChange: (v: string) => void
   onLayer2RatioChange: (v: number) => void
   onGenerateQuestions: () => void
+  onStopQuestions: () => void
   onExportJson: () => void
   onExportMarkdown: () => void
   onExportWord: () => void
@@ -1681,8 +1848,15 @@ function StrategyStep({
           </div>
         )}
         {hasQuestions && questionStatus === "generating" && questionJobProgress && (
-          <div className="mb-4">
+          <div className="mb-4 space-y-2">
             <QuestionJobProgressBar progress={questionJobProgress} />
+            <button
+              onClick={onStopQuestions}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100 sm:w-auto"
+            >
+              <X className="h-3.5 w-3.5" />
+              停止生成
+            </button>
           </div>
         )}
         {!hasQuestions ? (
@@ -1702,6 +1876,7 @@ function StrategyStep({
             onLayer2RatioChange={onLayer2RatioChange}
             onCategoryConfigChange={onCategoryConfigChange}
             onGenerateQuestions={onGenerateQuestions}
+            onStopQuestions={onStopQuestions}
           />
         ) : (
           <>
@@ -1735,6 +1910,7 @@ function StrategyStep({
                   onLayer2RatioChange={onLayer2RatioChange}
                   onCategoryConfigChange={onCategoryConfigChange}
                   onGenerateQuestions={onGenerateQuestions}
+                  onStopQuestions={onStopQuestions}
                 />
               </div>
             )}
@@ -1810,7 +1986,7 @@ function QuestionSettingsPanel({
   plan, questionCount, customQuestionCount, questionCustomKeywords, layer2Ratio, categoryConfig,
   questionStatus, questionError, questionJobProgress,
   onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onLayer2RatioChange,
-  onCategoryConfigChange, onGenerateQuestions,
+  onCategoryConfigChange, onGenerateQuestions, onStopQuestions,
 }: {
   plan: GeoStrategyPlan
   questionCount: number
@@ -1827,6 +2003,7 @@ function QuestionSettingsPanel({
   onLayer2RatioChange: (v: number) => void
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
   onGenerateQuestions: () => void
+  onStopQuestions: () => void
 }) {
   const rawEffectiveCount = questionCount === -1 ? customQuestionCount : questionCount
   const effectiveCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(rawEffectiveCount)))
@@ -1858,6 +2035,7 @@ function QuestionSettingsPanel({
   const customKeywords = parseQuestionKeywords(questionCustomKeywords)
   const previewKeywords = customKeywords.length > 0 ? customKeywords : coreKeywords
   const usingCustomKeywords = customKeywords.length > 0
+  const stoppedMessage = isStoppedQuestionMessage(questionError)
 
   const updateConfig = (patch: Partial<QuestionCategoryConfig>) => {
     const next = { ...categoryConfig, ...patch }
@@ -2162,17 +2340,31 @@ function QuestionSettingsPanel({
       </div>
 
       {questionError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-600 flex items-start gap-2">
+        <div className={`rounded-xl border px-3 py-2 text-xs flex items-start gap-2 ${
+          stoppedMessage
+            ? "border-amber-200 bg-amber-50 text-amber-700"
+            : "border-red-200 bg-red-50 text-red-600"
+        }`}>
           <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
           {questionError}
         </div>
       )}
 
-      <button onClick={onGenerateQuestions}
-        disabled={questionStatus === "generating" || weaknessOverflow || keywordCustomMismatch}
-        className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:shadow-lg hover:shadow-violet-300/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-        {questionStatus === "generating" ? <><Loader2 className="h-4 w-4 animate-spin" /> 后台生成中...</> : <><Sparkles className="h-4 w-4" /> 生成疑问句池</>}
-      </button>
+      {questionStatus === "generating" ? (
+        <button
+          onClick={onStopQuestions}
+          className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-all"
+        >
+          <X className="h-4 w-4" />
+          停止生成
+        </button>
+      ) : (
+        <button onClick={onGenerateQuestions}
+          disabled={weaknessOverflow || keywordCustomMismatch}
+          className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:shadow-lg hover:shadow-violet-300/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+          <Sparkles className="h-4 w-4" /> 生成疑问句池
+        </button>
+      )}
     </div>
   )
 }

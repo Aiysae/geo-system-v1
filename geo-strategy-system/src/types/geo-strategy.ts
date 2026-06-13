@@ -186,7 +186,7 @@ export type ToolStep = "input" | "extraction" | "strategy" | "questions" | "expo
 
 export type GenerationStatus = "idle" | "generating" | "done" | "error"
 
-export type QuestionJobStatus = "queued" | "running" | "succeeded" | "failed"
+export type QuestionJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
 
 export interface QuestionJobProgress {
   completedCount: number
