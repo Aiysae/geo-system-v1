@@ -37,6 +37,7 @@ export interface KeywordStrategyState {
   questionError: string
   questionCount: number
   customQuestionCount: number
+  questionCustomKeywords: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]

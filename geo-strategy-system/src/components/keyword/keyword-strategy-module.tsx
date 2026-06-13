@@ -82,6 +82,7 @@ interface BrandData {
   questionError: string
   questionCount: number
   customQuestionCount: number
+  questionCustomKeywords: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]
@@ -116,6 +117,7 @@ function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandDat
     questionError: "",
     questionCount: 40,
     customQuestionCount: 120,
+    questionCustomKeywords: "",
     layer2Ratio: 0.35,
     categoryConfig: DEFAULT_CATEGORY_CONFIG,
     questions: [],
@@ -146,6 +148,7 @@ function createBrandFromClient(client: Client): BrandData {
     competitorsRaw: saved.competitorsRaw || client.competitors.join("\n"),
     questionCount: clampQuestionCount(saved.questionCount, fallback.questionCount, true),
     customQuestionCount: clampQuestionCount(saved.customQuestionCount, fallback.customQuestionCount),
+    questionCustomKeywords: typeof saved.questionCustomKeywords === "string" ? saved.questionCustomKeywords : "",
     uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : [],
     categoryConfig: {
       ...DEFAULT_CATEGORY_CONFIG,
@@ -234,6 +237,19 @@ function deriveCoreKeywords(strategy: GeoStrategyPlan): string[] {
     if (k) keywords.add(k)
   }
   return Array.from(keywords)
+}
+
+function parseQuestionKeywords(input: string): string[] {
+  const seen = new Set<string>()
+  const keywords: string[] = []
+  for (const raw of input.split(/[\n\r,，;；、]+/)) {
+    const keyword = raw.trim()
+    const key = keyword.replace(/\s+/g, "").toLowerCase()
+    if (!keyword || seen.has(key)) continue
+    seen.add(key)
+    keywords.push(keyword)
+  }
+  return keywords
 }
 
 function readFileContent(file: File): Promise<string> {
@@ -678,7 +694,10 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       return
     }
 
-    const coreKeywords = deriveCoreKeywords(strategyPlan)
+    const customQuestionKeywords = parseQuestionKeywords(activeBrand.questionCustomKeywords)
+    const coreKeywords = customQuestionKeywords.length > 0
+      ? customQuestionKeywords
+      : deriveCoreKeywords(strategyPlan)
 
     try {
       type QuestionsResponse = {
@@ -699,6 +718,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             layer2Ratio: activeBrand.layer2Ratio,
             categoryConfig: activeBrand.categoryConfig,
             coreKeywords,
+            customKeywords: customQuestionKeywords,
             avoidQuestions,
           }),
         })
@@ -769,7 +789,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionStatus: "error",
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.completedSteps, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.layer2Ratio, activeBrand.categoryConfig, keywordModelSetting, updateBrand])
+  }, [activeBrand.strategyPlan, activeBrand.completedSteps, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionCustomKeywords, activeBrand.layer2Ratio, activeBrand.categoryConfig, keywordModelSetting, updateBrand])
 
   // Export
   const handleExportJson = useCallback(() => {
@@ -895,9 +915,11 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               questionError={ab.questionError}
               questionCount={ab.questionCount}
               customQuestionCount={ab.customQuestionCount}
+              questionCustomKeywords={ab.questionCustomKeywords}
               layer2Ratio={ab.layer2Ratio}
               onQuestionCountChange={v => setBrandField("questionCount", v)}
               onCustomQuestionCountChange={v => setBrandField("customQuestionCount", v)}
+              onQuestionCustomKeywordsChange={v => setBrandField("questionCustomKeywords", v)}
               onLayer2RatioChange={v => setBrandField("layer2Ratio", v)}
               categoryConfig={ab.categoryConfig}
               onCategoryConfigChange={v => setBrandField("categoryConfig", v)}
@@ -1366,9 +1388,9 @@ function ExtractionStep({
 
 function StrategyStep({
   plan, questions, contentCalendar, questionStatus, questionError,
-  questionCount, customQuestionCount, layer2Ratio,
+  questionCount, customQuestionCount, questionCustomKeywords, layer2Ratio,
   categoryConfig, onCategoryConfigChange,
-  onQuestionCountChange, onCustomQuestionCountChange, onLayer2RatioChange, onGenerateQuestions,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onLayer2RatioChange, onGenerateQuestions,
   onExportJson, onExportMarkdown, onExportWord, onBack,
   hasQuestions,
 }: {
@@ -1379,11 +1401,13 @@ function StrategyStep({
   questionError: string
   questionCount: number
   customQuestionCount: number
+  questionCustomKeywords: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
   onQuestionCountChange: (v: number) => void
   onCustomQuestionCountChange: (v: number) => void
+  onQuestionCustomKeywordsChange: (v: string) => void
   onLayer2RatioChange: (v: number) => void
   onGenerateQuestions: () => void
   onExportJson: () => void
@@ -1394,6 +1418,7 @@ function StrategyStep({
 }) {
   const [showJson, setShowJson] = useState(false)
   const [showCalendar, setShowCalendar] = useState(false)
+  const [showQuestionSettings, setShowQuestionSettings] = useState(false)
   const [activePromptKey, setActivePromptKey] = useState<string | null>(null)
   const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null)
   const [officialPrompt, setOfficialPrompt] = useState("")
@@ -1676,12 +1701,14 @@ function StrategyStep({
             plan={plan}
             questionCount={questionCount}
             customQuestionCount={customQuestionCount}
+            questionCustomKeywords={questionCustomKeywords}
             layer2Ratio={layer2Ratio}
             categoryConfig={categoryConfig}
             questionStatus={questionStatus}
             questionError={questionError}
             onQuestionCountChange={onQuestionCountChange}
             onCustomQuestionCountChange={onCustomQuestionCountChange}
+            onQuestionCustomKeywordsChange={onQuestionCustomKeywordsChange}
             onLayer2RatioChange={onLayer2RatioChange}
             onCategoryConfigChange={onCategoryConfigChange}
             onGenerateQuestions={onGenerateQuestions}
@@ -1692,6 +1719,34 @@ function StrategyStep({
             <div className="text-xs text-slate-500 mb-4">
               共 {questions.length} 条疑问句（第一层: {questions.filter(q => q.layer === "第一层").length} 条, 第二层: {questions.filter(q => q.layer === "第二层").length} 条）
             </div>
+            <button
+              onClick={() => setShowQuestionSettings(v => !v)}
+              className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50/70 px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-100"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              {showQuestionSettings ? "收起生成设置" : "调整数量/关键词并重新生成"}
+            </button>
+
+            {showQuestionSettings && (
+              <div className="mb-4">
+                <QuestionSettingsPanel
+                  plan={plan}
+                  questionCount={questionCount}
+                  customQuestionCount={customQuestionCount}
+                  questionCustomKeywords={questionCustomKeywords}
+                  layer2Ratio={layer2Ratio}
+                  categoryConfig={categoryConfig}
+                  questionStatus={questionStatus}
+                  questionError={questionError}
+                  onQuestionCountChange={onQuestionCountChange}
+                  onCustomQuestionCountChange={onCustomQuestionCountChange}
+                  onQuestionCustomKeywordsChange={onQuestionCustomKeywordsChange}
+                  onLayer2RatioChange={onLayer2RatioChange}
+                  onCategoryConfigChange={onCategoryConfigChange}
+                  onGenerateQuestions={onGenerateQuestions}
+                />
+              </div>
+            )}
 
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {questions.slice(0, showJson ? questions.length : 10).map(q => (
@@ -1766,20 +1821,22 @@ function StrategyStep({
 // ==================== Question Settings Panel ====================
 
 function QuestionSettingsPanel({
-  plan, questionCount, customQuestionCount, layer2Ratio, categoryConfig,
+  plan, questionCount, customQuestionCount, questionCustomKeywords, layer2Ratio, categoryConfig,
   questionStatus, questionError,
-  onQuestionCountChange, onCustomQuestionCountChange, onLayer2RatioChange,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onLayer2RatioChange,
   onCategoryConfigChange, onGenerateQuestions,
 }: {
   plan: GeoStrategyPlan
   questionCount: number
   customQuestionCount: number
+  questionCustomKeywords: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questionStatus: GenerationStatus
   questionError: string
   onQuestionCountChange: (v: number) => void
   onCustomQuestionCountChange: (v: number) => void
+  onQuestionCustomKeywordsChange: (v: string) => void
   onLayer2RatioChange: (v: number) => void
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
   onGenerateQuestions: () => void
@@ -1811,6 +1868,9 @@ function QuestionSettingsPanel({
   const weaknessTooHeavy = weaknessTotal > effectiveCount * 0.5
 
   const coreKeywords = deriveCoreKeywords(plan)
+  const customKeywords = parseQuestionKeywords(questionCustomKeywords)
+  const previewKeywords = customKeywords.length > 0 ? customKeywords : coreKeywords
+  const usingCustomKeywords = customKeywords.length > 0
 
   const updateConfig = (patch: Partial<QuestionCategoryConfig>) => {
     const next = { ...categoryConfig, ...patch }
@@ -1879,6 +1939,46 @@ function QuestionSettingsPanel({
         <div className="text-[10px] text-slate-400">
           超过 {QUESTION_SINGLE_REQUEST_LIMIT} 条会自动拆分为多批短请求生成，避免线上网关中断。
         </div>
+      </div>
+
+      <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-xs font-semibold text-slate-600">自定义关键词</h3>
+          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+            usingCustomKeywords ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-500"
+          }`}>
+            {usingCustomKeywords ? `已启用 ${customKeywords.length} 个` : "使用系统推荐"}
+          </span>
+        </div>
+        <textarea
+          value={questionCustomKeywords}
+          onChange={e => onQuestionCustomKeywordsChange(e.target.value)}
+          rows={4}
+          placeholder={"每行一个关键词，也可用逗号/顿号分隔\n例如：AI Agent 工具\n企业级智能体\nGEO 优化平台"}
+          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+        />
+        <div className="text-[10px] leading-relaxed text-slate-400">
+          填写后会优先围绕这些关键词生成疑问句；留空则使用策略中自动提取的关键词。
+        </div>
+        {previewKeywords.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {previewKeywords.slice(0, 12).map((kw, i) => (
+              <span
+                key={`${kw}-${i}`}
+                className={`text-[10px] px-2 py-1 rounded-full border ${
+                  usingCustomKeywords
+                    ? "bg-blue-50 text-blue-600 border-blue-100"
+                    : "bg-slate-100 text-slate-500 border-slate-200"
+                }`}
+              >
+                {kw}
+              </span>
+            ))}
+            {previewKeywords.length > 12 && (
+              <span className="text-[10px] text-slate-400">+{previewKeywords.length - 12} 更多</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Weakness Spin */}
@@ -1956,12 +2056,12 @@ function QuestionSettingsPanel({
               onChange={e => updateConfig({ coreCount: Number(e.target.value) })}
               className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-blue-400 transition" />
           )}
-          {coreKeywords.length > 0 && (
+          {previewKeywords.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
-              {coreKeywords.slice(0, 6).map((kw, i) => (
+              {previewKeywords.slice(0, 6).map((kw, i) => (
                 <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100">{kw}</span>
               ))}
-              {coreKeywords.length > 6 && <span className="text-[10px] text-slate-400">+{coreKeywords.length - 6} 更多</span>}
+              {previewKeywords.length > 6 && <span className="text-[10px] text-slate-400">+{previewKeywords.length - 6} 更多</span>}
             </div>
           )}
         </div>
