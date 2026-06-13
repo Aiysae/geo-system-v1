@@ -245,6 +245,73 @@ function normalizeKeywordInput(value: unknown): string[] {
   return mergeKeywordLists(rawItems).slice(0, 120)
 }
 
+function enrichAllocation(
+  category: Allocation["category"],
+  count: number,
+  strategy: Record<string, unknown>,
+  coreKeywordsInput: string[],
+  customKeywordMode: boolean,
+): Allocation {
+  const profile = (strategy.profile || {}) as Record<string, unknown>
+  const weaknesses = (profile.weaknesses as string[]) || []
+  const derivedCore = coreKeywordsInput.length > 0 ? coreKeywordsInput : deriveCoreKeywords(strategy)
+  const coreSet = new Set(derivedCore)
+  const secondaryKws = customKeywordMode
+    ? mergeKeywordLists(coreKeywordsInput, deriveSecondaryKeywords(strategy, coreSet))
+    : deriveSecondaryKeywords(strategy, coreSet)
+  const painScenarioKws = customKeywordMode
+    ? mergeKeywordLists(coreKeywordsInput, derivePainScenarioKeywords(strategy))
+    : derivePainScenarioKeywords(strategy)
+
+  if (category === "weakness_spin") {
+    return { category, count, keywords: [], weaknesses }
+  }
+  if (category === "core_keywords") {
+    return { category, count, keywords: derivedCore }
+  }
+  if (category === "secondary_keywords") {
+    return { category, count, keywords: secondaryKws }
+  }
+  return { category, count, keywords: painScenarioKws }
+}
+
+function normalizeAllocationOverrides(
+  value: unknown,
+  strategy: Record<string, unknown>,
+  coreKeywordsInput: string[],
+  customKeywordMode: boolean,
+  maxCount: number,
+): Allocation[] {
+  if (!Array.isArray(value) || maxCount <= 0) return []
+  const categories = new Set<Allocation["category"]>([
+    "weakness_spin",
+    "core_keywords",
+    "secondary_keywords",
+    "pain_scenario",
+  ])
+  const merged = new Map<Allocation["category"], number>()
+  let remaining = maxCount
+
+  for (const item of value) {
+    if (!item || typeof item !== "object" || remaining <= 0) continue
+    const raw = item as { category?: unknown; count?: unknown }
+    const category = raw.category
+    if (typeof category !== "string" || !categories.has(category as Allocation["category"])) continue
+    const count = Math.min(
+      Math.max(0, Math.round(Number(raw.count) || 0)),
+      remaining
+    )
+    if (count <= 0) continue
+    const key = category as Allocation["category"]
+    merged.set(key, (merged.get(key) || 0) + count)
+    remaining -= count
+  }
+
+  return Array.from(merged.entries()).map(([category, count]) =>
+    enrichAllocation(category, count, strategy, coreKeywordsInput, customKeywordMode)
+  )
+}
+
 function calculateAllocations(
   strategy: Record<string, unknown>,
   coreKeywordsInput: string[],
@@ -697,7 +764,7 @@ async function handler(req: NextRequest) {
     const body = await req.json()
     const {
       strategy, totalCount = 40, layer2Ratio = 0.35,
-      categoryConfig, coreKeywords = [], customKeywords = [], avoidQuestions = [],
+      categoryConfig, coreKeywords = [], customKeywords = [], allocationOverrides = [], avoidQuestions = [],
     } = body
 
     if (!strategy) {
@@ -720,6 +787,14 @@ async function handler(req: NextRequest) {
     const normalizedCoreKeywords = normalizedCustomKeywords.length > 0
       ? normalizedCustomKeywords
       : normalizeKeywordInput(coreKeywords)
+    const customKeywordMode = normalizedCustomKeywords.length > 0
+    const overrideAllocations = normalizeAllocationOverrides(
+      allocationOverrides,
+      strategy,
+      normalizedCoreKeywords,
+      customKeywordMode,
+      count,
+    )
 
     if (!aiConfig.apiKey) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
@@ -746,9 +821,11 @@ async function handler(req: NextRequest) {
     }
 
     // 1. Calculate allocations
-    const { allocations, warnings: allocWarnings } = calculateAllocations(
-      strategy, normalizedCoreKeywords, count, cfg, normalizedCustomKeywords.length > 0,
-    )
+    const { allocations, warnings: allocWarnings } = overrideAllocations.length > 0
+      ? { allocations: overrideAllocations, warnings: [] }
+      : calculateAllocations(
+          strategy, normalizedCoreKeywords, count, cfg, customKeywordMode,
+        )
 
     // 2. Generate categories concurrently with bounded LLM pressure.
     const allQuestions: Array<Omit<QuestionItem, "id">> = []

@@ -9,8 +9,9 @@ import { apiFetch, readApiJson } from "@/lib/api-fetch"
 
 // ==================== Brand Data ====================
 
-const QUESTION_GENERATION_LIMIT = 200
+const QUESTION_GENERATION_LIMIT = 600
 const QUESTION_SINGLE_REQUEST_LIMIT = 50
+const QUESTION_MAX_BATCH_ATTEMPTS = 3
 
 function clampQuestionCount(value: unknown, fallback = 40, allowCustomMarker = false): number {
   const numeric = typeof value === "number" ? value : Number(value)
@@ -250,6 +251,194 @@ function parseQuestionKeywords(input: string): string[] {
     keywords.push(keyword)
   }
   return keywords
+}
+
+type QuestionCategoryKey = "weakness_spin" | "core_keywords" | "secondary_keywords" | "pain_scenario"
+
+interface QuestionAllocationOverride {
+  category: QuestionCategoryKey
+  count: number
+}
+
+interface QuestionBatchPlan {
+  totalCount: number
+  allocationOverrides: QuestionAllocationOverride[]
+}
+
+function calculateQuestionAllocationCounts(
+  strategy: GeoStrategyPlan,
+  totalCount: number,
+  cfg: QuestionCategoryConfig,
+): Record<QuestionCategoryKey, number> {
+  const weaknesses = strategy.profile?.weaknesses || []
+  const rawWeaknessTotal = weaknesses.length * cfg.weaknessesPerWeakness
+  let weaknessCount = Math.min(rawWeaknessTotal, totalCount)
+
+  if (weaknesses.length > 0 && rawWeaknessTotal > totalCount) {
+    weaknessCount = Math.max(1, Math.floor(totalCount / weaknesses.length)) * weaknesses.length
+  }
+
+  const remaining = Math.max(0, totalCount - weaknessCount)
+  const coreMinTotal = Math.ceil(totalCount * 0.30)
+  let core = 0
+  let secondary = 0
+  let painScenario = 0
+
+  if (cfg.allocationMode === "custom") {
+    core = Math.min(Math.max(cfg.coreCount ?? 0, 0), remaining)
+    secondary = Math.min(Math.max(cfg.secondaryCount ?? 0, 0), remaining)
+    painScenario = Math.min(Math.max(cfg.painScenarioCount ?? 0, 0), remaining)
+    const customTotal = core + secondary + painScenario
+    if (customTotal > remaining && customTotal > 0) {
+      const ratio = remaining / customTotal
+      core = Math.floor(core * ratio)
+      secondary = Math.floor(secondary * ratio)
+      painScenario = remaining - core - secondary
+    }
+  } else {
+    core = Math.max(Math.floor(remaining * cfg.coreRatio), Math.min(coreMinTotal, remaining))
+    secondary = Math.floor(remaining * cfg.secondaryRatio)
+    painScenario = remaining - core - secondary
+    if (painScenario < 0) {
+      secondary = Math.max(0, remaining - core)
+      painScenario = Math.max(0, remaining - core - secondary)
+    }
+  }
+
+  return {
+    weakness_spin: Math.max(0, weaknessCount),
+    core_keywords: Math.max(0, core),
+    secondary_keywords: Math.max(0, secondary),
+    pain_scenario: Math.max(0, painScenario),
+  }
+}
+
+function buildQuestionBatchPlans(
+  counts: Record<QuestionCategoryKey, number>,
+): QuestionBatchPlan[] {
+  const plans: QuestionBatchPlan[] = []
+  const remaining = { ...counts }
+  const order: QuestionCategoryKey[] = [
+    "weakness_spin",
+    "core_keywords",
+    "secondary_keywords",
+    "pain_scenario",
+  ]
+
+  let current: QuestionAllocationOverride[] = []
+  let currentTotal = 0
+
+  function flush() {
+    if (currentTotal <= 0) return
+    plans.push({ totalCount: currentTotal, allocationOverrides: current })
+    current = []
+    currentTotal = 0
+  }
+
+  for (const category of order) {
+    while (remaining[category] > 0) {
+      const capacity = QUESTION_SINGLE_REQUEST_LIMIT - currentTotal
+      if (capacity <= 0) {
+        flush()
+        continue
+      }
+      const take = Math.min(capacity, remaining[category])
+      current.push({ category, count: take })
+      currentTotal += take
+      remaining[category] -= take
+      if (currentTotal >= QUESTION_SINGLE_REQUEST_LIMIT) flush()
+    }
+  }
+  flush()
+
+  return plans
+}
+
+function buildQuestionTextSeed(keyword: string, index: number): string {
+  const scenarios = [
+    "初次了解时",
+    "准备采购前",
+    "预算有限时",
+    "团队规模较小时",
+    "业务增长较快时",
+    "替换旧方案时",
+    "对比多个方案时",
+    "需要长期使用时",
+    "担心踩坑时",
+    "老板要求评估时",
+    "跨部门协同时",
+    "本地服务落地时",
+    "需要快速见效时",
+    "重视售后服务时",
+    "关注数据安全时",
+  ]
+  const dimensions = [
+    "成本",
+    "效果",
+    "稳定性",
+    "服务能力",
+    "交付周期",
+    "案例真实性",
+    "使用门槛",
+    "长期价值",
+    "扩展能力",
+    "风险点",
+  ]
+  const scenario = scenarios[Math.floor(index / 8) % scenarios.length]
+  const dimension = dimensions[Math.floor(index / (8 * scenarios.length)) % dimensions.length]
+  const templates = [
+    `${scenario}，${keyword}适合哪些使用场景？`,
+    `${scenario}，${keyword}怎么判断是否值得选择？`,
+    `${scenario}，选择${keyword}前要重点看哪些${dimension}指标？`,
+    `${scenario}，${keyword}和其他方案相比主要差别是什么？`,
+    `${scenario}，${keyword}常见${dimension}避坑点有哪些？`,
+    `${scenario}，${keyword}适合什么类型的团队或人群？`,
+    `${scenario}，${keyword}落地时最容易遇到哪些${dimension}问题？`,
+    `${scenario}，如何评估${keyword}的长期${dimension}价值？`,
+  ]
+  return templates[index % templates.length]
+}
+
+function buildFallbackQuestions(
+  count: number,
+  startId: number,
+  keywords: string[],
+  strategy: GeoStrategyPlan,
+  usedKeys: Set<string>,
+): QuestionItem[] {
+  const keywordPool = keywords.length > 0
+    ? keywords
+    : [
+        ...(strategy.profile?.terms || []),
+        ...(strategy.keyword_strategy?.core_keywords || []).map(item => item.keyword),
+        strategy.profile?.industry || "",
+      ].map(item => item.trim()).filter(Boolean)
+  const pool = keywordPool.length > 0 ? keywordPool : ["行业解决方案"]
+  const questions: QuestionItem[] = []
+  const localSeen = new Set(usedKeys)
+  let cursor = 0
+
+  while (questions.length < count && cursor < count * Math.max(12, pool.length * 3)) {
+    const keyword = pool[cursor % pool.length]
+    const question = buildQuestionTextSeed(keyword, cursor)
+    const key = questionKey(question)
+    cursor++
+    if (!key || localSeen.has(key)) continue
+    localSeen.add(key)
+    questions.push({
+      id: String(startId + questions.length),
+      layer: cursor % 3 === 0 ? "第二层" : "第一层",
+      category: "本地补齐问题",
+      difficulty: "中",
+      keyword,
+      question,
+      intent: "补充覆盖目标关键词下的用户真实决策问题",
+      content_angle: "围绕用户选择标准、场景适配和避坑判断提供事实型内容",
+      suggested_channel: "知乎",
+    })
+  }
+
+  return questions
 }
 
 function readFileContent(file: File): Promise<string> {
@@ -675,6 +864,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   const handleGenerateQuestions = useCallback(async () => {
     const strategyPlan = activeBrand.strategyPlan
     if (!strategyPlan) return
+    const generationPlan = strategyPlan
     if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
       updateBrand({ questionError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。", questionStatus: "error" })
       return
@@ -684,7 +874,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
 
     const requestedCount = activeBrand.questionCount === -1 ? activeBrand.customQuestionCount : activeBrand.questionCount
     const effectiveCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(requestedCount)))
-    const weaknessCount = (strategyPlan.profile?.weaknesses?.length || 0) * activeBrand.categoryConfig.weaknessesPerWeakness
+    const weaknessCount = (generationPlan.profile?.weaknesses?.length || 0) * activeBrand.categoryConfig.weaknessesPerWeakness
 
     if (weaknessCount > effectiveCount) {
       updateBrand({
@@ -697,7 +887,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     const customQuestionKeywords = parseQuestionKeywords(activeBrand.questionCustomKeywords)
     const coreKeywords = customQuestionKeywords.length > 0
       ? customQuestionKeywords
-      : deriveCoreKeywords(strategyPlan)
+      : deriveCoreKeywords(generationPlan)
 
     try {
       type QuestionsResponse = {
@@ -707,78 +897,169 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         error?: string
       }
 
-      async function requestQuestionBatch(totalCount: number, avoidQuestions: string[]): Promise<QuestionsResponse> {
-        const res = await apiFetch("/api/geo-strategy/questions", {
-          method: "POST",
-          cache: "no-store",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            strategy: strategyPlan,
-            totalCount,
-            layer2Ratio: activeBrand.layer2Ratio,
-            categoryConfig: activeBrand.categoryConfig,
-            coreKeywords,
-            customKeywords: customQuestionKeywords,
-            avoidQuestions,
-          }),
-        })
-
-        const data = await readApiJson<QuestionsResponse>(res, "疑问句生成")
-
-        if (!res.ok) {
-          throw new Error(data.error || `请求失败 (${res.status})`)
-        }
-        if (!Array.isArray(data.question_strategy) || data.question_strategy.length === 0) {
-          throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
-        }
-
-        return data
+      function isPermanentQuestionError(error: unknown): boolean {
+        const message = error instanceof Error ? error.message : String(error)
+        return /API Key|HTTP 401|unauthorized|无权限|未配置|权限/i.test(message)
       }
 
-      const batchCounts: number[] = []
-      let remaining = effectiveCount
-      while (remaining > 0) {
-        const next = Math.min(QUESTION_SINGLE_REQUEST_LIMIT, remaining)
-        batchCounts.push(next)
-        remaining -= next
+      async function requestQuestionBatch(
+        plan: QuestionBatchPlan,
+        avoidQuestions: string[]
+      ): Promise<QuestionsResponse> {
+        let lastError: unknown
+        for (let attempt = 0; attempt < QUESTION_MAX_BATCH_ATTEMPTS; attempt++) {
+          try {
+            const res = await apiFetch("/api/geo-strategy/questions", {
+              method: "POST",
+              cache: "no-store",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                strategy: generationPlan,
+                totalCount: plan.totalCount,
+                layer2Ratio: activeBrand.layer2Ratio,
+                categoryConfig: activeBrand.categoryConfig,
+                coreKeywords,
+                customKeywords: customQuestionKeywords,
+                allocationOverrides: plan.allocationOverrides,
+                avoidQuestions,
+              }),
+            })
+
+            const data = await readApiJson<QuestionsResponse>(res, "疑问句生成")
+
+            if (!res.ok) {
+              throw new Error(data.error || `请求失败 (${res.status})`)
+            }
+            if (!Array.isArray(data.question_strategy) || data.question_strategy.length === 0) {
+              throw new Error("疑问句生成没有返回有效问题。")
+            }
+
+            return data
+          } catch (error) {
+            lastError = error
+            if (isPermanentQuestionError(error) || attempt === QUESTION_MAX_BATCH_ATTEMPTS - 1) {
+              break
+            }
+            await new Promise(resolve => window.setTimeout(resolve, 1200 * (attempt + 1)))
+          }
+        }
+
+        throw lastError instanceof Error ? lastError : new Error("疑问句生成失败")
       }
+
+      const allocationCounts = calculateQuestionAllocationCounts(
+        generationPlan,
+        effectiveCount,
+        activeBrand.categoryConfig,
+      )
+      const batchPlans = buildQuestionBatchPlans(allocationCounts)
 
       const mergedQuestions: QuestionItem[] = []
       const seen = new Set<string>()
-      const warnings: string[] = batchCounts.length > 1
-        ? [`已自动拆分为 ${batchCounts.length} 批生成，避免服务网关中断。`]
+      const warnings: string[] = batchPlans.length > 1
+        ? [`已自动拆分为 ${batchPlans.length} 批生成，避免服务网关中断。`]
         : []
 
-      for (let index = 0; index < batchCounts.length; index++) {
-        const data = await requestQuestionBatch(
-          batchCounts[index],
-          mergedQuestions.map(item => item.question)
-        )
-
-        for (const question of data.question_strategy || []) {
+      function appendQuestionItems(items: QuestionItem[]) {
+        for (const question of items) {
           const key = questionKey(question.question)
           if (!key || seen.has(key)) continue
           seen.add(key)
           mergedQuestions.push(question)
+          if (mergedQuestions.length >= effectiveCount) break
         }
-        if (Array.isArray(data.warnings)) warnings.push(...data.warnings)
       }
 
-      const reindexed = mergedQuestions.map((question, index) => ({
-        ...question,
-        id: String(index + 1),
-      }))
+      function reindexQuestions(): QuestionItem[] {
+        return mergedQuestions.slice(0, effectiveCount).map((question, index) => ({
+          ...question,
+          id: String(index + 1),
+        }))
+      }
+
+      function savePartialQuestions() {
+        const partial = reindexQuestions()
+        if (partial.length === 0) return
+        updateBrand({
+          questions: partial,
+          contentCalendar: buildLocalContentCalendar(partial, generationPlan),
+          questionStatus: "generating",
+        })
+      }
+
+      for (let index = 0; index < batchPlans.length && mergedQuestions.length < effectiveCount; index++) {
+        const plan = batchPlans[index]
+        try {
+          const data = await requestQuestionBatch(
+            plan,
+            mergedQuestions.map(item => item.question)
+          )
+          appendQuestionItems((data.question_strategy || []).map((question, i) => ({
+            ...question,
+            id: String(mergedQuestions.length + i + 1),
+          })))
+          if (Array.isArray(data.warnings)) warnings.push(...data.warnings)
+        } catch (error) {
+          if (isPermanentQuestionError(error)) throw error
+          warnings.push(`第 ${index + 1} 批模型生成失败，已用本地模板补齐该批次。`)
+          appendQuestionItems(buildFallbackQuestions(
+            plan.totalCount,
+            mergedQuestions.length + 1,
+            coreKeywords,
+            generationPlan,
+            seen,
+          ))
+        }
+        savePartialQuestions()
+      }
+
+      for (let topUp = 0; topUp < 3 && mergedQuestions.length < effectiveCount; topUp++) {
+        const need = Math.min(QUESTION_SINGLE_REQUEST_LIMIT, effectiveCount - mergedQuestions.length)
+        const plan: QuestionBatchPlan = {
+          totalCount: need,
+          allocationOverrides: [{ category: "core_keywords", count: need }],
+        }
+        const before = mergedQuestions.length
+        try {
+          const data = await requestQuestionBatch(
+            plan,
+            mergedQuestions.map(item => item.question)
+          )
+          appendQuestionItems((data.question_strategy || []).map((question, i) => ({
+            ...question,
+            id: String(mergedQuestions.length + i + 1),
+          })))
+          if (Array.isArray(data.warnings)) warnings.push(...data.warnings)
+        } catch (error) {
+          if (isPermanentQuestionError(error)) throw error
+          warnings.push(`补齐批次 ${topUp + 1} 模型生成失败，已继续尝试本地补齐。`)
+          break
+        }
+        if (mergedQuestions.length <= before) break
+        savePartialQuestions()
+      }
+
+      if (mergedQuestions.length < effectiveCount) {
+        const missing = effectiveCount - mergedQuestions.length
+        appendQuestionItems(buildFallbackQuestions(
+          missing,
+          mergedQuestions.length + 1,
+          coreKeywords,
+          generationPlan,
+          seen,
+        ))
+        warnings.push(`模型去重后不足 ${effectiveCount} 条，已用本地模板补齐 ${missing} 条。`)
+      }
+
+      const reindexed = reindexQuestions()
 
       if (reindexed.length === 0) {
         throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
       }
-      if (reindexed.length < effectiveCount) {
-        warnings.push(`计划生成 ${effectiveCount} 条，去重后得到 ${reindexed.length} 条。`)
-      }
 
       updateBrand({
         questions: reindexed,
-        contentCalendar: buildLocalContentCalendar(reindexed, strategyPlan),
+        contentCalendar: buildLocalContentCalendar(reindexed, generationPlan),
         questionError: warnings.length > 0 ? Array.from(new Set(warnings)).join("；") : "",
         questionStatus: "done",
         completedSteps: [...new Set([...activeBrand.completedSteps, "questions" as ToolStep])],
@@ -1915,6 +2196,9 @@ function QuestionSettingsPanel({
               <option value={120}>120 条</option>
               <option value={160}>160 条</option>
               <option value={200}>200 条</option>
+              <option value={300}>300 条</option>
+              <option value={500}>500 条</option>
+              <option value={600}>600 条</option>
               <option value={-1}>自定义</option>
             </select>
           </div>
