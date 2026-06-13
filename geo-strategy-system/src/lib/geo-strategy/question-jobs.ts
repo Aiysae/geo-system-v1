@@ -28,6 +28,9 @@ interface QuestionJobRequest {
   categoryConfig: QuestionCategoryConfig
   coreKeywords: string[]
   customKeywords: string[]
+  painScenarioKeywords?: string[]
+  customPainScenarios?: string[]
+  allocationOverrides?: QuestionAllocationOverride[]
 }
 
 type StoredQuestionJobRecord = QuestionJobRecord & {
@@ -156,11 +159,11 @@ async function assertQuestionJobNotCancelled(jobId: string): Promise<void> {
   }
 }
 
-function clampQuestionCount(value: unknown): number {
+function clampQuestionCount(value: unknown, min = 10): number {
   const numeric = typeof value === "number" ? value : Number(value)
   return Math.min(
     QUESTION_GENERATION_LIMIT,
-    Math.max(10, Number.isFinite(numeric) ? Math.round(numeric) : 40)
+    Math.max(min, Number.isFinite(numeric) ? Math.round(numeric) : 40)
   )
 }
 
@@ -247,6 +250,51 @@ function calculateQuestionAllocationCounts(
     secondary_keywords: Math.max(0, secondary),
     pain_scenario: Math.max(0, painScenario),
   }
+}
+
+function baseAllocationCounts(): Record<QuestionCategoryKey, number> {
+  return {
+    weakness_spin: 0,
+    core_keywords: 0,
+    secondary_keywords: 0,
+    pain_scenario: 0,
+  }
+}
+
+function normalizeAllocationOverrideCounts(
+  totalCount: number,
+  allocationOverrides?: QuestionAllocationOverride[],
+): Record<QuestionCategoryKey, number> | null {
+  if (!Array.isArray(allocationOverrides) || allocationOverrides.length === 0) return null
+  const counts = baseAllocationCounts()
+  const categories = new Set<QuestionCategoryKey>([
+    "weakness_spin",
+    "core_keywords",
+    "secondary_keywords",
+    "pain_scenario",
+  ])
+  let remaining = totalCount
+
+  for (const item of allocationOverrides) {
+    if (remaining <= 0 || !categories.has(item.category)) continue
+    const count = Math.min(
+      Math.max(0, Math.round(Number(item.count) || 0)),
+      remaining,
+    )
+    if (count <= 0) continue
+    counts[item.category] += count
+    remaining -= count
+  }
+
+  return Object.values(counts).some(count => count > 0) ? counts : null
+}
+
+function sumAllocationOverrides(allocationOverrides?: QuestionAllocationOverride[]): number {
+  if (!Array.isArray(allocationOverrides)) return 0
+  return allocationOverrides.reduce((sum, item) => {
+    const count = Math.max(0, Math.round(Number(item?.count) || 0))
+    return sum + count
+  }, 0)
 }
 
 function buildQuestionBatchPlans(
@@ -423,6 +471,8 @@ async function fetchQuestionBatch(
             categoryConfig: job.request.categoryConfig,
             coreKeywords: job.request.coreKeywords,
             customKeywords: job.request.customKeywords,
+            painScenarioKeywords: job.request.painScenarioKeywords || [],
+            customPainScenarios: job.request.customPainScenarios || [],
             allocationOverrides: plan.allocationOverrides,
             avoidQuestions: avoidQuestions.slice(-120),
           }),
@@ -497,7 +547,10 @@ async function runQuestionJob(jobId: string): Promise<void> {
     }) || job
     await assertQuestionJobNotCancelled(job.id)
 
-    const allocationCounts = calculateQuestionAllocationCounts(
+    const allocationCounts = normalizeAllocationOverrideCounts(
+      job.totalCount,
+      job.request.allocationOverrides,
+    ) || calculateQuestionAllocationCounts(
       job.request.strategy,
       job.totalCount,
       job.request.categoryConfig,
@@ -508,6 +561,11 @@ async function runQuestionJob(jobId: string): Promise<void> {
       : job.request.coreKeywords.length > 0
         ? job.request.coreKeywords
         : deriveCoreKeywords(job.request.strategy)
+    const fallbackKeywords = Array.from(new Set([
+      ...coreKeywords,
+      ...(job.request.customPainScenarios || []),
+      ...(job.request.painScenarioKeywords || []),
+    ].map(item => item.trim()).filter(Boolean)))
     const mergedQuestions = [...job.questions]
     const seen = new Set(mergedQuestions.map(item => questionKey(item.question)).filter(Boolean))
     let warnings = mergeWarnings(
@@ -560,7 +618,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
           buildFallbackQuestions(
             plan.totalCount,
             mergedQuestions.length + 1,
-            coreKeywords,
+            fallbackKeywords,
             job.request.strategy,
             seen,
           ),
@@ -625,7 +683,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
         buildFallbackQuestions(
           missing,
           mergedQuestions.length + 1,
-          coreKeywords,
+          fallbackKeywords,
           job.request.strategy,
           seen,
         ),
@@ -680,8 +738,14 @@ export async function createQuestionJob(
     throw new Error("请提供策略方案")
   }
 
-  const totalCount = clampQuestionCount(input.totalCount)
-  const allocationCounts = calculateQuestionAllocationCounts(
+  const overrideTotal = sumAllocationOverrides(input.allocationOverrides)
+  const totalCount = overrideTotal > 0
+    ? clampQuestionCount(overrideTotal, 1)
+    : clampQuestionCount(input.totalCount)
+  const allocationCounts = normalizeAllocationOverrideCounts(
+    totalCount,
+    input.allocationOverrides,
+  ) || calculateQuestionAllocationCounts(
     input.strategy,
     totalCount,
     input.categoryConfig,
@@ -707,6 +771,9 @@ export async function createQuestionJob(
       totalCount,
       coreKeywords: input.coreKeywords || [],
       customKeywords: input.customKeywords || [],
+      painScenarioKeywords: input.painScenarioKeywords || [],
+      customPainScenarios: input.customPainScenarios || [],
+      allocationOverrides: input.allocationOverrides || [],
     },
     batchBaseUrls: buildBatchBaseUrls(publicOrigin),
   }

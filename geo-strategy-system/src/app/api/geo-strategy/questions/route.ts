@@ -247,6 +247,7 @@ function enrichAllocation(
   count: number,
   strategy: Record<string, unknown>,
   coreKeywordsInput: string[],
+  painScenarioKeywordsInput: string[],
   customKeywordMode: boolean,
 ): Allocation {
   const profile = (strategy.profile || {}) as Record<string, unknown>
@@ -256,8 +257,8 @@ function enrichAllocation(
   const secondaryKws = customKeywordMode
     ? mergeKeywordLists(coreKeywordsInput, deriveSecondaryKeywords(strategy, coreSet))
     : deriveSecondaryKeywords(strategy, coreSet)
-  const painScenarioKws = customKeywordMode
-    ? mergeKeywordLists(coreKeywordsInput, derivePainScenarioKeywords(strategy))
+  const painScenarioKws = painScenarioKeywordsInput.length > 0
+    ? painScenarioKeywordsInput
     : derivePainScenarioKeywords(strategy)
 
   if (category === "weakness_spin") {
@@ -276,6 +277,7 @@ function normalizeAllocationOverrides(
   value: unknown,
   strategy: Record<string, unknown>,
   coreKeywordsInput: string[],
+  painScenarioKeywordsInput: string[],
   customKeywordMode: boolean,
   maxCount: number,
 ): Allocation[] {
@@ -305,13 +307,14 @@ function normalizeAllocationOverrides(
   }
 
   return Array.from(merged.entries()).map(([category, count]) =>
-    enrichAllocation(category, count, strategy, coreKeywordsInput, customKeywordMode)
+    enrichAllocation(category, count, strategy, coreKeywordsInput, painScenarioKeywordsInput, customKeywordMode)
   )
 }
 
 function calculateAllocations(
   strategy: Record<string, unknown>,
   coreKeywordsInput: string[],
+  painScenarioKeywordsInput: string[],
   totalCount: number,
   cfg: {
     weaknessesPerWeakness: number
@@ -398,8 +401,8 @@ function calculateAllocations(
   const secondaryKws = customKeywordMode
     ? mergeKeywordLists(coreKeywordsInput, deriveSecondaryKeywords(strategy, coreSet))
     : deriveSecondaryKeywords(strategy, coreSet)
-  const painScenarioKws = customKeywordMode
-    ? mergeKeywordLists(coreKeywordsInput, derivePainScenarioKeywords(strategy))
+  const painScenarioKws = painScenarioKeywordsInput.length > 0
+    ? painScenarioKeywordsInput
     : derivePainScenarioKeywords(strategy)
 
   const allocations: Allocation[] = [
@@ -725,7 +728,9 @@ async function handler(req: NextRequest) {
     const body = await req.json()
     const {
       strategy, totalCount = 40, layer2Ratio = 0.35,
-      categoryConfig, coreKeywords = [], customKeywords = [], allocationOverrides = [], avoidQuestions = [],
+      categoryConfig, coreKeywords = [], customKeywords = [],
+      painScenarioKeywords = [], customPainScenarios = [],
+      allocationOverrides = [], avoidQuestions = [],
     } = body
 
     if (!strategy) {
@@ -748,11 +753,16 @@ async function handler(req: NextRequest) {
     const normalizedCoreKeywords = normalizedCustomKeywords.length > 0
       ? normalizedCustomKeywords
       : normalizeKeywordInput(coreKeywords)
+    const normalizedCustomPainScenarios = normalizeKeywordInput(customPainScenarios)
+    const normalizedPainScenarioKeywords = normalizedCustomPainScenarios.length > 0
+      ? normalizedCustomPainScenarios
+      : normalizeKeywordInput(painScenarioKeywords)
     const customKeywordMode = normalizedCustomKeywords.length > 0
     const overrideAllocations = normalizeAllocationOverrides(
       allocationOverrides,
       strategy,
       normalizedCoreKeywords,
+      normalizedPainScenarioKeywords,
       customKeywordMode,
       count,
     )
@@ -766,6 +776,9 @@ async function handler(req: NextRequest) {
       : []
     const keywordWarnings = normalizedCustomKeywords.length > 0
       ? [`已使用 ${normalizedCustomKeywords.length} 个自定义关键词作为疑问句生成关键词池。`]
+      : []
+    const painScenarioWarnings = normalizedCustomPainScenarios.length > 0
+      ? [`已使用 ${normalizedCustomPainScenarios.length} 个自定义痛点/场景作为疑问句生成素材。`]
       : []
 
     const cfg = {
@@ -785,12 +798,12 @@ async function handler(req: NextRequest) {
     const { allocations, warnings: allocWarnings } = overrideAllocations.length > 0
       ? { allocations: overrideAllocations, warnings: [] }
       : calculateAllocations(
-          strategy, normalizedCoreKeywords, count, cfg, customKeywordMode,
+          strategy, normalizedCoreKeywords, normalizedPainScenarioKeywords, count, cfg, customKeywordMode,
         )
 
     // 2. Generate categories concurrently with bounded LLM pressure.
     const allQuestions: Array<Omit<QuestionItem, "id">> = []
-    const allWarnings = [...countWarnings, ...keywordWarnings, ...allocWarnings]
+    const allWarnings = [...countWarnings, ...keywordWarnings, ...painScenarioWarnings, ...allocWarnings]
     let offset = 0
     const activeAllocations = allocations
       .map((alloc) => {

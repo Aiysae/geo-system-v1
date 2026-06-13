@@ -48,6 +48,7 @@ interface BrandData {
   questionCount: number
   customQuestionCount: number
   questionCustomKeywords: string
+  questionCustomPainScenarios: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]
@@ -84,6 +85,7 @@ function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandDat
     questionCount: 40,
     customQuestionCount: 120,
     questionCustomKeywords: "",
+    questionCustomPainScenarios: "",
     layer2Ratio: 0.35,
     categoryConfig: DEFAULT_CATEGORY_CONFIG,
     questions: [],
@@ -114,6 +116,7 @@ function createBrandFromClient(client: Client): BrandData {
     questionCount: clampQuestionCount(saved.questionCount, fallback.questionCount, true),
     customQuestionCount: clampQuestionCount(saved.customQuestionCount, fallback.customQuestionCount),
     questionCustomKeywords: typeof saved.questionCustomKeywords === "string" ? saved.questionCustomKeywords : "",
+    questionCustomPainScenarios: typeof saved.questionCustomPainScenarios === "string" ? saved.questionCustomPainScenarios : "",
     questionJobId: typeof saved.questionJobId === "string" ? saved.questionJobId : undefined,
     questionJobProgress: saved.questionJobProgress,
     uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : [],
@@ -217,6 +220,116 @@ function parseQuestionKeywords(input: string): string[] {
     keywords.push(keyword)
   }
   return keywords
+}
+
+type QuestionSectionKey = "keyword" | "weakness" | "painScenario"
+
+interface QuestionSectionPlan {
+  counts: Record<QuestionSectionKey, number>
+  totalCount: number
+}
+
+const SECTION_WEIGHTS: Record<QuestionSectionKey, number> = {
+  keyword: 0.45,
+  weakness: 0.30,
+  painScenario: 0.25,
+}
+
+function clampQuestionSectionCount(value: unknown, fallback = 0): number {
+  const numeric = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, Math.round(numeric)))
+}
+
+function effectiveQuestionBaseCount(questionCount: number, customQuestionCount: number): number {
+  const requestedCount = questionCount === -1 ? customQuestionCount : questionCount
+  return Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(requestedCount)))
+}
+
+function derivePainScenarioTerms(plan: GeoStrategyPlan): string[] {
+  const terms = new Set<string>()
+  for (const item of [
+    ...(plan.profile?.pain_points || []),
+    ...(plan.profile?.scenes || []),
+    ...(plan.keyword_strategy?.pain_advantage_keywords || []).map(keyword => keyword.keyword),
+    ...(plan.keyword_strategy?.scenario_keywords || []).map(keyword => keyword.keyword),
+  ]) {
+    const term = item?.trim()
+    if (term) terms.add(term)
+  }
+  return Array.from(terms)
+}
+
+function calculateQuestionSectionPlan(
+  plan: GeoStrategyPlan,
+  categoryConfig: QuestionCategoryConfig,
+  baseCount: number,
+): QuestionSectionPlan {
+  const weaknesses = plan.profile?.weaknesses || []
+  const enabled: Record<QuestionSectionKey, boolean> = {
+    keyword: categoryConfig.keywordEnabled !== false,
+    weakness: categoryConfig.weaknessEnabled !== false && weaknesses.length > 0,
+    painScenario: categoryConfig.painScenarioEnabled !== false,
+  }
+  const countModes: Record<QuestionSectionKey, "system" | "custom"> = {
+    keyword: categoryConfig.keywordCountMode || "system",
+    weakness: categoryConfig.weaknessCountMode || "system",
+    painScenario: categoryConfig.painScenarioCountMode || "system",
+  }
+  const customCounts: Record<QuestionSectionKey, number> = {
+    keyword: clampQuestionSectionCount(categoryConfig.keywordCount, 20),
+    weakness: clampQuestionSectionCount(categoryConfig.weaknessCount, Math.max(10, weaknesses.length * categoryConfig.weaknessesPerWeakness)),
+    painScenario: clampQuestionSectionCount(categoryConfig.painScenarioCount, 10),
+  }
+  const counts: Record<QuestionSectionKey, number> = {
+    keyword: 0,
+    weakness: 0,
+    painScenario: 0,
+  }
+
+  const systemSections: QuestionSectionKey[] = []
+  for (const section of Object.keys(enabled) as QuestionSectionKey[]) {
+    if (!enabled[section]) continue
+    if (countModes[section] === "custom") {
+      counts[section] = customCounts[section]
+    } else {
+      systemSections.push(section)
+    }
+  }
+
+  const remaining = Math.max(0, baseCount - Object.values(counts).reduce((sum, count) => sum + count, 0))
+  const caps: Partial<Record<QuestionSectionKey, number>> = {
+    weakness: weaknesses.length * categoryConfig.weaknessesPerWeakness,
+  }
+  const weightTotal = systemSections.reduce((sum, section) => sum + SECTION_WEIGHTS[section], 0)
+  let assigned = 0
+
+  systemSections.forEach((section, index) => {
+    const isLast = index === systemSections.length - 1
+    const raw = isLast
+      ? remaining - assigned
+      : Math.floor(remaining * (SECTION_WEIGHTS[section] / Math.max(0.01, weightTotal)))
+    const cap = caps[section]
+    const nextCount = typeof cap === "number" ? Math.min(raw, cap) : raw
+    counts[section] = Math.max(0, nextCount)
+    assigned += counts[section]
+  })
+
+  let leftover = Math.max(0, remaining - assigned)
+  while (leftover > 0) {
+    const target = systemSections.find(section => {
+      const cap = caps[section]
+      return typeof cap !== "number" || counts[section] < cap
+    })
+    if (!target) break
+    counts[target] += 1
+    leftover -= 1
+  }
+
+  return {
+    counts,
+    totalCount: counts.keyword + counts.weakness + counts.painScenario,
+  }
 }
 
 function questionJobProgressFromRecord(job: QuestionJobRecord): QuestionJobProgress {
@@ -690,22 +803,57 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       return
     }
 
-    const requestedCount = activeBrand.questionCount === -1 ? activeBrand.customQuestionCount : activeBrand.questionCount
-    const effectiveCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(requestedCount)))
-    const weaknessCount = (strategyPlan.profile?.weaknesses?.length || 0) * activeBrand.categoryConfig.weaknessesPerWeakness
+    const baseCount = effectiveQuestionBaseCount(activeBrand.questionCount, activeBrand.customQuestionCount)
+    const sectionPlan = calculateQuestionSectionPlan(strategyPlan, activeBrand.categoryConfig, baseCount)
+    const effectiveCount = sectionPlan.totalCount
 
-    if (weaknessCount > effectiveCount) {
+    if (effectiveCount <= 0) {
       updateBrand({
-        questionError: `劣势转化问题 (${weaknessCount}条) 超过总问题数 (${effectiveCount}条)，请减少每个劣势的问题数或增加总数`,
+        questionError: "请至少选择一个生成部分，并设置大于 0 的生成数量。",
+        questionStatus: "error",
+      })
+      return
+    }
+
+    if (effectiveCount > QUESTION_GENERATION_LIMIT) {
+      updateBrand({
+        questionError: `本次合计 ${effectiveCount} 条，超过单次上限 ${QUESTION_GENERATION_LIMIT} 条，请减少某个部分的数量。`,
         questionStatus: "error",
       })
       return
     }
 
     const customQuestionKeywords = parseQuestionKeywords(activeBrand.questionCustomKeywords)
-    const coreKeywords = customQuestionKeywords.length > 0
+    const keywordSource = activeBrand.categoryConfig.keywordSource || "system"
+    const coreKeywords = keywordSource === "custom"
       ? customQuestionKeywords
       : deriveCoreKeywords(strategyPlan)
+    const customPainScenarios = parseQuestionKeywords(activeBrand.questionCustomPainScenarios)
+    const painScenarioSource = activeBrand.categoryConfig.painScenarioSource || "system"
+    const painScenarioKeywords = painScenarioSource === "custom"
+      ? customPainScenarios
+      : derivePainScenarioTerms(strategyPlan)
+    const allocationOverrides = [
+      { category: "core_keywords" as const, count: sectionPlan.counts.keyword },
+      { category: "weakness_spin" as const, count: sectionPlan.counts.weakness },
+      { category: "pain_scenario" as const, count: sectionPlan.counts.painScenario },
+    ].filter(item => item.count > 0)
+
+    if (sectionPlan.counts.keyword > 0 && keywordSource === "custom" && customQuestionKeywords.length === 0) {
+      updateBrand({
+        questionError: "关键词部分选择了自定义来源，请先填写至少 1 个关键词。",
+        questionStatus: "error",
+      })
+      return
+    }
+
+    if (sectionPlan.counts.painScenario > 0 && painScenarioSource === "custom" && customPainScenarios.length === 0) {
+      updateBrand({
+        questionError: "痛点场景部分选择了自定义来源，请先填写至少 1 个痛点或场景。",
+        questionStatus: "error",
+      })
+      return
+    }
 
     const initialProgress: QuestionJobProgress = {
       completedCount: 0,
@@ -747,6 +895,9 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           categoryConfig: activeBrand.categoryConfig,
           coreKeywords,
           customKeywords: customQuestionKeywords,
+          painScenarioKeywords,
+          customPainScenarios,
+          allocationOverrides,
         }),
       })
       const job = await readApiJson<QuestionJobRecord & { error?: string }>(createRes, "疑问句任务创建")
@@ -780,7 +931,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionJobProgress: undefined,
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionCustomKeywords, activeBrand.layer2Ratio, activeBrand.categoryConfig, keywordModelSetting, updateBrand])
+  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.layer2Ratio, activeBrand.categoryConfig, keywordModelSetting, updateBrand])
 
   const handleStopGenerateQuestions = useCallback(async () => {
     const jobId = activeBrand.questionJobId
@@ -1065,10 +1216,12 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               questionCount={ab.questionCount}
               customQuestionCount={ab.customQuestionCount}
               questionCustomKeywords={ab.questionCustomKeywords}
+              questionCustomPainScenarios={ab.questionCustomPainScenarios}
               layer2Ratio={ab.layer2Ratio}
               onQuestionCountChange={v => setBrandField("questionCount", v)}
               onCustomQuestionCountChange={v => setBrandField("customQuestionCount", v)}
               onQuestionCustomKeywordsChange={v => setBrandField("questionCustomKeywords", v)}
+              onQuestionCustomPainScenariosChange={v => setBrandField("questionCustomPainScenarios", v)}
               onLayer2RatioChange={v => setBrandField("layer2Ratio", v)}
               categoryConfig={ab.categoryConfig}
               onCategoryConfigChange={v => setBrandField("categoryConfig", v)}
@@ -1539,9 +1692,9 @@ function ExtractionStep({
 function StrategyStep({
   plan, questions, questionStatus, questionError,
   questionJobProgress,
-  questionCount, customQuestionCount, questionCustomKeywords, layer2Ratio,
+  questionCount, customQuestionCount, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio,
   categoryConfig, onCategoryConfigChange,
-  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onLayer2RatioChange, onGenerateQuestions, onStopQuestions,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange, onGenerateQuestions, onStopQuestions,
   onExportJson, onExportMarkdown, onExportWord, onBack,
   hasQuestions,
 }: {
@@ -1553,12 +1706,14 @@ function StrategyStep({
   questionCount: number
   customQuestionCount: number
   questionCustomKeywords: string
+  questionCustomPainScenarios: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
   onQuestionCountChange: (v: number) => void
   onCustomQuestionCountChange: (v: number) => void
   onQuestionCustomKeywordsChange: (v: string) => void
+  onQuestionCustomPainScenariosChange: (v: string) => void
   onLayer2RatioChange: (v: number) => void
   onGenerateQuestions: () => void
   onStopQuestions: () => void
@@ -1865,6 +2020,7 @@ function StrategyStep({
             questionCount={questionCount}
             customQuestionCount={customQuestionCount}
             questionCustomKeywords={questionCustomKeywords}
+            questionCustomPainScenarios={questionCustomPainScenarios}
             layer2Ratio={layer2Ratio}
             categoryConfig={categoryConfig}
             questionStatus={questionStatus}
@@ -1873,6 +2029,7 @@ function StrategyStep({
             onQuestionCountChange={onQuestionCountChange}
             onCustomQuestionCountChange={onCustomQuestionCountChange}
             onQuestionCustomKeywordsChange={onQuestionCustomKeywordsChange}
+            onQuestionCustomPainScenariosChange={onQuestionCustomPainScenariosChange}
             onLayer2RatioChange={onLayer2RatioChange}
             onCategoryConfigChange={onCategoryConfigChange}
             onGenerateQuestions={onGenerateQuestions}
@@ -1899,6 +2056,7 @@ function StrategyStep({
                   questionCount={questionCount}
                   customQuestionCount={customQuestionCount}
                   questionCustomKeywords={questionCustomKeywords}
+                  questionCustomPainScenarios={questionCustomPainScenarios}
                   layer2Ratio={layer2Ratio}
                   categoryConfig={categoryConfig}
                   questionStatus={questionStatus}
@@ -1907,6 +2065,7 @@ function StrategyStep({
                   onQuestionCountChange={onQuestionCountChange}
                   onCustomQuestionCountChange={onCustomQuestionCountChange}
                   onQuestionCustomKeywordsChange={onQuestionCustomKeywordsChange}
+                  onQuestionCustomPainScenariosChange={onQuestionCustomPainScenariosChange}
                   onLayer2RatioChange={onLayer2RatioChange}
                   onCategoryConfigChange={onCategoryConfigChange}
                   onGenerateQuestions={onGenerateQuestions}
@@ -1983,15 +2142,16 @@ function QuestionJobProgressBar({ progress }: { progress: QuestionJobProgress })
 }
 
 function QuestionSettingsPanel({
-  plan, questionCount, customQuestionCount, questionCustomKeywords, layer2Ratio, categoryConfig,
+  plan, questionCount, customQuestionCount, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio, categoryConfig,
   questionStatus, questionError, questionJobProgress,
-  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onLayer2RatioChange,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange,
   onCategoryConfigChange, onGenerateQuestions, onStopQuestions,
 }: {
   plan: GeoStrategyPlan
   questionCount: number
   customQuestionCount: number
   questionCustomKeywords: string
+  questionCustomPainScenarios: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questionStatus: GenerationStatus
@@ -2000,78 +2160,91 @@ function QuestionSettingsPanel({
   onQuestionCountChange: (v: number) => void
   onCustomQuestionCountChange: (v: number) => void
   onQuestionCustomKeywordsChange: (v: string) => void
+  onQuestionCustomPainScenariosChange: (v: string) => void
   onLayer2RatioChange: (v: number) => void
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
   onGenerateQuestions: () => void
   onStopQuestions: () => void
 }) {
-  const rawEffectiveCount = questionCount === -1 ? customQuestionCount : questionCount
-  const effectiveCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Math.round(rawEffectiveCount)))
+  const baseCount = effectiveQuestionBaseCount(questionCount, customQuestionCount)
+  const sectionPlan = calculateQuestionSectionPlan(plan, categoryConfig, baseCount)
   const weaknesses = plan.profile?.weaknesses || []
-  const weaknessTotal = weaknesses.length * categoryConfig.weaknessesPerWeakness
-  const remainingForKeywords = Math.max(0, effectiveCount - weaknessTotal)
-  const coreMin = Math.ceil(effectiveCount * 0.30)
-  const allocationMode = categoryConfig.allocationMode || "ratio"
-
-  // Apply ratios to remaining (keywords portion)
-  const ratioCoreAlloc = Math.floor(remainingForKeywords * categoryConfig.coreRatio)
-  const ratioSecondaryAlloc = Math.floor(remainingForKeywords * categoryConfig.secondaryRatio)
-  const ratioPainScenarioAlloc = remainingForKeywords - ratioCoreAlloc - ratioSecondaryAlloc
-  const customCoreAlloc = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, categoryConfig.coreCount ?? ratioCoreAlloc))
-  const customSecondaryAlloc = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, categoryConfig.secondaryCount ?? ratioSecondaryAlloc))
-  const customPainScenarioAlloc = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, categoryConfig.painScenarioCount ?? ratioPainScenarioAlloc))
-  const coreAlloc = allocationMode === "custom" ? customCoreAlloc : ratioCoreAlloc
-  const secondaryAlloc = allocationMode === "custom" ? customSecondaryAlloc : ratioSecondaryAlloc
-  const painScenarioAlloc = allocationMode === "custom" ? customPainScenarioAlloc : ratioPainScenarioAlloc
-  const keywordCustomTotal = customCoreAlloc + customSecondaryAlloc + customPainScenarioAlloc
-  const keywordCustomMismatch = allocationMode === "custom" && keywordCustomTotal !== remainingForKeywords
-
-  // Validation
-  const weaknessOverflow = weaknessTotal > effectiveCount
-  const coreBelowMin = allocationMode !== "custom" && remainingForKeywords > 0 && coreAlloc < coreMin
-  const weaknessTooHeavy = weaknessTotal > effectiveCount * 0.5
-
-  const coreKeywords = deriveCoreKeywords(plan)
+  const systemKeywords = deriveCoreKeywords(plan)
   const customKeywords = parseQuestionKeywords(questionCustomKeywords)
-  const previewKeywords = customKeywords.length > 0 ? customKeywords : coreKeywords
-  const usingCustomKeywords = customKeywords.length > 0
+  const keywordSource = categoryConfig.keywordSource || "system"
+  const previewKeywords = keywordSource === "custom" ? customKeywords : systemKeywords
+  const systemPainScenarios = derivePainScenarioTerms(plan)
+  const customPainScenarios = parseQuestionKeywords(questionCustomPainScenarios)
+  const painScenarioSource = categoryConfig.painScenarioSource || "system"
+  const previewPainScenarios = painScenarioSource === "custom" ? customPainScenarios : systemPainScenarios
   const stoppedMessage = isStoppedQuestionMessage(questionError)
+  const totalTooHigh = sectionPlan.totalCount > QUESTION_GENERATION_LIMIT
+  const noSectionsSelected = sectionPlan.totalCount <= 0
+  const keywordCustomMissing = sectionPlan.counts.keyword > 0 && keywordSource === "custom" && customKeywords.length === 0
+  const painCustomMissing = sectionPlan.counts.painScenario > 0 && painScenarioSource === "custom" && customPainScenarios.length === 0
+  const generateDisabled = totalTooHigh || noSectionsSelected || keywordCustomMissing || painCustomMissing
 
   const updateConfig = (patch: Partial<QuestionCategoryConfig>) => {
     const next = { ...categoryConfig, ...patch }
-    // Clamp: core 30%-70%, secondary 5%-min(50%, 100%-core-5%)
-    next.coreRatio = Math.min(0.70, Math.max(0.30, next.coreRatio))
+    next.weaknessesPerWeakness = Math.min(30, Math.max(1, Math.round(Number(next.weaknessesPerWeakness ?? 10) || 10)))
+    next.keywordCount = clampQuestionSectionCount(next.keywordCount, 20)
+    next.weaknessCount = clampQuestionSectionCount(next.weaknessCount, Math.max(10, weaknesses.length * next.weaknessesPerWeakness))
+    next.painScenarioCount = clampQuestionSectionCount(next.painScenarioCount, 10)
+    next.coreRatio = Math.min(0.70, Math.max(0.30, Number(next.coreRatio ?? 0.30)))
     const maxSecondary = Math.min(0.50, 1.0 - next.coreRatio - 0.05)
-    next.secondaryRatio = Math.min(maxSecondary, Math.max(0.05, next.secondaryRatio))
-    next.coreCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, Number(next.coreCount ?? 0) || 0))
-    next.secondaryCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, Number(next.secondaryCount ?? 0) || 0))
-    next.painScenarioCount = Math.min(QUESTION_GENERATION_LIMIT, Math.max(0, Number(next.painScenarioCount ?? 0) || 0))
+    next.secondaryRatio = Math.min(maxSecondary, Math.max(0.05, Number(next.secondaryRatio ?? 0.35)))
+    next.coreCount = clampQuestionSectionCount(next.coreCount, 0)
+    next.secondaryCount = clampQuestionSectionCount(next.secondaryCount, 0)
     onCategoryConfigChange(next)
   }
 
-  const switchAllocationMode = (mode: "ratio" | "custom") => {
-    if (mode === "custom") {
-      updateConfig({
-        allocationMode: "custom",
-        coreCount: ratioCoreAlloc,
-        secondaryCount: ratioSecondaryAlloc,
-        painScenarioCount: ratioPainScenarioAlloc,
-      })
-    } else {
-      updateConfig({ allocationMode: "ratio" })
-    }
+  const setCountMode = (section: QuestionSectionKey, mode: "system" | "custom") => {
+    if (section === "keyword") updateConfig({ keywordCountMode: mode, keywordCount: sectionPlan.counts.keyword || 20 })
+    if (section === "weakness") updateConfig({ weaknessCountMode: mode, weaknessCount: sectionPlan.counts.weakness || Math.max(1, weaknesses.length * categoryConfig.weaknessesPerWeakness) })
+    if (section === "painScenario") updateConfig({ painScenarioCountMode: mode, painScenarioCount: sectionPlan.counts.painScenario || 10 })
   }
+
+  const countModeButton = (section: QuestionSectionKey, mode: "system" | "custom", label: string) => {
+    const currentMode = section === "keyword"
+      ? categoryConfig.keywordCountMode || "system"
+      : section === "weakness"
+        ? categoryConfig.weaknessCountMode || "system"
+        : categoryConfig.painScenarioCountMode || "system"
+    return (
+      <button
+        type="button"
+        onClick={() => setCountMode(section, mode)}
+        className={`text-[11px] px-2.5 py-1 rounded-md transition ${currentMode === mode ? "bg-[#004B73] text-white" : "text-slate-500 hover:bg-slate-50"}`}
+      >
+        {label}
+      </button>
+    )
+  }
+
+  const sourceButton = (
+    source: "system" | "custom",
+    current: "system" | "custom",
+    onClick: () => void,
+    label: string,
+  ) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-[11px] px-2.5 py-1 rounded-md transition ${current === source ? "bg-[#004B73] text-white" : "text-slate-500 hover:bg-slate-50"}`}
+    >
+      {label}
+    </button>
+  )
 
   return (
     <div className="space-y-4">
-      <div className="text-xs text-slate-500">策略已生成，疑问句池可按需生成。</div>
+      <div className="text-xs text-slate-500">策略已生成，可选择生成关键词、劣势、痛点场景三类疑问句。</div>
 
-      {/* Basic Settings */}
       <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-3">
-        <h3 className="text-xs font-semibold text-slate-600">基本设置</h3>
+        <h3 className="text-xs font-semibold text-slate-600">基础设置</h3>
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="text-[11px] font-medium text-slate-500">疑问句总数</label>
+            <label className="text-[11px] font-medium text-slate-500">系统建议总量</label>
             <select value={questionCount} onChange={e => onQuestionCountChange(Number(e.target.value))}
               className="mt-1 block text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none">
               <option value={20}>20 条</option>
@@ -2088,7 +2261,7 @@ function QuestionSettingsPanel({
           </div>
           {questionCount === -1 && (
             <div>
-              <label className="text-[11px] font-medium text-slate-500">自定义数量 (最多{QUESTION_GENERATION_LIMIT})</label>
+              <label className="text-[11px] font-medium text-slate-500">自定义基准 (最多{QUESTION_GENERATION_LIMIT})</label>
               <input type="number" min={10} max={QUESTION_GENERATION_LIMIT} value={customQuestionCount}
                 onChange={e => onCustomQuestionCountChange(Math.min(QUESTION_GENERATION_LIMIT, Math.max(10, Number(e.target.value) || 10)))}
                 className="mt-1 block w-24 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none" />
@@ -2100,12 +2273,12 @@ function QuestionSettingsPanel({
               onChange={e => onLayer2RatioChange(Number(e.target.value))}
               className="block mt-1 w-28 accent-[#0077B6]" />
             <div className="text-[10px] text-slate-400 mt-0.5">
-              第一层 {Math.round(effectiveCount * (1 - layer2Ratio))} 条 · 第二层 {Math.round(effectiveCount * layer2Ratio)} 条
+              第一层 {Math.round(sectionPlan.totalCount * (1 - layer2Ratio))} 条 · 第二层 {Math.round(sectionPlan.totalCount * layer2Ratio)} 条
             </div>
           </div>
         </div>
         <div className="text-[10px] text-slate-400">
-          大批量生成会转为后台任务分批执行，页面通过短轮询同步进度，避免服务网关中断。
+          选择“系统建议数量”的部分会按上面的基准自动分配；选择“自定义数量”的部分直接按填写数量生成。
         </div>
       </div>
 
@@ -2113,228 +2286,231 @@ function QuestionSettingsPanel({
         <QuestionJobProgressBar progress={questionJobProgress} />
       )}
 
-      <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-xs font-semibold text-slate-600">自定义关键词</h3>
-          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-            usingCustomKeywords ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-500"
-          }`}>
-            {usingCustomKeywords ? `已启用 ${customKeywords.length} 个` : "使用系统推荐"}
+      <div className="space-y-3">
+        <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={categoryConfig.keywordEnabled !== false}
+                onChange={e => updateConfig({ keywordEnabled: e.target.checked })}
+                className="h-4 w-4 rounded border-slate-300 text-blue-600"
+              />
+              关键词生成
+            </label>
+            <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+              {sectionPlan.counts.keyword} 条
+            </span>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium text-slate-500">数量</div>
+              <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                {countModeButton("keyword", "system", "系统建议")}
+                {countModeButton("keyword", "custom", "自定义")}
+              </div>
+              {(categoryConfig.keywordCountMode || "system") === "custom" && (
+                <input
+                  type="number"
+                  min={0}
+                  max={QUESTION_GENERATION_LIMIT}
+                  value={categoryConfig.keywordCount ?? sectionPlan.counts.keyword}
+                  onChange={e => updateConfig({ keywordCount: Number(e.target.value) })}
+                  className="block w-28 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none"
+                />
+              )}
+            </div>
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium text-slate-500">关键词来源</div>
+              <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                {sourceButton("system", keywordSource, () => updateConfig({ keywordSource: "system" }), "系统推荐")}
+                {sourceButton("custom", keywordSource, () => updateConfig({ keywordSource: "custom" }), "自定义")}
+              </div>
+              {keywordSource === "custom" && (
+                <textarea
+                  value={questionCustomKeywords}
+                  onChange={e => onQuestionCustomKeywordsChange(e.target.value)}
+                  rows={3}
+                  placeholder={"每行一个关键词，也可用逗号/顿号分隔\n例如：AI Agent 工具\n企业级智能体"}
+                  className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              )}
+            </div>
+          </div>
+          {previewKeywords.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {previewKeywords.slice(0, 12).map((kw, i) => (
+                <span key={`${kw}-${i}`} className="rounded-full border border-blue-100 bg-white/70 px-2 py-1 text-[10px] text-blue-700">
+                  {kw}
+                </span>
+              ))}
+              {previewKeywords.length > 12 && <span className="text-[10px] text-slate-400">+{previewKeywords.length - 12} 更多</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={categoryConfig.weaknessEnabled !== false}
+                disabled={weaknesses.length === 0}
+                onChange={e => updateConfig({ weaknessEnabled: e.target.checked })}
+                className="h-4 w-4 rounded border-slate-300 text-amber-600 disabled:opacity-40"
+              />
+              劣势生成
+            </label>
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+              {sectionPlan.counts.weakness} 条
+            </span>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium text-slate-500">数量</div>
+              <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                {countModeButton("weakness", "system", "系统建议")}
+                {countModeButton("weakness", "custom", "自定义")}
+              </div>
+              {(categoryConfig.weaknessCountMode || "system") === "custom" ? (
+                <input
+                  type="number"
+                  min={0}
+                  max={QUESTION_GENERATION_LIMIT}
+                  value={categoryConfig.weaknessCount ?? sectionPlan.counts.weakness}
+                  onChange={e => updateConfig({ weaknessCount: Number(e.target.value) })}
+                  className="block w-28 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none"
+                />
+              ) : (
+                <div className="text-[11px] text-slate-500">
+                  每个劣势
+                  <select
+                    value={categoryConfig.weaknessesPerWeakness}
+                    onChange={e => updateConfig({ weaknessesPerWeakness: Number(e.target.value) })}
+                    className="mx-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none"
+                  >
+                    {[5, 8, 10, 12, 15, 20, 25, 30].map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                  条
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium text-slate-500">系统劣势</div>
+              {weaknesses.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {weaknesses.map((weakness, index) => (
+                    <span key={`${weakness}-${index}`} className="rounded-full border border-amber-200 bg-white/70 px-2 py-1 text-[10px] text-amber-700">
+                      {weakness}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[11px] text-amber-700">当前策略没有可用劣势，生成时会自动跳过这一部分。</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={categoryConfig.painScenarioEnabled !== false}
+                onChange={e => updateConfig({ painScenarioEnabled: e.target.checked })}
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+              />
+              痛点场景生成
+            </label>
+            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+              {sectionPlan.counts.painScenario} 条
+            </span>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium text-slate-500">数量</div>
+              <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                {countModeButton("painScenario", "system", "系统建议")}
+                {countModeButton("painScenario", "custom", "自定义")}
+              </div>
+              {(categoryConfig.painScenarioCountMode || "system") === "custom" && (
+                <input
+                  type="number"
+                  min={0}
+                  max={QUESTION_GENERATION_LIMIT}
+                  value={categoryConfig.painScenarioCount ?? sectionPlan.counts.painScenario}
+                  onChange={e => updateConfig({ painScenarioCount: Number(e.target.value) })}
+                  className="block w-28 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none"
+                />
+              )}
+            </div>
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium text-slate-500">痛点场景来源</div>
+              <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                {sourceButton("system", painScenarioSource, () => updateConfig({ painScenarioSource: "system" }), "系统推荐")}
+                {sourceButton("custom", painScenarioSource, () => updateConfig({ painScenarioSource: "custom" }), "自定义")}
+              </div>
+              {painScenarioSource === "custom" && (
+                <textarea
+                  value={questionCustomPainScenarios}
+                  onChange={e => onQuestionCustomPainScenariosChange(e.target.value)}
+                  rows={3}
+                  placeholder={"每行一个痛点或场景，也可用逗号/顿号分隔\n例如：预算有限\n首次采购怕踩坑\n本地交付不确定"}
+                  className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                />
+              )}
+            </div>
+          </div>
+          {previewPainScenarios.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {previewPainScenarios.slice(0, 12).map((term, i) => (
+                <span key={`${term}-${i}`} className="rounded-full border border-emerald-100 bg-white/70 px-2 py-1 text-[10px] text-emerald-700">
+                  {term}
+                </span>
+              ))}
+              {previewPainScenarios.length > 12 && <span className="text-[10px] text-slate-400">+{previewPainScenarios.length - 12} 更多</span>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+        <div className="mb-2 flex items-center justify-between text-xs">
+          <span className="font-semibold text-slate-600">本次生成预览</span>
+          <span className={`font-bold ${totalTooHigh || noSectionsSelected ? "text-red-600" : "text-slate-800"}`}>
+            合计 {sectionPlan.totalCount} 条
           </span>
         </div>
-        <textarea
-          value={questionCustomKeywords}
-          onChange={e => onQuestionCustomKeywordsChange(e.target.value)}
-          rows={4}
-          placeholder={"每行一个关键词，也可用逗号/顿号分隔\n例如：AI Agent 工具\n企业级智能体\nGEO 优化平台"}
-          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-        />
-        <div className="text-[10px] leading-relaxed text-slate-400">
-          填写后会优先围绕这些关键词生成疑问句；留空则使用策略中自动提取的关键词。
-        </div>
-        {previewKeywords.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {previewKeywords.slice(0, 12).map((kw, i) => (
-              <span
-                key={`${kw}-${i}`}
-                className={`text-[10px] px-2 py-1 rounded-full border ${
-                  usingCustomKeywords
-                    ? "bg-blue-50 text-blue-600 border-blue-100"
-                    : "bg-slate-100 text-slate-500 border-slate-200"
-                }`}
-              >
-                {kw}
-              </span>
-            ))}
-            {previewKeywords.length > 12 && (
-              <span className="text-[10px] text-slate-400">+{previewKeywords.length - 12} 更多</span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Weakness Spin */}
-      {weaknesses.length > 0 && (
-        <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-slate-600">劣势积极转化</h3>
-            <span className="text-[11px] font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-              小计: {weaknessTotal} 条
-            </span>
-          </div>
-          <p className="text-[10px] text-slate-400">
-            每个劣势生成指定数量的问题，从积极角度（数据积累、客户案例、服务经验）构建认知优势。
-            硬事实类劣势（如成立时间）无法改变但可重构叙事。
-          </p>
-          <div>
-            <label className="text-[11px] font-medium text-slate-500">每个劣势生成</label>
-            <select value={categoryConfig.weaknessesPerWeakness}
-              onChange={e => updateConfig({ weaknessesPerWeakness: Number(e.target.value) })}
-              className="ml-2 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white outline-none">
-              {[5, 8, 10, 12, 15, 20, 25, 30].map(n => (
-                <option key={n} value={n}>{n} 个问题</option>
-              ))}
-            </select>
-            <span className="ml-2 text-[11px] text-slate-400">
-              × {weaknesses.length} 个劣势
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {weaknesses.map((w, i) => (
-              <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                {w}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Keyword Category Ratios */}
-      <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h3 className="text-xs font-semibold text-slate-600">关键词分类（剩余 {remainingForKeywords} 条）</h3>
-          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-            <button
-              onClick={() => switchAllocationMode("ratio")}
-              className={`text-[11px] px-2.5 py-1 rounded-md transition ${allocationMode === "ratio" ? "bg-[#004B73] text-white" : "text-slate-500 hover:bg-slate-50"}`}
-            >
-              按比例
-            </button>
-            <button
-              onClick={() => switchAllocationMode("custom")}
-              className={`text-[11px] px-2.5 py-1 rounded-md transition ${allocationMode === "custom" ? "bg-[#004B73] text-white" : "text-slate-500 hover:bg-slate-50"}`}
-            >
-              自定义数量
-            </button>
-          </div>
-        </div>
-
-        {/* Core keywords */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[11px] font-medium text-slate-500">
-              核心关键词（品牌+地域+核心优势，≥30%总量）
-            </label>
-            <span className="text-[11px] font-semibold text-blue-600">
-              {allocationMode === "ratio" ? `${Math.round(categoryConfig.coreRatio * 100)}% → ` : ""}{coreAlloc} 条
-            </span>
-          </div>
-          {allocationMode === "ratio" ? (
-            <input type="range" min={0.30} max={0.70} step={0.05} value={categoryConfig.coreRatio}
-              onChange={e => updateConfig({ coreRatio: Number(e.target.value) })}
-              className="w-full accent-[#0077B6]" />
-          ) : (
-            <input type="number" min={0} max={QUESTION_GENERATION_LIMIT} value={customCoreAlloc}
-              onChange={e => updateConfig({ coreCount: Number(e.target.value) })}
-              className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-blue-400 transition" />
-          )}
-          {previewKeywords.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {previewKeywords.slice(0, 6).map((kw, i) => (
-                <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100">{kw}</span>
-              ))}
-              {previewKeywords.length > 6 && <span className="text-[10px] text-slate-400">+{previewKeywords.length - 6} 更多</span>}
-            </div>
-          )}
-        </div>
-
-        {/* Secondary keywords */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[11px] font-medium text-slate-500">次关键词</label>
-            <span className="text-[11px] font-semibold text-purple-600">
-              {allocationMode === "ratio" ? `${Math.round(categoryConfig.secondaryRatio * 100)}% → ` : ""}{secondaryAlloc} 条
-            </span>
-          </div>
-          {allocationMode === "ratio" ? (
-            <input type="range" min={0.05} max={Math.min(0.50, 1.0 - categoryConfig.coreRatio - 0.05)} step={0.05}
-              value={categoryConfig.secondaryRatio}
-              onChange={e => updateConfig({ secondaryRatio: Number(e.target.value) })}
-              className="w-full accent-[#7c3aed]" />
-          ) : (
-            <input type="number" min={0} max={QUESTION_GENERATION_LIMIT} value={customSecondaryAlloc}
-              onChange={e => updateConfig({ secondaryCount: Number(e.target.value) })}
-              className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-purple-400 transition" />
-          )}
-        </div>
-
-        {/* Pain/Scenario */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[11px] font-medium text-slate-400">
-              痛点/场景关键词{allocationMode === "ratio" ? "（自动计算）" : ""}
-            </label>
-            <span className="text-[11px] text-slate-400">
-              {allocationMode === "ratio" ? `${Math.round((1.0 - categoryConfig.coreRatio - categoryConfig.secondaryRatio) * 100)}% → ` : ""}{painScenarioAlloc} 条
-            </span>
-          </div>
-          {allocationMode === "ratio" ? (
-            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 rounded-full"
-                style={{ width: "100%" }} />
-            </div>
-          ) : (
-            <input type="number" min={0} max={QUESTION_GENERATION_LIMIT} value={customPainScenarioAlloc}
-              onChange={e => updateConfig({ painScenarioCount: Number(e.target.value) })}
-              className="w-28 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none focus:border-emerald-400 transition" />
-          )}
-        </div>
-
-        {keywordCustomMismatch && (
-          <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-700">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            自定义关键词数量合计 {keywordCustomTotal} 条，需要等于剩余关键词数量 {remainingForKeywords} 条。
-          </div>
-        )}
-      </div>
-
-      {/* Preview */}
-      <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-2">
-        <h3 className="text-xs font-semibold text-slate-600">分配预览</h3>
         <div className="space-y-1 text-[11px]">
-          {weaknesses.length > 0 && (
-            <div className="flex justify-between">
-              <span className="text-slate-500">劣势转化</span>
-              <span className="font-medium text-slate-700">{weaknessTotal} 条 ({weaknessTotal > 0 ? Math.round(weaknessTotal / effectiveCount * 100) : 0}%)</span>
-            </div>
-          )}
-          <div className="flex justify-between">
-            <span className="text-slate-500">核心关键词</span>
-            <span className="font-medium text-slate-700">{coreAlloc} 条 ({remainingForKeywords > 0 ? Math.round(coreAlloc / effectiveCount * 100) : 0}%)</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">次关键词</span>
-            <span className="font-medium text-slate-700">{secondaryAlloc} 条 ({remainingForKeywords > 0 ? Math.round(secondaryAlloc / effectiveCount * 100) : 0}%)</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">痛点/场景</span>
-            <span className="font-medium text-slate-700">{painScenarioAlloc} 条 ({remainingForKeywords > 0 ? Math.round(painScenarioAlloc / effectiveCount * 100) : 0}%)</span>
-          </div>
-          <div className="border-t border-slate-200 pt-1.5 flex justify-between">
-            <span className="font-medium text-slate-600">总计</span>
-            <span className={`font-bold ${weaknessTotal + coreAlloc + secondaryAlloc + painScenarioAlloc !== effectiveCount ? "text-red-600" : "text-slate-800"}`}>
-              {weaknessTotal + coreAlloc + secondaryAlloc + painScenarioAlloc} 条
-            </span>
-          </div>
+          <div className="flex justify-between"><span className="text-slate-500">关键词生成</span><span className="font-medium text-slate-700">{sectionPlan.counts.keyword} 条</span></div>
+          <div className="flex justify-between"><span className="text-slate-500">劣势生成</span><span className="font-medium text-slate-700">{sectionPlan.counts.weakness} 条</span></div>
+          <div className="flex justify-between"><span className="text-slate-500">痛点场景生成</span><span className="font-medium text-slate-700">{sectionPlan.counts.painScenario} 条</span></div>
         </div>
-
-        {/* Warnings */}
-        {weaknessOverflow && (
-          <div className="flex items-start gap-1.5 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-[11px] text-red-600">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            劣势转化问题 ({weaknessTotal}条) 超过总问题数 ({effectiveCount}条)，请减少每个劣势的问题数或增加总数。
+        {noSectionsSelected && (
+          <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-600">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            请至少选择一个生成部分，并设置大于 0 的数量。
           </div>
         )}
-        {!weaknessOverflow && coreBelowMin && (
-          <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-700">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            核心关键词 ({coreAlloc}条) 低于总量的30% ({coreMin}条)，请调整比例或减少劣势问题数。
+        {totalTooHigh && (
+          <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-600">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            本次合计超过 {QUESTION_GENERATION_LIMIT} 条，请减少某个部分的数量。
           </div>
         )}
-        {!weaknessOverflow && weaknessTooHeavy && (
-          <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-600">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            劣势转化问题超过总数的一半，其他类别空间有限。
+        {keywordCustomMissing && (
+          <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            关键词生成已选择自定义来源，请填写关键词。
+          </div>
+        )}
+        {painCustomMissing && (
+          <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            痛点场景生成已选择自定义来源，请填写痛点或场景。
           </div>
         )}
       </div>
@@ -2360,7 +2536,7 @@ function QuestionSettingsPanel({
         </button>
       ) : (
         <button onClick={onGenerateQuestions}
-          disabled={weaknessOverflow || keywordCustomMismatch}
+          disabled={generateDisabled}
           className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:shadow-lg hover:shadow-violet-300/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
           <Sparkles className="h-4 w-4" /> 生成疑问句池
         </button>

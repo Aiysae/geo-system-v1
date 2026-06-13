@@ -40,6 +40,7 @@ export interface KeywordStrategyState {
   questionCount: number
   customQuestionCount: number
   questionCustomKeywords: string
+  questionCustomPainScenarios: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]
@@ -211,6 +212,26 @@ export interface QuestionJobRecord extends QuestionJobProgress {
 export interface QuestionCategoryConfig {
   /** 每个劣势生成的问题数量 (5-30, 默认 10) */
   weaknessesPerWeakness: number
+  /** 是否生成关键词问题 */
+  keywordEnabled?: boolean
+  /** 是否生成劣势转化问题 */
+  weaknessEnabled?: boolean
+  /** 是否生成痛点/场景问题 */
+  painScenarioEnabled?: boolean
+  /** 关键词数量模式 */
+  keywordCountMode?: "system" | "custom"
+  /** 劣势数量模式 */
+  weaknessCountMode?: "system" | "custom"
+  /** 痛点/场景数量模式 */
+  painScenarioCountMode?: "system" | "custom"
+  /** 关键词来源 */
+  keywordSource?: "system" | "custom"
+  /** 痛点/场景来源 */
+  painScenarioSource?: "system" | "custom"
+  /** 自定义关键词问题数 */
+  keywordCount?: number
+  /** 自定义劣势转化问题数 */
+  weaknessCount?: number
   /** 关键词分类分配模式：按比例或自定义精确数量 */
   allocationMode?: "ratio" | "custom"
   /** 核心关键词占比 (0.30-0.70, 默认 0.30) */
@@ -227,6 +248,17 @@ export interface QuestionCategoryConfig {
 
 export const DEFAULT_CATEGORY_CONFIG: QuestionCategoryConfig = {
   weaknessesPerWeakness: 10,
+  keywordEnabled: true,
+  weaknessEnabled: true,
+  painScenarioEnabled: true,
+  keywordCountMode: "system",
+  weaknessCountMode: "system",
+  painScenarioCountMode: "system",
+  keywordSource: "system",
+  painScenarioSource: "system",
+  keywordCount: 20,
+  weaknessCount: 10,
+  painScenarioCount: 10,
   allocationMode: "ratio",
   coreRatio: 0.30,
   secondaryRatio: 0.35,
