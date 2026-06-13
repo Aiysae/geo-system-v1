@@ -221,6 +221,30 @@ function derivePainScenarioKeywords(strategy: Record<string, unknown>): string[]
   return Array.from(s)
 }
 
+function mergeKeywordLists(...lists: string[][]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const list of lists) {
+    for (const raw of list) {
+      const keyword = raw.trim()
+      const key = keyword.replace(/\s+/g, "").toLowerCase()
+      if (!keyword || seen.has(key)) continue
+      seen.add(key)
+      result.push(keyword)
+    }
+  }
+  return result
+}
+
+function normalizeKeywordInput(value: unknown): string[] {
+  const rawItems = Array.isArray(value)
+    ? value.map(item => String(item))
+    : typeof value === "string"
+      ? value.split(/[\n\r,，;；、]+/)
+      : []
+  return mergeKeywordLists(rawItems).slice(0, 120)
+}
+
 function calculateAllocations(
   strategy: Record<string, unknown>,
   coreKeywordsInput: string[],
@@ -234,6 +258,7 @@ function calculateAllocations(
     secondaryCount: number
     painScenarioCount: number
   },
+  customKeywordMode = false,
 ): { allocations: Allocation[]; warnings: string[] } {
   const warnings: string[] = []
   const profile = (strategy.profile || {}) as Record<string, unknown>
@@ -306,8 +331,12 @@ function calculateAllocations(
   // Derive keywords
   const derivedCore = coreKeywordsInput.length > 0 ? coreKeywordsInput : deriveCoreKeywords(strategy)
   const coreSet = new Set(derivedCore)
-  const secondaryKws = deriveSecondaryKeywords(strategy, coreSet)
-  const painScenarioKws = derivePainScenarioKeywords(strategy)
+  const secondaryKws = customKeywordMode
+    ? mergeKeywordLists(coreKeywordsInput, deriveSecondaryKeywords(strategy, coreSet))
+    : deriveSecondaryKeywords(strategy, coreSet)
+  const painScenarioKws = customKeywordMode
+    ? mergeKeywordLists(coreKeywordsInput, derivePainScenarioKeywords(strategy))
+    : derivePainScenarioKeywords(strategy)
 
   const allocations: Allocation[] = [
     {
@@ -668,7 +697,7 @@ async function handler(req: NextRequest) {
     const body = await req.json()
     const {
       strategy, totalCount = 40, layer2Ratio = 0.35,
-      categoryConfig, coreKeywords = [], avoidQuestions = [],
+      categoryConfig, coreKeywords = [], customKeywords = [], avoidQuestions = [],
     } = body
 
     if (!strategy) {
@@ -687,6 +716,10 @@ async function handler(req: NextRequest) {
     const avoidQuestionTexts = Array.isArray(avoidQuestions)
       ? avoidQuestions.map(item => String(item).trim()).filter(Boolean).slice(0, 300)
       : []
+    const normalizedCustomKeywords = normalizeKeywordInput(customKeywords)
+    const normalizedCoreKeywords = normalizedCustomKeywords.length > 0
+      ? normalizedCustomKeywords
+      : normalizeKeywordInput(coreKeywords)
 
     if (!aiConfig.apiKey) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
@@ -694,6 +727,9 @@ async function handler(req: NextRequest) {
 
     const countWarnings = requestedCount > count
       ? [`单次疑问句生成已按稳定上限调整为 ${count} 条；如需更多，建议分批生成。`]
+      : []
+    const keywordWarnings = normalizedCustomKeywords.length > 0
+      ? [`已使用 ${normalizedCustomKeywords.length} 个自定义关键词作为疑问句生成关键词池。`]
       : []
 
     const cfg = {
@@ -711,12 +747,12 @@ async function handler(req: NextRequest) {
 
     // 1. Calculate allocations
     const { allocations, warnings: allocWarnings } = calculateAllocations(
-      strategy, coreKeywords, count, cfg,
+      strategy, normalizedCoreKeywords, count, cfg, normalizedCustomKeywords.length > 0,
     )
 
     // 2. Generate categories concurrently with bounded LLM pressure.
     const allQuestions: Array<Omit<QuestionItem, "id">> = []
-    const allWarnings = [...countWarnings, ...allocWarnings]
+    const allWarnings = [...countWarnings, ...keywordWarnings, ...allocWarnings]
     let offset = 0
     const activeAllocations = allocations
       .map((alloc) => {
