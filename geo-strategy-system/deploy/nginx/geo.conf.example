@@ -45,9 +45,10 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
 
-        # 渗透率检测等 API 最长约 180s，留足余量
+        # 批量检测、疑问句后台任务等长耗时 API 需要更长的网关余量
         proxy_connect_timeout 60s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
+        proxy_send_timeout 900s;
+        proxy_read_timeout 900s;
+        send_timeout 900s;
     }
 }
