@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { DEFAULT_CATEGORY_CONFIG, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type ContentCalendarItem, type QuestionCategoryConfig, type ThirdPartySite, type QuestionJobProgress, type QuestionJobRecord } from "@/types/geo-strategy"
+import { DEFAULT_CATEGORY_CONFIG, type ExtractedProfile, type ExtractedItem, type GeoStrategyPlan, type ToolStep, type GenerationStatus, type UploadedFile, type QuestionItem, type QuestionCategoryConfig, type ThirdPartySite, type QuestionJobProgress, type QuestionJobRecord } from "@/types/geo-strategy"
 import type { Client } from "@/types"
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
+import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 
@@ -51,7 +51,6 @@ interface BrandData {
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]
-  contentCalendar: ContentCalendarItem[]
 }
 
 function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandData {
@@ -88,7 +87,6 @@ function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandDat
     layer2Ratio: 0.35,
     categoryConfig: DEFAULT_CATEGORY_CONFIG,
     questions: [],
-    contentCalendar: [],
   }
 
   return { ...base, ...overrides, name: overrides.name ?? name }
@@ -679,7 +677,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       questionJobId: undefined,
       questionJobProgress: initialProgress,
       questions: [],
-      contentCalendar: [],
     })
 
     try {
@@ -722,7 +719,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         if (job.questions.length > 0) {
           updateBrand({
             questions: job.questions,
-            contentCalendar: job.contentCalendar,
             questionJobProgress: {
               completedCount: job.completedCount,
               totalCount: job.totalCount,
@@ -736,7 +732,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         if (job.status === "succeeded") {
           updateBrand({
             questions: job.questions,
-            contentCalendar: job.contentCalendar,
             questionError: job.warnings.length > 0 ? job.warnings.join("；") : "",
             questionStatus: "done",
             questionJobProgress: {
@@ -786,24 +781,23 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     if (!activeBrand.strategyPlan) return
     const full = { ...activeBrand.strategyPlan }
     if (activeBrand.questions.length) full.question_strategy = activeBrand.questions
-    if (activeBrand.contentCalendar.length) full.content_calendar = activeBrand.contentCalendar
     const blob = new Blob([JSON.stringify(full, null, 2)], { type: "application/json" })
     downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_完整方案.json`)
-  }, [activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
+  }, [activeBrand.strategyPlan, activeBrand.questions])
 
   const handleExportMarkdown = useCallback(() => {
     if (!activeBrand.strategyPlan) return
-    const md = generateMarkdown(activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar)
+    const md = generateMarkdown(activeBrand.strategyPlan, activeBrand.questions)
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" })
     downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_方案报告.md`)
-  }, [activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
+  }, [activeBrand.strategyPlan, activeBrand.questions])
 
   const handleExportWord = useCallback(() => {
     if (!activeBrand.strategyPlan) return
-    const html = generateWordHtml(activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar)
+    const html = generateWordHtml(activeBrand.strategyPlan, activeBrand.questions)
     const blob = new Blob([html], { type: "application/msword;charset=utf-8" })
     downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_方案报告.doc`)
-  }, [activeBrand.strategyPlan, activeBrand.questions, activeBrand.contentCalendar])
+  }, [activeBrand.strategyPlan, activeBrand.questions])
 
   const handleReExtract = useCallback(async () => {
     await handleExtract()
@@ -900,7 +894,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             <StrategyStep
               plan={ab.strategyPlan}
               questions={ab.questions}
-              contentCalendar={ab.contentCalendar}
               questionStatus={ab.questionStatus}
               questionError={ab.questionError}
               questionJobProgress={ab.questionJobProgress}
@@ -1378,7 +1371,7 @@ function ExtractionStep({
 // ==================== Step 3: Strategy ====================
 
 function StrategyStep({
-  plan, questions, contentCalendar, questionStatus, questionError,
+  plan, questions, questionStatus, questionError,
   questionJobProgress,
   questionCount, customQuestionCount, questionCustomKeywords, layer2Ratio,
   categoryConfig, onCategoryConfigChange,
@@ -1388,7 +1381,6 @@ function StrategyStep({
 }: {
   plan: GeoStrategyPlan
   questions: QuestionItem[]
-  contentCalendar: ContentCalendarItem[]
   questionStatus: GenerationStatus
   questionError: string
   questionJobProgress?: QuestionJobProgress
@@ -1410,7 +1402,6 @@ function StrategyStep({
   hasQuestions: boolean
 }) {
   const [showJson, setShowJson] = useState(false)
-  const [showCalendar, setShowCalendar] = useState(false)
   const [showQuestionSettings, setShowQuestionSettings] = useState(false)
   const [activePromptKey, setActivePromptKey] = useState<string | null>(null)
   const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null)
@@ -1761,8 +1752,6 @@ function StrategyStep({
                       <span className="text-slate-400">{q.category}</span>
                       <span className="text-slate-400">·</span>
                       <span className="text-slate-400">{q.keyword}</span>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-slate-400">{q.suggested_channel}</span>
                     </div>
                   </div>
                 </div>
@@ -1773,32 +1762,6 @@ function StrategyStep({
                 </button>
               )}
             </div>
-
-            {/* Content Calendar */}
-            {contentCalendar.length > 0 && (
-              <div className="mt-4">
-                <button onClick={() => setShowCalendar(v => !v)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-800 transition">
-                  {showCalendar ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  内容日历 ({contentCalendar.length} 项)
-                </button>
-                {showCalendar && (
-                  <div className="mt-3 space-y-2">
-                    {contentCalendar.map((item, i) => (
-                      <div key={i} className="text-xs p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                        <div className="flex items-center gap-2 text-slate-400 mb-1">
-                          <span className="font-medium text-slate-600">{item.week}</span>
-                          <span>·</span>
-                          <span>{item.platform}</span>
-                        </div>
-                        <div className="text-slate-700 font-medium">{item.article_title}</div>
-                        <div className="text-slate-500 mt-0.5">{item.question}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
       </Card>
@@ -2411,7 +2374,6 @@ function downloadBlob(blob: Blob, filename: string) {
 function generateMarkdown(
   plan: GeoStrategyPlan,
   questions: QuestionItem[],
-  calendar: ContentCalendarItem[]
 ): string {
   const lines: string[] = []
   lines.push(`# ${plan.project_name || "GEO 优化策略方案"}`)
@@ -2480,14 +2442,6 @@ function generateMarkdown(
     questions.forEach(q => lines.push(`- [#${q.id}] [${q.layer}] ${q.question}（${q.category} · ${q.keyword}）`))
     lines.push(``)
   }
-  if (calendar.length) {
-    lines.push(`## 内容日历`)
-    lines.push(``)
-    lines.push(`| 周次 | 平台 | 标题 | 类型 |`)
-    lines.push(`|------|------|------|------|`)
-    calendar.forEach(c => lines.push(`| ${c.week} | ${c.platform} | ${c.article_title} | ${c.content_type} |`))
-    lines.push(``)
-  }
   return lines.join("\n")
 }
 
@@ -2500,7 +2454,6 @@ function buildSection(title: string, content: string): string[] {
 function generateWordHtml(
   plan: GeoStrategyPlan,
   questions: QuestionItem[],
-  calendar: ContentCalendarItem[]
 ): string {
   const h = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   const parts: string[] = [
@@ -2567,15 +2520,8 @@ function generateWordHtml(
 
   // Questions
   if (questions.length) {
-    parts.push(`<h2>疑问句池</h2><table><tr><th>#</th><th>层级</th><th>问题</th><th>分类</th><th>关键词</th><th>推荐渠道</th></tr>`)
-    questions.forEach(q => parts.push(`<tr><td>${h(q.id)}</td><td>${q.layer === "第一层" ? "第一层" : "第二层"}</td><td>${h(q.question)}</td><td>${h(q.category)}</td><td>${h(q.keyword)}</td><td>${h(q.suggested_channel)}</td></tr>`))
-    parts.push(`</table>`)
-  }
-
-  // Calendar
-  if (calendar.length) {
-    parts.push(`<h2>内容日历</h2><table><tr><th>周次</th><th>平台</th><th>标题</th><th>类型</th></tr>`)
-    calendar.forEach(c => parts.push(`<tr><td>${h(c.week)}</td><td>${h(c.platform)}</td><td>${h(c.article_title)}</td><td>${h(c.content_type)}</td></tr>`))
+    parts.push(`<h2>疑问句池</h2><table><tr><th>#</th><th>层级</th><th>问题</th><th>分类</th><th>关键词</th></tr>`)
+    questions.forEach(q => parts.push(`<tr><td>${h(q.id)}</td><td>${q.layer === "第一层" ? "第一层" : "第二层"}</td><td>${h(q.question)}</td><td>${h(q.category)}</td><td>${h(q.keyword)}</td></tr>`))
     parts.push(`</table>`)
   }
 
