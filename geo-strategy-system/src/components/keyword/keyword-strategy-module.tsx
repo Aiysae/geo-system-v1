@@ -1115,6 +1115,20 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_方案报告.doc`)
   }, [activeBrand.strategyPlan, activeBrand.questions])
 
+  const handleExportQuestionsCsv = useCallback(() => {
+    if (!activeBrand.strategyPlan || activeBrand.questions.length === 0) return
+    const csv = generateQuestionCsv(activeBrand.questions)
+    const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" })
+    downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_疑问句池.csv`)
+  }, [activeBrand.strategyPlan, activeBrand.questions])
+
+  const handleExportQuestionsWord = useCallback(() => {
+    if (!activeBrand.strategyPlan || activeBrand.questions.length === 0) return
+    const html = generateQuestionWordHtml(activeBrand.strategyPlan, activeBrand.questions)
+    const blob = new Blob([html], { type: "application/msword;charset=utf-8" })
+    downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_疑问句池.doc`)
+  }, [activeBrand.strategyPlan, activeBrand.questions])
+
   const handleReExtract = useCallback(async () => {
     await handleExtract()
   }, [handleExtract])
@@ -1230,6 +1244,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               onExportJson={handleExportJson}
               onExportMarkdown={handleExportMarkdown}
               onExportWord={handleExportWord}
+              onExportQuestionsCsv={handleExportQuestionsCsv}
+              onExportQuestionsWord={handleExportQuestionsWord}
               onBack={() => updateBrand({ step: "extraction" })}
               hasQuestions={ab.questions.length > 0}
             />
@@ -1695,7 +1711,7 @@ function StrategyStep({
   questionCount, customQuestionCount, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio,
   categoryConfig, onCategoryConfigChange,
   onQuestionCountChange, onCustomQuestionCountChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange, onGenerateQuestions, onStopQuestions,
-  onExportJson, onExportMarkdown, onExportWord, onBack,
+  onExportJson, onExportMarkdown, onExportWord, onExportQuestionsCsv, onExportQuestionsWord, onBack,
   hasQuestions,
 }: {
   plan: GeoStrategyPlan
@@ -1720,6 +1736,8 @@ function StrategyStep({
   onExportJson: () => void
   onExportMarkdown: () => void
   onExportWord: () => void
+  onExportQuestionsCsv: () => void
+  onExportQuestionsWord: () => void
   onBack: () => void
   hasQuestions: boolean
 }) {
@@ -2038,8 +2056,28 @@ function StrategyStep({
         ) : (
           <>
             {/* Show question summary */}
-            <div className="text-xs text-slate-500 mb-4">
-              共 {questions.length} 条疑问句（第一层: {questions.filter(q => q.layer === "第一层").length} 条, 第二层: {questions.filter(q => q.layer === "第二层").length} 条）
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-slate-500">
+                共 {questions.length} 条疑问句（第一层: {questions.filter(q => q.layer === "第一层").length} 条, 第二层: {questions.filter(q => q.layer === "第二层").length} 条）
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={onExportQuestionsCsv}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
+                  title="导出为 CSV 表格"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  导出表格
+                </button>
+                <button
+                  onClick={onExportQuestionsWord}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
+                  title="导出为 Word 文档"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  导出文档
+                </button>
+              </div>
             </div>
             <button
               onClick={() => setShowQuestionSettings(v => !v)}
@@ -2735,6 +2773,78 @@ function downloadBlob(blob: Blob, filename: string) {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+function sanitizeFileName(name: string): string {
+  return name
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80) || "GEO策略"
+}
+
+function buildQuestionExportBaseName(plan: GeoStrategyPlan): string {
+  return sanitizeFileName(plan.project_name || plan.profile?.brand_or_product || "GEO策略")
+}
+
+function escapeCsvCell(value: unknown): string {
+  const text = String(value ?? "")
+  if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`
+  return text
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
+function generateQuestionCsv(questions: QuestionItem[]): string {
+  const headers = ["序号", "层级", "疑问句", "生成类型", "关键词"]
+  const rows = questions.map(question => [
+    question.id,
+    question.layer,
+    question.question,
+    question.category,
+    question.keyword,
+  ])
+  return [headers, ...rows].map(row => row.map(escapeCsvCell).join(",")).join("\n")
+}
+
+function generateQuestionWordHtml(
+  plan: GeoStrategyPlan,
+  questions: QuestionItem[],
+): string {
+  const projectName = plan.project_name || plan.profile?.brand_or_product || "GEO 疑问句池"
+  const layer1Count = questions.filter(question => question.layer === "第一层").length
+  const layer2Count = questions.filter(question => question.layer === "第二层").length
+  const categoryCounts = questions.reduce<Record<string, number>>((acc, question) => {
+    const category = question.category || "未分类"
+    acc[category] = (acc[category] || 0) + 1
+    return acc
+  }, {})
+
+  const rows = questions.map(question => (
+    `<tr><td>${escapeHtml(question.id)}</td><td>${escapeHtml(question.layer)}</td><td>${escapeHtml(question.question)}</td><td>${escapeHtml(question.category)}</td><td>${escapeHtml(question.keyword)}</td></tr>`
+  ))
+
+  return [
+    `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>`,
+    `<head><meta charset="utf-8"><title>${escapeHtml(projectName)} 疑问句池</title>`,
+    `<style>body{font-family:'微软雅黑',Arial,sans-serif;font-size:11pt;color:#1e293b;line-height:1.5;margin:2cm}h1{font-size:20pt;color:#4c1d95;border-bottom:2px solid #8b5cf6;padding-bottom:8px}p{margin:6px 0 12px;color:#64748b}.summary{margin:12px 0 16px;padding:10px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#4c1d95}table{border-collapse:collapse;width:100%;font-size:9.5pt}td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:left;vertical-align:top}th{background:#ede9fe;color:#4c1d95;font-weight:600}tr:nth-child(even){background:#f8fafc}.q{width:48%}</style></head><body>`,
+    `<h1>${escapeHtml(projectName)} 疑问句池</h1>`,
+    `<div class="summary">共 ${questions.length} 条疑问句，第一层 ${layer1Count} 条，第二层 ${layer2Count} 条。</div>`,
+    Object.keys(categoryCounts).length > 0
+      ? `<p>生成类型：${Object.entries(categoryCounts).map(([category, count]) => `${escapeHtml(category)} ${count} 条`).join("；")}</p>`
+      : "",
+    `<table><tr><th>#</th><th>层级</th><th class="q">疑问句</th><th>生成类型</th><th>关键词</th></tr>`,
+    ...rows,
+    `</table>`,
+    `<p style="color:#94a3b8;font-size:9pt;margin-top:24px">Generated by 势途 GEO · ${new Date().toLocaleDateString("zh-CN")}</p>`,
+    `</body></html>`,
+  ].join("\n")
 }
 
 // ==================== Export: Markdown ====================
