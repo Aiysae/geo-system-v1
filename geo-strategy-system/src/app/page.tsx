@@ -6,7 +6,8 @@ import PenetrationModule from "@/components/penetration/penetration-module"
 import ResearchModule from "@/components/research/research-module"
 import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
 import KeywordStrategyModule from "@/components/keyword/keyword-strategy-module"
-import { Brain, ListOrdered, Menu, Printer, Radar, Sparkles, Target } from "lucide-react"
+import ArticleGenerationModule from "@/components/article/article-generation-module"
+import { Brain, FileText, ListOrdered, Menu, Printer, Radar, Sparkles, Target } from "lucide-react"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { AccountMenu } from "@/components/auth/account-menu"
@@ -297,12 +298,15 @@ function Dashboard({
         {activeModule === "keyword" && (
           <KeywordStrategyModule client={client} onChangeClient={onChangeClient} />
         )}
+        {activeModule === "article" && (
+          <ArticleGenerationModule client={client} onChangeClient={onChangeClient} />
+        )}
       </section>
     </div>
   )
 }
 
-type DashboardModuleKey = "penetration" | "research" | "diagnosis" | "keyword"
+type DashboardModuleKey = "penetration" | "research" | "diagnosis" | "keyword" | "article"
 
 const DASHBOARD_MODULES: Array<{
   key: DashboardModuleKey
@@ -314,6 +318,7 @@ const DASHBOARD_MODULES: Array<{
   { key: "research", label: "独立调研", desc: "品牌画像", icon: Brain },
   { key: "diagnosis", label: "AI 诊断", desc: "五维评分", icon: Radar },
   { key: "keyword", label: "关键词策略", desc: "资料抽取与疑问句池", icon: ListOrdered },
+  { key: "article", label: "文章生成", desc: "Prompt 内容生产", icon: FileText },
 ]
 
 function ModuleNav({
@@ -325,7 +330,7 @@ function ModuleNav({
 }) {
   return (
     <nav className="no-print -mx-1 overflow-x-auto pb-1">
-      <div className="inline-flex min-w-full gap-2 rounded-2xl border border-slate-200/70 bg-white/75 p-1.5 shadow-sm backdrop-blur sm:grid sm:grid-cols-4">
+      <div className="inline-flex min-w-full gap-2 rounded-2xl border border-slate-200/70 bg-white/75 p-1.5 shadow-sm backdrop-blur sm:grid sm:grid-cols-5">
         {DASHBOARD_MODULES.map(item => {
           const Icon = item.icon
           const isActive = active === item.key
