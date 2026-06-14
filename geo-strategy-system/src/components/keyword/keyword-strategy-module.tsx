@@ -374,14 +374,23 @@ function isStoppedQuestionMessage(message: string): boolean {
   return message.startsWith("已停止生成")
 }
 
-function waitForQuestionPoll(signal: AbortSignal): Promise<void> {
+function isNonBlockingQuestionMessage(message: string): boolean {
+  return isStoppedQuestionMessage(message) || message.startsWith("后台任务仍在生成")
+}
+
+function isFatalQuestionPollError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /不存在|已过期|Unauthorized|HTTP 401|HTTP 403|无权限/i.test(message)
+}
+
+function waitForQuestionPoll(signal: AbortSignal, delayMs = 2000): Promise<void> {
   return new Promise(resolve => {
     if (signal.aborted) {
       resolve()
       return
     }
 
-    const timeout = window.setTimeout(resolve, 2000)
+    const timeout = window.setTimeout(resolve, delayMs)
     signal.addEventListener("abort", () => {
       window.clearTimeout(timeout)
       resolve()
@@ -1033,7 +1042,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     questionAbortRef.current?.abort()
     questionAbortRef.current = controller
     let failedPolls = 0
-    const maxPolls = 900
+    let slowNoticeShown = false
+    const pollStartedAt = Date.now()
 
     const isCurrentRun = () => (
       mountedRef.current
@@ -1043,7 +1053,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
 
     ;(async () => {
       try {
-        for (let poll = 0; poll < maxPolls; poll++) {
+        for (;;) {
           let job: QuestionJobRecord & { error?: string }
 
           try {
@@ -1058,9 +1068,18 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             failedPolls = 0
           } catch (error) {
             if (!isCurrentRun()) return
+            if (isFatalQuestionPollError(error)) throw error
             failedPolls += 1
-            if (failedPolls >= 5) throw error
-            await waitForQuestionPoll(controller.signal)
+            if (failedPolls >= 5) {
+              updateBrand({
+                questionError: "后台任务仍在生成，暂时无法刷新进度；系统会继续自动重试，请不要重新发起同一个任务。",
+                questionStatus: "generating",
+                questionJobId: jobId,
+              })
+              await waitForQuestionPoll(controller.signal, 10000)
+            } else {
+              await waitForQuestionPoll(controller.signal)
+            }
             if (!isCurrentRun()) return
             continue
           }
@@ -1102,13 +1121,23 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             questions: job.questions,
             questionJobProgress: progress,
             questionStatus: "generating",
+            questionError: slowNoticeShown
+              ? "后台任务仍在生成，大批量豆包任务可能耗时较久；系统会持续等待并自动写入结果。"
+              : "",
           })
 
-          await waitForQuestionPoll(controller.signal)
+          if (!slowNoticeShown && Date.now() - pollStartedAt > 30 * 60 * 1000) {
+            slowNoticeShown = true
+            updateBrand({
+              questionError: "后台任务仍在生成，大批量豆包任务可能耗时较久；系统会持续等待并自动写入结果。",
+              questionStatus: "generating",
+              questionJobId: jobId,
+            })
+          }
+
+          await waitForQuestionPoll(controller.signal, slowNoticeShown ? 5000 : 2000)
           if (!isCurrentRun()) return
         }
-
-        throw new Error("疑问句后台任务等待时间过长，请稍后刷新任务状态或重新发起。")
       } catch (err) {
         if (!isCurrentRun()) return
 
@@ -2229,6 +2258,9 @@ function QuestionJobProgressBar({ progress }: { progress: QuestionJobProgress })
   const batchText = progress.totalBatches > 0
     ? `第 ${Math.min(progress.currentBatch, progress.totalBatches)}/${progress.totalBatches} 批`
     : "准备中"
+  const longTaskText = progress.totalCount >= 300
+    ? "大批量任务会持续后台生成，可切换客户面板，完成后自动写入当前客户。"
+    : ""
 
   return (
     <div className="rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-2.5">
@@ -2242,6 +2274,9 @@ function QuestionJobProgressBar({ progress }: { progress: QuestionJobProgress })
           style={{ width: `${percent}%` }}
         />
       </div>
+      {longTaskText && (
+        <div className="mt-1.5 text-[10px] leading-4 text-violet-600">{longTaskText}</div>
+      )}
     </div>
   )
 }
@@ -2287,7 +2322,7 @@ function QuestionSettingsPanel({
   const customPainScenarios = parseQuestionKeywords(questionCustomPainScenarios)
   const painScenarioSource = categoryConfig.painScenarioSource || "system"
   const previewPainScenarios = painScenarioSource === "custom" ? customPainScenarios : systemPainScenarios
-  const stoppedMessage = isStoppedQuestionMessage(questionError)
+  const nonBlockingMessage = isNonBlockingQuestionMessage(questionError)
   const totalTooHigh = sectionPlan.totalCount > QUESTION_GENERATION_LIMIT
   const noSectionsSelected = sectionPlan.totalCount <= 0
   const keywordCustomMissing = sectionPlan.counts.keyword > 0 && keywordSource === "custom" && customKeywords.length === 0
@@ -2681,7 +2716,7 @@ function QuestionSettingsPanel({
 
       {questionError && (
         <div className={`rounded-xl border px-3 py-2 text-xs flex items-start gap-2 ${
-          stoppedMessage
+          nonBlockingMessage
             ? "border-amber-200 bg-amber-50 text-amber-700"
             : "border-red-200 bg-red-50 text-red-600"
         }`}>
