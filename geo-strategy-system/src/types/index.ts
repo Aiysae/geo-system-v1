@@ -52,6 +52,27 @@ export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "huny
 
 export type LlmMode = "consumer" | "judge"
 
+export type ArticlePromptKey = "thirdPartyObservation" | "pitfallGuide" | "shortVideoScript"
+
+export type ArticleModelProviderKey = ModelKey | "article"
+
+export interface ArticleGenerationState {
+  promptKey: ArticlePromptKey
+  modelProvider: ArticleModelProviderKey
+  model: string
+  coreQuestion: string
+  keywords: string
+  region: string
+  business: string
+  advantages: string
+  audience: string
+  extraRequirements: string
+  output: string
+  status: GenerationStatus
+  error?: string
+  generatedAt?: string
+}
+
 export interface PenetrationSource {
   title: string
   snippet: string
@@ -210,4 +231,5 @@ export interface Client {
   competitorCompareSelectedCompetitors?: string[]
   diagnosis?: Diagnosis
   keywordStrategy?: KeywordStrategyState
+  articleGeneration?: ArticleGenerationState
 }

@@ -1,6 +1,6 @@
 import type { ModelKey } from "./index"
 
-export type AiProviderKey = ModelKey | "keywordStrategy"
+export type AiProviderKey = ModelKey | "keywordStrategy" | "article"
 
 export interface AiProviderExtraField {
   key: string
