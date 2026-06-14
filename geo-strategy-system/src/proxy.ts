@@ -3,6 +3,12 @@ import { AUTH_COOKIE_NAME, verifySessionCookieValue } from "@/lib/session-cookie
 
 const PUBLIC_PATHS = ["/sign-in", "/sign-up"]
 
+function noStore(response: NextResponse): NextResponse {
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+  response.headers.set("Pragma", "no-cache")
+  return response
+}
+
 export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl
   const isPublicPath = PUBLIC_PATHS.some(path => pathname.startsWith(path))
@@ -12,7 +18,7 @@ export function proxy(req: NextRequest) {
     const homeUrl = req.nextUrl.clone()
     homeUrl.pathname = "/"
     homeUrl.search = ""
-    return NextResponse.redirect(homeUrl)
+    return noStore(NextResponse.redirect(homeUrl))
   }
 
   if (!isPublicPath && !pathname.startsWith("/api") && !sessionId) {
@@ -20,10 +26,14 @@ export function proxy(req: NextRequest) {
     signInUrl.pathname = "/sign-in"
     signInUrl.search = ""
     signInUrl.searchParams.set("redirect_url", pathname + search)
-    return NextResponse.redirect(signInUrl)
+    return noStore(NextResponse.redirect(signInUrl))
   }
 
-  return NextResponse.next()
+  const response = NextResponse.next()
+  if (!pathname.startsWith("/api")) {
+    return noStore(response)
+  }
+  return response
 }
 
 export const config = {

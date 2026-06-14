@@ -383,6 +383,11 @@ function isFatalQuestionPollError(error: unknown): boolean {
   return /不存在|已过期|Unauthorized|HTTP 401|HTTP 403|无权限/i.test(message)
 }
 
+function isRecoverableQuestionPollError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /等待时间过长|处理时间过长|网关|超时|timeout|timed out|网络请求未完成|服务响应超时|fetch|network/i.test(message)
+}
+
 function waitForQuestionPoll(signal: AbortSignal, delayMs = 2000): Promise<void> {
   return new Promise(resolve => {
     if (signal.aborted) {
@@ -565,6 +570,7 @@ interface Props {
 export default function KeywordStrategyModule({ client, onChangeClient }: Props) {
   const [activeBrand, setActiveBrand] = useState<BrandData>(() => createBrandFromClient(client))
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [questionPollRetryKey, setQuestionPollRetryKey] = useState(0)
   const mountedRef = useRef(true)
   const questionRunIdRef = useRef(0)
   const questionAbortRef = useRef<AbortController | null>(null)
@@ -1141,6 +1147,18 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       } catch (err) {
         if (!isCurrentRun()) return
 
+        if (isRecoverableQuestionPollError(err)) {
+          updateBrand({
+            questionError: "后台任务仍在生成，刚才进度刷新超时；系统会继续自动重试并保留已生成结果。",
+            questionStatus: "generating",
+            questionJobId: jobId,
+          })
+          window.setTimeout(() => {
+            if (mountedRef.current) setQuestionPollRetryKey(key => key + 1)
+          }, 8000)
+          return
+        }
+
         updateBrand({
           questionError: err instanceof Error ? err.message : "生成失败",
           questionStatus: "error",
@@ -1163,7 +1181,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionAbortRef.current = null
       }
     }
-  }, [activeBrand.completedSteps, activeBrand.questionJobId, activeBrand.questionStatus, updateBrand])
+  }, [activeBrand.completedSteps, activeBrand.questionJobId, activeBrand.questionStatus, questionPollRetryKey, updateBrand])
 
   // Export
   const handleExportJson = useCallback(() => {
