@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { attachQuestionAdvantages, extractQuestionAdvantages } from "@/lib/geo-strategy/question-advantages"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
@@ -7,6 +8,7 @@ import {
   QUESTION_MODEL_PROVIDER_LABELS,
   normalizeQuestionModel,
   normalizeQuestionModelProvider,
+  type GeoStrategyPlan,
   type QuestionItem,
 } from "@/types/geo-strategy"
 
@@ -38,7 +40,8 @@ const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你需�
 7. **question 字段必须模拟真实用户的自然提问**，就像用户在搜索引擎或 AI 助手中真实输入的那样。禁止出现任何品牌名、公司名、具体产品名，也禁止用"这个品牌"、"这类产品"、"该品类"等生硬泛指——这些一眼就能看出是营销内容。而是聚焦于用户的实际痛点、场景、决策困惑。
 
 要求：
-- 每条问题包含 id、layer、category、difficulty、keyword、question、intent、content_angle
+- 每条问题包含 id、layer、category、difficulty、keyword、question、intent、content_angle、matched_advantage
+- matched_advantage 必须从本次提供的【可选优势证据】中选择最能佐证该疑问句的一条，不能编造新优势；如果优势列表为空则填空字符串
 - id 从起始编号连续递增
 
 输出严格 JSON，格式：
@@ -52,7 +55,8 @@ const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你需�
       "keyword": "",
       "question": "",
       "intent": "",
-      "content_angle": ""
+      "content_angle": "",
+      "matched_advantage": "从可选优势证据中选择的一条"
     }
   ]
 }`
@@ -71,6 +75,10 @@ function buildWeaknessSpinPrompt(
 
   const profile = (strategy.profile || {}) as Record<string, unknown>
   const weaknessList = weaknesses.map((w, i) => `${i + 1}. ${w}`).join("\n")
+  const advantages = extractQuestionAdvantages(strategy as unknown as GeoStrategyPlan)
+  const advantageList = advantages.length > 0
+    ? advantages.map((advantage, i) => `${i + 1}. ${advantage}`).join("\n")
+    : "（暂无优势证据，matched_advantage 填空字符串）"
 
   return `你是一个品牌公关专家，擅长将品牌劣势通过内容策略转化为认知优势。
 
@@ -82,6 +90,9 @@ function buildWeaknessSpinPrompt(
 
 【需要积极转化的劣势】
 ${weaknessList}
+
+【可选优势证据】
+${advantageList}
 
 【转化核心原则】
 1. 不要否认劣势，而是从数据积累、客户案例、服务经验、专业见地等角度重新构建叙事框架
@@ -98,6 +109,7 @@ ${weaknessList}
 - 第二层问题覆盖: 深层决策、适用人群、业务影响、购买前疑虑
 - 第二层比例约 ${Math.round(layer2Ratio * 100)}%
 - category 字段统一填 "劣势积极转化"
+- matched_advantage 必须从【可选优势证据】中选择最能支撑该疑问句内容方向的一条，不能改写、不能新增
 - **question 字段禁止出现品牌名/公司名/具体产品名，也不要用"这个品牌"、"这类产品"等泛指**，必须聚焦用户的真实痛点、场景困惑、决策问题
 
 输出严格 JSON：
@@ -111,7 +123,8 @@ ${weaknessList}
       "keyword": "相关的劣势关键词",
       "question": "模拟用户真实提问",
       "intent": "用户的搜索意图",
-      "content_angle": "建议的内容角度"
+      "content_angle": "建议的内容角度",
+      "matched_advantage": "从可选优势证据中选择的一条"
     }
   ]
 }`
@@ -134,6 +147,10 @@ function buildKeywordPrompt(
   const kwList = keywords.length > 0
     ? keywords.map((k, i) => `${i + 1}. ${k}`).join("\n")
     : "（无特定关键词列表，请基于品牌/产品背景生成）"
+  const advantages = extractQuestionAdvantages(strategy as unknown as GeoStrategyPlan)
+  const advantageList = advantages.length > 0
+    ? advantages.map((advantage, i) => `${i + 1}. ${advantage}`).join("\n")
+    : "（暂无优势证据，matched_advantage 填空字符串）"
 
   return `你是一个资深 GEO 疑问句生成专家。
 
@@ -147,6 +164,9 @@ function buildKeywordPrompt(
 【关键词列表】
 ${kwList}
 
+【可选优势证据】
+${advantageList}
+
 ${extraInstructions ? `【额外要求】\n${extraInstructions}\n` : ""}
 【生成要求】
 - 本批共 ${count} 条问题（第一层 ~${layer1Count} 条，第二层 ~${layer2Count} 条）
@@ -156,6 +176,7 @@ ${extraInstructions ? `【额外要求】\n${extraInstructions}\n` : ""}
 - 第二层比例约 ${Math.round(layer2Ratio * 100)}%
 - 每个问题必须对应关键词列表中的关键词
 - category 字段统一填 "${categoryTag}"
+- matched_advantage 必须从【可选优势证据】中选择最能佐证该疑问句和内容角度的一条，不能改写、不能新增
 - 禁止生成与业务无关的通用问题
 - **question 字段禁止出现品牌名/公司名/具体产品名，也不要用"这个品牌"、"这类产品"等泛指**，必须聚焦用户的真实痛点、场景困惑、决策问题
 
@@ -170,7 +191,8 @@ ${extraInstructions ? `【额外要求】\n${extraInstructions}\n` : ""}
       "keyword": "来自列表的关键词",
       "question": "模拟用户真实提问",
       "intent": "用户的搜索意图",
-      "content_angle": "建议的内容角度"
+      "content_angle": "建议的内容角度",
+      "matched_advantage": "从可选优势证据中选择的一条"
     }
   ]
 }`
@@ -530,6 +552,7 @@ function normalizeQuestion(value: unknown, category: string): Omit<QuestionItem,
     question,
     intent: text(data.intent, "了解并解决相关决策问题"),
     content_angle: text(data.content_angle, "围绕用户问题提供事实、对比与行动建议"),
+    matched_advantage: text(data.matched_advantage),
   }
 }
 
@@ -858,7 +881,8 @@ async function handler(req: NextRequest) {
     }
 
     // 3. Re-index IDs to ensure sequential order
-    const reindexed: QuestionItem[] = uniqueQuestions.map((q, i) => ({
+    const advantages = extractQuestionAdvantages(strategy)
+    const reindexed: QuestionItem[] = attachQuestionAdvantages(uniqueQuestions, advantages).map((q, i) => ({
       ...q,
       id: String(i + 1),
     }))
