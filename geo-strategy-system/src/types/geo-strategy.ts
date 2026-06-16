@@ -142,6 +142,7 @@ export interface QuestionItem {
   question: string
   intent: string
   content_angle: string
+  matched_advantage?: string
 }
 
 /** 完整策略方案 */

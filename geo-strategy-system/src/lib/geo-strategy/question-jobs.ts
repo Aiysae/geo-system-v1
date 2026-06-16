@@ -2,6 +2,7 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { kv } from "@vercel/kv"
+import { attachQuestionAdvantages, extractQuestionAdvantages } from "./question-advantages"
 import type {
   GeoStrategyPlan,
   QuestionCategoryConfig,
@@ -429,7 +430,7 @@ function buildFallbackQuestions(
     })
   }
 
-  return questions
+  return attachQuestionAdvantages(questions, extractQuestionAdvantages(strategy)) as QuestionItem[]
 }
 
 function isPermanentQuestionError(error: unknown): boolean {
@@ -534,8 +535,12 @@ function appendQuestionItems(
   }
 }
 
-function reindexQuestions(questions: QuestionItem[], totalCount: number): QuestionItem[] {
-  return questions.slice(0, totalCount).map((question, index) => ({
+function reindexQuestions(questions: QuestionItem[], totalCount: number, strategy?: GeoStrategyPlan): QuestionItem[] {
+  const advantages = extractQuestionAdvantages(strategy)
+  const enriched = advantages.length > 0
+    ? attachQuestionAdvantages(questions, advantages)
+    : questions
+  return enriched.slice(0, totalCount).map((question, index) => ({
     ...question,
     id: String(index + 1),
   }))
@@ -596,7 +601,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
         currentBatch: index + 1,
         totalBatches: batchPlans.length,
         completedCount: mergedQuestions.length,
-        questions: reindexQuestions(mergedQuestions, job.totalCount),
+        questions: reindexQuestions(mergedQuestions, job.totalCount, job.request.strategy),
         warnings,
       }) || job
       await assertQuestionJobNotCancelled(job.id)
@@ -639,7 +644,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
       job = await patchQuestionJob(job.id, {
         completedBatches: index + 1,
         completedCount: Math.min(mergedQuestions.length, job.totalCount),
-        questions: reindexQuestions(mergedQuestions, job.totalCount),
+        questions: reindexQuestions(mergedQuestions, job.totalCount, job.request.strategy),
         warnings,
       }) || job
       await assertQuestionJobNotCancelled(job.id)
@@ -678,7 +683,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
       if (mergedQuestions.length <= before) break
       job = await patchQuestionJob(job.id, {
         completedCount: Math.min(mergedQuestions.length, job.totalCount),
-        questions: reindexQuestions(mergedQuestions, job.totalCount),
+        questions: reindexQuestions(mergedQuestions, job.totalCount, job.request.strategy),
         warnings,
       }) || job
       await assertQuestionJobNotCancelled(job.id)
@@ -703,7 +708,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
     }
 
     await assertQuestionJobNotCancelled(job.id)
-    const reindexed = reindexQuestions(mergedQuestions, job.totalCount)
+    const reindexed = reindexQuestions(mergedQuestions, job.totalCount, job.request.strategy)
     if (reindexed.length === 0) {
       throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
     }

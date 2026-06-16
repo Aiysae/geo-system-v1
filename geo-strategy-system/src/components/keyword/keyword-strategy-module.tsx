@@ -27,6 +27,7 @@ import type { Client } from "@/types"
 import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 
 // ==================== Brand Data ====================
 
@@ -1208,7 +1209,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
 
   const handleExportQuestionsCsv = useCallback(() => {
     if (!activeBrand.strategyPlan || activeBrand.questions.length === 0) return
-    const csv = generateQuestionCsv(activeBrand.questions)
+    const csv = generateQuestionCsv(activeBrand.questions, activeBrand.strategyPlan)
     const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" })
     downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_疑问句池.csv`)
   }, [activeBrand.strategyPlan, activeBrand.questions])
@@ -1852,6 +1853,7 @@ function StrategyStep({
   const [officialPrompt, setOfficialPrompt] = useState("")
   const [officialPromptLoading, setOfficialPromptLoading] = useState(false)
   const [officialPromptError, setOfficialPromptError] = useState("")
+  const questionAdvantages = extractQuestionAdvantages(plan)
 
   const handleCopyPrompt = useCallback(async (key: string, prompt: string) => {
     try {
@@ -2173,18 +2175,18 @@ function StrategyStep({
                 <button
                   onClick={onExportQuestionsCsv}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
-                  title="导出为 CSV 表格"
+                  title="导出疑问句和匹配优势为 CSV 表格"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  导出表格
+                  导出问句+优势表格
                 </button>
                 <button
                   onClick={onExportQuestionsWord}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
-                  title="导出为 Word 文档"
+                  title="导出疑问句和匹配优势为 Word 文档"
                 >
                   <FileText className="h-3.5 w-3.5" />
-                  导出文档
+                  导出问句+优势文档
                 </button>
               </div>
             </div>
@@ -2240,6 +2242,12 @@ function StrategyStep({
                       <span className="text-slate-400">·</span>
                       <span className="text-slate-400">{q.keyword}</span>
                     </div>
+                    {questionAdvantages.length > 0 && (
+                      <div className="mt-1.5 rounded-lg border border-emerald-100 bg-emerald-50/70 px-2 py-1 text-[11px] leading-4 text-emerald-700">
+                        <span className="font-semibold">匹配优势：</span>
+                        {resolveQuestionAdvantage(q, questionAdvantages)}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2980,12 +2988,14 @@ function escapeHtml(value: unknown): string {
     .replace(/"/g, "&quot;")
 }
 
-function generateQuestionCsv(questions: QuestionItem[]): string {
-  const headers = ["序号", "层级", "疑问句", "生成类型", "关键词"]
+function generateQuestionCsv(questions: QuestionItem[], plan?: GeoStrategyPlan): string {
+  const advantages = extractQuestionAdvantages(plan)
+  const headers = ["序号", "层级", "疑问句", "匹配优势", "生成类型", "关键词"]
   const rows = questions.map(question => [
     question.id,
     question.layer,
     question.question,
+    resolveQuestionAdvantage(question, advantages),
     question.category,
     question.keyword,
   ])
@@ -3005,8 +3015,9 @@ function generateQuestionWordHtml(
     return acc
   }, {})
 
+  const advantages = extractQuestionAdvantages(plan)
   const rows = questions.map(question => (
-    `<tr><td>${escapeHtml(question.id)}</td><td>${escapeHtml(question.layer)}</td><td>${escapeHtml(question.question)}</td><td>${escapeHtml(question.category)}</td><td>${escapeHtml(question.keyword)}</td></tr>`
+    `<tr><td>${escapeHtml(question.id)}</td><td>${escapeHtml(question.layer)}</td><td>${escapeHtml(question.question)}</td><td>${escapeHtml(resolveQuestionAdvantage(question, advantages))}</td><td>${escapeHtml(question.category)}</td><td>${escapeHtml(question.keyword)}</td></tr>`
   ))
 
   return [
@@ -3018,7 +3029,7 @@ function generateQuestionWordHtml(
     Object.keys(categoryCounts).length > 0
       ? `<p>生成类型：${Object.entries(categoryCounts).map(([category, count]) => `${escapeHtml(category)} ${count} 条`).join("；")}</p>`
       : "",
-    `<table><tr><th>#</th><th>层级</th><th class="q">疑问句</th><th>生成类型</th><th>关键词</th></tr>`,
+    `<table><tr><th>#</th><th>层级</th><th class="q">疑问句</th><th>匹配优势</th><th>生成类型</th><th>关键词</th></tr>`,
     ...rows,
     `</table>`,
     `<p style="color:#94a3b8;font-size:9pt;margin-top:24px">Generated by 势途 GEO · ${new Date().toLocaleDateString("zh-CN")}</p>`,

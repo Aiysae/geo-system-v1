@@ -18,8 +18,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { ARTICLE_PROMPT_OPTIONS, type ArticlePromptOption } from "@/lib/article-prompt-meta"
+import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type { ArticleGenerationState, ArticleModelProviderKey, ArticlePromptKey, Client } from "@/types"
+import type { QuestionItem } from "@/types/geo-strategy"
 
 interface Props {
   client: Client
@@ -110,6 +112,11 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     () => providers.find(item => item.key === article.modelProvider),
     [article.modelProvider, providers]
   )
+  const keywordQuestions = client.keywordStrategy?.questions || []
+  const keywordAdvantages = useMemo(() => collectKeywordAdvantages(client), [client])
+  const quickQuestions = keywordQuestions.slice(0, 24)
+  const quickAdvantages = keywordAdvantages.slice(0, 24)
+  const hasKeywordQuickFill = keywordQuestions.length > 0 || keywordAdvantages.length > 0
 
   const isGenerating = article.status === "generating"
   const canGenerate = Boolean(article.coreQuestion.trim()) && !isGenerating
@@ -147,6 +154,59 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       ...article,
       modelProvider: key,
       model: provider?.model || "",
+      status: article.status === "error" ? "idle" : article.status,
+      error: undefined,
+    })
+  }
+
+  function fillKeywordQuestions() {
+    if (keywordQuestions.length === 0) return
+    persist({
+      ...article,
+      coreQuestion: article.coreQuestion || keywordQuestions[0]?.question || "",
+      keywords: keywordQuestions.map(question => question.question).join("\n"),
+      status: article.status === "error" ? "idle" : article.status,
+      error: undefined,
+    })
+  }
+
+  function fillKeywordAdvantages() {
+    if (keywordAdvantages.length === 0) return
+    persist({
+      ...article,
+      advantages: keywordAdvantages.join("\n"),
+      status: article.status === "error" ? "idle" : article.status,
+      error: undefined,
+    })
+  }
+
+  function fillKeywordQuestionsAndAdvantages() {
+    const nextQuestions = keywordQuestions.map(question => question.question).filter(Boolean)
+    persist({
+      ...article,
+      coreQuestion: article.coreQuestion || nextQuestions[0] || "",
+      keywords: nextQuestions.length > 0 ? nextQuestions.join("\n") : article.keywords,
+      advantages: keywordAdvantages.length > 0 ? keywordAdvantages.join("\n") : article.advantages,
+      status: article.status === "error" ? "idle" : article.status,
+      error: undefined,
+    })
+  }
+
+  function handleQuestionAsTopic(question: QuestionItem) {
+    const matchedAdvantage = resolveQuestionAdvantage(question, keywordAdvantages)
+    persist({
+      ...article,
+      coreQuestion: question.question,
+      advantages: appendUniqueLines(article.advantages, matchedAdvantage ? [matchedAdvantage] : []),
+      status: article.status === "error" ? "idle" : article.status,
+      error: undefined,
+    })
+  }
+
+  function appendAdvantage(advantage: string) {
+    persist({
+      ...article,
+      advantages: appendUniqueLines(article.advantages, [advantage]),
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
     })
@@ -338,6 +398,80 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
           <section className="rounded-xl border border-slate-200/80 bg-white/80 p-3 shadow-sm sm:p-4">
             <div className="grid gap-3">
+              {hasKeywordQuickFill && (
+                <div className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-3">
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-700">关键词策略快捷填入</div>
+                      <div className="text-[11px] text-slate-500">
+                        {keywordQuestions.length} 条疑问句 · {keywordAdvantages.length} 条优势
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={fillKeywordQuestions}
+                        disabled={keywordQuestions.length === 0}
+                        className="rounded-lg border border-cyan-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-cyan-700 transition hover:bg-cyan-50 disabled:opacity-50"
+                      >
+                        填入全部疑问句
+                      </button>
+                      <button
+                        type="button"
+                        onClick={fillKeywordAdvantages}
+                        disabled={keywordAdvantages.length === 0}
+                        className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        填入主要优势
+                      </button>
+                      <button
+                        type="button"
+                        onClick={fillKeywordQuestionsAndAdvantages}
+                        className="rounded-lg bg-[#004B73] px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#006AA3]"
+                      >
+                        一键填入问句+优势
+                      </button>
+                    </div>
+                  </div>
+
+                  {quickQuestions.length > 0 && (
+                    <div className="mb-3">
+                      <div className="mb-1.5 text-[11px] font-medium text-slate-500">疑问句</div>
+                      <div className="max-h-32 space-y-1.5 overflow-y-auto pr-1">
+                        {quickQuestions.map(question => (
+                          <button
+                            key={question.id}
+                            type="button"
+                            onClick={() => handleQuestionAsTopic(question)}
+                            className="block w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left text-[11px] leading-4 text-slate-600 transition hover:border-cyan-200 hover:bg-cyan-50"
+                          >
+                            {question.question}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {quickAdvantages.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 text-[11px] font-medium text-slate-500">主要优势</div>
+                      <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                        {quickAdvantages.map(advantage => (
+                          <button
+                            key={advantage}
+                            type="button"
+                            onClick={() => appendAdvantage(advantage)}
+                            className="rounded-lg border border-emerald-100 bg-white px-2 py-1 text-[11px] leading-4 text-emerald-700 transition hover:bg-emerald-50"
+                          >
+                            {advantage}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <Label className="text-xs">
                 <span className="mb-1.5 block font-medium text-slate-500">核心搜索问题 / 内容主题</span>
                 <Input
@@ -475,6 +609,44 @@ function sanitizeFileName(name: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 80) || "文章生成"
+}
+
+function uniqueLines(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of values) {
+    const value = String(raw || "").trim()
+    const key = value.replace(/\s+/g, "").toLowerCase()
+    if (!value || seen.has(key)) continue
+    seen.add(key)
+    result.push(value)
+  }
+  return result
+}
+
+function appendUniqueLines(current: string, additions: string[]): string {
+  return uniqueLines([
+    ...current.split(/\n+/),
+    ...additions,
+  ]).join("\n")
+}
+
+function collectKeywordAdvantages(client: Client): string[] {
+  const strategy = client.keywordStrategy
+  if (!strategy) return []
+
+  const planAdvantages = extractQuestionAdvantages(strategy.strategyPlan)
+  const extractedAdvantages = (strategy.extractedProfile?.advantages || [])
+    .filter(item => item.enabled !== false)
+    .map(item => item.text)
+  const baseAdvantages = uniqueLines([...planAdvantages, ...extractedAdvantages])
+  const questionAdvantages = (strategy.questions || [])
+    .map(question => resolveQuestionAdvantage(question, baseAdvantages))
+
+  return uniqueLines([
+    ...baseAdvantages,
+    ...questionAdvantages,
+  ])
 }
 
 function downloadBlob(blob: Blob, filename: string) {
