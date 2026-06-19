@@ -43,6 +43,8 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     model,
     label: LABEL,
     extraBody: isTokenHub(config.baseUrl) ? { thinking: { type: "disabled" } } : undefined,
+    forceSearchMode: args.forceWebSearch && isTokenHub(config.baseUrl) ? "presearch" : undefined,
+    allowSpecifiedToolChoice: isTokenHub(config.baseUrl) ? false : undefined,
     ...args,
     timeoutSec: args.timeoutSec ?? config.timeout,
   })

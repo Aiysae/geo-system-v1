@@ -3,13 +3,16 @@ import type {
   ModelKey,
   PenetrationByModel,
   PenetrationItem,
+  PenetrationPromptPurity,
   PenetrationSource,
+  PenetrationSearchMode,
   SourceDomainCount,
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { aggregatePenetration, isSameBrand, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
 import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
+import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -20,6 +23,12 @@ const BLIND_QUERY_TIMEOUT_SEC = 75
 const BLIND_QUERY_MAX_TOKENS = 2048
 const JUDGE_BATCH_TIMEOUT_SEC = 45
 const JUDGE_BATCH_MAX_TOKENS = 3072
+
+interface PenetrationAuditProfile {
+  searchMode: PenetrationSearchMode
+  promptPurity: PenetrationPromptPurity
+  webVerificationNote: string
+}
 
 // ============================================================================
 // 两阶段管线
@@ -143,18 +152,117 @@ function summarizeSourceDomains(sources: PenetrationSource[]): SourceDomainCount
     .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
 }
 
+function isTokenHubBaseUrl(baseUrl: string): boolean {
+  return /tokenhub\.tencentmaas\.com/i.test(baseUrl)
+}
+
+async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationAuditProfile> {
+  const config = await getAiProviderRuntimeSetting(model)
+
+  if (model === "qwen") {
+    return {
+      searchMode: "native_web",
+      promptPurity: "raw_question_only",
+      webVerificationNote: "已请求通义千问原生联网参数；如果上游未返回引用，将标记为联网不可验证。",
+    }
+  }
+
+  if (model === "ernie") {
+    return {
+      searchMode: "native_web",
+      promptPurity: "raw_question_only",
+      webVerificationNote: "已请求百度千帆 web_search 参数；当前未开启 trace，引用来源取决于上游返回。",
+    }
+  }
+
+  if (model === "hunyuan") {
+    return isTokenHubBaseUrl(config.baseUrl)
+      ? {
+          searchMode: "presearch_context",
+          promptPurity: "search_context_augmented",
+          webVerificationNote: "腾讯 TokenHub 不稳定支持指定工具调用，系统先执行公开网页搜索，再把结果随问题交给模型。",
+        }
+      : {
+          searchMode: "native_web",
+          promptPurity: "raw_question_only",
+          webVerificationNote: "已请求混元原生增强参数；如果上游未返回引用，将标记为联网不可验证。",
+        }
+  }
+
+  if (model === "deepseek") {
+    return isTokenHubBaseUrl(config.baseUrl)
+      ? {
+          searchMode: "presearch_context",
+          promptPurity: "search_context_augmented",
+          webVerificationNote: "DeepSeek TokenHub 网关不稳定支持指定工具调用，系统先执行公开网页搜索，再把结果随问题交给模型。",
+        }
+      : {
+          searchMode: "local_tool_search",
+          promptPurity: "tool_augmented",
+          webVerificationNote: "DeepSeek 官方接口无原生联网开关，系统通过本地 search_web 工具强制公开网页检索。",
+        }
+  }
+
+  if (model === "doubao") {
+    return {
+      searchMode: "local_tool_search",
+      promptPurity: "tool_augmented",
+      webVerificationNote: "模块一不使用可能带知识库的豆包 Bot，豆包 Endpoint 通过本地 search_web 工具联网增强。",
+    }
+  }
+
+  if (model === "kimi") {
+    return {
+      searchMode: "local_tool_search",
+      promptPurity: "tool_augmented",
+      webVerificationNote: "当前 Kimi 盲测走本地 search_web 工具，以规避 K2/网关对官方联网工具强制调用的不兼容。",
+    }
+  }
+
+  return {
+    searchMode: "none",
+    promptPurity: "unknown",
+    webVerificationNote: "未识别的模型联网模式。",
+  }
+}
+
+function buildAuditFields(
+  profile: PenetrationAuditProfile,
+  searchSources: PenetrationSource[]
+): Pick<
+  PenetrationItem,
+  "searchMode" | "promptPurity" | "sourceCount" | "webVerified" | "webVerificationNote"
+> {
+  const sourceCount = searchSources.length
+  return {
+    searchMode: profile.searchMode,
+    promptPurity: profile.promptPurity,
+    sourceCount,
+    webVerified: sourceCount > 0,
+    webVerificationNote:
+      sourceCount > 0
+        ? `已记录 ${sourceCount} 条可审计公开网页来源。`
+        : profile.webVerificationNote,
+  }
+}
+
 // ============================================================================
 // Stage A · 客观联网单问
 // ============================================================================
 async function blindQuery(
   model: ModelKey,
-  question: string
+  question: string,
+  auditProfile: PenetrationAuditProfile
 ): Promise<{
   answer: string
   error?: string
   searchSources: PenetrationSource[]
   sourceDomains: SourceDomainCount[]
   topSourceDomain: SourceDomainCount | null
+  auditFields: Pick<
+    PenetrationItem,
+    "searchMode" | "promptPurity" | "sourceCount" | "webVerified" | "webVerificationNote"
+  >
 }> {
   const adapter = ADAPTERS[model]
   const seed = deriveSeed(model, question)
@@ -195,8 +303,9 @@ async function blindQuery(
     }
     const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
+    const auditFields = buildAuditFields(auditProfile, searchSources)
     console.log(
-      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | forcedSearch=true | rawQuestionOnly=true | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
+      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | webVerified=${auditFields.webVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
     )
     console.log(`[penetration·blind-answer] preservedLen=${answer.length}`)
     return {
@@ -204,11 +313,13 @@ async function blindQuery(
       searchSources,
       sourceDomains,
       topSourceDomain: sourceDomains[0] ?? null,
+      auditFields,
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "未知错误"
     const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
+    const auditFields = buildAuditFields(auditProfile, searchSources)
     console.error(`[penetration·blind] ✗ ${adapter.label} | ${msg} | q="${question.slice(0, 30)}..."`)
     return {
       answer: "",
@@ -216,6 +327,7 @@ async function blindQuery(
       searchSources,
       sourceDomains,
       topSourceDomain: sourceDomains[0] ?? null,
+      auditFields,
     }
   }
 }
@@ -311,8 +423,9 @@ async function processSlot(args: {
   question: string
   ourBrand: string
   competitors: string[]
+  auditProfile: PenetrationAuditProfile
 }): Promise<PenetrationItem & { error?: string; judgeError?: string }> {
-  const blind = await blindQuery(args.model, args.question)
+  const blind = await blindQuery(args.model, args.question, args.auditProfile)
 
   if (blind.error || !blind.answer) {
     return {
@@ -323,6 +436,7 @@ async function processSlot(args: {
       searchSources: blind.searchSources,
       sourceDomains: blind.sourceDomains,
       topSourceDomain: blind.topSourceDomain,
+      ...blind.auditFields,
       hitOur: false,
       error: blind.error || "回答为空",
     }
@@ -345,6 +459,7 @@ async function processSlot(args: {
     searchSources: blind.searchSources,
     sourceDomains: blind.sourceDomains,
     topSourceDomain: blind.topSourceDomain,
+    ...blind.auditFields,
     hitOur: codeHit,
   }
 }
@@ -523,6 +638,12 @@ async function handler(req: NextRequest) {
       )
     }
 
+    const auditProfiles = Object.fromEntries(
+      await Promise.all(
+        activeModels.map(async m => [m, await getPenetrationAuditProfile(m)] as const)
+      )
+    ) as Record<ModelKey, PenetrationAuditProfile>
+
     console.log(
       `[penetration] 启动 ${activeModels.length} 模型 × ${questions.length} 问题 = ${
         activeModels.length * questions.length
@@ -535,8 +656,10 @@ async function handler(req: NextRequest) {
     const groupedResults = await Promise.all(
       activeModels.map(m => {
         let permanentError = ""
+        const auditProfile = auditProfiles[m]
         return mapWithConcurrency(questions, modelConcurrency(m), async q => {
           if (permanentError) {
+            const auditFields = buildAuditFields(auditProfile, [])
             return {
               model: m,
               item: {
@@ -547,6 +670,7 @@ async function handler(req: NextRequest) {
                 searchSources: [],
                 sourceDomains: [],
                 topSourceDomain: null,
+                ...auditFields,
                 hitOur: false,
                 error: permanentError,
               },
@@ -557,6 +681,7 @@ async function handler(req: NextRequest) {
             question: q,
             ourBrand,
             competitors,
+            auditProfile,
           })
           if (item.error && isPermanentProviderError(item.error)) {
             permanentError = formatProviderError(m, item.error)
