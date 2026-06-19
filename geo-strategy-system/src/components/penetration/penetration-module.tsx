@@ -27,8 +27,10 @@ import type {
   Client,
   ModelKey,
   PenetrationItem,
+  PenetrationPromptPurity,
   PenetrationResult,
   PenetrationSource,
+  PenetrationSearchMode,
   SourceDomainCount,
 } from "@/types"
 
@@ -359,6 +361,7 @@ function RawAnswersPanel({
   const modelDomainStats = getModelDomainStats(items)
   const topSource = modelDomainStats[0] ?? null
   const sourceTotal = modelDomainStats.reduce((sum, item) => sum + item.count, 0)
+  const auditStats = getModelAuditStats(items)
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -373,7 +376,7 @@ function RawAnswersPanel({
           <div className="text-left">
             <div className="text-sm font-medium text-slate-800">联网回答命中审计</div>
             <div className="text-[11px] text-slate-500">
-              每条回答来自纯净模型独立联网提问；默认展示摘要，黄色高亮为真实提及我方品牌
+              每条回答均为独立请求；默认展示联网模式、提示纯净度和可审计来源
             </div>
           </div>
         </div>
@@ -411,7 +414,7 @@ function RawAnswersPanel({
                 <div>
                   <div className="text-xs font-semibold text-slate-800">来源域名统计</div>
                   <div className="text-[11px] text-slate-500 leading-relaxed">
-                    统计 {MODEL_LABELS[currentModel]} 本次可审计公开网页来源；优先读取模型返回引用，未暴露引用时使用同题联网采样补充。
+                    统计 {MODEL_LABELS[currentModel]} 本次可审计公开网页来源；未返回来源的结果会在单条回答里标为联网不可验证。
                   </div>
                 </div>
               </div>
@@ -420,6 +423,11 @@ function RawAnswersPanel({
                   最高频：<span className="font-semibold">{topSource.domain}</span> · {topSource.count} 次
                 </div>
               )}
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <AuditStatCard label="联网模式" value={auditStats.modeSummary} />
+              <AuditStatCard label="纯问题请求" value={`${auditStats.rawQuestionOnly}/${items.length}`} />
+              <AuditStatCard label="联网可验证" value={`${auditStats.webVerified}/${items.length}`} />
             </div>
             {modelDomainStats.length > 0 ? (
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -479,6 +487,7 @@ function RawAnswersPanel({
                     )}
                   </div>
                   <AnswerItem text={it.answer} ourBrand={ourBrand} highlightFn={highlight} />
+                  <AnswerAuditBadges item={it} />
                   <SourceAuditSnippet item={it} />
                   {it.mentionedBrands.length > 0 && (
                     <div className="flex flex-wrap gap-1 pl-7">
@@ -505,6 +514,85 @@ function RawAnswersPanel({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+const SEARCH_MODE_LABELS: Record<PenetrationSearchMode, string> = {
+  native_web: "原生联网",
+  local_tool_search: "本地搜索增强",
+  presearch_context: "预搜索上下文",
+  none: "未联网",
+}
+
+const PROMPT_PURITY_LABELS: Record<PenetrationPromptPurity, string> = {
+  raw_question_only: "仅原始问题",
+  tool_augmented: "带工具元数据",
+  search_context_augmented: "带搜索上下文",
+  unknown: "未知",
+}
+
+function getSearchModeLabel(mode?: PenetrationSearchMode): string {
+  return mode ? SEARCH_MODE_LABELS[mode] : "旧数据未记录"
+}
+
+function getPromptPurityLabel(purity?: PenetrationPromptPurity): string {
+  return purity ? PROMPT_PURITY_LABELS[purity] : "旧数据未记录"
+}
+
+function getModelAuditStats(items: PenetrationItem[]): {
+  modeSummary: string
+  rawQuestionOnly: number
+  webVerified: number
+} {
+  const modeCounts = new Map<string, number>()
+  let rawQuestionOnly = 0
+  let webVerified = 0
+  for (const item of items) {
+    const mode = getSearchModeLabel(item.searchMode)
+    modeCounts.set(mode, (modeCounts.get(mode) ?? 0) + 1)
+    if (item.promptPurity === "raw_question_only") rawQuestionOnly++
+    if (item.webVerified === true) webVerified++
+  }
+  const modeSummary =
+    Array.from(modeCounts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([mode, count]) => `${mode} ${count}`)
+      .join(" / ") || "无"
+
+  return { modeSummary, rawQuestionOnly, webVerified }
+}
+
+function AuditStatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-cyan-100 bg-white/80 px-2.5 py-2">
+      <div className="text-[10px] text-slate-400">{label}</div>
+      <div className="mt-0.5 text-[11px] font-semibold text-slate-700">{value}</div>
+    </div>
+  )
+}
+
+function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
+  const sourceCount = item.sourceCount ?? item.searchSources?.length ?? 0
+  const verified = item.webVerified === true
+  return (
+    <div className="pl-7 mb-2 flex flex-wrap gap-1.5">
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
+        {getSearchModeLabel(item.searchMode)}
+      </span>
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-50 text-slate-600 border border-slate-200">
+        {getPromptPurityLabel(item.promptPurity)}
+      </span>
+      <span
+        className={`text-[10px] px-1.5 py-0.5 rounded border ${
+          verified
+            ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+            : "bg-amber-50 text-amber-700 border-amber-100"
+        }`}
+        title={item.webVerificationNote}
+      >
+        {verified ? "联网已验证" : "联网不可验证"} · 来源 {sourceCount}
+      </span>
     </div>
   )
 }

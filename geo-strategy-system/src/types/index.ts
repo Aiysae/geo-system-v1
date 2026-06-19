@@ -86,6 +86,18 @@ export interface SourceDomainCount {
   count: number
 }
 
+export type PenetrationSearchMode =
+  | "native_web"
+  | "local_tool_search"
+  | "presearch_context"
+  | "none"
+
+export type PenetrationPromptPurity =
+  | "raw_question_only"
+  | "tool_augmented"
+  | "search_context_augmented"
+  | "unknown"
+
 export interface PenetrationItem {
   question: string
   answer: string
@@ -94,6 +106,11 @@ export interface PenetrationItem {
   searchSources?: PenetrationSource[]
   sourceDomains?: SourceDomainCount[]
   topSourceDomain?: SourceDomainCount | null
+  searchMode?: PenetrationSearchMode
+  promptPurity?: PenetrationPromptPurity
+  sourceCount?: number
+  webVerified?: boolean
+  webVerificationNote?: string
   // 客观判分结果：盲测回答中是否出现我方全称，或出现经原文字面校验的同品牌简称/别名。
   hitOur: boolean
 }

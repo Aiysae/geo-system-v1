@@ -309,7 +309,7 @@ export default function BatchInputPanel({
       <div className="flex items-start gap-2 rounded-lg border border-cyan-200 bg-cyan-50/70 p-2.5 text-[11px] leading-relaxed text-cyan-900">
         <Globe2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-700" />
         <span>
-          每条疑问句会逐模型单独联网提问；被测模型只收到该问题本身，不会收到目标品牌、竞品清单、资料包或检测意图。模块一不会调用带知识库的 Bot。
+          每条疑问句会逐模型单独请求；结果会标注原生联网、本地搜索增强或预搜索上下文，并展示是否拿到可审计网页来源。模块一不会把目标品牌、竞品清单或资料包交给被测模型。
         </span>
       </div>
 
