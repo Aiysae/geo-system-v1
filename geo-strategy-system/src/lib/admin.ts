@@ -1,9 +1,5 @@
 import { getCurrentUser, normalizeEmail, type PublicUser } from "./auth"
 
-const FALLBACK_ADMIN_USER_IDS = new Set<string>([
-  "user_3DfnZjNNsbtHiPpvSUvvHVzOPGp",
-])
-
 function envSet(name: string): Set<string> {
   return new Set(
     (process.env[name] || "")
@@ -18,7 +14,7 @@ export function isAdminUser(user: PublicUser | null | undefined): boolean {
   if (user.role === "admin") return true
 
   const adminUserIds = envSet("ADMIN_USER_IDS")
-  if (adminUserIds.has(user.id) || FALLBACK_ADMIN_USER_IDS.has(user.id)) return true
+  if (adminUserIds.has(user.id)) return true
 
   const adminEmails = new Set(
     (process.env.ADMIN_EMAILS || "")
@@ -32,7 +28,7 @@ export function isAdminUser(user: PublicUser | null | undefined): boolean {
 
 export function isAdminUserId(userId: string | null | undefined): boolean {
   if (!userId) return false
-  return envSet("ADMIN_USER_IDS").has(userId) || FALLBACK_ADMIN_USER_IDS.has(userId)
+  return envSet("ADMIN_USER_IDS").has(userId)
 }
 
 /**

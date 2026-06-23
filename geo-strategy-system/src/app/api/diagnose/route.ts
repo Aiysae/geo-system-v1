@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import type { Diagnosis } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonLoose } from "@/lib/score-utils"
-import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
+import {
+  authAndReserveCredits,
+  refundReservedCreditsQuietly,
+  settleReservedCredits,
+  type CreditReservation,
+} from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -62,10 +67,8 @@ ${args.penetrationContext || "（暂无渗透率检测数据，请基于品牌+�
 }
 
 async function handler(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
-    const guard = await authAndCheckCredits(1)
-    if (!guard.ok) return guard.response
-
     const body = await req.json()
     const ourBrand = String(body.ourBrand || "").trim()
     const industry = String(body.industry || "").trim()
@@ -105,6 +108,10 @@ async function handler(req: NextRequest) {
       )
     }
 
+    const guard = await authAndReserveCredits(1)
+    if (!guard.ok) return guard.response
+    reservation = guard.reservation
+
     const { system, user } = buildPrompt({ ourBrand, industry, website, penetrationContext })
     const raw = await ADAPTERS[picked].chat({
       system,
@@ -115,6 +122,8 @@ async function handler(req: NextRequest) {
     const parsed = parseJsonLoose(raw) as Partial<Diagnosis> | null
 
     if (!parsed || !parsed.dimensions || !parsed.modelDiagnosis) {
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json(
         { error: "AI 返回格式异常，请重试", raw: raw.slice(0, 500) },
         { status: 502 }
@@ -139,9 +148,11 @@ async function handler(req: NextRequest) {
       generatedAt: new Date().toISOString(),
     }
 
-    await chargeCredits(guard.userId, 1)
+    await settleReservedCredits(reservation, 1)
+    reservation = null
     return NextResponse.json(result)
   } catch (e) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[diagnose]", e)
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "服务器错误" },

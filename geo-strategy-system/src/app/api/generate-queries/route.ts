@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
-import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
+import {
+  authAndReserveCredits,
+  refundReservedCreditsQuietly,
+  settleReservedCredits,
+  type CreditReservation,
+} from "@/lib/with-credits"
 
 // 高频疑问句智能生成 · 豆包专用 (Volcengine Ark)
 //
@@ -166,6 +171,7 @@ function humanizeUpstreamError(rawMsg: string, currentModel: string, modelType: 
 }
 
 async function handler(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
     const doubaoConfig = await getAiProviderRuntimeSetting("doubao")
     const apiKey = doubaoConfig.apiKey
@@ -222,8 +228,9 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const guard = await authAndCheckCredits(count)
+    const guard = await authAndReserveCredits(count)
     if (!guard.ok) return guard.response
+    reservation = guard.reservation
 
     const t0 = Date.now()
     let content: string
@@ -242,12 +249,16 @@ async function handler(req: NextRequest) {
       const raw = upstream instanceof Error ? upstream.message : String(upstream)
       const friendly = humanizeUpstreamError(raw, currentModel, modelType)
       console.error("[generate-queries] 豆包 Bot 上游失败：", raw)
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json({ error: friendly }, { status: 502 })
     }
 
     const questions = parseQuestionsFromLLM(content)
     if (!questions || questions.length === 0) {
       console.error("[generate-queries] 豆包返回无法解析为字符串数组：", content.slice(0, 300))
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json(
         { error: "生成失败：豆包返回内容无法解析为有效 JSON 数组，请重试" },
         { status: 502 }
@@ -260,6 +271,8 @@ async function handler(req: NextRequest) {
       console.error(
         `[generate-queries] AI 生成的全部 ${questions.length} 句均含品牌名，已被兜底过滤丢弃。请重试。`
       )
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json(
         {
           error:
@@ -280,7 +293,8 @@ async function handler(req: NextRequest) {
       `[generate-queries] ✓ 豆包 Bot 返回 ${questions.length} 条 → 中立过滤 ${filtered.length} 条 → 裁剪到 ${final.length} 条 | ${Date.now() - t0}ms`
     )
 
-    await chargeCredits(guard.userId, final.length)
+    await settleReservedCredits(reservation, final.length)
+    reservation = null
     return NextResponse.json(
       { questions: final, generatedAt: new Date().toISOString() },
       {
@@ -292,6 +306,7 @@ async function handler(req: NextRequest) {
       }
     )
   } catch (e) {
+    await refundReservedCreditsQuietly(reservation)
     const msg = e instanceof Error ? e.message : "未知错误"
     console.error("[generate-queries] 未捕获异常：", msg)
     return NextResponse.json({ error: `生成失败：${msg}` }, { status: 500 })

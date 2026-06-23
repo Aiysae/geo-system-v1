@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
-import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
+import {
+  authAndReserveCredits,
+  refundReservedCreditsQuietly,
+  settleReservedCredits,
+  type CreditReservation,
+} from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 90
@@ -8,11 +13,9 @@ export const dynamic = "force-dynamic"
 
 async function handler(req: NextRequest) {
   console.log("[势途 GEO API] === 开始处理生成请求 ===")
+  let reservation: CreditReservation | null = null
 
   try {
-    const guard = await authAndCheckCredits(20)
-    if (!guard.ok) return guard.response
-
     const body = await req.json()
     const { brandName, brandSlogan, industry, coreAdvantages, targetMetrics, targetAudience, competitors } = body
 
@@ -33,6 +36,10 @@ async function handler(req: NextRequest) {
         { status: 500 }
       )
     }
+
+    const guard = await authAndReserveCredits(20)
+    if (!guard.ok) return guard.response
+    reservation = guard.reservation
 
     const systemPrompt = `你是一位资深的全栈工程师兼产品专家，同时也是一位顶级的国内 GEO（Generative Engine Optimization，生成式引擎优化）专家。
 
@@ -194,6 +201,8 @@ async function handler(req: NextRequest) {
       console.error("[势途 GEO API] JSON 解析失败:", parseErr)
       console.error("[势途 GEO API] 原始未解析文本（前 2000 字符）:\n", content.slice(0, 2000))
       console.error("[势途 GEO API] 提取后待解析文本（前 2000 字符）:\n", jsonStr.slice(0, 2000))
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json(
         {
           raw: content,
@@ -207,6 +216,8 @@ async function handler(req: NextRequest) {
     const missing = requiredFields.filter(f => !strategy[f])
     if (missing.length > 0) {
       console.warn("[势途 GEO API] 返回结果缺少字段:", missing)
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json({
         raw: content,
         error: `AI 返回结果缺少必要字段: ${missing.join(", ")}`,
@@ -228,9 +239,11 @@ async function handler(req: NextRequest) {
         ? strategy.domesticMediaDistribution.length
         : 0)
 
-    await chargeCredits(guard.userId, totalRows)
+    await settleReservedCredits(reservation, totalRows)
+    reservation = null
     return NextResponse.json({ ...strategy })
   } catch (error) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[势途 GEO API] 未捕获的异常:", error)
 
     if (error instanceof Error && error.name === "AbortError") {

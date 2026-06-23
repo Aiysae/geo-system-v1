@@ -2,6 +2,8 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { kv } from "@vercel/kv"
+import { createInternalApiHeaders } from "@/lib/internal-api"
+import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "./question-advantages"
 import type {
   GeoStrategyPlan,
@@ -45,6 +47,9 @@ interface QuestionJobRequest {
 type StoredQuestionJobRecord = QuestionJobRecord & {
   request: QuestionJobRequest
   batchBaseUrls: string[]
+  ownerUserId: string
+  reservedCredits: number
+  creditsSettledAt?: string
 }
 
 type QuestionsResponse = {
@@ -70,6 +75,9 @@ function toPublicJob(job: StoredQuestionJobRecord): QuestionJobRecord {
   const publicJob: Partial<StoredQuestionJobRecord> = { ...job }
   delete publicJob.request
   delete publicJob.batchBaseUrls
+  delete publicJob.ownerUserId
+  delete publicJob.reservedCredits
+  delete publicJob.creditsSettledAt
   return publicJob as QuestionJobRecord
 }
 
@@ -174,6 +182,16 @@ function clampQuestionCount(value: unknown, min = 10): number {
     QUESTION_GENERATION_LIMIT,
     Math.max(min, Number.isFinite(numeric) ? Math.round(numeric) : 40)
   )
+}
+
+export function estimateQuestionJobCredits(input: {
+  totalCount?: unknown
+  allocationOverrides?: Array<{ count?: unknown }>
+}): number {
+  const overrideTotal = sumAllocationOverrides(input.allocationOverrides)
+  return overrideTotal > 0
+    ? clampQuestionCount(overrideTotal, 1)
+    : clampQuestionCount(input.totalCount)
 }
 
 function questionKey(question: string): string {
@@ -298,7 +316,7 @@ function normalizeAllocationOverrideCounts(
   return Object.values(counts).some(count => count > 0) ? counts : null
 }
 
-function sumAllocationOverrides(allocationOverrides?: QuestionAllocationOverride[]): number {
+function sumAllocationOverrides(allocationOverrides?: Array<{ count?: unknown }>): number {
   if (!Array.isArray(allocationOverrides)) return 0
   return allocationOverrides.reduce((sum, item) => {
     const count = Math.max(0, Math.round(Number(item?.count) || 0))
@@ -472,7 +490,10 @@ async function fetchQuestionBatch(
         const res = await fetch(`${baseUrl}/api/geo-strategy/questions`, {
           method: "POST",
           cache: "no-store",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...createInternalApiHeaders("geo-questions"),
+          },
           body: JSON.stringify({
             strategy: job.request.strategy,
             totalCount: plan.totalCount,
@@ -544,6 +565,28 @@ function reindexQuestions(questions: QuestionItem[], totalCount: number, strateg
     ...question,
     id: String(index + 1),
   }))
+}
+
+async function settleQuestionJobCredits(id: string, used: number): Promise<void> {
+  const job = await getStoredQuestionJob(id)
+  if (!job || job.creditsSettledAt) return
+
+  const reservation: CreditReservation = {
+    userId: job.ownerUserId,
+    amount: Math.max(1, Math.floor(job.reservedCredits || job.totalCount || 1)),
+    balanceAfterReserve: 0,
+  }
+
+  await settleReservedCredits(reservation, used)
+  await patchQuestionJob(id, { creditsSettledAt: nowIso() })
+}
+
+async function settleQuestionJobCreditsQuietly(id: string, used: number): Promise<void> {
+  try {
+    await settleQuestionJobCredits(id, used)
+  } catch (error) {
+    console.error("[question-jobs] credit settlement failed", id, used, error)
+  }
 }
 
 async function runQuestionJob(jobId: string): Promise<void> {
@@ -713,6 +756,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
       throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
     }
 
+    await settleQuestionJobCreditsQuietly(job.id, reindexed.length)
     await patchQuestionJob(job.id, {
       status: "succeeded",
       completedBatches: batchPlans.length,
@@ -725,6 +769,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
     })
   } catch (error) {
     if (isQuestionJobCancelledError(error)) {
+      await settleQuestionJobCreditsQuietly(jobId, 0)
       await patchQuestionJob(jobId, {
         status: "cancelled",
         error: QUESTION_JOB_CANCELLED_MESSAGE,
@@ -734,6 +779,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
     }
     console.error("[question-jobs] job failed:", error)
     const message = error instanceof Error ? error.message : "疑问句后台任务失败"
+    await settleQuestionJobCreditsQuietly(jobId, 0)
     await patchQuestionJob(jobId, {
       status: "failed",
       error: message,
@@ -748,15 +794,17 @@ async function runQuestionJob(jobId: string): Promise<void> {
 export async function createQuestionJob(
   input: QuestionJobRequest,
   publicOrigin?: string,
+  ownerUserId?: string,
+  reservedCredits?: number,
 ): Promise<QuestionJobRecord> {
   if (!input.strategy) {
     throw new Error("请提供策略方案")
   }
+  if (!ownerUserId) {
+    throw new Error("Unauthorized")
+  }
 
-  const overrideTotal = sumAllocationOverrides(input.allocationOverrides)
-  const totalCount = overrideTotal > 0
-    ? clampQuestionCount(overrideTotal, 1)
-    : clampQuestionCount(input.totalCount)
+  const totalCount = estimateQuestionJobCredits(input)
   const allocationCounts = normalizeAllocationOverrideCounts(
     totalCount,
     input.allocationOverrides,
@@ -796,6 +844,8 @@ export async function createQuestionJob(
       allocationOverrides: input.allocationOverrides || [],
     },
     batchBaseUrls: buildBatchBaseUrls(publicOrigin),
+    ownerUserId,
+    reservedCredits: Math.max(1, Math.floor(Number(reservedCredits) || totalCount)),
   }
 
   await saveStoredQuestionJob(stored)
@@ -803,9 +853,10 @@ export async function createQuestionJob(
   return toPublicJob(stored)
 }
 
-export async function getQuestionJob(id: string): Promise<QuestionJobRecord | null> {
+export async function getQuestionJob(id: string, ownerUserId: string): Promise<QuestionJobRecord | null> {
   const job = await getStoredQuestionJob(id)
   if (!job) return null
+  if (job.ownerUserId !== ownerUserId) return null
 
   if ((job.status === "queued" || job.status === "running") && !activeJobs.has(job.id)) {
     void runQuestionJob(job.id)
@@ -814,14 +865,16 @@ export async function getQuestionJob(id: string): Promise<QuestionJobRecord | nu
   return toPublicJob(job)
 }
 
-export async function cancelQuestionJob(id: string): Promise<QuestionJobRecord | null> {
+export async function cancelQuestionJob(id: string, ownerUserId: string): Promise<QuestionJobRecord | null> {
   const job = await getStoredQuestionJob(id)
   if (!job) return null
+  if (job.ownerUserId !== ownerUserId) return null
 
   if (job.status === "succeeded" || job.status === "failed" || job.status === "cancelled") {
     return toPublicJob(job)
   }
 
+  await settleQuestionJobCreditsQuietly(id, 0)
   const cancelled = await patchQuestionJob(id, {
     status: "cancelled",
     error: QUESTION_JOB_CANCELLED_MESSAGE,

@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import {
+  refundReservedCreditsQuietly,
+  requireUserId,
+  reserveCreditsForUser,
+  type CreditReservation,
+} from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
+
+const CREDIT_COST = 2
 
 const EXTRACTION_SYSTEM = `你是一个专业的客户资料抽取助手。你需要从用户提供的资料（文本、PDF文档截图、图片等）中，抽取出结构化的客户信息。
 
@@ -127,7 +135,11 @@ function asArray(value: unknown): unknown[] {
 }
 
 async function handler(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
+    const userGuard = await requireUserId()
+    if (!userGuard.ok) return userGuard.response
+
     const body = await req.json() as {
       files?: UploadedPayloadFile[]
       projectInfo?: ExtractProjectInfo
@@ -140,6 +152,10 @@ async function handler(req: NextRequest) {
     if (!aiConfig.apiKey) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
+
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST)
+    if (!creditGuard.ok) return creditGuard.response
+    reservation = creditGuard.reservation
 
     // Separate text files from image/PDF files
     const textFiles = files.filter(f => {
@@ -197,6 +213,8 @@ async function handler(req: NextRequest) {
       try {
         extracted = JSON.parse(cleaned.replace(/,(\s*[}\]])/g, "$1"))
       } catch {
+        await refundReservedCreditsQuietly(reservation)
+        reservation = null
         return NextResponse.json({
           error: "AI 返回格式异常，请重试",
           raw: raw.slice(0, 1000),
@@ -220,8 +238,10 @@ async function handler(req: NextRequest) {
         : "仅基于用户填写信息生成"),
     }
 
+    reservation = null
     return NextResponse.json(result)
   } catch (error) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[geo-extract]", error)
     const message = error instanceof Error ? error.message : "未知错误"
     if (message.includes("API Key")) return NextResponse.json({ error: message }, { status: 401 })

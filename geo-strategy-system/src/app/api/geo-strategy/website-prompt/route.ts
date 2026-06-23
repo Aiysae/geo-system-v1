@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import {
+  refundReservedCreditsQuietly,
+  requireUserId,
+  reserveCreditsForUser,
+  type CreditReservation,
+} from "@/lib/with-credits"
 import type { GeoStrategyPlan } from "@/types/geo-strategy"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
+
+const CREDIT_COST = 3
 
 const SYSTEM_PROMPT = `你是一位资深全栈工程师、产品设计师、Prompt 工程师和中国国内 GEO（生成式引擎优化）专家。
 
@@ -73,7 +81,11 @@ function stripCodeFence(value: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
+    const userGuard = await requireUserId()
+    if (!userGuard.ok) return userGuard.response
+
     const body = await req.json() as { plan?: GeoStrategyPlan }
     const plan = body.plan
 
@@ -89,6 +101,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST)
+    if (!creditGuard.ok) return creditGuard.response
+    reservation = creditGuard.reservation
+
     const prompt = await openaiCompatChat({
       url: buildAiChatUrl(config),
       apiKey: config.apiKey,
@@ -103,11 +119,15 @@ export async function POST(req: NextRequest) {
 
     const cleanedPrompt = stripCodeFence(prompt)
     if (!cleanedPrompt) {
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json({ error: "通义千问未返回有效 Prompt，请重试" }, { status: 502 })
     }
 
+    reservation = null
     return NextResponse.json({ prompt: cleanedPrompt, model: config.model })
   } catch (error) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[website-prompt]", error)
     const message = error instanceof Error ? error.message : "未知错误"
 

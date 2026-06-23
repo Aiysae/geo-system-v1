@@ -11,7 +11,12 @@ import type {
 import { ADAPTERS } from "@/lib/llm"
 import { aggregatePenetration, isSameBrand, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
-import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
+import {
+  authAndReserveCredits,
+  refundReservedCreditsQuietly,
+  settleReservedCredits,
+  type CreditReservation,
+} from "@/lib/with-credits"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 export const runtime = "nodejs"
@@ -581,6 +586,7 @@ function modelConcurrency(model: ModelKey): number {
 }
 
 async function handler(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
     const body = await req.json()
     const ourBrand = String(body.ourBrand || "").trim()
@@ -627,9 +633,6 @@ async function handler(req: NextRequest) {
     }
 
     const requiredCredits = activeModels.length * questions.length
-    const guard = await authAndCheckCredits(requiredCredits)
-    if (!guard.ok) return guard.response
-
     const judgeModel = await pickJudge(activeModels)
     if (!judgeModel) {
       return NextResponse.json(
@@ -637,6 +640,10 @@ async function handler(req: NextRequest) {
         { status: 400 }
       )
     }
+
+    const guard = await authAndReserveCredits(requiredCredits)
+    if (!guard.ok) return guard.response
+    reservation = guard.reservation
 
     const auditProfiles = Object.fromEntries(
       await Promise.all(
@@ -724,9 +731,8 @@ async function handler(req: NextRequest) {
     const aggregated = aggregatePenetration(byModel, ourBrand)
 
     const successfulSlots = results.filter(result => result.item.answer.trim().length > 0).length
-    if (successfulSlots > 0) {
-      await chargeCredits(guard.userId, successfulSlots)
-    }
+    await settleReservedCredits(reservation, successfulSlots)
+    reservation = null
 
     return NextResponse.json(
       {
@@ -754,6 +760,7 @@ async function handler(req: NextRequest) {
       }
     )
   } catch (e) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[penetration] 未捕获异常:", e)
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "服务器错误" },
