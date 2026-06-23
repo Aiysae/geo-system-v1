@@ -1,6 +1,7 @@
 import "server-only"
 
 import { kv } from "@vercel/kv"
+import { isIP } from "net"
 import type {
   AiProviderExtraField,
   AiProviderKey,
@@ -281,8 +282,64 @@ function envBoolean(names: string[] | undefined, fallback = false): boolean {
   return raw === "true" || raw === "1" || raw.toLowerCase() === "yes"
 }
 
+function envFlag(name: string): boolean {
+  const raw = process.env[name]
+  return raw === "true" || raw === "1" || raw?.toLowerCase() === "yes"
+}
+
+function allowUnsafeAiBaseUrls(): boolean {
+  return envFlag("ALLOW_UNSAFE_AI_BASE_URLS") || envFlag("ALLOW_PRIVATE_AI_BASE_URLS")
+}
+
+function isBlockedHostname(hostname: string): boolean {
+  const lower = hostname.toLowerCase()
+  if (lower === "localhost" || lower.endsWith(".localhost")) return true
+  const ipVersion = isIP(lower)
+  if (ipVersion === 4) {
+    const [a, b] = lower.split(".").map(Number)
+    return a === 10
+      || a === 127
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || a === 0
+  }
+  if (ipVersion === 6) {
+    return lower === "::1"
+      || lower.startsWith("fc")
+      || lower.startsWith("fd")
+      || lower.startsWith("fe80")
+  }
+  return false
+}
+
 function cleanUrl(value: string): string {
   return value.trim().replace(/\/+$/, "")
+}
+
+function validateAiBaseUrl(value: string): string {
+  const cleaned = cleanUrl(value)
+  let parsed: URL
+  try {
+    parsed = new URL(cleaned)
+  } catch {
+    throw new Error("模型接口 Base URL 不是有效 URL")
+  }
+
+  const unsafeAllowed = allowUnsafeAiBaseUrls()
+  if (parsed.username || parsed.password) {
+    throw new Error("模型接口 Base URL 不能包含用户名或密码")
+  }
+  if (parsed.protocol !== "https:" && !(unsafeAllowed && parsed.protocol === "http:")) {
+    throw new Error("模型接口 Base URL 必须使用 HTTPS")
+  }
+  if (!unsafeAllowed && isBlockedHostname(parsed.hostname)) {
+    throw new Error("模型接口 Base URL 不能指向 localhost 或内网地址")
+  }
+
+  parsed.hash = ""
+  parsed.search = ""
+  return cleanUrl(parsed.toString())
 }
 
 function cleanPath(value: string): string {
@@ -363,7 +420,7 @@ function mergeRuntime(
 }
 
 export function buildAiChatUrl(config: Pick<AiProviderRuntimeSetting, "baseUrl" | "chatPath">): string {
-  return `${cleanUrl(config.baseUrl)}${cleanPath(config.chatPath)}`
+  return `${validateAiBaseUrl(config.baseUrl)}${cleanPath(config.chatPath)}`
 }
 
 export async function getAiProviderRuntimeSetting(
@@ -424,7 +481,7 @@ export async function saveAiProviderSetting(
   }
 
   const next: StoredAiProviderSetting = {
-    baseUrl: cleanUrl(input.baseUrl || def.defaultBaseUrl),
+    baseUrl: validateAiBaseUrl(input.baseUrl || def.defaultBaseUrl),
     chatPath: cleanPath(input.chatPath || def.defaultChatPath),
     model: input.model.trim() || def.defaultModel,
     timeout: Math.min(1800, Math.max(30, Math.round(input.timeout || def.defaultTimeout))),

@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import {
+  refundReservedCreditsQuietly,
+  requireUserId,
+  reserveCreditsForUser,
+  type CreditReservation,
+} from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
+
+const CREDIT_COST = 2
 
 const SYSTEM_PROMPT = `你是一个资深 GEO 优势资产生成专家。你的任务是帮助品牌、产品、服务或个人 IP 生成更适合被 ChatGPT、DeepSeek、豆包、Kimi、通义等生成式引擎理解、引用和推荐的优势数据资产。
 
@@ -148,7 +156,11 @@ async function callLlm(url: string, apiKey: string, model: string, user: string,
 }
 
 async function handler(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
+    const userGuard = await requireUserId()
+    if (!userGuard.ok) return userGuard.response
+
     const body = await req.json()
     const { profile, rawInputs = {} } = body
     const count = Math.min(Math.max(Number(body.count) || 10, 4), 20)
@@ -164,6 +176,10 @@ async function handler(req: NextRequest) {
     if (!aiConfig.apiKey) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
+
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST)
+    if (!creditGuard.ok) return creditGuard.response
+    reservation = creditGuard.reservation
 
     const userPrompt = buildUserPrompt(profile, rawInputs, count)
     let raw = await callLlm(url, aiConfig.apiKey, aiConfig.model, userPrompt, timeoutSec)
@@ -181,6 +197,8 @@ async function handler(req: NextRequest) {
     }
 
     if (!parsed || typeof parsed !== "object") {
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json({
         error: "AI 返回格式异常，无法解析优势资产",
         raw: raw.slice(0, 1200),
@@ -202,11 +220,15 @@ async function handler(req: NextRequest) {
       .slice(0, count)
 
     if (advantages.length === 0) {
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json({ error: "AI 未生成包含具体数字的优势，请重试" }, { status: 422 })
     }
 
+    reservation = null
     return NextResponse.json({ advantages })
   } catch (error) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[geo-advantages]", error)
     const message = error instanceof Error ? error.message : "未知错误"
     if (message.includes("API Key") || message.includes("401")) {

@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import type { ResearchDimension, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonStrict } from "@/lib/score-utils"
-import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
+import {
+  authAndReserveCredits,
+  refundReservedCreditsQuietly,
+  settleReservedCredits,
+  type CreditReservation,
+} from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -173,6 +178,7 @@ function normalizeResult(
 }
 
 async function handler(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
     const body = await req.json()
     const sourceMode: ResearchSourceMode = body.sourceMode === "manual" ? "manual" : "module"
@@ -202,8 +208,10 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "豆包 API 未配置，无法执行调研" }, { status: 400 })
     }
 
-    const guard = await authAndCheckCredits(mode === "hypothesis" ? 5 : 8)
+    const cost = mode === "hypothesis" ? 5 : 8
+    const guard = await authAndReserveCredits(cost)
     if (!guard.ok) return guard.response
+    reservation = guard.reservation
 
     const { system, user } = buildPrompt({
       mode,
@@ -229,11 +237,13 @@ async function handler(req: NextRequest) {
     const parsed = parseJsonStrict<Record<string, unknown>>(raw, "豆包调研")
     const result = normalizeResult(parsed, mode, sourceMode, hypothesis, region, aliases)
 
-    await chargeCredits(guard.userId, mode === "hypothesis" ? 5 : 8)
+    await settleReservedCredits(reservation, cost)
+    reservation = null
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
     })
   } catch (error) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[research]", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "服务器错误" },

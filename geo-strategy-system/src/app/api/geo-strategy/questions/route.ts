@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "@/lib/geo-strategy/question-advantages"
+import { isInternalApiRequest } from "@/lib/internal-api"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
@@ -754,6 +755,10 @@ async function generateCategoryQuestions(
 
 async function handler(req: NextRequest) {
   try {
+    if (!isInternalApiRequest(req, "geo-questions")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const body = await req.json()
     const {
       strategy, totalCount = 40, layer2Ratio = 0.35,

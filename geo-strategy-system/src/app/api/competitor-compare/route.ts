@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import type { CompetitorCompareResult, CompetitorComparison } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonStrict } from "@/lib/score-utils"
-import { authAndCheckCredits, chargeCredits } from "@/lib/with-credits"
+import {
+  authAndReserveCredits,
+  refundReservedCreditsQuietly,
+  settleReservedCredits,
+  type CreditReservation,
+} from "@/lib/with-credits"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -256,6 +261,7 @@ function friendlyError(error: unknown): string {
 }
 
 async function handler(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
     const body = await req.json()
     const ourBrand = String(body.ourBrand || "").trim()
@@ -282,8 +288,10 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "豆包 API 未配置，无法生成竞品对比报告" }, { status: 400 })
     }
 
-    const guard = await authAndCheckCredits(5 * selectedCompetitors.length)
+    const cost = 5 * selectedCompetitors.length
+    const guard = await authAndReserveCredits(cost)
     if (!guard.ok) return guard.response
+    reservation = guard.reservation
 
     const comparisons = await mapWithConcurrency(
       selectedCompetitors,
@@ -299,11 +307,13 @@ async function handler(req: NextRequest) {
     )
     const result = normalize(comparisons, selectedCompetitors)
 
-    await chargeCredits(guard.userId, 5 * selectedCompetitors.length)
+    await settleReservedCredits(reservation, cost)
+    reservation = null
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
     })
   } catch (error) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[competitor-compare]", error)
     return NextResponse.json(
       { error: friendlyError(error) },

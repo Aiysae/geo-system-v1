@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getArticlePromptTemplate } from "@/lib/article-prompts"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
-import { chargeCredits, requireCredits, requireUserId } from "@/lib/with-credits"
+import {
+  refundReservedCreditsQuietly,
+  requireUserId,
+  reserveCreditsForUser,
+  settleReservedCredits,
+  type CreditReservation,
+} from "@/lib/with-credits"
 import type { ArticleModelProviderKey, ArticlePromptKey } from "@/types"
 
 export const runtime = "nodejs"
@@ -112,6 +118,7 @@ function buildUserPrompt(args: {
 }
 
 export async function POST(req: NextRequest) {
+  let reservation: CreditReservation | null = null
   try {
     const body = await req.json()
     const promptKey = asPromptKey(body.promptKey)
@@ -149,8 +156,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const creditGuard = await requireCredits(userGuard.userId, CREDIT_COST[promptKey])
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST[promptKey])
     if (!creditGuard.ok) return creditGuard.response
+    reservation = creditGuard.reservation
 
     const raw = await openaiCompatChat({
       url: buildAiChatUrl(config),
@@ -179,10 +187,13 @@ export async function POST(req: NextRequest) {
 
     const article = stripCodeFence(raw)
     if (!article) {
+      await refundReservedCreditsQuietly(reservation)
+      reservation = null
       return NextResponse.json({ error: "AI 未返回有效文章内容，请重试" }, { status: 502 })
     }
 
-    await chargeCredits(userGuard.userId, CREDIT_COST[promptKey])
+    await settleReservedCredits(reservation, CREDIT_COST[promptKey])
+    reservation = null
 
     return NextResponse.json(
       {
@@ -197,6 +208,7 @@ export async function POST(req: NextRequest) {
       }
     )
   } catch (error) {
+    await refundReservedCreditsQuietly(reservation)
     console.error("[article-generation]", error)
     const message = error instanceof Error ? error.message : "服务器错误"
 
