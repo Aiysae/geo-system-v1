@@ -1,4 +1,4 @@
-import { kv } from "@vercel/kv"
+import { kv } from "@/lib/kv"
 import { addCreditsBy } from "./credits"
 
 export type RechargeStatus = "pending" | "approved" | "rejected"
