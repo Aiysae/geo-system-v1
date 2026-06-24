@@ -124,7 +124,7 @@ jobs:
             fi
 
             if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-              npm ci
+              npm ci --include=dev
             else
               npm install
             fi

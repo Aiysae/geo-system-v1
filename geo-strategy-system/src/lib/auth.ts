@@ -1,6 +1,6 @@
 import "server-only"
 
-import { kv } from "@vercel/kv"
+import { kv } from "@/lib/kv"
 import { cookies } from "next/headers"
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto"
 import { promisify } from "util"

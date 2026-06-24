@@ -1,7 +1,7 @@
 import "server-only"
 
 import { randomUUID } from "crypto"
-import { kv } from "@vercel/kv"
+import { kv } from "@/lib/kv"
 import { createInternalApiHeaders } from "@/lib/internal-api"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "./question-advantages"

@@ -99,7 +99,7 @@ chmod 600 /var/www/geo-strategy-system/.env.production
 cd /var/www/geo-strategy-system/geo-strategy-system
 
 set -a && source ../.env.production && set +a
-npm ci
+npm ci --include=dev
 npm run build
 
 pm2 start ecosystem.config.cjs
@@ -177,7 +177,7 @@ cd /var/www/geo-strategy-system
 git pull origin main
 cd geo-strategy-system
 set -a && source ../.env.production && set +a
-npm ci
+npm ci --include=dev
 npm run build
 pm2 restart geo-system --update-env
 ```
