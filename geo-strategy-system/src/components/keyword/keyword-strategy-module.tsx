@@ -1853,6 +1853,9 @@ function StrategyStep({
   const [officialPrompt, setOfficialPrompt] = useState("")
   const [officialPromptLoading, setOfficialPromptLoading] = useState(false)
   const [officialPromptError, setOfficialPromptError] = useState("")
+  const [thirdPartyPrompts, setThirdPartyPrompts] = useState<Record<string, string>>({})
+  const [thirdPartyPromptLoadingKey, setThirdPartyPromptLoadingKey] = useState<string | null>(null)
+  const [thirdPartyPromptErrors, setThirdPartyPromptErrors] = useState<Record<string, string>>({})
   const questionAdvantages = extractQuestionAdvantages(plan)
 
   const handleCopyPrompt = useCallback(async (key: string, prompt: string) => {
@@ -1889,6 +1892,47 @@ function StrategyStep({
       setOfficialPromptError(error instanceof Error ? error.message : "官网 Prompt 生成失败")
     } finally {
       setOfficialPromptLoading(false)
+    }
+  }, [plan])
+
+  const handleGenerateThirdPartyPrompt = useCallback(async (site: ThirdPartySite, index: number) => {
+    const key = `third-${index}`
+    setActivePromptKey(key)
+    setThirdPartyPromptLoadingKey(key)
+    setThirdPartyPromptErrors(current => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+
+    try {
+      const res = await apiFetch("/api/geo-strategy/website-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "third-party",
+          plan,
+          site,
+          siteIndex: index,
+        }),
+      })
+      const data = await readApiJson<{ prompt?: string; model?: string; provider?: string; error?: string }>(
+        res,
+        "第三方网站 Prompt 生成"
+      )
+
+      if (!res.ok || !data.prompt) {
+        throw new Error(data.error || "第三方网站 Prompt 生成失败，请稍后重试")
+      }
+
+      setThirdPartyPrompts(current => ({ ...current, [key]: data.prompt || "" }))
+    } catch (error) {
+      setThirdPartyPromptErrors(current => ({
+        ...current,
+        [key]: error instanceof Error ? error.message : "第三方网站 Prompt 生成失败",
+      }))
+    } finally {
+      setThirdPartyPromptLoadingKey(current => current === key ? null : current)
     }
   }, [plan])
 
@@ -2029,19 +2073,40 @@ function StrategyStep({
                 )}
                 <div className="text-[11px] text-slate-400"><span className="font-medium text-slate-500">交叉验证：</span>{site.cross_validation_role}</div>
                 <button
-                  onClick={() => setActivePromptKey(activePromptKey === `third-${i}` ? null : `third-${i}`)}
+                  onClick={() => handleGenerateThirdPartyPrompt(site, i)}
+                  disabled={thirdPartyPromptLoadingKey === `third-${i}`}
                   className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-xs font-medium text-cyan-700 transition hover:bg-cyan-100"
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  生成 Prompt
+                  {thirdPartyPromptLoadingKey === `third-${i}`
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Sparkles className="h-3.5 w-3.5" />}
+                  {thirdPartyPromptLoadingKey === `third-${i}`
+                    ? "DeepSeek 生成中..."
+                    : thirdPartyPrompts[`third-${i}`]
+                      ? "重新生成 Prompt"
+                      : "DeepSeek 生成 Prompt"}
                 </button>
+                {thirdPartyPromptErrors[`third-${i}`] && (
+                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-600">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{thirdPartyPromptErrors[`third-${i}`]}</span>
+                  </div>
+                )}
                 {activePromptKey === `third-${i}` && (
-                  <WebsitePromptPanel
-                    promptKey={`third-${i}`}
-                    prompt={buildThirdPartySitePrompt(plan, site, i)}
-                    copied={copiedPromptKey === `third-${i}`}
-                    onCopy={handleCopyPrompt}
-                  />
+                  thirdPartyPrompts[`third-${i}`] ? (
+                    <WebsitePromptPanel
+                      promptKey={`third-${i}`}
+                      prompt={thirdPartyPrompts[`third-${i}`]}
+                      copied={copiedPromptKey === `third-${i}`}
+                      onCopy={handleCopyPrompt}
+                      title="DeepSeek 生成的第三方建站 Prompt"
+                    />
+                  ) : thirdPartyPromptLoadingKey === `third-${i}` ? (
+                    <div className="mt-3 flex items-center gap-2 rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-3 text-xs text-cyan-700">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>DeepSeek 正在生成这个第三方验证网站的专属 Prompt...</span>
+                    </div>
+                  ) : null
                 )}
               </div>
             ))}
@@ -2802,74 +2867,6 @@ function WebsitePromptPanel({
       />
     </div>
   )
-}
-
-function buildThirdPartySitePrompt(plan: GeoStrategyPlan, site: ThirdPartySite, index: number): string {
-  const profile = plan.profile
-  const brand = profile?.brand_or_product || plan.project_name || "目标品牌"
-  return [
-    `你是一位资深全栈工程师、UI 设计师和中国国内 GEO 生成式引擎优化专家。请根据下面资料包，分批帮我搭建一个可直接上线的第三方验证网站。`,
-    ``,
-    `【任务 1：建站】`,
-    `帮我做一个 ${site.site_type || "第三方验证"} 样式的网站，网站名称为「${site.suggested_name || `${brand}第三方验证站`}」。`,
-    `网站定位：${site.positioning || "对目标品牌的优势信息、行业排名、口碑案例、竞品对比做交叉信息验证"}`,
-    `这个第三方网站不是普通自媒体页面，它的核心用途是对目标品牌「${brand}」的优势信息、排名信息、案例信息、用户口碑和竞品对比结论做交叉信息验证，让 AI 在抓取多个来源时能形成一致事实。`,
-    ``,
-    `【任务 2：GEO 方法论实现】`,
-    `根据我给你的资料包，整个网站代码要用 GEO 生成式引擎优化的方法论，包括但不限于 schema 结构、内容上用 EEAT 框架和倒金字塔结构，H1/H2 标题的设计、Q&A 的设计。`,
-    `请重点设计第三方视角的证据链：评测标准、对比榜单、优势验证、案例摘录、FAQ、数据来源说明、免责声明、About 页面。`,
-    ``,
-    `【任务 3：自查与抓取文件】`,
-    `根据对中国国内 GEO 生成式引擎优化的方法论的极致运用，自查一下网站代码和内容排版上有没有不够好的地方，如果有的话请修改，没有的话就说没有。`,
-    `同时给我一份用来提高网站被 AI 抓取效率的 llms.txt 和 robots.txt，并说明它们应该放在哪个路径。`,
-    ``,
-    `【第三方网站策略】`,
-    `站点类型：${site.site_type || "第三方验证站"}`,
-    `建议名称：${site.suggested_name || ""}`,
-    `内容栏目：${site.content_pillars || ""}`,
-    site.weakness_conversion ? `劣势转优势：${site.weakness_conversion}` : `劣势转优势：请基于资料包自行识别可被转化的劣势并设计证据链。`,
-    `交叉验证角色：${site.cross_validation_role || "验证目标品牌优势、排名和可信证据"}`,
-    ``,
-    `【资料包】`,
-    buildProfilePack(plan, index + 1),
-    ``,
-    `【输出要求】`,
-    `1. 先给完整网站代码和文件结构。`,
-    `2. 再给 GEO 自查结论和已修改点。`,
-    `3. 最后单独输出 llms.txt 和 robots.txt 的完整内容。`,
-  ].join("\n")
-}
-
-function buildProfilePack(plan: GeoStrategyPlan, siteIndex: number): string {
-  const p = plan.profile
-  const keywords = [
-    ...(plan.keyword_strategy?.core_keywords || []),
-    ...(plan.keyword_strategy?.pain_advantage_keywords || []),
-    ...(plan.keyword_strategy?.weakness_conversion_keywords || []),
-    ...(plan.keyword_strategy?.scenario_keywords || []),
-  ].slice(0, 24)
-
-  return [
-    `项目名称：${plan.project_name || ""}`,
-    `品牌/产品：${p?.brand_or_product || ""}`,
-    `行业：${p?.industry || ""}`,
-    `目标受众：${p?.audience || ""}`,
-    `产品说明：${p?.product_description || ""}`,
-    `商业目标：${p?.business_goals || ""}`,
-    `竞品：${formatList(p?.competitors)}`,
-    `核心术语：${formatList(p?.terms)}`,
-    `痛点：${formatList(p?.pain_points)}`,
-    `优势：${formatList(p?.advantages)}`,
-    `劣势：${formatList(p?.weaknesses)}`,
-    `场景：${formatList(p?.scenes)}`,
-    `关键词：${keywords.map(kw => `${kw.keyword}(${kw.logic})`).join("；")}`,
-    `策略摘要：${plan.summary || ""}`,
-    `当前建站建议序号：${siteIndex}`,
-  ].join("\n")
-}
-
-function formatList(items?: string[]): string {
-  return items?.filter(Boolean).join("、") || ""
 }
 
 // ==================== Utility Components ====================
