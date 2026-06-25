@@ -75,6 +75,8 @@ export interface ArticleGenerationState {
 
 export type DifficultyLevel = "容易" | "中等" | "困难" | "超难"
 
+export type DifficultyAssessmentMode = "industry" | "brand"
+
 export type DifficultyStageKey =
   | "research"
   | "comparison"
@@ -100,6 +102,9 @@ export interface DifficultyDimensionResult {
 }
 
 export interface DifficultyAssessmentResult {
+  mode?: DifficultyAssessmentMode
+  targetBrand?: string
+  website?: string
   totalScore: number
   level: DifficultyLevel
   stableMentionPeriod: string
@@ -114,8 +119,11 @@ export interface DifficultyAssessmentResult {
 
 export interface DifficultyAssessmentEntry {
   id: string
+  mode?: DifficultyAssessmentMode
   industry: string
   city: string
+  targetBrand?: string
+  website?: string
   source: string
   createdAt: string
   result: DifficultyAssessmentResult
