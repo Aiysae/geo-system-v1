@@ -73,6 +73,54 @@ export interface ArticleGenerationState {
   generatedAt?: string
 }
 
+export type DifficultyLevel = "容易" | "中等" | "困难" | "超难"
+
+export type DifficultyStageKey =
+  | "research"
+  | "comparison"
+  | "scoring"
+  | "review"
+  | "report"
+
+export interface DifficultyStageOutput {
+  title: string
+  summary: string
+  evidence: string[]
+  tags: string[]
+}
+
+export type DifficultyProcess = Record<DifficultyStageKey, DifficultyStageOutput>
+
+export interface DifficultyDimensionResult {
+  name: string
+  score: number
+  max: number
+  level: DifficultyLevel
+  analysis: string
+}
+
+export interface DifficultyAssessmentResult {
+  totalScore: number
+  level: DifficultyLevel
+  stableMentionPeriod: string
+  summary: string
+  dimensions: Record<string, DifficultyDimensionResult>
+  insights: string[]
+  suggestions: string[]
+  process: DifficultyProcess
+  generatedAt: string
+  providerLabel?: string
+}
+
+export interface DifficultyAssessmentEntry {
+  id: string
+  industry: string
+  city: string
+  source: string
+  createdAt: string
+  result: DifficultyAssessmentResult
+}
+
 export interface PenetrationSource {
   title: string
   snippet: string
@@ -249,4 +297,5 @@ export interface Client {
   diagnosis?: Diagnosis
   keywordStrategy?: KeywordStrategyState
   articleGeneration?: ArticleGenerationState
+  difficultyAssessments?: DifficultyAssessmentEntry[]
 }
