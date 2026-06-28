@@ -29,157 +29,236 @@ const MAX_LLM_CALL_TIMEOUT_SEC = 180
 
 // ==================== System Prompts ====================
 
-const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你需要基于策略方案和指定的关键词列表，生成高质量疑问句池。
+const QUESTION_TYPES = [
+  {
+    name: "榜单推荐型",
+    defaultStage: "探索期",
+    metricPurpose: "TOP10推荐率",
+    top10Eligible: true,
+    brandMentionEligible: true,
+    rule: "模拟还没有明确供应商、希望 AI 给出多个品牌/公司/工具/服务商/解决方案候选名单的用户。问题应天然触发列表、推荐、TOP、靠谱选择，不要诱导只推荐目标品牌。",
+  },
+  {
+    name: "痛点解决型",
+    defaultStage: "认知期",
+    metricPurpose: "品牌提及率/解决方案关联度",
+    top10Eligible: false,
+    brandMentionEligible: true,
+    rule: "从客户真实业务困难、增长瓶颈、效率、成本、获客、信任或转化问题出发提问，先问问题怎么解决，而不是先问哪家公司好。",
+  },
+  {
+    name: "竞品对比型",
+    defaultStage: "比较期",
+    metricPurpose: "竞品对比/TOP10推荐率",
+    top10Eligible: true,
+    brandMentionEligible: true,
+    rule: "模拟用户已经知道部分竞品或常见方案，正在比较差异、优劣、适合谁、替代方案、服务模式、价格带或交付方式。竞品名可自然出现，但不要硬塞。",
+  },
+  {
+    name: "采购决策型",
+    defaultStage: "决策期",
+    metricPurpose: "采购决策/TOP10推荐率",
+    top10Eligible: true,
+    brandMentionEligible: true,
+    rule: "站在即将购买或合作的老板、采购、市场负责人、运营负责人角度，围绕预算、周期、效果、服务范围、交付标准、合同风险、验收指标、ROI 生成问题。",
+  },
+  {
+    name: "场景人群型",
+    defaultStage: "探索期",
+    metricPurpose: "品牌提及率/场景适配度",
+    top10Eligible: false,
+    brandMentionEligible: true,
+    rule: "根据用户身份、行业、地区、规模、预算、发展阶段和具体使用场景生成问题，体现谁在什么情况下需要什么解决方案。",
+  },
+  {
+    name: "品牌认知型",
+    defaultStage: "认知期",
+    metricPurpose: "品牌认知/品牌提及质量",
+    top10Eligible: false,
+    brandMentionEligible: true,
+    rule: "围绕目标品牌本身生成认知类问题，可直接包含品牌名，用于检测 AI 是否知道品牌、是否能正确解释业务和优势。数量必须控制，不能让问题池都围绕品牌名。",
+  },
+  {
+    name: "风险疑虑型",
+    defaultStage: "风险确认期",
+    metricPurpose: "风险疑虑/信任度/负面倾向",
+    top10Eligible: false,
+    brandMentionEligible: true,
+    rule: "模拟用户的不信任、犹豫和风险规避心理，围绕靠谱吗、有没有坑、怎么判断、会不会无效、怎么验收、合同怎么写、哪些情况不适合等问题展开；避免攻击性、诽谤性引导。",
+  },
+] as const
+
+type QuestionTypeName = typeof QUESTION_TYPES[number]["name"]
+type UserStage = NonNullable<QuestionItem["userStage"]>
+
+const QUESTION_TYPE_NAMES = QUESTION_TYPES.map(item => item.name) as QuestionTypeName[]
+const QUESTION_TYPE_SET = new Set<string>(QUESTION_TYPE_NAMES)
+const USER_STAGES: UserStage[] = ["认知期", "探索期", "比较期", "决策期", "风险确认期"]
+const USER_STAGE_SET = new Set<string>(USER_STAGES)
+
+const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你的任务不是套固定模板，而是先理解品牌、业务主题、客户画像、行业场景、竞品和用户决策路径，再推理真实用户可能会向 ChatGPT、DeepSeek、豆包、Kimi、元宝、文心一言等 AI 搜索工具提出的问题。
 
 核心规则：
-1. 严格围绕指定的关键词列表和策略背景生成问题。
-2. 不要从原始 OCR 噪声里生成问题。
-3. 第一层问题覆盖 What/How：直接解决、推荐选择、场景需求、采购判断、对比测评、避坑指南、效率提升、榜单推荐。
-4. 第二层问题覆盖 Why/If/Who：深层决策、适用人群、业务影响、购买前疑虑、选择逻辑、竞品判断、AI推荐机制、风险注意。
-5. 第二层比例由用户控制，默认 35%，最高不超过 45%。
-6. 禁止生成噪声问题：和业务无关、来自 OCR 错误、评分表、页码、模型名拼接出来的问题。
-7. **question 字段必须模拟真实用户的自然提问**，就像用户在搜索引擎或 AI 助手中真实输入的那样。禁止出现任何品牌名、公司名、具体产品名，也禁止用"这个品牌"、"这类产品"、"该品类"等生硬泛指——这些一眼就能看出是营销内容。而是聚焦于用户的实际痛点、场景、决策困惑。
+1. 问题必须像真实用户自然提问，不要机械替换变量，不要批量同义改写。
+2. 严格围绕业务背景、用户痛点、关键词、劣势、场景和竞品生成，禁止从 OCR 噪声、评分表、页码、模型名中生成问题。
+3. category 只能从七类中选择：榜单推荐型、痛点解决型、竞品对比型、采购决策型、场景人群型、品牌认知型、风险疑虑型。
+4. 品牌名出现比例要控制：品牌认知型可以直接出现目标品牌；其他类型只有在比较、认知核验或用户自然会这样问时才出现。不要写“这个品牌”“该品牌”“这类产品”等生硬泛指。
+5. 每条问题都必须有明确意图、用户阶段、检测目的和统计标记。
+6. 如果【可选优势证据】非空，matched_advantage 必须逐字选择其中最能支撑该问题回答方向的一条，不能编造、改写或留空；如果优势列表为空，matched_advantage 才能填空字符串。
+7. top10Eligible 只在问题会自然触发“多个候选/推荐名单/TOP/有哪些选择”时为 true；brandMentionEligible 在答案中自然可能提及目标品牌或目标服务时为 true。
+8. 输出必须是严格 JSON，不要 Markdown 代码块，不要解释文本。
 
-要求：
-- 每条问题包含 id、layer、category、difficulty、keyword、question、intent、content_angle、matched_advantage
-- matched_advantage 必须从本次提供的【可选优势证据】中选择最能佐证该疑问句的一条，不能编造新优势；如果优势列表为空则填空字符串
-- id 从起始编号连续递增
-
-输出严格 JSON，格式：
-{
-  "question_strategy": [
-    {
-      "id": "1",
-      "layer": "第一层",
-      "category": "分类标签",
-      "difficulty": "低-中",
-      "keyword": "",
-      "question": "",
-      "intent": "",
-      "content_angle": "",
-      "matched_advantage": "从可选优势证据中选择的一条"
-    }
-  ]
-}`
+每条问题必须同时兼容旧字段和新字段，包含：
+id、layer、category、difficulty、keyword、question、intent、content_angle、matched_advantage、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible。`
 
 // ==================== Prompt Builders ====================
 
-function buildWeaknessSpinPrompt(
-  strategy: Record<string, unknown>,
-  count: number,
-  startId: number,
-  layer2Ratio: number,
-  weaknesses: string[],
-): string {
-  const layer1Count = Math.round(count * (1 - layer2Ratio))
-  const layer2Count = count - layer1Count
-
-  const profile = (strategy.profile || {}) as Record<string, unknown>
-  const weaknessList = weaknesses.map((w, i) => `${i + 1}. ${w}`).join("\n")
-  const advantages = extractQuestionAdvantages(strategy as unknown as GeoStrategyPlan)
-  const advantageList = advantages.length > 0
-    ? advantages.map((advantage, i) => `${i + 1}. ${advantage}`).join("\n")
-    : "（暂无优势证据，matched_advantage 填空字符串）"
-
-  return `你是一个品牌公关专家，擅长将品牌劣势通过内容策略转化为认知优势。
-
-【品牌/产品背景】
-- 品牌/产品: ${profile.brand_or_product || ""}
-- 行业: ${profile.industry || ""}
-- 产品说明: ${profile.product_description || ""}
-- 目标受众: ${profile.audience || ""}
-
-【需要积极转化的劣势】
-${weaknessList}
-
-【可选优势证据】
-${advantageList}
-
-【转化核心原则】
-1. 不要否认劣势，而是从数据积累、客户案例、服务经验、专业见地等角度重新构建叙事框架
-2. 硬事实类劣势（如"成立时间短"、"规模小"）虽然无法改变客观事实，但可以强调：拥有丰富的数据积累能力、大量客户服务案例、行业深度经验——时间短不代表积淀薄
-3. 相对劣势（如"价格偏高"）从高品质选材、长期使用价值、专业服务附加值角度构建对比优势
-4. 每个问题都模拟真实潜在客户在搜索引擎/大模型中的自然提问方式
-5. 问题要具有实际的搜索价值，能直接导向可创作的内容
-6. **question 字段禁止出现任何品牌名/公司名/具体产品名，也禁止用"这个品牌"、"这类产品"等泛指**，必须是真实用户会搜的痛点/场景/困惑类问题
-
-【生成要求】
-- 本批共 ${count} 条问题（第一层 ~${layer1Count} 条，第二层 ~${layer2Count} 条）
-- 起始 ID: ${startId}
-- 第一层问题覆盖: 直接解决、推荐选择、场景需求、采购判断
-- 第二层问题覆盖: 深层决策、适用人群、业务影响、购买前疑虑
-- 第二层比例约 ${Math.round(layer2Ratio * 100)}%
-- category 字段统一填 "劣势积极转化"
-- matched_advantage 必须从【可选优势证据】中选择最能支撑该疑问句内容方向的一条，不能改写、不能新增
-- **question 字段禁止出现品牌名/公司名/具体产品名，也不要用"这个品牌"、"这类产品"等泛指**，必须聚焦用户的真实痛点、场景困惑、决策问题
-
-输出严格 JSON：
-{
-  "question_strategy": [
-    {
-      "id": "${startId}",
-      "layer": "第一层",
-      "category": "劣势积极转化",
-      "difficulty": "低-中",
-      "keyword": "相关的劣势关键词",
-      "question": "模拟用户真实提问",
-      "intent": "用户的搜索意图",
-      "content_angle": "建议的内容角度",
-      "matched_advantage": "从可选优势证据中选择的一条"
-    }
-  ]
-}`
+function listBlock(values: unknown, emptyText: string): string {
+  const items = Array.isArray(values)
+    ? values.map(item => String(item).trim()).filter(Boolean)
+    : []
+  if (items.length === 0) return emptyText
+  return items.map((item, index) => `${index + 1}. ${item}`).join("\n")
 }
 
-function buildKeywordPrompt(
+function formatQuestionTypeGuide(): string {
+  return QUESTION_TYPES
+    .map(item => [
+      `【${item.name}】`,
+      `默认阶段：${item.defaultStage}`,
+      `默认检测目的：${item.metricPurpose}`,
+      `默认 top10Eligible：${item.top10Eligible ? "true" : "false"}`,
+      `默认 brandMentionEligible：${item.brandMentionEligible ? "true" : "false"}`,
+      `推理规则：${item.rule}`,
+    ].join("\n"))
+    .join("\n\n")
+}
+
+function allocateTypeMix(
+  count: number,
+  sourceCategory: Allocation["category"],
+  layer2Ratio: number,
+): Array<{ name: QuestionTypeName; count: number }> {
+  const weights = new Map<QuestionTypeName, number>([
+    ["榜单推荐型", 16],
+    ["痛点解决型", 22],
+    ["竞品对比型", 14],
+    ["采购决策型", 18],
+    ["场景人群型", 16],
+    ["品牌认知型", 6],
+    ["风险疑虑型", 8],
+  ])
+
+  if (sourceCategory === "weakness_spin") {
+    weights.set("痛点解决型", 24)
+    weights.set("风险疑虑型", 20)
+    weights.set("采购决策型", 18)
+    weights.set("品牌认知型", 4)
+  } else if (sourceCategory === "pain_scenario") {
+    weights.set("痛点解决型", 26)
+    weights.set("场景人群型", 24)
+    weights.set("采购决策型", 16)
+    weights.set("品牌认知型", 4)
+  } else if (sourceCategory === "secondary_keywords") {
+    weights.set("竞品对比型", 22)
+    weights.set("采购决策型", 20)
+    weights.set("风险疑虑型", 10)
+    weights.set("品牌认知型", 5)
+  }
+
+  const layer2Weight = Math.min(Math.max(layer2Ratio, 0.15), 0.45)
+  weights.set("竞品对比型", Math.round((weights.get("竞品对比型") || 0) * (0.8 + layer2Weight)))
+  weights.set("采购决策型", Math.round((weights.get("采购决策型") || 0) * (0.8 + layer2Weight)))
+  weights.set("风险疑虑型", Math.round((weights.get("风险疑虑型") || 0) * (0.8 + layer2Weight)))
+
+  const brandCap = Math.max(count >= 12 ? 1 : 0, Math.min(3, Math.floor(count * 0.10)))
+  const totalWeight = Array.from(weights.values()).reduce((sum, value) => sum + value, 0)
+  const raw = QUESTION_TYPE_NAMES.map(name => {
+    const expected = count * ((weights.get(name) || 0) / totalWeight)
+    const cappedExpected = name === "品牌认知型" ? Math.min(expected, brandCap) : expected
+    return { name, expected: cappedExpected, count: Math.floor(cappedExpected) }
+  })
+  let allocated = raw.reduce((sum, item) => sum + item.count, 0)
+  const byRemainder = [...raw].sort((a, b) => (b.expected - b.count) - (a.expected - a.count))
+  for (const item of byRemainder) {
+    if (allocated >= count) break
+    if (item.name === "品牌认知型" && item.count >= brandCap) continue
+    item.count += 1
+    allocated += 1
+  }
+  for (const item of byRemainder) {
+    if (allocated >= count) break
+    item.count += 1
+    allocated += 1
+  }
+
+  return byRemainder
+    .filter(item => item.count > 0)
+    .sort((a, b) => QUESTION_TYPE_NAMES.indexOf(a.name) - QUESTION_TYPE_NAMES.indexOf(b.name))
+    .map(({ name, count }) => ({ name, count }))
+}
+
+function formatTypeMix(mix: Array<{ name: QuestionTypeName; count: number }>): string {
+  return mix.map(item => `- ${item.name}: ${item.count} 条`).join("\n")
+}
+
+function buildReasonedQuestionPrompt(
   strategy: Record<string, unknown>,
-  categoryLabel: string,
-  categoryTag: string,
+  allocation: Allocation,
+  sourceLabel: string,
   count: number,
   startId: number,
   layer2Ratio: number,
-  keywords: string[],
-  extraInstructions: string,
 ): string {
-  const layer1Count = Math.round(count * (1 - layer2Ratio))
-  const layer2Count = count - layer1Count
-
   const profile = (strategy.profile || {}) as Record<string, unknown>
-  const kwList = keywords.length > 0
-    ? keywords.map((k, i) => `${i + 1}. ${k}`).join("\n")
-    : "（无特定关键词列表，请基于品牌/产品背景生成）"
   const advantages = extractQuestionAdvantages(strategy as unknown as GeoStrategyPlan)
+  const materialList = allocation.category === "weakness_spin"
+    ? listBlock(allocation.weaknesses || profile.weaknesses, "（暂无明确劣势，请结合业务背景和风险疑虑生成）")
+    : listBlock(allocation.keywords, "（暂无指定关键词，请结合业务背景、痛点和场景推理生成）")
   const advantageList = advantages.length > 0
     ? advantages.map((advantage, i) => `${i + 1}. ${advantage}`).join("\n")
     : "（暂无优势证据，matched_advantage 填空字符串）"
+  const typeMix = allocateTypeMix(count, allocation.category, layer2Ratio)
 
-  return `你是一个资深 GEO 疑问句生成专家。
+  return `请基于下面的业务背景和用户选择的素材，按“问题类型 + 推理规则”生成 GEO 疑问句。
 
-【品牌/产品背景】
+【品牌/业务背景】
 - 品牌/产品: ${profile.brand_or_product || ""}
 - 行业: ${profile.industry || ""}
-- 目标受众: ${profile.audience || ""}
-- 产品说明: ${profile.product_description || ""}
+- 目标客户: ${profile.audience || ""}
+- 核心业务/服务说明: ${profile.product_description || ""}
+- 业务目标: ${profile.business_goals || ""}
+- 地区/业务词: ${listBlock(profile.terms, "（暂无）")}
+- 竞品/替代选择: ${listBlock(profile.competitors, "（暂无）")}
+- 客户痛点: ${listBlock(profile.pain_points, "（暂无）")}
+- 使用场景: ${listBlock(profile.scenes, "（暂无）")}
+- 已识别劣势: ${listBlock(profile.weaknesses, "（暂无）")}
 
-【类别】${categoryLabel}
-【关键词列表】
-${kwList}
+【本批生成来源】
+来源类型: ${sourceLabel}
+来源素材:
+${materialList}
 
 【可选优势证据】
 ${advantageList}
 
-${extraInstructions ? `【额外要求】\n${extraInstructions}\n` : ""}
+【七类问题推理规则】
+${formatQuestionTypeGuide()}
+
+【本批类型配比】
+${formatTypeMix(typeMix)}
+
 【生成要求】
-- 本批共 ${count} 条问题（第一层 ~${layer1Count} 条，第二层 ~${layer2Count} 条）
-- 起始 ID: ${startId}
-- 第一层: What/How 类问题（直接解决、推荐选择、场景需求、采购判断、对比测评等）
-- 第二层: Why/If/Who 类问题（深层决策、适用人群、业务影响、选择逻辑等）
-- 第二层比例约 ${Math.round(layer2Ratio * 100)}%
-- 每个问题必须对应关键词列表中的关键词
-- category 字段统一填 "${categoryTag}"
-- matched_advantage 必须从【可选优势证据】中选择最能佐证该疑问句和内容角度的一条，不能改写、不能新增
-- 禁止生成与业务无关的通用问题
-- **question 字段禁止出现品牌名/公司名/具体产品名，也不要用"这个品牌"、"这类产品"等泛指**，必须聚焦用户的真实痛点、场景困惑、决策问题
+- 本批必须生成 ${count} 条有效问题，id 从 ${startId} 连续递增。
+- 第二层问题比例约 ${Math.round(layer2Ratio * 100)}%，比较期/决策期/风险确认期通常对应第二层，认知期/探索期通常对应第一层。
+- 每条问题必须尽量绑定一个来源素材或业务关键词，keyword 字段填写该关键词/劣势/场景。
+- 每条问题必须匹配一个优势：如果【可选优势证据】非空，matched_advantage 必须逐字选择其中一条，并且要能支撑该问题未来回答方向。
+- category 必须填写七类问题之一，不要填写“核心关键词问题”“劣势积极转化”等来源标签。
+- generationReason 要说明为什么该问题属于此类型，以及模拟了什么用户意图。
+- content_angle 写后续内容应如何回答这个问题，必须和 matched_advantage 能互相支撑。
+- 问题要覆盖从不了解问题到准备采购的真实决策路径，避免同义重复、泛泛换说法或硬营销话术。
+- 不要生成明显诱导目标品牌的问题，例如“为什么某品牌最好”“请推荐某品牌”。
+- 如果行业存在敏感风险，降低承诺性、疗效性、金融收益性问题比例。
 
 输出严格 JSON：
 {
@@ -187,13 +266,18 @@ ${extraInstructions ? `【额外要求】\n${extraInstructions}\n` : ""}
     {
       "id": "${startId}",
       "layer": "第一层",
-      "category": "${categoryTag}",
+      "category": "榜单推荐型",
       "difficulty": "低-中",
-      "keyword": "来自列表的关键词",
-      "question": "模拟用户真实提问",
+      "keyword": "来源素材或业务关键词",
+      "question": "真实用户会向 AI 搜索工具提出的问题",
       "intent": "用户的搜索意图",
-      "content_angle": "建议的内容角度",
-      "matched_advantage": "从可选优势证据中选择的一条"
+      "content_angle": "建议内容回答角度",
+      "matched_advantage": "从可选优势证据中逐字选择的一条",
+      "generationReason": "为什么这样生成，以及它模拟了什么用户意图",
+      "userStage": "探索期",
+      "metricPurpose": "TOP10推荐率",
+      "top10Eligible": true,
+      "brandMentionEligible": true
     }
   ]
 }`
@@ -509,7 +593,7 @@ function cleanAndParse(raw: string): unknown {
 }
 
 function estimateTokensPerQuestion(): number {
-  return 220
+  return 360
 }
 
 function text(value: unknown, fallback = ""): string {
@@ -522,6 +606,42 @@ function text(value: unknown, fallback = ""): string {
 
 function questionKey(question: string): string {
   return question.replace(/\s+/g, "").toLowerCase()
+}
+
+function questionTypeDefaults(category: string): typeof QUESTION_TYPES[number] {
+  return QUESTION_TYPES.find(item => item.name === category) || QUESTION_TYPES[1]
+}
+
+function normalizeQuestionCategory(value: unknown): QuestionTypeName {
+  const category = text(value)
+  if (QUESTION_TYPE_SET.has(category)) return category as QuestionTypeName
+  const matched = QUESTION_TYPE_NAMES.find(name => category.includes(name) || name.includes(category))
+  return matched || "痛点解决型"
+}
+
+function normalizeUserStage(value: unknown, fallback: UserStage): UserStage {
+  const stage = text(value)
+  if (USER_STAGE_SET.has(stage)) return stage as UserStage
+  if (/风险|疑虑|避坑|信任/.test(stage)) return "风险确认期"
+  if (/决策|采购|购买|合作|验收|预算/.test(stage)) return "决策期"
+  if (/比较|对比|竞品|替代/.test(stage)) return "比较期"
+  if (/探索|推荐|选择|方案/.test(stage)) return "探索期"
+  if (/认知|了解|知道/.test(stage)) return "认知期"
+  return fallback
+}
+
+function layerFromStage(stage: UserStage, layer: unknown): "第一层" | "第二层" {
+  if (layer === "第二层") return "第二层"
+  if (layer === "第一层") return "第一层"
+  return stage === "比较期" || stage === "决策期" || stage === "风险确认期" ? "第二层" : "第一层"
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value
+  const raw = text(value).toLowerCase()
+  if (["true", "1", "yes", "y", "是", "适合"].includes(raw)) return true
+  if (["false", "0", "no", "n", "否", "不适合"].includes(raw)) return false
+  return fallback
 }
 
 function buildAvoidQuestionsInstruction(questions: string[]): string {
@@ -544,16 +664,24 @@ function normalizeQuestion(value: unknown, category: string): Omit<QuestionItem,
   const data = value as Record<string, unknown>
   const question = text(data.question)
   if (!question) return null
+  const normalizedCategory = normalizeQuestionCategory(data.category || category)
+  const defaults = questionTypeDefaults(normalizedCategory)
+  const userStage = normalizeUserStage(data.userStage, defaults.defaultStage as UserStage)
 
   return {
-    layer: data.layer === "第二层" ? "第二层" : "第一层",
-    category: text(data.category, category),
+    layer: layerFromStage(userStage, data.layer),
+    category: normalizedCategory,
     difficulty: text(data.difficulty, "中"),
     keyword: text(data.keyword),
     question,
     intent: text(data.intent, "了解并解决相关决策问题"),
-    content_angle: text(data.content_angle, "围绕用户问题提供事实、对比与行动建议"),
+    content_angle: text(data.content_angle, text(data.generationReason, "围绕用户问题提供事实、对比与行动建议")),
     matched_advantage: text(data.matched_advantage),
+    generationReason: text(data.generationReason, `模拟${userStage}用户围绕${normalizedCategory}提出的真实决策问题`),
+    userStage,
+    metricPurpose: text(data.metricPurpose, defaults.metricPurpose),
+    top10Eligible: normalizeBoolean(data.top10Eligible, defaults.top10Eligible),
+    brandMentionEligible: normalizeBoolean(data.brandMentionEligible, defaults.brandMentionEligible),
   }
 }
 
@@ -593,18 +721,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   pain_scenario: "痛点/场景关键词问题",
 }
 
-const EXTRA_INSTRUCTIONS: Record<string, string> = {
-  core_keywords:
-    "这些是最核心的行业关键词。问题不能出现品牌名/公司名/具体产品名，而是从用户对这类需求的真实困惑出发，" +
-    "围绕用户的选择标准、使用场景、决策顾虑来生成问题。",
-  secondary_keywords:
-    "这些是差异化关键词。问题不能出现品牌名/公司名/具体产品名，而是模拟用户在做选择时的对比思虑、" +
-    "对不同方案的纠结、对性价比的考量等真实提问。",
-  pain_scenario:
-    "这些是痛点驱动和场景驱动的关键词，问题应模拟客户在实际使用场景中的真实困惑和需求，" +
-    "从解决问题和满足场景需求的角度切入。",
-}
-
 // ==================== Per-Category Generator ====================
 
 async function generateCategoryQuestions(
@@ -641,21 +757,14 @@ async function generateCategoryQuestions(
         return []
       }
 
-      const basePrompt = allocation.category === "weakness_spin"
-        ? buildWeaknessSpinPrompt(
-            strategy, thisBatchSize, startId, layer2Ratio,
-            allocation.weaknesses || [],
-          )
-        : buildKeywordPrompt(
-            strategy,
-            categoryLabel,
-            categoryLabel,
-            thisBatchSize,
-            startId,
-            layer2Ratio,
-            allocation.keywords,
-            EXTRA_INSTRUCTIONS[allocation.category] || "",
-          )
+      const basePrompt = buildReasonedQuestionPrompt(
+        strategy,
+        allocation,
+        categoryLabel,
+        thisBatchSize,
+        startId,
+        layer2Ratio,
+      )
       const prompt = avoidInstruction ? `${basePrompt}\n\n${avoidInstruction}` : basePrompt
       const baseSystem = batch === 0
         ? SYSTEM_TEMPLATE

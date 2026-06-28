@@ -143,6 +143,11 @@ export interface QuestionItem {
   intent: string
   content_angle: string
   matched_advantage?: string
+  generationReason?: string
+  userStage?: "认知期" | "探索期" | "比较期" | "决策期" | "风险确认期"
+  metricPurpose?: string
+  top10Eligible?: boolean
+  brandMentionEligible?: boolean
 }
 
 /** 完整策略方案 */

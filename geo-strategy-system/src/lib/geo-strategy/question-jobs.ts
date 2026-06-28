@@ -365,49 +365,156 @@ function buildQuestionBatchPlans(
   return plans
 }
 
-function buildQuestionTextSeed(keyword: string, index: number): string {
-  const scenarios = [
-    "初次了解时",
-    "准备采购前",
-    "预算有限时",
-    "团队规模较小时",
-    "业务增长较快时",
-    "替换旧方案时",
-    "对比多个方案时",
-    "需要长期使用时",
-    "担心踩坑时",
-    "老板要求评估时",
-    "跨部门协同时",
-    "本地服务落地时",
-    "需要快速见效时",
-    "重视售后服务时",
-    "关注数据安全时",
-  ]
-  const dimensions = [
-    "成本",
-    "效果",
-    "稳定性",
-    "服务能力",
-    "交付周期",
-    "案例真实性",
-    "使用门槛",
-    "长期价值",
-    "扩展能力",
-    "风险点",
-  ]
-  const scenario = scenarios[Math.floor(index / 8) % scenarios.length]
-  const dimension = dimensions[Math.floor(index / (8 * scenarios.length)) % dimensions.length]
-  const templates = [
-    `${scenario}，${keyword}适合哪些使用场景？`,
-    `${scenario}，${keyword}怎么判断是否值得选择？`,
-    `${scenario}，选择${keyword}前要重点看哪些${dimension}指标？`,
-    `${scenario}，${keyword}和其他方案相比主要差别是什么？`,
-    `${scenario}，${keyword}常见${dimension}避坑点有哪些？`,
-    `${scenario}，${keyword}适合什么类型的团队或人群？`,
-    `${scenario}，${keyword}落地时最容易遇到哪些${dimension}问题？`,
-    `${scenario}，如何评估${keyword}的长期${dimension}价值？`,
-  ]
-  return templates[index % templates.length]
+type FallbackQuestionType = {
+  category: string
+  userStage: NonNullable<QuestionItem["userStage"]>
+  metricPurpose: string
+  top10Eligible: boolean
+  brandMentionEligible: boolean
+}
+
+const FALLBACK_QUESTION_TYPES: FallbackQuestionType[] = [
+  {
+    category: "榜单推荐型",
+    userStage: "探索期",
+    metricPurpose: "TOP10推荐率",
+    top10Eligible: true,
+    brandMentionEligible: true,
+  },
+  {
+    category: "痛点解决型",
+    userStage: "认知期",
+    metricPurpose: "品牌提及率/解决方案关联度",
+    top10Eligible: false,
+    brandMentionEligible: true,
+  },
+  {
+    category: "竞品对比型",
+    userStage: "比较期",
+    metricPurpose: "竞品对比/TOP10推荐率",
+    top10Eligible: true,
+    brandMentionEligible: true,
+  },
+  {
+    category: "采购决策型",
+    userStage: "决策期",
+    metricPurpose: "采购决策/TOP10推荐率",
+    top10Eligible: true,
+    brandMentionEligible: true,
+  },
+  {
+    category: "场景人群型",
+    userStage: "探索期",
+    metricPurpose: "品牌提及率/场景适配度",
+    top10Eligible: false,
+    brandMentionEligible: true,
+  },
+  {
+    category: "品牌认知型",
+    userStage: "认知期",
+    metricPurpose: "品牌认知/品牌提及质量",
+    top10Eligible: false,
+    brandMentionEligible: true,
+  },
+  {
+    category: "风险疑虑型",
+    userStage: "风险确认期",
+    metricPurpose: "风险疑虑/信任度/负面倾向",
+    top10Eligible: false,
+    brandMentionEligible: true,
+  },
+]
+
+function pickFallbackText(values: string[] | undefined, index: number, fallback: string): string {
+  const cleaned = (values || []).map(item => item.trim()).filter(Boolean)
+  if (cleaned.length === 0) return fallback
+  return cleaned[index % cleaned.length]
+}
+
+function safeFallbackKeyword(keyword: string, strategy: GeoStrategyPlan, type: FallbackQuestionType): string {
+  const brand = strategy.profile?.brand_or_product?.trim()
+  if (
+    type.category !== "品牌认知型" &&
+    brand &&
+    questionKey(keyword) === questionKey(brand)
+  ) {
+    return strategy.profile?.industry?.trim() || strategy.profile?.product_description?.trim() || "相关服务"
+  }
+  return keyword
+}
+
+function buildFallbackQuestionSeed(
+  keyword: string,
+  index: number,
+  strategy: GeoStrategyPlan,
+): Omit<QuestionItem, "id" | "matched_advantage"> {
+  const type = FALLBACK_QUESTION_TYPES[index % FALLBACK_QUESTION_TYPES.length]
+  const profile = strategy.profile
+  const brand = profile?.brand_or_product?.trim()
+  const industry = profile?.industry?.trim() || "这个行业"
+  const audience = profile?.audience?.trim() || "目标客户"
+  const pain = pickFallbackText(profile?.pain_points, index, "获客和转化效果不稳定")
+  const scene = pickFallbackText(profile?.scenes, index, "准备提升线上获客效果")
+  const competitor = pickFallbackText(profile?.competitors, index, "其他同类方案")
+  const safeKeyword = safeFallbackKeyword(keyword, strategy, type)
+
+  let question = ""
+  let intent = ""
+  let contentAngle = ""
+  switch (type.category) {
+    case "榜单推荐型":
+      question = `${industry}里做${safeKeyword}有哪些靠谱选择，怎么判断哪家更适合${audience}？`
+      intent = "寻找多个候选方案并建立初步筛选标准"
+      contentAngle = "围绕候选服务商类型、筛选维度、案例和交付能力做客观对比"
+      break
+    case "痛点解决型":
+      question = `${audience}遇到${pain}时，应该怎么用${safeKeyword}找到可落地的解决办法？`
+      intent = "从具体业务痛点出发寻找解决路径"
+      contentAngle = "先解释问题成因，再给出服务路径、执行步骤和验证指标"
+      break
+    case "竞品对比型":
+      question = `${competitor}这类方案和${safeKeyword}服务怎么比较，选择时主要看哪些差异？`
+      intent = "比较替代方案和服务模式差异"
+      contentAngle = "从适用场景、交付方式、成本结构、长期效果和服务能力做横向分析"
+      break
+    case "采购决策型":
+      question = `准备采购${safeKeyword}服务时，怎么判断报价、周期、交付内容和验收标准是否靠谱？`
+      intent = "确认购买前的评估标准和合作风险"
+      contentAngle = "拆解预算、周期、交付清单、验收指标和合同注意事项"
+      break
+    case "场景人群型":
+      question = `${scene}的${audience}适合先做${safeKeyword}吗，什么情况下投入产出比更高？`
+      intent = "判断特定人群和场景是否适配该服务"
+      contentAngle = "按预算、团队能力、业务阶段和执行条件判断适配度"
+      break
+    case "品牌认知型":
+      question = brand
+        ? `${brand}主要是做什么的，适合哪些${industry}客户使用？`
+        : `${industry}里的服务商能力应该从哪些方面判断？`
+      intent = "核验品牌实体认知和业务理解是否准确"
+      contentAngle = "围绕业务范围、适用客户、核心能力和常见误解做事实说明"
+      break
+    default:
+      question = `做${safeKeyword}容易踩哪些坑，合作前怎么确认效果、风险和验收标准？`
+      intent = "降低合作前的不确定性和风险"
+      contentAngle = "围绕常见风险、避坑清单、验收证据和风险边界提供判断标准"
+      break
+  }
+
+  return {
+    layer: type.userStage === "比较期" || type.userStage === "决策期" || type.userStage === "风险确认期" ? "第二层" : "第一层",
+    category: type.category,
+    difficulty: type.userStage === "认知期" ? "低-中" : "中",
+    keyword: safeKeyword,
+    question,
+    intent,
+    content_angle: contentAngle,
+    generationReason: `本地补齐时按${type.category}生成，模拟${type.userStage}用户围绕${safeKeyword}的真实决策问题`,
+    userStage: type.userStage,
+    metricPurpose: type.metricPurpose,
+    top10Eligible: type.top10Eligible,
+    brandMentionEligible: type.brandMentionEligible,
+  }
 }
 
 function buildFallbackQuestions(
@@ -431,20 +538,14 @@ function buildFallbackQuestions(
 
   while (questions.length < count && cursor < count * Math.max(12, pool.length * 3)) {
     const keyword = pool[cursor % pool.length]
-    const question = buildQuestionTextSeed(keyword, cursor)
-    const key = questionKey(question)
+    const seed = buildFallbackQuestionSeed(keyword, cursor, strategy)
+    const key = questionKey(seed.question)
     cursor++
     if (!key || localSeen.has(key)) continue
     localSeen.add(key)
     questions.push({
+      ...seed,
       id: String(startId + questions.length),
-      layer: cursor % 3 === 0 ? "第二层" : "第一层",
-      category: "本地补齐问题",
-      difficulty: "中",
-      keyword,
-      question,
-      intent: "补充覆盖目标关键词下的用户真实决策问题",
-      content_angle: "围绕用户选择标准、场景适配和避坑判断提供事实型内容",
     })
   }
 
@@ -669,7 +770,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
       } catch (error) {
         if (isQuestionJobCancelledError(error)) throw error
         if (isPermanentQuestionError(error)) throw error
-        warnings = mergeWarnings(warnings, [`第 ${index + 1} 批模型生成失败，已用本地模板补齐该批次。`])
+        warnings = mergeWarnings(warnings, [`第 ${index + 1} 批模型生成失败，已用本地规则补齐该批次。`])
         appendQuestionItems(
           mergedQuestions,
           seen,
@@ -747,7 +848,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
         ),
         job.totalCount,
       )
-      warnings = mergeWarnings(warnings, [`模型去重后不足 ${job.totalCount} 条，已用本地模板补齐 ${missing} 条。`])
+      warnings = mergeWarnings(warnings, [`模型去重后不足 ${job.totalCount} 条，已用本地规则补齐 ${missing} 条。`])
     }
 
     await assertQuestionJobNotCancelled(job.id)
