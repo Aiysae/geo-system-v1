@@ -33,7 +33,6 @@ interface QuestionBatchPlan {
 interface QuestionJobRequest {
   strategy: GeoStrategyPlan
   totalCount: number
-  layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questionModelProvider?: QuestionModelProvider
   questionModel?: string
@@ -206,10 +205,6 @@ function deriveCoreKeywords(strategy: GeoStrategyPlan): string[] {
   }
   const brand = strategy.profile?.brand_or_product?.trim()
   if (brand) keywords.add(brand)
-  for (const adv of strategy.profile?.advantages || []) {
-    const a = adv.trim()
-    if (a) keywords.add(a)
-  }
   for (const kw of strategy.keyword_strategy?.core_keywords || []) {
     const k = kw.keyword?.trim()
     if (k) keywords.add(k)
@@ -502,7 +497,7 @@ function buildFallbackQuestionSeed(
   }
 
   return {
-    layer: type.userStage === "比较期" || type.userStage === "决策期" || type.userStage === "风险确认期" ? "第二层" : "第一层",
+    layer: "第一层",
     category: type.category,
     difficulty: type.userStage === "认知期" ? "低-中" : "中",
     keyword: safeKeyword,
@@ -598,7 +593,6 @@ async function fetchQuestionBatch(
           body: JSON.stringify({
             strategy: job.request.strategy,
             totalCount: plan.totalCount,
-            layer2Ratio: job.request.layer2Ratio,
             categoryConfig: job.request.categoryConfig,
             questionModelProvider: job.request.questionModelProvider,
             questionModel: job.request.questionModel,

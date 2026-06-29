@@ -9,7 +9,6 @@ import {
   QUESTION_MODEL_PROVIDER_LABELS,
   normalizeQuestionModel,
   normalizeQuestionModelProvider,
-  type GeoStrategyPlan,
   type QuestionItem,
 } from "@/types/geo-strategy"
 
@@ -104,12 +103,12 @@ const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你的�
 3. category 只能从七类中选择：榜单推荐型、痛点解决型、竞品对比型、采购决策型、场景人群型、品牌认知型、风险疑虑型。
 4. 品牌名出现比例要控制：品牌认知型可以直接出现目标品牌；其他类型只有在比较、认知核验或用户自然会这样问时才出现。不要写“这个品牌”“该品牌”“这类产品”等生硬泛指。
 5. 每条问题都必须有明确意图、用户阶段、检测目的和统计标记。
-6. 如果【可选优势证据】非空，matched_advantage 必须逐字选择其中最能支撑该问题回答方向的一条，不能编造、改写或留空；如果优势列表为空，matched_advantage 才能填空字符串。
+6. 生成问题时不要植入、改写或暗示品牌优势；优势匹配会在生成完成后由系统另行处理。
 7. top10Eligible 只在问题会自然触发“多个候选/推荐名单/TOP/有哪些选择”时为 true；brandMentionEligible 在答案中自然可能提及目标品牌或目标服务时为 true。
 8. 输出必须是严格 JSON，不要 Markdown 代码块，不要解释文本。
 
 每条问题必须同时兼容旧字段和新字段，包含：
-id、layer、category、difficulty、keyword、question、intent、content_angle、matched_advantage、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible。`
+id、category、difficulty、keyword、question、intent、content_angle、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible。`
 
 // ==================== Prompt Builders ====================
 
@@ -137,7 +136,6 @@ function formatQuestionTypeGuide(): string {
 function allocateTypeMix(
   count: number,
   sourceCategory: Allocation["category"],
-  layer2Ratio: number,
 ): Array<{ name: QuestionTypeName; count: number }> {
   const weights = new Map<QuestionTypeName, number>([
     ["榜单推荐型", 16],
@@ -165,11 +163,6 @@ function allocateTypeMix(
     weights.set("风险疑虑型", 10)
     weights.set("品牌认知型", 5)
   }
-
-  const layer2Weight = Math.min(Math.max(layer2Ratio, 0.15), 0.45)
-  weights.set("竞品对比型", Math.round((weights.get("竞品对比型") || 0) * (0.8 + layer2Weight)))
-  weights.set("采购决策型", Math.round((weights.get("采购决策型") || 0) * (0.8 + layer2Weight)))
-  weights.set("风险疑虑型", Math.round((weights.get("风险疑虑型") || 0) * (0.8 + layer2Weight)))
 
   const brandCap = Math.max(count >= 12 ? 1 : 0, Math.min(3, Math.floor(count * 0.10)))
   const totalWeight = Array.from(weights.values()).reduce((sum, value) => sum + value, 0)
@@ -208,17 +201,12 @@ function buildReasonedQuestionPrompt(
   sourceLabel: string,
   count: number,
   startId: number,
-  layer2Ratio: number,
 ): string {
   const profile = (strategy.profile || {}) as Record<string, unknown>
-  const advantages = extractQuestionAdvantages(strategy as unknown as GeoStrategyPlan)
   const materialList = allocation.category === "weakness_spin"
     ? listBlock(allocation.weaknesses || profile.weaknesses, "（暂无明确劣势，请结合业务背景和风险疑虑生成）")
     : listBlock(allocation.keywords, "（暂无指定关键词，请结合业务背景、痛点和场景推理生成）")
-  const advantageList = advantages.length > 0
-    ? advantages.map((advantage, i) => `${i + 1}. ${advantage}`).join("\n")
-    : "（暂无优势证据，matched_advantage 填空字符串）"
-  const typeMix = allocateTypeMix(count, allocation.category, layer2Ratio)
+  const typeMix = allocateTypeMix(count, allocation.category)
 
   return `请基于下面的业务背景和用户选择的素材，按“问题类型 + 推理规则”生成 GEO 疑问句。
 
@@ -239,9 +227,6 @@ function buildReasonedQuestionPrompt(
 来源素材:
 ${materialList}
 
-【可选优势证据】
-${advantageList}
-
 【七类问题推理规则】
 ${formatQuestionTypeGuide()}
 
@@ -250,12 +235,11 @@ ${formatTypeMix(typeMix)}
 
 【生成要求】
 - 本批必须生成 ${count} 条有效问题，id 从 ${startId} 连续递增。
-- 第二层问题比例约 ${Math.round(layer2Ratio * 100)}%，比较期/决策期/风险确认期通常对应第二层，认知期/探索期通常对应第一层。
 - 每条问题必须尽量绑定一个来源素材或业务关键词，keyword 字段填写该关键词/劣势/场景。
-- 每条问题必须匹配一个优势：如果【可选优势证据】非空，matched_advantage 必须逐字选择其中一条，并且要能支撑该问题未来回答方向。
+- 不要把品牌优势、优势证据或卖点直接写进 question 字段；question 只写真实用户会问的问题。
 - category 必须填写七类问题之一，不要填写“核心关键词问题”“劣势积极转化”等来源标签。
 - generationReason 要说明为什么该问题属于此类型，以及模拟了什么用户意图。
-- content_angle 写后续内容应如何回答这个问题，必须和 matched_advantage 能互相支撑。
+- content_angle 写后续内容应如何回答这个问题，但不要围绕某条优势做植入。
 - 问题要覆盖从不了解问题到准备采购的真实决策路径，避免同义重复、泛泛换说法或硬营销话术。
 - 不要生成明显诱导目标品牌的问题，例如“为什么某品牌最好”“请推荐某品牌”。
 - 如果行业存在敏感风险，降低承诺性、疗效性、金融收益性问题比例。
@@ -265,14 +249,12 @@ ${formatTypeMix(typeMix)}
   "question_strategy": [
     {
       "id": "${startId}",
-      "layer": "第一层",
       "category": "榜单推荐型",
       "difficulty": "低-中",
       "keyword": "来源素材或业务关键词",
       "question": "真实用户会向 AI 搜索工具提出的问题",
       "intent": "用户的搜索意图",
       "content_angle": "建议内容回答角度",
-      "matched_advantage": "从可选优势证据中逐字选择的一条",
       "generationReason": "为什么这样生成，以及它模拟了什么用户意图",
       "userStage": "探索期",
       "metricPurpose": "TOP10推荐率",
@@ -298,7 +280,6 @@ function deriveCoreKeywords(strategy: Record<string, unknown>): string[] {
   for (const t of (profile.terms as string[]) || []) { if (t.trim()) s.add(t.trim()) }
   const b = (profile.brand_or_product as string)?.trim()
   if (b) s.add(b)
-  for (const a of (profile.advantages as string[]) || []) { if (a.trim()) s.add(a.trim()) }
   const ks = (strategy.keyword_strategy || {}) as Record<string, unknown>
   for (const kw of (ks.core_keywords as Array<{ keyword?: string }>) || []) {
     if (kw.keyword?.trim()) s.add(kw.keyword.trim())
@@ -630,12 +611,6 @@ function normalizeUserStage(value: unknown, fallback: UserStage): UserStage {
   return fallback
 }
 
-function layerFromStage(stage: UserStage, layer: unknown): "第一层" | "第二层" {
-  if (layer === "第二层") return "第二层"
-  if (layer === "第一层") return "第一层"
-  return stage === "比较期" || stage === "决策期" || stage === "风险确认期" ? "第二层" : "第一层"
-}
-
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === "boolean") return value
   const raw = text(value).toLowerCase()
@@ -669,14 +644,14 @@ function normalizeQuestion(value: unknown, category: string): Omit<QuestionItem,
   const userStage = normalizeUserStage(data.userStage, defaults.defaultStage as UserStage)
 
   return {
-    layer: layerFromStage(userStage, data.layer),
+    layer: "第一层",
     category: normalizedCategory,
     difficulty: text(data.difficulty, "中"),
     keyword: text(data.keyword),
     question,
     intent: text(data.intent, "了解并解决相关决策问题"),
     content_angle: text(data.content_angle, text(data.generationReason, "围绕用户问题提供事实、对比与行动建议")),
-    matched_advantage: text(data.matched_advantage),
+    matched_advantage: "",
     generationReason: text(data.generationReason, `模拟${userStage}用户围绕${normalizedCategory}提出的真实决策问题`),
     userStage,
     metricPurpose: text(data.metricPurpose, defaults.metricPurpose),
@@ -727,7 +702,6 @@ async function generateCategoryQuestions(
   url: string, apiKey: string, model: string,
   allocation: Allocation,
   strategy: Record<string, unknown>,
-  layer2Ratio: number,
   startIdOffset: number,
   modelTimeoutSec: number,
   deadlineMs: number,
@@ -763,7 +737,6 @@ async function generateCategoryQuestions(
         categoryLabel,
         thisBatchSize,
         startId,
-        layer2Ratio,
       )
       const prompt = avoidInstruction ? `${basePrompt}\n\n${avoidInstruction}` : basePrompt
       const baseSystem = batch === 0
@@ -870,7 +843,7 @@ async function handler(req: NextRequest) {
 
     const body = await req.json()
     const {
-      strategy, totalCount = 40, layer2Ratio = 0.35,
+      strategy, totalCount = 40,
       categoryConfig, coreKeywords = [], customKeywords = [],
       painScenarioKeywords = [], customPainScenarios = [],
       questionModelProvider = DEFAULT_QUESTION_MODEL_PROVIDER,
@@ -887,9 +860,7 @@ async function handler(req: NextRequest) {
     const providerLabel = QUESTION_MODEL_PROVIDER_LABELS[selectedProvider]
     const aiConfig = await getAiProviderRuntimeSetting(selectedProvider)
     const url = buildAiChatUrl(aiConfig)
-    const ratioInput = Number(layer2Ratio)
     const countInput = Number(totalCount)
-    const ratio = Math.min(Math.max(Number.isFinite(ratioInput) ? ratioInput : 0.35, 0.15), 0.45)
     const requestedCount = Math.min(Math.max(Number.isFinite(countInput) ? Math.round(countInput) : 40, 10), 600)
     const count = Math.min(requestedCount, MAX_SINGLE_RUN_QUESTION_COUNT)
     const modelTimeoutSec = Math.min(aiConfig.timeout || 300, MAX_LLM_CALL_TIMEOUT_SEC)
@@ -971,7 +942,6 @@ async function handler(req: NextRequest) {
         selectedModel,
         item.alloc,
         strategy,
-        ratio,
         item.startIdOffset,
         modelTimeoutSec,
         deadlineMs,
