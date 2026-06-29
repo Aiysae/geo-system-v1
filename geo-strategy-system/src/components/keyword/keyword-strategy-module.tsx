@@ -228,10 +228,6 @@ function deriveCoreKeywords(strategy: GeoStrategyPlan): string[] {
   }
   const brand = strategy.profile?.brand_or_product?.trim()
   if (brand) keywords.add(brand)
-  for (const adv of strategy.profile?.advantages || []) {
-    const a = adv.trim()
-    if (a) keywords.add(a)
-  }
   for (const kw of strategy.keyword_strategy?.core_keywords || []) {
     const k = kw.keyword?.trim()
     if (k) keywords.add(k)
@@ -949,7 +945,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         body: JSON.stringify({
           strategy: strategyPlan,
           totalCount: effectiveCount,
-          layer2Ratio: activeBrand.layer2Ratio,
           categoryConfig: activeBrand.categoryConfig,
           questionModelProvider: activeBrand.questionModelProvider,
           questionModel: activeBrand.questionModel,
@@ -991,7 +986,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionJobProgress: undefined,
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.layer2Ratio, activeBrand.categoryConfig, questionProviderSettings, updateBrand])
+  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.categoryConfig, questionProviderSettings, updateBrand])
 
   const handleStopGenerateQuestions = useCallback(async () => {
     const jobId = activeBrand.questionJobId
@@ -1325,7 +1320,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               questionModel={ab.questionModel}
               questionCustomKeywords={ab.questionCustomKeywords}
               questionCustomPainScenarios={ab.questionCustomPainScenarios}
-              layer2Ratio={ab.layer2Ratio}
               onQuestionCountChange={v => setBrandField("questionCount", v)}
               onCustomQuestionCountChange={v => setBrandField("customQuestionCount", v)}
               onQuestionModelProviderChange={provider => updateBrand({
@@ -1335,7 +1329,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               onQuestionModelChange={v => setBrandField("questionModel", normalizeQuestionModel(ab.questionModelProvider, v))}
               onQuestionCustomKeywordsChange={v => setBrandField("questionCustomKeywords", v)}
               onQuestionCustomPainScenariosChange={v => setBrandField("questionCustomPainScenarios", v)}
-              onLayer2RatioChange={v => setBrandField("layer2Ratio", v)}
               categoryConfig={ab.categoryConfig}
               questionProviderSettings={questionProviderSettings}
               onCategoryConfigChange={v => setBrandField("categoryConfig", v)}
@@ -1808,9 +1801,9 @@ function ExtractionStep({
 function StrategyStep({
   plan, questions, questionStatus, questionError,
   questionJobProgress,
-  questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio,
+  questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios,
   categoryConfig, questionProviderSettings, onCategoryConfigChange,
-  onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange, onGenerateQuestions, onStopQuestions,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onGenerateQuestions, onStopQuestions,
   onExportJson, onExportMarkdown, onExportWord, onExportQuestionsCsv, onExportQuestionsWord, onBack,
   hasQuestions,
 }: {
@@ -1825,7 +1818,6 @@ function StrategyStep({
   questionModel: string
   questionCustomKeywords: string
   questionCustomPainScenarios: string
-  layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questionProviderSettings: Partial<Record<QuestionModelProvider, AiProviderPublicSetting>>
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
@@ -1835,7 +1827,6 @@ function StrategyStep({
   onQuestionModelChange: (v: string) => void
   onQuestionCustomKeywordsChange: (v: string) => void
   onQuestionCustomPainScenariosChange: (v: string) => void
-  onLayer2RatioChange: (v: number) => void
   onGenerateQuestions: () => void
   onStopQuestions: () => void
   onExportJson: () => void
@@ -2210,7 +2201,6 @@ function StrategyStep({
             customQuestionCount={customQuestionCount}
             questionCustomKeywords={questionCustomKeywords}
             questionCustomPainScenarios={questionCustomPainScenarios}
-            layer2Ratio={layer2Ratio}
             categoryConfig={categoryConfig}
             questionStatus={questionStatus}
             questionError={questionError}
@@ -2224,7 +2214,6 @@ function StrategyStep({
             onQuestionModelChange={onQuestionModelChange}
             onQuestionCustomKeywordsChange={onQuestionCustomKeywordsChange}
             onQuestionCustomPainScenariosChange={onQuestionCustomPainScenariosChange}
-            onLayer2RatioChange={onLayer2RatioChange}
             onCategoryConfigChange={onCategoryConfigChange}
             onGenerateQuestions={onGenerateQuestions}
             onStopQuestions={onStopQuestions}
@@ -2234,7 +2223,7 @@ function StrategyStep({
             {/* Show question summary */}
             <div className="mb-4 flex flex-col gap-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-xs text-slate-500">
-                共 {questions.length} 条疑问句（第一层: {questions.filter(q => q.layer === "第一层").length} 条, 第二层: {questions.filter(q => q.layer === "第二层").length} 条）
+                共 {questions.length} 条疑问句
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -2271,7 +2260,6 @@ function StrategyStep({
                   customQuestionCount={customQuestionCount}
                   questionCustomKeywords={questionCustomKeywords}
                   questionCustomPainScenarios={questionCustomPainScenarios}
-                  layer2Ratio={layer2Ratio}
                   categoryConfig={categoryConfig}
                   questionStatus={questionStatus}
                   questionError={questionError}
@@ -2285,7 +2273,6 @@ function StrategyStep({
                   onQuestionModelChange={onQuestionModelChange}
                   onQuestionCustomKeywordsChange={onQuestionCustomKeywordsChange}
                   onQuestionCustomPainScenariosChange={onQuestionCustomPainScenariosChange}
-                  onLayer2RatioChange={onLayer2RatioChange}
                   onCategoryConfigChange={onCategoryConfigChange}
                   onGenerateQuestions={onGenerateQuestions}
                   onStopQuestions={onStopQuestions}
@@ -2300,9 +2287,6 @@ function StrategyStep({
                   <div className="flex-1 min-w-0">
                     <div className="text-slate-700">{q.question}</div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${q.layer === "第一层" ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"}`}>
-                        {q.layer}
-                      </span>
                       <span className="text-slate-400">{q.category}</span>
                       <span className="text-slate-400">·</span>
                       <span className="text-slate-400">{q.keyword}</span>
@@ -2373,9 +2357,9 @@ function QuestionJobProgressBar({ progress }: { progress: QuestionJobProgress })
 }
 
 function QuestionSettingsPanel({
-  plan, questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios, layer2Ratio, categoryConfig,
+  plan, questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios, categoryConfig,
   questionStatus, questionError, questionJobProgress, questionProviderSettings,
-  onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onLayer2RatioChange,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange,
   onCategoryConfigChange, onGenerateQuestions, onStopQuestions,
 }: {
   plan: GeoStrategyPlan
@@ -2385,7 +2369,6 @@ function QuestionSettingsPanel({
   questionModel: string
   questionCustomKeywords: string
   questionCustomPainScenarios: string
-  layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questionStatus: GenerationStatus
   questionError: string
@@ -2397,7 +2380,6 @@ function QuestionSettingsPanel({
   onQuestionModelChange: (v: string) => void
   onQuestionCustomKeywordsChange: (v: string) => void
   onQuestionCustomPainScenariosChange: (v: string) => void
-  onLayer2RatioChange: (v: number) => void
   onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
   onGenerateQuestions: () => void
   onStopQuestions: () => void
@@ -2557,15 +2539,6 @@ function QuestionSettingsPanel({
                 className="mt-1 block w-24 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white outline-none" />
             </div>
           )}
-          <div>
-            <label className="text-[11px] font-medium text-slate-500">第二层比例: {Math.round(layer2Ratio * 100)}%</label>
-            <input type="range" min={0.15} max={0.45} step={0.05} value={layer2Ratio}
-              onChange={e => onLayer2RatioChange(Number(e.target.value))}
-              className="block mt-1 w-28 accent-[#0077B6]" />
-            <div className="text-[10px] text-slate-400 mt-0.5">
-              第一层 {Math.round(sectionPlan.totalCount * (1 - layer2Ratio))} 条 · 第二层 {Math.round(sectionPlan.totalCount * layer2Ratio)} 条
-            </div>
-          </div>
         </div>
         <div className="text-[10px] text-slate-400">
           选择“系统建议数量”的部分会按上面的基准自动分配；选择“自定义数量”的部分直接按填写数量生成。
@@ -2987,10 +2960,9 @@ function escapeHtml(value: unknown): string {
 
 function generateQuestionCsv(questions: QuestionItem[], plan?: GeoStrategyPlan): string {
   const advantages = extractQuestionAdvantages(plan)
-  const headers = ["序号", "层级", "疑问句", "匹配优势", "生成类型", "关键词"]
+  const headers = ["序号", "疑问句", "匹配优势", "生成类型", "关键词"]
   const rows = questions.map(question => [
     question.id,
-    question.layer,
     question.question,
     resolveQuestionAdvantage(question, advantages),
     question.category,
@@ -3004,8 +2976,6 @@ function generateQuestionWordHtml(
   questions: QuestionItem[],
 ): string {
   const projectName = plan.project_name || plan.profile?.brand_or_product || "GEO 疑问句池"
-  const layer1Count = questions.filter(question => question.layer === "第一层").length
-  const layer2Count = questions.filter(question => question.layer === "第二层").length
   const categoryCounts = questions.reduce<Record<string, number>>((acc, question) => {
     const category = question.category || "未分类"
     acc[category] = (acc[category] || 0) + 1
@@ -3014,7 +2984,7 @@ function generateQuestionWordHtml(
 
   const advantages = extractQuestionAdvantages(plan)
   const rows = questions.map(question => (
-    `<tr><td>${escapeHtml(question.id)}</td><td>${escapeHtml(question.layer)}</td><td>${escapeHtml(question.question)}</td><td>${escapeHtml(resolveQuestionAdvantage(question, advantages))}</td><td>${escapeHtml(question.category)}</td><td>${escapeHtml(question.keyword)}</td></tr>`
+    `<tr><td>${escapeHtml(question.id)}</td><td>${escapeHtml(question.question)}</td><td>${escapeHtml(resolveQuestionAdvantage(question, advantages))}</td><td>${escapeHtml(question.category)}</td><td>${escapeHtml(question.keyword)}</td></tr>`
   ))
 
   return [
@@ -3022,11 +2992,11 @@ function generateQuestionWordHtml(
     `<head><meta charset="utf-8"><title>${escapeHtml(projectName)} 疑问句池</title>`,
     `<style>body{font-family:'微软雅黑',Arial,sans-serif;font-size:11pt;color:#1e293b;line-height:1.5;margin:2cm}h1{font-size:20pt;color:#4c1d95;border-bottom:2px solid #8b5cf6;padding-bottom:8px}p{margin:6px 0 12px;color:#64748b}.summary{margin:12px 0 16px;padding:10px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#4c1d95}table{border-collapse:collapse;width:100%;font-size:9.5pt}td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:left;vertical-align:top}th{background:#ede9fe;color:#4c1d95;font-weight:600}tr:nth-child(even){background:#f8fafc}.q{width:48%}</style></head><body>`,
     `<h1>${escapeHtml(projectName)} 疑问句池</h1>`,
-    `<div class="summary">共 ${questions.length} 条疑问句，第一层 ${layer1Count} 条，第二层 ${layer2Count} 条。</div>`,
+    `<div class="summary">共 ${questions.length} 条疑问句。</div>`,
     Object.keys(categoryCounts).length > 0
       ? `<p>生成类型：${Object.entries(categoryCounts).map(([category, count]) => `${escapeHtml(category)} ${count} 条`).join("；")}</p>`
       : "",
-    `<table><tr><th>#</th><th>层级</th><th class="q">疑问句</th><th>匹配优势</th><th>生成类型</th><th>关键词</th></tr>`,
+    `<table><tr><th>#</th><th class="q">疑问句</th><th>匹配优势</th><th>生成类型</th><th>关键词</th></tr>`,
     ...rows,
     `</table>`,
     `<p style="color:#94a3b8;font-size:9pt;margin-top:24px">Generated by 势途 GEO · ${new Date().toLocaleDateString("zh-CN")}</p>`,
@@ -3104,7 +3074,7 @@ function generateMarkdown(
   if (questions.length) {
     lines.push(`## 疑问句池`)
     lines.push(``)
-    questions.forEach(q => lines.push(`- [#${q.id}] [${q.layer}] ${q.question}（${q.category} · ${q.keyword}）`))
+    questions.forEach(q => lines.push(`- [#${q.id}] ${q.question}（${q.category} · ${q.keyword}）`))
     lines.push(``)
   }
   return lines.join("\n")
@@ -3185,8 +3155,8 @@ function generateWordHtml(
 
   // Questions
   if (questions.length) {
-    parts.push(`<h2>疑问句池</h2><table><tr><th>#</th><th>层级</th><th>问题</th><th>分类</th><th>关键词</th></tr>`)
-    questions.forEach(q => parts.push(`<tr><td>${h(q.id)}</td><td>${q.layer === "第一层" ? "第一层" : "第二层"}</td><td>${h(q.question)}</td><td>${h(q.category)}</td><td>${h(q.keyword)}</td></tr>`))
+    parts.push(`<h2>疑问句池</h2><table><tr><th>#</th><th>问题</th><th>分类</th><th>关键词</th></tr>`)
+    questions.forEach(q => parts.push(`<tr><td>${h(q.id)}</td><td>${h(q.question)}</td><td>${h(q.category)}</td><td>${h(q.keyword)}</td></tr>`))
     parts.push(`</table>`)
   }
 
