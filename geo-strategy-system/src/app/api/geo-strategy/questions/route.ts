@@ -25,6 +25,7 @@ const REQUEST_BUDGET_MS = 840_000
 const REQUEST_WRAP_UP_MS = 15_000
 const MIN_CALL_BUDGET_MS = 20_000
 const MAX_LLM_CALL_TIMEOUT_SEC = 180
+const MAX_QUESTION_TEXT_LENGTH = 76
 
 // ==================== System Prompts ====================
 
@@ -105,7 +106,8 @@ const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你的�
 5. 每条问题都必须有明确意图、用户阶段、检测目的和统计标记。
 6. 生成问题时不要植入、改写或暗示品牌优势；优势匹配会在生成完成后由系统另行处理。
 7. top10Eligible 只在问题会自然触发“多个候选/推荐名单/TOP/有哪些选择”时为 true；brandMentionEligible 在答案中自然可能提及目标品牌或目标服务时为 true。
-8. 输出必须是严格 JSON，不要 Markdown 代码块，不要解释文本。
+8. question 字段必须简短，最多 ${MAX_QUESTION_TEXT_LENGTH} 个字符；不要枚举整串目标客户、人群、渠道或卖点。
+9. 输出必须是严格 JSON，不要 Markdown 代码块，不要解释文本。
 
 每条问题必须同时兼容旧字段和新字段，包含：
 id、category、difficulty、keyword、question、intent、content_angle、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible。`
@@ -195,6 +197,17 @@ function formatTypeMix(mix: Array<{ name: QuestionTypeName; count: number }>): s
   return mix.map(item => `- ${item.name}: ${item.count} 条`).join("\n")
 }
 
+function shortPromptValue(value: unknown, maxLength = 36): string {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+  const parts = raw
+    .split(/[、,，;；/｜|]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+  if (parts.length > 2) return `${parts.slice(0, 2).join("、")}等`
+  return raw.length > maxLength ? `${raw.slice(0, maxLength)}...` : raw
+}
+
 function buildReasonedQuestionPrompt(
   strategy: Record<string, unknown>,
   allocation: Allocation,
@@ -213,10 +226,10 @@ function buildReasonedQuestionPrompt(
 【品牌/业务背景】
 - 品牌/产品: ${profile.brand_or_product || ""}
 - 行业: ${profile.industry || ""}
-- 目标客户: ${profile.audience || ""}
+- 目标客户: ${shortPromptValue(profile.audience) || ""}
 - 核心业务/服务说明: ${profile.product_description || ""}
 - 业务目标: ${profile.business_goals || ""}
-- 地区/业务词: ${listBlock(profile.terms, "（暂无）")}
+- 地区/业务词: ${listBlock(filterQuestionSourceTerms((profile.terms as string[]) || [], strategy), "（暂无）")}
 - 竞品/替代选择: ${listBlock(profile.competitors, "（暂无）")}
 - 客户痛点: ${listBlock(profile.pain_points, "（暂无）")}
 - 使用场景: ${listBlock(profile.scenes, "（暂无）")}
@@ -237,6 +250,9 @@ ${formatTypeMix(typeMix)}
 - 本批必须生成 ${count} 条有效问题，id 从 ${startId} 连续递增。
 - 每条问题必须尽量绑定一个来源素材或业务关键词，keyword 字段填写该关键词/劣势/场景。
 - 不要把品牌优势、优势证据或卖点直接写进 question 字段；question 只写真实用户会问的问题。
+- question 字段最多 ${MAX_QUESTION_TEXT_LENGTH} 个字符，必须短问句化；不要写成长句，不要枚举多个人群、多个渠道、多个产品线。
+- 如果目标客户包含多类人群，只选择一个最自然的角色来提问，不要整段复制。
+- question 字段禁止出现 SKU、覆盖数量、服务客户数、产品线数量、认证、基地、出口国家、团队规模等量化优势卖点。
 - category 必须填写七类问题之一，不要填写“核心关键词问题”“劣势积极转化”等来源标签。
 - generationReason 要说明为什么该问题属于此类型，以及模拟了什么用户意图。
 - content_angle 写后续内容应如何回答这个问题，但不要围绕某条优势做植入。
@@ -274,6 +290,57 @@ interface Allocation {
   weaknesses?: string[]
 }
 
+function compactTextKey(value: string): string {
+  return value.replace(/\s+/g, "").toLowerCase()
+}
+
+function collectAdvantagePhrases(strategy: Record<string, unknown>): string[] {
+  const profile = (strategy.profile || {}) as Record<string, unknown>
+  const ks = (strategy.keyword_strategy || {}) as Record<string, unknown>
+  const phrases = [
+    ...((profile.advantages || []) as string[]),
+    ...((ks.pain_advantage_keywords || []) as Array<{ keyword?: string; logic?: string }>)
+      .flatMap(item => [item.keyword, item.logic]),
+  ]
+    .map(item => String(item || "").trim())
+    .filter(item => item.length >= 4 && looksLikeAdvantageText(item))
+  return mergeKeywordLists(phrases)
+}
+
+function looksLikeAdvantageText(value: string): boolean {
+  const text = value.trim()
+  if (!text) return false
+  return (
+    /(?:sku|SKU|spu|SPU|覆盖|全渠道|全球|出口|认证|资质|基地|产线|产品线|服务.*家|门店.*家|客户.*家|案例|专利|ISO|HACCP|SC|BRC|IFS|FDA|有机|绿色食品|冷链|自有|直营|工厂|团队|售后|交付|供应链|源头|厂家|生产线|年产|日产|月产)/i.test(text) ||
+    /\d+\s*(?:款|家|个|条|类|种|亩|吨|万吨|年|月|天|小时|%|％|国|省|城|店|人)/.test(text) ||
+    /[≥≤]\s*\d+/.test(text)
+  )
+}
+
+function containsAdvantagePhrase(value: string, strategy: Record<string, unknown>): boolean {
+  const key = compactTextKey(value)
+  if (!key) return false
+  for (const phrase of collectAdvantagePhrases(strategy)) {
+    const phraseKey = compactTextKey(phrase)
+    if (phraseKey.length >= 4 && key.includes(phraseKey)) return true
+  }
+  return false
+}
+
+function questionContainsAdvantageSignal(value: string, strategy: Record<string, unknown>): boolean {
+  if (containsAdvantagePhrase(value, strategy)) return true
+  return /(?:sku|SKU|覆盖\d|覆盖.*类产品|服务.*\d+\s*家|门店.*\d+\s*家|客户.*\d+\s*家|产品线|产线|认证|资质|基地|出口.*\d+\s*国|全球通|全渠道覆盖)/i.test(value)
+}
+
+function filterQuestionSourceTerms(values: string[], strategy: Record<string, unknown>): string[] {
+  return values.filter(value => {
+    const term = value.trim()
+    if (!term) return false
+    if (containsAdvantagePhrase(term, strategy)) return false
+    return true
+  })
+}
+
 function deriveCoreKeywords(strategy: Record<string, unknown>): string[] {
   const s = new Set<string>()
   const profile = (strategy.profile || {}) as Record<string, unknown>
@@ -284,7 +351,7 @@ function deriveCoreKeywords(strategy: Record<string, unknown>): string[] {
   for (const kw of (ks.core_keywords as Array<{ keyword?: string }>) || []) {
     if (kw.keyword?.trim()) s.add(kw.keyword.trim())
   }
-  return Array.from(s)
+  return filterQuestionSourceTerms(Array.from(s), strategy)
 }
 
 function deriveSecondaryKeywords(strategy: Record<string, unknown>, coreSet: Set<string>): string[] {
@@ -292,12 +359,11 @@ function deriveSecondaryKeywords(strategy: Record<string, unknown>, coreSet: Set
   const ks = (strategy.keyword_strategy || {}) as Record<string, unknown>
   for (const kw of [
     ...((ks.weakness_conversion_keywords || []) as Array<{ keyword?: string }>),
-    ...((ks.pain_advantage_keywords || []) as Array<{ keyword?: string }>),
   ]) {
     const t = kw.keyword?.trim()
     if (t && !coreSet.has(t)) s.add(t)
   }
-  return Array.from(s)
+  return filterQuestionSourceTerms(Array.from(s), strategy)
 }
 
 function derivePainScenarioKeywords(strategy: Record<string, unknown>): string[] {
@@ -305,11 +371,10 @@ function derivePainScenarioKeywords(strategy: Record<string, unknown>): string[]
   const ks = (strategy.keyword_strategy || {}) as Record<string, unknown>
   for (const kw of [
     ...((ks.scenario_keywords || []) as Array<{ keyword?: string }>),
-    ...((ks.pain_advantage_keywords || []) as Array<{ keyword?: string }>),
   ]) {
     if (kw.keyword?.trim()) s.add(kw.keyword.trim())
   }
-  return Array.from(s)
+  return filterQuestionSourceTerms(Array.from(s), strategy)
 }
 
 function mergeKeywordLists(...lists: string[][]): string[] {
@@ -346,13 +411,15 @@ function enrichAllocation(
 ): Allocation {
   const profile = (strategy.profile || {}) as Record<string, unknown>
   const weaknesses = (profile.weaknesses as string[]) || []
-  const derivedCore = coreKeywordsInput.length > 0 ? coreKeywordsInput : deriveCoreKeywords(strategy)
+  const cleanCoreKeywordsInput = filterQuestionSourceTerms(coreKeywordsInput, strategy)
+  const cleanPainScenarioKeywordsInput = filterQuestionSourceTerms(painScenarioKeywordsInput, strategy)
+  const derivedCore = cleanCoreKeywordsInput.length > 0 ? cleanCoreKeywordsInput : deriveCoreKeywords(strategy)
   const coreSet = new Set(derivedCore)
   const secondaryKws = customKeywordMode
-    ? mergeKeywordLists(coreKeywordsInput, deriveSecondaryKeywords(strategy, coreSet))
+    ? mergeKeywordLists(cleanCoreKeywordsInput, deriveSecondaryKeywords(strategy, coreSet))
     : deriveSecondaryKeywords(strategy, coreSet)
-  const painScenarioKws = painScenarioKeywordsInput.length > 0
-    ? painScenarioKeywordsInput
+  const painScenarioKws = cleanPainScenarioKeywordsInput.length > 0
+    ? cleanPainScenarioKeywordsInput
     : derivePainScenarioKeywords(strategy)
 
   if (category === "weakness_spin") {
@@ -490,13 +557,15 @@ function calculateAllocations(
   }
 
   // Derive keywords
-  const derivedCore = coreKeywordsInput.length > 0 ? coreKeywordsInput : deriveCoreKeywords(strategy)
+  const cleanCoreKeywordsInput = filterQuestionSourceTerms(coreKeywordsInput, strategy)
+  const cleanPainScenarioKeywordsInput = filterQuestionSourceTerms(painScenarioKeywordsInput, strategy)
+  const derivedCore = cleanCoreKeywordsInput.length > 0 ? cleanCoreKeywordsInput : deriveCoreKeywords(strategy)
   const coreSet = new Set(derivedCore)
   const secondaryKws = customKeywordMode
-    ? mergeKeywordLists(coreKeywordsInput, deriveSecondaryKeywords(strategy, coreSet))
+    ? mergeKeywordLists(cleanCoreKeywordsInput, deriveSecondaryKeywords(strategy, coreSet))
     : deriveSecondaryKeywords(strategy, coreSet)
-  const painScenarioKws = painScenarioKeywordsInput.length > 0
-    ? painScenarioKeywordsInput
+  const painScenarioKws = cleanPainScenarioKeywordsInput.length > 0
+    ? cleanPainScenarioKeywordsInput
     : derivePainScenarioKeywords(strategy)
 
   const allocations: Allocation[] = [
@@ -634,11 +703,14 @@ function buildAvoidQuestionsInstruction(questions: string[]): string {
   ].join("\n")
 }
 
-function normalizeQuestion(value: unknown, category: string): Omit<QuestionItem, "id"> | null {
+function normalizeQuestion(value: unknown, category: string, strategy: Record<string, unknown>): Omit<QuestionItem, "id"> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const data = value as Record<string, unknown>
   const question = text(data.question)
   if (!question) return null
+  if (question.length > MAX_QUESTION_TEXT_LENGTH) return null
+  if (questionContainsAdvantageSignal(question, strategy)) return null
+  if (/[、,，].*[、,，].*[、,，]/.test(question)) return null
   const normalizedCategory = normalizeQuestionCategory(data.category || category)
   const defaults = questionTypeDefaults(normalizedCategory)
   const userStage = normalizeUserStage(data.userStage, defaults.defaultStage as UserStage)
@@ -754,7 +826,7 @@ async function generateCategoryQuestions(
 
         const retryInstruction = attempt === 0
           ? ""
-          : `\n\n上一次输出无法解析或字段不完整。这次必须只输出完整 JSON，question_strategy 必须是数组，并生成 ${thisBatchSize} 条有效问题。不要使用 Markdown 代码块。`
+          : `\n\n上一次输出无法解析、字段不完整、问题过长或把优势卖点写进了 question。这次必须只输出完整 JSON，question_strategy 必须是数组，并生成 ${thisBatchSize} 条有效问题。question 必须短，不超过 ${MAX_QUESTION_TEXT_LENGTH} 个字符；不要出现 SKU、覆盖数量、产品线、服务客户数、认证、基地、出口国家等优势卖点；不要枚举整串人群。不要使用 Markdown 代码块。`
         let raw = ""
         try {
           const callTimeoutSec = nextCallTimeoutSec(modelTimeoutSec, deadlineMs)
@@ -786,7 +858,7 @@ async function generateCategoryQuestions(
         }
         const items = extractArray(raw, "question_strategy")
         const normalized = (items || [])
-          .map(item => normalizeQuestion(item, categoryLabel))
+          .map(item => normalizeQuestion(item, categoryLabel, strategy))
           .filter((item): item is Omit<QuestionItem, "id"> => item !== null)
 
         if (normalized.length > bestResult.length) bestResult = normalized
