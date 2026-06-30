@@ -426,6 +426,30 @@ function pickFallbackText(values: string[] | undefined, index: number, fallback:
   return cleaned[index % cleaned.length]
 }
 
+function shortFallbackText(value: string, fallback: string, maxLength = 14): string {
+  const first = value
+    .split(/[、,，;；/｜|]+/)
+    .map(item => item.trim())
+    .find(Boolean) || fallback
+  return first.length > maxLength ? first.slice(0, maxLength) : first
+}
+
+function looksLikeAdvantageSource(value: string): boolean {
+  const text = value.trim()
+  if (!text) return false
+  return (
+    /(?:sku|SKU|spu|SPU|覆盖|全渠道|全球|出口|认证|资质|基地|产线|产品线|服务.*家|门店.*家|客户.*家|案例|专利|ISO|HACCP|SC|BRC|IFS|FDA|有机|绿色食品|冷链|自有|直营|工厂|团队|售后|交付|供应链|源头|厂家|生产线|年产|日产|月产)/i.test(text) ||
+    /\d+\s*(?:款|家|个|条|类|种|亩|吨|万吨|年|月|天|小时|%|％|国|省|城|店|人)/.test(text) ||
+    /[≥≤]\s*\d+/.test(text)
+  )
+}
+
+function filterFallbackKeywords(values: string[]): string[] {
+  return values
+    .map(item => item.trim())
+    .filter(item => item && !looksLikeAdvantageSource(item))
+}
+
 function safeFallbackKeyword(keyword: string, strategy: GeoStrategyPlan, type: FallbackQuestionType): string {
   const brand = strategy.profile?.brand_or_product?.trim()
   if (
@@ -446,51 +470,51 @@ function buildFallbackQuestionSeed(
   const type = FALLBACK_QUESTION_TYPES[index % FALLBACK_QUESTION_TYPES.length]
   const profile = strategy.profile
   const brand = profile?.brand_or_product?.trim()
-  const industry = profile?.industry?.trim() || "这个行业"
-  const audience = profile?.audience?.trim() || "目标客户"
-  const pain = pickFallbackText(profile?.pain_points, index, "获客和转化效果不稳定")
-  const scene = pickFallbackText(profile?.scenes, index, "准备提升线上获客效果")
-  const competitor = pickFallbackText(profile?.competitors, index, "其他同类方案")
-  const safeKeyword = safeFallbackKeyword(keyword, strategy, type)
+  const industry = shortFallbackText(profile?.industry?.trim() || "", "这个行业")
+  const audience = shortFallbackText(profile?.audience?.trim() || "", "采购负责人")
+  const pain = shortFallbackText(pickFallbackText(profile?.pain_points, index, "质量不稳定"), "质量不稳定", 18)
+  const scene = shortFallbackText(pickFallbackText(profile?.scenes, index, "采购前"), "采购前", 14)
+  const competitor = shortFallbackText(pickFallbackText(profile?.competitors, index, "同类方案"), "同类方案", 14)
+  const safeKeyword = shortFallbackText(safeFallbackKeyword(keyword, strategy, type), "相关服务", 18)
 
   let question = ""
   let intent = ""
   let contentAngle = ""
   switch (type.category) {
     case "榜单推荐型":
-      question = `${industry}里做${safeKeyword}有哪些靠谱选择，怎么判断哪家更适合${audience}？`
+      question = `${industry}做${safeKeyword}有哪些靠谱选择？`
       intent = "寻找多个候选方案并建立初步筛选标准"
       contentAngle = "围绕候选服务商类型、筛选维度、案例和交付能力做客观对比"
       break
     case "痛点解决型":
-      question = `${audience}遇到${pain}时，应该怎么用${safeKeyword}找到可落地的解决办法？`
+      question = `${audience}遇到${pain}怎么解决？`
       intent = "从具体业务痛点出发寻找解决路径"
       contentAngle = "先解释问题成因，再给出服务路径、执行步骤和验证指标"
       break
     case "竞品对比型":
-      question = `${competitor}这类方案和${safeKeyword}服务怎么比较，选择时主要看哪些差异？`
+      question = `${safeKeyword}和${competitor}怎么选？`
       intent = "比较替代方案和服务模式差异"
       contentAngle = "从适用场景、交付方式、成本结构、长期效果和服务能力做横向分析"
       break
     case "采购决策型":
-      question = `准备采购${safeKeyword}服务时，怎么判断报价、周期、交付内容和验收标准是否靠谱？`
+      question = `采购${safeKeyword}前要看哪些标准？`
       intent = "确认购买前的评估标准和合作风险"
       contentAngle = "拆解预算、周期、交付清单、验收指标和合同注意事项"
       break
     case "场景人群型":
-      question = `${scene}的${audience}适合先做${safeKeyword}吗，什么情况下投入产出比更高？`
+      question = `${scene}适合做${safeKeyword}吗？`
       intent = "判断特定人群和场景是否适配该服务"
       contentAngle = "按预算、团队能力、业务阶段和执行条件判断适配度"
       break
     case "品牌认知型":
       question = brand
-        ? `${brand}主要是做什么的，适合哪些${industry}客户使用？`
+        ? `${brand}主要是做什么的？`
         : `${industry}里的服务商能力应该从哪些方面判断？`
       intent = "核验品牌实体认知和业务理解是否准确"
       contentAngle = "围绕业务范围、适用客户、核心能力和常见误解做事实说明"
       break
     default:
-      question = `做${safeKeyword}容易踩哪些坑，合作前怎么确认效果、风险和验收标准？`
+      question = `做${safeKeyword}容易踩哪些坑？`
       intent = "降低合作前的不确定性和风险"
       contentAngle = "围绕常见风险、避坑清单、验收证据和风险边界提供判断标准"
       break
@@ -714,11 +738,11 @@ async function runQuestionJob(jobId: string): Promise<void> {
       : job.request.coreKeywords.length > 0
         ? job.request.coreKeywords
         : deriveCoreKeywords(job.request.strategy)
-    const fallbackKeywords = Array.from(new Set([
+    const fallbackKeywords = Array.from(new Set(filterFallbackKeywords([
       ...coreKeywords,
       ...(job.request.customPainScenarios || []),
       ...(job.request.painScenarioKeywords || []),
-    ].map(item => item.trim()).filter(Boolean)))
+    ])))
     const mergedQuestions = [...job.questions]
     const seen = new Set(mergedQuestions.map(item => questionKey(item.question)).filter(Boolean))
     let warnings = mergeWarnings(

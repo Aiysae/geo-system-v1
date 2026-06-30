@@ -277,7 +277,6 @@ function derivePainScenarioTerms(plan: GeoStrategyPlan): string[] {
   for (const item of [
     ...(plan.profile?.pain_points || []),
     ...(plan.profile?.scenes || []),
-    ...(plan.keyword_strategy?.pain_advantage_keywords || []).map(keyword => keyword.keyword),
     ...(plan.keyword_strategy?.scenario_keywords || []).map(keyword => keyword.keyword),
   ]) {
     const term = item?.trim()
