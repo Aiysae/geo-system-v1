@@ -4,6 +4,7 @@ import { Inbox, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
+import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "./credits-adjust-form"
 
 export const dynamic = "force-dynamic"
@@ -140,6 +141,7 @@ export default async function AdminPage() {
           </div>
         )}
       </main>
+      <SiteFooter />
     </div>
   )
 }

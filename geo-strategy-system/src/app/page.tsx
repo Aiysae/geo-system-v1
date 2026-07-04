@@ -8,6 +8,7 @@ import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
 import KeywordStrategyModule from "@/components/keyword/keyword-strategy-module"
 import ArticleGenerationModule from "@/components/article/article-generation-module"
 import DifficultyAssessmentModule from "@/components/difficulty/difficulty-assessment-module"
+import SiteFooter from "@/components/site-footer"
 import { Brain, FileText, Gauge, ListOrdered, Menu, Printer, Radar, Sparkles, Target } from "lucide-react"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
@@ -125,6 +126,7 @@ export default function Home() {
           // 彻底清空各 Module 内的 isDetecting/loading/progress 等运行时状态，根治状态泄露。
           <Dashboard key={active.id} client={active} onChangeClient={handleChangeClient} />
         )}
+        <SiteFooter />
         </div>
       </main>
     </div>
