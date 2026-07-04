@@ -212,7 +212,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "local_tool_search",
       promptPurity: "tool_augmented",
-      webVerificationNote: "模块一不使用可能带知识库的豆包 Bot，豆包 Endpoint 通过本地 search_web 工具联网增强。",
+      webVerificationNote: "渗透率情报不使用可能带知识库的豆包 Bot，豆包 Endpoint 通过本地 search_web 工具联网增强。",
     }
   }
 

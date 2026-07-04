@@ -114,8 +114,8 @@ function buildPrompt(args: {
 }`
 
   const sourceNote = args.sourceMode === "manual"
-    ? "本次使用用户手动填写的地区、行业、品牌全称和别名作为独立调研输入，不依赖模块一检测结果。"
-    : "本次优先使用模块一的品牌、行业、官网、竞品和疑问句检测结果作为独立调研输入。"
+    ? "本次使用用户手动填写的地区、行业、品牌全称和别名作为独立调研输入，不依赖渗透率检测结果。"
+    : "本次优先使用渗透率情报中的品牌、行业、官网、竞品和疑问句检测结果作为独立调研输入。"
 
   const user = `请对以下品牌做${args.mode === "hypothesis" ? "假设验证式" : "AI 深度"}调研：
 
@@ -129,7 +129,7 @@ function buildPrompt(args: {
 调研模式：${args.mode === "hypothesis" ? "假设验证" : "AI 深度调研"}
 用户假设：${args.mode === "hypothesis" ? args.hypothesis || "未填写具体假设，请自行提出可验证假设并评估。" : "无"}
 
-${args.sourceMode === "module" ? args.penetrationContext : "【疑问句检测摘要】\n手动输入模式未使用模块一检测数据；请基于公开可验证信息和用户填写资料保守调研。"}`
+${args.sourceMode === "module" ? args.penetrationContext : "【疑问句检测摘要】\n手动输入模式未使用渗透率检测数据；请基于公开可验证信息和用户填写资料保守调研。"}`
 
   return { system, user }
 }

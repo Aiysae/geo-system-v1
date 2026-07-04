@@ -229,7 +229,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             <SourceTabs
               value={researchSourceMode}
               onChange={updateResearchSourceMode}
-              moduleLabel="用模块 1 信息"
+              moduleLabel="用渗透率情报信息"
               manualLabel="手动填资料"
             />
 
@@ -278,7 +278,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             {researchError && <ErrorBox message={researchError} />}
 
             {!research ? (
-              <EmptyBlock title="调研报告待生成" text={researchSourceMode === "module" ? "会结合模块一疑问句检测结果做深度分析" : "填写地区、行业、品牌全称和别名后即可独立调研"} />
+              <EmptyBlock title="调研报告待生成" text={researchSourceMode === "module" ? "会结合渗透率检测结果做深度分析" : "填写地区、行业、品牌全称和别名后即可独立调研"} />
             ) : (
               <ResearchReport result={research} />
             )}
@@ -307,7 +307,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             <SourceTabs
               value={compareSourceMode}
               onChange={updateCompareSourceMode}
-              moduleLabel="用模块 1 竞品"
+              moduleLabel="用渗透率情报竞品"
               manualLabel="手动填竞品"
               tone="rose"
             />
@@ -334,7 +334,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             {compareError && <ErrorBox message={compareError} />}
 
             {!compare ? (
-              <EmptyBlock title="对比报告待生成" text={compareOptions.length ? "最多选择 5 个竞品，同时生成优劣势对比" : "模块一检测完成后会自动带出同行竞品，也可以切换为手动填写"} />
+              <EmptyBlock title="对比报告待生成" text={compareOptions.length ? "最多选择 5 个竞品，同时生成优劣势对比" : "渗透率检测完成后会自动带出同行竞品，也可以切换为手动填写"} />
             ) : (
               <CompareReport result={compare} ourBrand={client.ourBrand || manualInput.fullName} />
             )}
@@ -449,7 +449,7 @@ function CompetitorMultiSelect({
       </div>
       {options.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-400">
-          暂无竞品，请先运行模块一或切换为手动填写。
+          暂无竞品，请先运行渗透率情报或切换为手动填写。
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
