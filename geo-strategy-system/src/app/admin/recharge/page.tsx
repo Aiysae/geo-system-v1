@@ -5,6 +5,7 @@ import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser } from "@/lib/auth"
 import { listAiProviderPublicSettings } from "@/lib/ai-settings"
 import { listPending } from "@/lib/recharge"
+import SiteFooter from "@/components/site-footer"
 import { AiSettingsManager } from "./ai-settings-manager"
 import { RechargeRow } from "./recharge-row"
 
@@ -112,6 +113,7 @@ export default async function AdminRechargePage() {
 
         <AiSettingsManager settings={aiSettings} />
       </main>
+      <SiteFooter />
     </div>
   )
 }
