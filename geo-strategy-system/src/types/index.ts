@@ -164,6 +164,9 @@ export interface PenetrationItem {
   topSourceDomain?: SourceDomainCount | null
   searchMode?: PenetrationSearchMode
   promptPurity?: PenetrationPromptPurity
+  webAttempted?: boolean
+  searchQueries?: string[]
+  webFailureReason?: string | null
   sourceCount?: number
   webVerified?: boolean
   webVerificationNote?: string

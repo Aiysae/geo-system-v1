@@ -154,6 +154,13 @@ function relevantQueryTerms(query: string): string[] {
 }
 
 const SEARCH_KEYWORD_VOCABULARY = [
+  "深圳",
+  "广州",
+  "杭州",
+  "上海",
+  "北京",
+  "香港",
+  "深港",
   "供应商",
   "服务商",
   "生产商",
@@ -183,6 +190,23 @@ const SEARCH_KEYWORD_VOCABULARY = [
   "价格",
   "质量",
   "口碑",
+  "全屋定制",
+  "整装",
+  "装修",
+  "家装",
+  "家居",
+  "家具",
+  "衣柜",
+  "橱柜",
+  "木作",
+  "设计",
+  "施工",
+  "板材",
+  "工艺",
+  "高端",
+  "性价比",
+  "案例",
+  "避坑",
 ]
 
 function compactSearchQuery(query: string): string {
@@ -199,6 +223,33 @@ function compactSearchQuery(query: string): string {
     )
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function buildSearchQueries(query: string): string[] {
+  const q = query.trim()
+  if (!q) return []
+  const compact = compactSearchQuery(q)
+  const variants = new Set<string>()
+  variants.add(q)
+  if (compact && compact !== q) variants.add(compact)
+
+  const normalized = q.toLowerCase()
+  const matchedVocabulary = SEARCH_KEYWORD_VOCABULARY.filter(term => normalized.includes(term))
+  if (matchedVocabulary.length >= 2) {
+    variants.add(Array.from(new Set(matchedVocabulary)).join(" "))
+  }
+
+  const cleanedIntent = q
+    .replace(/[？?！!，,。；;：:、“”"'（）()]/g, " ")
+    .replace(
+      /怎么|如何|哪家|哪个|哪些|比较|靠谱|推荐|有没有|有什么|是否|需要|想买|我要|给我|帮我|请问|可以|值得|最好|一下|谁/gu,
+      " "
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+  if (cleanedIntent && cleanedIntent !== q && cleanedIntent !== compact) variants.add(cleanedIntent)
+
+  return Array.from(variants).slice(0, 4)
 }
 
 function isRelevantHit(query: string, hit: SearchHit): boolean {
@@ -229,6 +280,10 @@ function isRelevantHit(query: string, hit: SearchHit): boolean {
     "货源",
     "工厂",
     "店铺",
+    "装修",
+    "整装",
+    "定制",
+    "设计",
   ]
   const hasCommercialIntent = commercialVocabulary.some(term => normalizedQuery.includes(term))
   if (hasCommercialIntent && !commercialVocabulary.some(term => haystack.includes(term))) {
@@ -251,6 +306,19 @@ function isRelevantHit(query: string, hit: SearchHit): boolean {
     "工具",
     "餐饮",
     "食品",
+    "全屋定制",
+    "整装",
+    "装修",
+    "家装",
+    "家居",
+    "家具",
+    "衣柜",
+    "橱柜",
+    "木作",
+    "设计",
+    "施工",
+    "板材",
+    "工艺",
   ].filter(term => normalizedQuery.includes(term))
   if (
     subjectTerms.length > 0 &&
@@ -266,6 +334,22 @@ function isRelevantHit(query: string, hit: SearchHit): boolean {
   return chineseTerms.length > 0 ? matched.length >= Math.min(2, chineseTerms.length) : matched.length > 0
 }
 
+function mergeSourceLists(sourceLists: SearchHit[][], maxResults: number): SearchHit[] {
+  const merged: SearchHit[] = []
+  const seen = new Set<string>()
+  const maxLen = Math.max(0, ...sourceLists.map(hits => hits.length))
+  for (let i = 0; i < maxLen && merged.length < maxResults; i++) {
+    for (const hits of sourceLists) {
+      const hit = hits[i]
+      if (!hit || seen.has(hit.url)) continue
+      seen.add(hit.url)
+      merged.push(hit)
+      if (merged.length >= maxResults) break
+    }
+  }
+  return merged
+}
+
 /**
  * 执行一次网页搜索。返回最多 maxResults 条 {title, snippet, url}。
  * 永不抛出：上游搜索失败时返回 []，并在控制台 warn 一笔。
@@ -273,8 +357,7 @@ function isRelevantHit(query: string, hit: SearchHit): boolean {
 export async function webSearch(query: string, maxResults = 10): Promise<SearchHit[]> {
   const q = query.trim()
   if (!q) return []
-  const compact = compactSearchQuery(q)
-  const queries = compact && compact !== q ? [q, compact] : [q]
+  const queries = buildSearchQueries(q)
 
   const settled = await Promise.all(
     queries.map(async searchQuery => {
@@ -290,22 +373,15 @@ export async function webSearch(query: string, maxResults = 10): Promise<SearchH
           MOBILE_UA
         ),
       ])
-      const so360Hits =
-        so360Result.status === "fulfilled"
-          ? parseSo360(so360Result.value, maxResults).filter(hit => isRelevantHit(q, hit))
-          : []
-      const sogouHits =
-        sogouResult.status === "fulfilled"
-          ? parseSogou(sogouResult.value, maxResults).filter(hit => isRelevantHit(q, hit))
-          : []
-      const bingHits =
-        bingResult.status === "fulfilled"
-          ? parseBing(bingResult.value, maxResults).filter(hit => isRelevantHit(q, hit))
-          : []
-      const baiduHits =
-        baiduResult.status === "fulfilled"
-          ? parseBaiduMobile(baiduResult.value, maxResults).filter(hit => isRelevantHit(q, hit))
-          : []
+      const so360Raw = so360Result.status === "fulfilled" ? parseSo360(so360Result.value, maxResults) : []
+      const sogouRaw = sogouResult.status === "fulfilled" ? parseSogou(sogouResult.value, maxResults) : []
+      const bingRaw = bingResult.status === "fulfilled" ? parseBing(bingResult.value, maxResults) : []
+      const baiduRaw =
+        baiduResult.status === "fulfilled" ? parseBaiduMobile(baiduResult.value, maxResults) : []
+      const so360Hits = so360Raw.filter(hit => isRelevantHit(q, hit))
+      const sogouHits = sogouRaw.filter(hit => isRelevantHit(q, hit))
+      const bingHits = bingRaw.filter(hit => isRelevantHit(q, hit))
+      const baiduHits = baiduRaw.filter(hit => isRelevantHit(q, hit))
       if (so360Result.status === "rejected") {
         const msg =
           so360Result.reason instanceof Error
@@ -332,33 +408,44 @@ export async function webSearch(query: string, maxResults = 10): Promise<SearchH
             : String(baiduResult.reason)
         console.warn(`[web-search] 百度移动搜索调用失败：${msg} | q="${searchQuery}"`)
       }
-      return { so360Hits, sogouHits, bingHits, baiduHits }
+      return {
+        so360Hits,
+        sogouHits,
+        bingHits,
+        baiduHits,
+        so360Raw,
+        sogouRaw,
+        bingRaw,
+        baiduRaw,
+      }
     })
   )
 
-  const sourceLists = settled.flatMap(result => [
+  const relevantSourceLists = settled.flatMap(result => [
     result.so360Hits,
     result.sogouHits,
     result.bingHits,
     result.baiduHits,
   ])
-  if (sourceLists.every(hits => hits.length === 0)) {
-    console.warn(`[web-search] 中文搜索无相关结果 | q="${q}" | compact="${compact}"`)
+  const relevantMerged = mergeSourceLists(relevantSourceLists, maxResults)
+  if (relevantMerged.length > 0) return relevantMerged
+
+  const fallbackSourceLists = settled.flatMap(result => [
+    result.so360Raw,
+    result.sogouRaw,
+    result.bingRaw,
+    result.baiduRaw,
+  ])
+  const fallbackMerged = mergeSourceLists(fallbackSourceLists, maxResults)
+  if (fallbackMerged.length === 0) {
+    console.warn(`[web-search] 中文搜索无结果 | q="${q}" | variants="${queries.join(" | ")}"`)
+  } else {
+    console.warn(
+      `[web-search] 中文搜索无强相关结果，使用原始搜索结果兜底 | q="${q}" | variants="${queries.join(" | ")}" | hits=${fallbackMerged.length}`
+    )
   }
 
-  const merged: SearchHit[] = []
-  const seen = new Set<string>()
-  const maxLen = Math.max(0, ...sourceLists.map(hits => hits.length))
-  for (let i = 0; i < maxLen && merged.length < maxResults; i++) {
-    for (const hits of sourceLists) {
-      const hit = hits[i]
-      if (!hit || seen.has(hit.url)) continue
-      seen.add(hit.url)
-      merged.push(hit)
-      if (merged.length >= maxResults) break
-    }
-  }
-  return merged
+  return fallbackMerged
 }
 
 /**

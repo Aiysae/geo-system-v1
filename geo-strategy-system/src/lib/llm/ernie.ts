@@ -17,7 +17,7 @@ export async function chatErnie(args: ChatArgs): Promise<string> {
   const extraHeaders = appId ? { appid: appId } : undefined
   const extraBody =
     args.forceWebSearch || (args.allowWebSearch !== false && args.mode === "consumer" && enableSearch)
-      ? { web_search: { enable: true, enable_trace: false } }
+      ? { web_search: { enable: true, enable_trace: true } }
       : undefined
 
   return openaiCompatChat({

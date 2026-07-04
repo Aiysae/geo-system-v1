@@ -431,7 +431,7 @@ function RawAnswersPanel({
             </div>
             {modelDomainStats.length > 0 ? (
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {modelDomainStats.slice(0, 9).map(source => (
+                {modelDomainStats.map(source => (
                   <div
                     key={source.domain}
                     className="bg-white border border-cyan-100 rounded-lg px-2.5 py-2 min-w-0"
@@ -589,7 +589,7 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
             ? "bg-emerald-50 text-emerald-700 border-emerald-100"
             : "bg-amber-50 text-amber-700 border-amber-100"
         }`}
-        title={item.webVerificationNote}
+        title={item.webFailureReason || item.webVerificationNote}
       >
         {verified ? "联网已验证" : "联网不可验证"} · 来源 {sourceCount}
       </span>
@@ -636,21 +636,46 @@ function uniqueSources(sources: PenetrationSource[]): PenetrationSource[] {
 }
 
 function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
+  const [expanded, setExpanded] = useState(false)
   const domains =
     item.sourceDomains && item.sourceDomains.length > 0
       ? item.sourceDomains
       : summarizeSourcesByDomain(item.searchSources ?? [])
-  const sources = uniqueSources(item.searchSources ?? []).slice(0, 3)
+  const allSources = uniqueSources(item.searchSources ?? [])
+  const visibleDomains = expanded ? domains : domains.slice(0, 5)
+  const visibleSources = expanded ? allSources : allSources.slice(0, 3)
+  const hasMore = domains.length > visibleDomains.length || allSources.length > visibleSources.length
+  const searchQueries = Array.from(new Set((item.searchQueries ?? []).filter(Boolean)))
 
-  if (domains.length === 0 && sources.length === 0) return null
+  if (domains.length === 0 && allSources.length === 0 && searchQueries.length === 0 && !item.webFailureReason) {
+    return null
+  }
 
   return (
     <div className="pl-7 mb-2">
       <div className="rounded-lg border border-slate-100 bg-slate-50/70 px-2.5 py-2">
+        {searchQueries.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-medium text-slate-500">实际搜索词</span>
+            {searchQueries.map(query => (
+              <span
+                key={query}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600"
+              >
+                {query}
+              </span>
+            ))}
+          </div>
+        )}
+        {item.webFailureReason && (
+          <div className="mb-1.5 rounded border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
+            {item.webFailureReason}
+          </div>
+        )}
         {domains.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-medium text-slate-500">参考域名</span>
-            {domains.slice(0, 5).map(source => (
+            {visibleDomains.map(source => (
               <span
                 key={source.domain}
                 className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600"
@@ -660,9 +685,9 @@ function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
             ))}
           </div>
         )}
-        {sources.length > 0 && (
+        {visibleSources.length > 0 && (
           <div className="mt-1.5 flex flex-col gap-1">
-            {sources.map(source => (
+            {visibleSources.map(source => (
               <a
                 key={source.url}
                 href={source.url}
@@ -677,6 +702,16 @@ function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
               </a>
             ))}
           </div>
+        )}
+        {hasMore && (
+          <button
+            type="button"
+            onClick={() => setExpanded(value => !value)}
+            className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-medium text-[#0077B6] hover:text-[#005f92]"
+          >
+            {expanded ? "收起来源" : `展开全部来源（${allSources.length} 条）`}
+            <ChevronDown className={`h-3 w-3 transition ${expanded ? "rotate-180" : ""}`} />
+          </button>
         )}
       </div>
     </div>
