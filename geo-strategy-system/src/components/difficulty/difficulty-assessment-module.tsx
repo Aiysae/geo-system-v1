@@ -559,7 +559,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
               </span>
               <span className="min-w-0">
                 <span className="block bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text font-semibold text-transparent">
-                  模块六 · GEO 难度测评
+                  GEO 难度测评
                 </span>
                 <span className="mt-1 block text-xs font-normal text-slate-400">
                   调研 → 对比 → 评分 → 复核 → 报告

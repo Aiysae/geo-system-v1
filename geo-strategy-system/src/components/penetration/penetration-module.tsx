@@ -206,7 +206,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
             <Target className="h-5 w-5 text-white" />
           </span>
           <span className="min-w-0 bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent font-semibold leading-snug">
-            模块一 · 关键词渗透率与竞品情报
+            关键词渗透率与竞品情报
           </span>
         </CardTitle>
       </CardHeader>

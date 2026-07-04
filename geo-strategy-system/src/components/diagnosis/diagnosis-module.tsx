@@ -63,7 +63,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
               <Radar className="h-5 w-5 text-white" />
             </span>
             <span className="min-w-0 bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent font-semibold leading-snug">
-              模块二 · 多维 AI 诊断面板
+              多维 AI 诊断面板
             </span>
           </div>
           <Button
@@ -106,7 +106,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
               <div className="text-xs text-slate-400">
                 {client.penetration
                   ? "已检测到渗透率数据，将一并纳入分析"
-                  : "建议先完成模块一渗透率检测以提高诊断准确度"}
+                  : "建议先完成渗透率检测以提高诊断准确度"}
               </div>
             </div>
           </div>
