@@ -56,7 +56,7 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
   if (args.forceWebSearch) {
     if (!isRawArkModel(endpoint)) {
       throw new Error(
-        `豆包客观盲测需要纯净模型：请在后台豆包「模型 / Endpoint」填写 ep- 开头的 Endpoint ID，或官方 doubao- 开头的模型 ID。当前值：「${endpoint || "空"}」。Bot ID 可能带知识库，模块一不会使用。`
+        `豆包客观盲测需要纯净模型：请在后台豆包「模型 / Endpoint」填写 ep- 开头的 Endpoint ID，或官方 doubao- 开头的模型 ID。当前值：「${endpoint || "空"}」。Bot ID 可能带知识库，渗透率盲测不会使用。`
       )
     }
     return chatWithLocalWebSearchTool({
@@ -70,7 +70,7 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
   }
 
   if (bot) {
-    // Bot 模式仅用于非盲测调研/分析；模块一 forceWebSearch 会在上方提前返回。
+    // Bot 模式仅用于非盲测调研/分析；渗透率盲测 forceWebSearch 会在上方提前返回。
     return openaiCompatChat({
       url: BOT_URL,
       apiKey: key,

@@ -105,13 +105,13 @@ const DEFINITIONS: AiProviderDefinition[] = [
     modelEnv: ["ARK_DOUBAO_ENDPOINT_ID"],
     extraEnv: { botId: ["ARK_DOUBAO_BOT_ID"] },
     extraFields: [
-      { key: "botId", label: "Bot ID（仅调研用）", placeholder: "bot-xxxx，模块一客观盲测不会使用 Bot" },
+      { key: "botId", label: "Bot ID（仅调研用）", placeholder: "bot-xxxx，渗透率盲测不会使用 Bot" },
     ],
     presets: [
       {
         key: "doubao-official-seed-lite",
         label: "纯净盲测 · 豆包 Seed 2.0 Lite",
-        description: "模块一推荐：走火山方舟原始 Chat Completions，不读取 Bot 知识库。",
+        description: "渗透率盲测推荐：走火山方舟原始 Chat Completions，不读取 Bot 知识库。",
         baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
         chatPath: "/chat/completions",
         model: "doubao-seed-2-0-lite-260215",
@@ -139,7 +139,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
       {
         key: "deepseek-official-chat",
         label: "DeepSeek 官方 · deepseek-chat",
-        description: "模块一推荐：支持本地 search_web 工具循环，避免 thinking 模型 tool_choice 报错。",
+        description: "渗透率盲测推荐：支持本地 search_web 工具循环，避免 thinking 模型 tool_choice 报错。",
         baseUrl: "https://api.deepseek.com",
         chatPath: "/v1/chat/completions",
         model: "deepseek-chat",
@@ -256,7 +256,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
       {
         key: "hunyuan-tokenhub-hy3",
         label: "腾讯 TokenHub · HY3 Preview",
-        description: "如果你的 Key 来自腾讯 TokenHub，使用这个预设；模块一会走本地 search_web 工具循环。",
+        description: "如果你的 Key 来自腾讯 TokenHub，使用这个预设；渗透率情报会走本地 search_web 工具循环。",
         baseUrl: "https://tokenhub.tencentmaas.com",
         chatPath: "/v1/chat/completions",
         model: "hy3-preview",
