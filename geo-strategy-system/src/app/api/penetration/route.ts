@@ -9,6 +9,7 @@ import type {
   SourceDomainCount,
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
+import { extractBrandsFromAnswer } from "@/lib/brand-extract"
 import { aggregatePenetration, isSameBrand, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
 import {
@@ -168,7 +169,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "native_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "已请求通义千问原生联网参数；如果上游未返回引用，将标记为联网不可验证。",
+      webVerificationNote: "已请求通义千问原生联网参数；如果上游未返回引用，将自动尝试公开网页预检索兜底。",
     }
   }
 
@@ -176,7 +177,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "native_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "已请求百度千帆 web_search 参数；当前未开启 trace，引用来源取决于上游返回。",
+      webVerificationNote: "已请求百度千帆 web_search 参数并开启 trace；如果上游仍未返回引用，将自动尝试公开网页预检索兜底。",
     }
   }
 
@@ -190,7 +191,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
       : {
           searchMode: "native_web",
           promptPurity: "raw_question_only",
-          webVerificationNote: "已请求混元原生增强参数；如果上游未返回引用，将标记为联网不可验证。",
+          webVerificationNote: "已请求混元原生增强参数；如果上游未返回引用，将自动尝试公开网页预检索兜底。",
         }
   }
 
@@ -233,21 +234,38 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
 
 function buildAuditFields(
   profile: PenetrationAuditProfile,
-  searchSources: PenetrationSource[]
+  searchSources: PenetrationSource[],
+  overrides: {
+    searchMode?: PenetrationSearchMode
+    promptPurity?: PenetrationPromptPurity
+    searchQueries?: string[]
+    webFailureReason?: string | null
+  } = {}
 ): Pick<
   PenetrationItem,
-  "searchMode" | "promptPurity" | "sourceCount" | "webVerified" | "webVerificationNote"
+  | "searchMode"
+  | "promptPurity"
+  | "webAttempted"
+  | "searchQueries"
+  | "webFailureReason"
+  | "sourceCount"
+  | "webVerified"
+  | "webVerificationNote"
 > {
   const sourceCount = searchSources.length
+  const webFailureReason = overrides.webFailureReason ?? null
   return {
-    searchMode: profile.searchMode,
-    promptPurity: profile.promptPurity,
+    searchMode: overrides.searchMode ?? profile.searchMode,
+    promptPurity: overrides.promptPurity ?? profile.promptPurity,
+    webAttempted: true,
+    searchQueries: overrides.searchQueries ?? [],
+    webFailureReason,
     sourceCount,
     webVerified: sourceCount > 0,
     webVerificationNote:
       sourceCount > 0
         ? `已记录 ${sourceCount} 条可审计公开网页来源。`
-        : profile.webVerificationNote,
+        : webFailureReason || profile.webVerificationNote,
   }
 }
 
@@ -266,13 +284,24 @@ async function blindQuery(
   topSourceDomain: SourceDomainCount | null
   auditFields: Pick<
     PenetrationItem,
-    "searchMode" | "promptPurity" | "sourceCount" | "webVerified" | "webVerificationNote"
+    | "searchMode"
+    | "promptPurity"
+    | "webAttempted"
+    | "searchQueries"
+    | "webFailureReason"
+    | "sourceCount"
+    | "webVerified"
+    | "webVerificationNote"
   >
 }> {
   const adapter = ADAPTERS[model]
   const seed = deriveSeed(model, question)
   const t0 = Date.now()
   const collectedSources: PenetrationSource[] = []
+  const searchQueries = new Set<string>()
+  let actualSearchMode = auditProfile.searchMode
+  let actualPromptPurity = auditProfile.promptPurity
+  let webFailureReason: string | null = null
 
   try {
     const maxAttempts = model === "kimi" ? 2 : 1
@@ -289,7 +318,19 @@ async function blindQuery(
         timeoutSec: BLIND_QUERY_TIMEOUT_SEC,
         forceWebSearch: true,
         rawQuestionOnly: true,
+        requireWebEvidence: true,
         onSearchSources: event => {
+          if (event.query?.trim()) searchQueries.add(event.query.trim())
+          if (event.mode) {
+            actualSearchMode = event.mode
+            actualPromptPurity =
+              event.mode === "presearch_context"
+                ? "search_context_augmented"
+                : event.mode === "local_tool_search"
+                  ? "tool_augmented"
+                  : auditProfile.promptPurity
+          }
+          if (event.failureReason) webFailureReason = event.failureReason
           collectedSources.push(...event.sources)
         },
       })
@@ -308,7 +349,15 @@ async function blindQuery(
     }
     const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
-    const auditFields = buildAuditFields(auditProfile, searchSources)
+    if (searchSources.length === 0) {
+      throw new Error(webFailureReason || "联网搜索未返回可审计来源，已阻断模型自答。")
+    }
+    const auditFields = buildAuditFields(auditProfile, searchSources, {
+      searchMode: actualSearchMode,
+      promptPurity: actualPromptPurity,
+      searchQueries: Array.from(searchQueries),
+      webFailureReason,
+    })
     console.log(
       `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | webVerified=${auditFields.webVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
     )
@@ -324,7 +373,12 @@ async function blindQuery(
     const msg = e instanceof Error ? e.message : "未知错误"
     const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
-    const auditFields = buildAuditFields(auditProfile, searchSources)
+    const auditFields = buildAuditFields(auditProfile, searchSources, {
+      searchMode: actualSearchMode,
+      promptPurity: actualPromptPurity,
+      searchQueries: Array.from(searchQueries),
+      webFailureReason: webFailureReason || msg,
+    })
     console.error(`[penetration·blind] ✗ ${adapter.label} | ${msg} | q="${question.slice(0, 30)}..."`)
     return {
       answer: "",
@@ -447,7 +501,9 @@ async function processSlot(args: {
     }
   }
 
-  const mentionedBrands = [args.ourBrand, ...args.competitors]
+  const knownBrands = [args.ourBrand, ...args.competitors]
+  const extractedBrands = extractBrandsFromAnswer(blind.answer, knownBrands)
+  const mentionedBrands = [...knownBrands, ...extractedBrands]
     .map(x => x.trim())
     .filter((brand, index, all) => {
       if (!brand || isPlatformName(brand) || !answerMentionsBrand(blind.answer, brand)) return false

@@ -70,10 +70,18 @@ function messageText(content: unknown): string {
   return ""
 }
 
-function emitSearchSources(args: ToolLoopArgs, query: string, hits: SearchHit[]) {
+function emitSearchSources(
+  args: ToolLoopArgs,
+  query: string,
+  hits: SearchHit[],
+  mode: "local_tool_search" | "presearch_context",
+  failureReason?: string
+) {
   if (!args.onSearchSources) return
   args.onSearchSources({
     query,
+    mode,
+    failureReason,
     sources: hits.map(hit => ({
       title: hit.title,
       snippet: hit.snippet,
@@ -103,10 +111,19 @@ interface ToolLoopArgs extends ChatArgs {
 async function chatWithPresearchedContext(args: ToolLoopArgs): Promise<string> {
   const t0 = Date.now()
   const hits = await webSearch(args.user, SEARCH_RESULTS_PER_CALL)
-  emitSearchSources(args, args.user, hits)
+  emitSearchSources(
+    args,
+    args.user,
+    hits,
+    "presearch_context",
+    hits.length === 0 ? "本地公开网页预检索未返回可审计来源。" : undefined
+  )
   console.log(
     `[${args.label}·presearch] q="${args.user.slice(0, 80)}" hits=${hits.length} ${Date.now() - t0}ms`
   )
+  if (args.requireWebEvidence && hits.length === 0) {
+    throw new Error("联网搜索未返回可审计来源，已阻断模型自答。请稍后重试或换一个更具体的问题。")
+  }
 
   const messages: Array<Record<string, unknown>> = []
   const system = args.system || ""
@@ -170,6 +187,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
 
   const MAX_ROUNDS = 4 // 1 轮原始 + 最多 3 轮工具
   const searchCache = new Map<string, SearchHit[]>()
+  let observedSourceCount = 0
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const data = await openaiCompatRaw({
       url: args.url,
@@ -219,10 +237,20 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
           if (!hits) {
             hits = await webSearch(query, SEARCH_RESULTS_PER_CALL)
             searchCache.set(query, hits)
-            emitSearchSources(args, query, hits)
+            observedSourceCount += hits.length
+            emitSearchSources(
+              args,
+              query,
+              hits,
+              "local_tool_search",
+              hits.length === 0 ? "本地 search_web 工具未返回可审计来源。" : undefined
+            )
             console.log(
               `[${args.label}·search_web] q="${query}" hits=${hits.length} ${Date.now() - t0}ms`
             )
+          }
+          if (args.requireWebEvidence && hits.length === 0) {
+            throw new Error("联网搜索未返回可审计来源，已阻断模型自答。请稍后重试或换一个更具体的问题。")
           }
           const formatted = formatHitsForLLM(query, hits)
           messages.push({
@@ -246,6 +274,9 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
     const content = messageText(msg.content)
     if (!content.trim()) {
       throw new Error(`${args.label} 返回空内容（finish_reason=${finish || "unknown"}），请检查模型名、联网工具或上游额度。`)
+    }
+    if (args.requireWebEvidence && observedSourceCount === 0) {
+      throw new Error("模型未返回任何可审计联网来源，已阻断模型自答。请稍后重试或换一个更具体的问题。")
     }
     return content
   }
@@ -271,7 +302,12 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
   })
 
   const finalContent = messageText(finalData.choices?.[0]?.message?.content)
-  if (finalContent.trim()) return finalContent
+  if (finalContent.trim()) {
+    if (args.requireWebEvidence && observedSourceCount === 0) {
+      throw new Error("模型未返回任何可审计联网来源，已阻断模型自答。请稍后重试或换一个更具体的问题。")
+    }
+    return finalContent
+  }
 
   throw new Error(`${args.label} 工具调用循环超过 ${MAX_ROUNDS} 轮后仍返回空内容，已阻断。`)
 }

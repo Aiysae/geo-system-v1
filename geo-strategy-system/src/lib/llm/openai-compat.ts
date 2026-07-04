@@ -8,13 +8,16 @@
 // 4. 单轮入口 openaiCompatChat 会自动在 system prompt 头部注入"当前北京时间"，
 //    工具循环类（如 deepseek/kimi）自行拼装 messages 时也应使用 withBeijingTime。
 
-import type { LlmMode, PenetrationSource } from "@/types"
-import { extractSourcesFromUnknown } from "./source-extract"
+import type { LlmMode, PenetrationSearchMode, PenetrationSource } from "@/types"
+import { extractSourcesFromUnknown, normalizeSourceDomain } from "./source-extract"
 import { withBeijingTime } from "./time-context"
+import { formatHitsForLLM, webSearch, type SearchHit } from "./web-search"
 
 export interface SearchSourceEvent {
   query: string
   sources: PenetrationSource[]
+  mode?: PenetrationSearchMode
+  failureReason?: string
 }
 
 export interface ChatArgs {
@@ -31,11 +34,17 @@ export interface ChatArgs {
   allowWebSearch?: boolean
   /** Send only the user's question as conversation context; do not inject time/system hints. */
   rawQuestionOnly?: boolean
+  /** Reject consumer answers that cannot be tied to at least one auditable public web source. */
+  requireWebEvidence?: boolean
   /** Per-provider request timeout in seconds. */
   timeoutSec?: number
   /** Observe the public web sources used by local search adapters. */
   onSearchSources?: (event: SearchSourceEvent) => void
 }
+
+const WEB_EVIDENCE_RESULTS_PER_CALL = 12
+const WEB_EVIDENCE_STYLE_DIRECTIVE =
+  "Final answer style: answer the user's question directly. Do not mention search tools, search results, retrieved pages, or whether the results directly contain the answer."
 
 function redactSecrets(text: string): string {
   return text
@@ -269,6 +278,16 @@ function extractMessageContent(message: RawChatCompletionMessage | undefined, la
   return String(content)
 }
 
+function toPenetrationSources(query: string, hits: SearchHit[]): PenetrationSource[] {
+  return hits.map(hit => ({
+    title: hit.title,
+    snippet: hit.snippet,
+    url: hit.url,
+    domain: normalizeSourceDomain(hit.url),
+    query,
+  }))
+}
+
 interface OpenAICompatArgs extends ChatArgs {
   url: string
   apiKey: string
@@ -304,7 +323,9 @@ export async function openaiCompatChat({
   seed,
   jsonMode,
   mode,
+  forceWebSearch,
   rawQuestionOnly,
+  requireWebEvidence,
   label,
   extraBody,
   extraHeaders,
@@ -368,7 +389,7 @@ export async function openaiCompatChat({
     })
     const nativeSources = onSearchSources ? extractSourcesFromUnknown(data, String(user)) : []
     if (nativeSources.length > 0) {
-      onSearchSources?.({ query: String(user), sources: nativeSources })
+      onSearchSources?.({ query: String(user), sources: nativeSources, mode: "native_web" })
     }
     const choice = data.choices?.[0]
     const content = extractMessageContent(choice?.message, label)
@@ -376,6 +397,65 @@ export async function openaiCompatChat({
       const finish = choice?.finish_reason || "unknown"
       console.warn(`[${label}] 返回空内容 | finish_reason=${finish}`)
       throw new Error(`${label} 返回空内容（finish_reason=${finish}），请检查模型名、联网参数或上游额度。`)
+    }
+    const needsAuditableFallback =
+      forceWebSearch === true &&
+      requireWebEvidence === true &&
+      mode === "consumer" &&
+      nativeSources.length === 0
+
+    if (needsAuditableFallback) {
+      const fallbackQuery = String(user)
+      const t0 = Date.now()
+      const hits = await webSearch(fallbackQuery, WEB_EVIDENCE_RESULTS_PER_CALL)
+      const sources = toPenetrationSources(fallbackQuery, hits)
+      onSearchSources?.({
+        query: fallbackQuery,
+        sources,
+        mode: "presearch_context",
+        failureReason:
+          sources.length === 0
+            ? "模型原生联网未返回引用，且本地公开网页搜索也没有返回可审计来源。"
+            : undefined,
+      })
+      console.log(
+        `[${label}·web-evidence-fallback] q="${fallbackQuery.slice(0, 80)}" hits=${sources.length} ${Date.now() - t0}ms`
+      )
+      if (sources.length === 0) {
+        throw new Error("联网搜索未返回可审计来源，已阻断模型自答。请稍后重试或换一个更具体的问题。")
+      }
+
+      const fallbackMessages: Array<Record<string, unknown>> = []
+      const fallbackSystem = rawQuestionOnly ? system : withBeijingTime(system)
+      if (!rawQuestionOnly || fallbackSystem.trim()) {
+        fallbackMessages.push({ role: "system", content: fallbackSystem })
+      }
+      fallbackMessages.push({
+        role: "user",
+        content: `${String(user)}\n\n${formatHitsForLLM(fallbackQuery, hits)}\n\n${WEB_EVIDENCE_STYLE_DIRECTIVE}`,
+      })
+
+      const fallbackData = await openaiCompatRaw({
+        url,
+        apiKey,
+        model,
+        label,
+        messages: fallbackMessages,
+        temperature,
+        maxTokens,
+        seed,
+        jsonMode: false,
+        extraBody,
+        extraHeaders,
+        timeoutMs,
+      })
+      const fallbackChoice = fallbackData.choices?.[0]
+      const fallbackContent = extractMessageContent(fallbackChoice?.message, label)
+      if (!fallbackContent.trim()) {
+        const finish = fallbackChoice?.finish_reason || "unknown"
+        throw new Error(`${label} 预检索联网后返回空内容（finish_reason=${finish}）。`)
+      }
+      return fallbackContent
     }
     return content
   } catch (err) {
