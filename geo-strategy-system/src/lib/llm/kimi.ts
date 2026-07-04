@@ -8,7 +8,7 @@ import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 //
 // 渗透率客观盲测会通过 forceWebSearch 强制接入本地 search_web 工具；
 // 分析/裁判路径默认带联网工具。Kimi K2 thinking 模型不兼容指定官方
-// "$web_search" tool_choice，因此模块一用普通 function calling 保证强制联网。
+// "$web_search" tool_choice，因此渗透率盲测用普通 function calling 保证强制联网。
 // 严格按 Moonshot 文档处理 tool_calls 循环：
 //   https://platform.moonshot.cn/docs/api/tool_use#web-search
 //
