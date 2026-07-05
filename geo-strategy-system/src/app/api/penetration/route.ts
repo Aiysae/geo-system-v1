@@ -244,7 +244,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
       : {
           searchMode: "presearch_context",
           promptPurity: "search_context_augmented",
-          webVerificationNote: "为避免百炼联网搜索插件额外计费，系统先执行公开网页搜索，再把结果随问题交给通义千问。",
+          webVerificationNote: "后台未启用通义千问/百炼官方联网搜索插件，系统先执行公开网页搜索，再把结果随问题交给通义千问。",
         }
   }
 
