@@ -9,7 +9,6 @@ import type {
   SourceDomainCount,
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
-import { extractBrandsFromAnswer } from "@/lib/brand-extract"
 import { aggregatePenetration, isSameBrand, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
 import {
@@ -61,20 +60,28 @@ function buildJudgeSystemPrompt(): string {
 
 【硬性纪律 — 严禁幻觉】
 1. 只识别真实出现在对应回答原文里的名字，保持原文写法。严禁补充、推测、扩展任何原文没有写出的品牌。
-2. 排除以下"平台/媒体/渠道/通用 AI 工具"类目（这些不是行业品牌）：
+2. "品牌/公司/产品/服务商"必须是专有名词。严禁把以下内容当作品牌输出：
+   - 地域词：深圳、香港、深港、本地、附近、全国、海外
+   - 类目词：全屋定制、整装、装修、家装、家居、家具、设计、施工、木作、衣柜、橱柜
+   - 属性/形容词：高端、性价比、靠谱、可靠、专业、优质、环保、进口、国产、预算有限
+   - 业务/能力词：板材、工艺、案例、口碑、售后、门店、工厂、套餐、方案、供应链、报价、验收
+   - 泛称：品牌、公司、服务商、供应商、厂家、商家、团队、机构、平台
+   除非这些词是一个完整专有名词的一部分，例如"尚品宅配""欧派家居"可以输出；"高端全屋定制""深圳本地公司"不能输出。
+3. 排除以下"平台/媒体/渠道/通用 AI 工具"类目（这些不是行业品牌）：
    - 内容平台：小红书、抖音、快手、B站、知乎、微博、微信、公众号、视频号、今日头条、百家号、CSDN、掘金、简书、豆瓣、贴吧、虎扑
    - 电商：淘宝、天猫、京东、拼多多、唯品会、苏宁、美团、大众点评
    - 搜索/通用：百度、谷歌、Google、Bing、必应、搜狗、360、夸克
    - AI 通用大模型本体：豆包、DeepSeek、通义千问、Kimi、文心一言、腾讯元宝、混元、ChatGPT、Claude
-3. 已知竞品清单只用于帮助识别名称，绝不能因此把原文没有出现的品牌写进结果。
-4. 每个输入 id 必须且只能对应一个输出项，不得遗漏或新增 id。
+4. 已知竞品清单只用于帮助识别名称，绝不能因此把原文没有出现的品牌写进结果。
+5. 如果一个词看起来像描述、类目、形容词或普通名词，不确定时一律不要输出。
+6. 每个输入 id 必须且只能对应一个输出项，不得遗漏或新增 id。
 
 【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止任何额外文字】
 {
   "items": [
     {
       "id": "输入中的 id",
-      "mentionedBrands": ["原文中确实出现的全部具体品牌/公司/产品/服务商；去重"],
+      "mentionedBrands": ["原文中确实出现的全部具体品牌/公司/产品/服务商专有名词；去重"],
       "topRecommended": "原文中明确排第一或最被推荐的品牌；没有明确倾向则填空字符串"
     }
   ]
@@ -116,6 +123,68 @@ function answerMentionsBrand(answer: string, brand: string): boolean {
   const b = normalize(brand)
   if (b.length < 2) return false
   return a.includes(b)
+}
+
+const GENERIC_BRAND_CANDIDATES = new Set([
+  "深圳",
+  "香港",
+  "深港",
+  "本地",
+  "附近",
+  "全国",
+  "海外",
+  "全屋定制",
+  "整装",
+  "装修",
+  "家装",
+  "家居",
+  "家具",
+  "设计",
+  "施工",
+  "木作",
+  "衣柜",
+  "橱柜",
+  "高端",
+  "性价比",
+  "靠谱",
+  "可靠",
+  "专业",
+  "优质",
+  "环保",
+  "进口",
+  "国产",
+  "板材",
+  "工艺",
+  "案例",
+  "口碑",
+  "售后",
+  "门店",
+  "工厂",
+  "套餐",
+  "方案",
+  "供应链",
+  "报价",
+  "验收",
+  "品牌",
+  "公司",
+  "服务商",
+  "供应商",
+  "厂家",
+  "商家",
+  "团队",
+  "机构",
+  "平台",
+])
+
+function isGenericBrandCandidate(brand: string, ourBrand: string): boolean {
+  const value = brand.trim()
+  if (!value || isSameBrand(value, ourBrand)) return false
+  const key = normalize(value)
+  if (GENERIC_BRAND_CANDIDATES.has(value) || GENERIC_BRAND_CANDIDATES.has(key)) return true
+  if (/(?:这类|几类|类型|维度|角度|标准|清单|能力|建议|选择|推荐)/u.test(value)) return true
+  return /^(?:深圳|香港|深港|本地|附近|全国|海外)?(?:高端|性价比|靠谱|可靠|专业|优质|环保|进口|国产)?(?:全屋定制|整装|装修|家装|家居|家具|设计|施工|木作|衣柜|橱柜|公司|品牌|服务商|供应商|厂家|商家|门店|工厂|团队|机构|平台)+$/u.test(
+    value
+  )
 }
 
 function isPermanentProviderError(message: string): boolean {
@@ -502,11 +571,17 @@ async function processSlot(args: {
   }
 
   const knownBrands = [args.ourBrand, ...args.competitors]
-  const extractedBrands = extractBrandsFromAnswer(blind.answer, knownBrands)
-  const mentionedBrands = [...knownBrands, ...extractedBrands]
+  const mentionedBrands = knownBrands
     .map(x => x.trim())
     .filter((brand, index, all) => {
-      if (!brand || isPlatformName(brand) || !answerMentionsBrand(blind.answer, brand)) return false
+      if (
+        !brand ||
+        isPlatformName(brand) ||
+        isGenericBrandCandidate(brand, args.ourBrand) ||
+        !answerMentionsBrand(blind.answer, brand)
+      ) {
+        return false
+      }
       return all.findIndex(other => normalize(other) === normalize(brand)) === index
     })
 
@@ -538,7 +613,12 @@ function mergeVerifiedBrands(
   const merged = [...item.mentionedBrands, ...candidates]
     .map(brand => brand.trim())
     .filter(brand => {
-      return !!brand && !isPlatformName(brand) && answerMentionsBrand(item.answer, brand)
+      return (
+        !!brand &&
+        !isPlatformName(brand) &&
+        !isGenericBrandCandidate(brand, ourBrand) &&
+        answerMentionsBrand(item.answer, brand)
+      )
     })
 
   if (item.hitOur && ourBrand.trim()) merged.push(ourBrand.trim())

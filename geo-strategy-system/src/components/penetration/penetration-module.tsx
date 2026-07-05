@@ -636,15 +636,11 @@ function uniqueSources(sources: PenetrationSource[]): PenetrationSource[] {
 }
 
 function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
-  const [expanded, setExpanded] = useState(false)
   const domains =
     item.sourceDomains && item.sourceDomains.length > 0
       ? item.sourceDomains
       : summarizeSourcesByDomain(item.searchSources ?? [])
   const allSources = uniqueSources(item.searchSources ?? [])
-  const visibleDomains = expanded ? domains : domains.slice(0, 5)
-  const visibleSources = expanded ? allSources : allSources.slice(0, 3)
-  const hasMore = domains.length > visibleDomains.length || allSources.length > visibleSources.length
   const searchQueries = Array.from(new Set((item.searchQueries ?? []).filter(Boolean)))
 
   if (domains.length === 0 && allSources.length === 0 && searchQueries.length === 0 && !item.webFailureReason) {
@@ -675,7 +671,7 @@ function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
         {domains.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-medium text-slate-500">参考域名</span>
-            {visibleDomains.map(source => (
+            {domains.map(source => (
               <span
                 key={source.domain}
                 className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600"
@@ -685,33 +681,33 @@ function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
             ))}
           </div>
         )}
-        {visibleSources.length > 0 && (
-          <div className="mt-1.5 flex flex-col gap-1">
-            {visibleSources.map(source => (
+        {allSources.length > 0 && (
+          <div className="mt-2 flex flex-col gap-1.5">
+            <div className="text-[10px] font-medium text-slate-500">
+              全部信源网址（{allSources.length}）
+            </div>
+            {allSources.map((source, index) => (
               <a
                 key={source.url}
                 href={source.url}
                 target="_blank"
                 rel="noreferrer"
-                className="group flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-[#0077B6] min-w-0"
+                className="group flex items-start gap-1.5 rounded border border-white/70 bg-white/75 px-2 py-1.5 text-[10px] text-slate-500 hover:border-cyan-100 hover:text-[#0077B6] min-w-0"
                 title={source.title}
               >
-                <ExternalLink className="h-3 w-3 shrink-0" />
-                <span className="truncate">{source.title || source.domain}</span>
-                <span className="shrink-0 text-slate-400">({source.domain})</span>
+                <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="shrink-0 font-mono text-slate-400">#{index + 1}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium text-slate-600 group-hover:text-[#0077B6]">
+                    {source.title || source.domain}
+                  </span>
+                  <span className="block break-all font-mono text-slate-400 group-hover:text-[#0077B6]">
+                    {source.url}
+                  </span>
+                </span>
               </a>
             ))}
           </div>
-        )}
-        {hasMore && (
-          <button
-            type="button"
-            onClick={() => setExpanded(value => !value)}
-            className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-medium text-[#0077B6] hover:text-[#005f92]"
-          >
-            {expanded ? "收起来源" : `展开全部来源（${allSources.length} 条）`}
-            <ChevronDown className={`h-3 w-3 transition ${expanded ? "rotate-180" : ""}`} />
-          </button>
         )}
       </div>
     </div>
