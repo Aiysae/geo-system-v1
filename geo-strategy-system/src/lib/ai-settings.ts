@@ -157,18 +157,25 @@ const DEFINITIONS: AiProviderDefinition[] = [
   {
     key: "qwen",
     label: "通义千问",
-    description: "用于渗透率检测和结构化裁判，可开启 DashScope 联网搜索。",
+    description: "用于渗透率检测和结构化裁判；默认用本地公开网页预检索，避免百炼联网插件额外计费。",
     defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
     defaultChatPath: "/v1/chat/completions",
     defaultModel: "qwen-plus",
     defaultTimeout: 300,
     apiKeyEnv: ["DASHSCOPE_API_KEY"],
     modelEnv: ["DASHSCOPE_MODEL"],
+    extraDefaults: { enableSearch: false },
+    extraEnv: {
+      enableSearch: ["DASHSCOPE_ENABLE_SEARCH"],
+    },
+    extraFields: [
+      { key: "enableSearch", label: "启用百炼官方联网搜索插件", inputType: "checkbox" },
+    ],
     presets: [
       {
         key: "qwen-official-plus",
         label: "通义官方 · qwen-plus",
-        description: "DashScope OpenAI 兼容模式，支持 enable_search 联网参数。",
+        description: "DashScope OpenAI 兼容模式；官方联网搜索插件默认关闭以避免额外计费。",
         baseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
         chatPath: "/v1/chat/completions",
         model: "qwen-plus",

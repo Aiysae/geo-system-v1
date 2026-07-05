@@ -235,11 +235,17 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
   const config = await getAiProviderRuntimeSetting(model)
 
   if (model === "qwen") {
-    return {
-      searchMode: "native_web",
-      promptPurity: "raw_question_only",
-      webVerificationNote: "已请求通义千问原生联网参数；如果上游未返回引用，将自动尝试公开网页预检索兜底。",
-    }
+    return config.extra.enableSearch === true
+      ? {
+          searchMode: "native_web",
+          promptPurity: "raw_question_only",
+          webVerificationNote: "已请求通义千问/百炼官方联网搜索插件；该插件会产生独立百炼计费。",
+        }
+      : {
+          searchMode: "presearch_context",
+          promptPurity: "search_context_augmented",
+          webVerificationNote: "为避免百炼联网搜索插件额外计费，系统先执行公开网页搜索，再把结果随问题交给通义千问。",
+        }
   }
 
   if (model === "ernie") {
