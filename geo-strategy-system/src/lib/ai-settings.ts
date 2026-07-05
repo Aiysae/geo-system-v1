@@ -164,7 +164,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
     defaultTimeout: 300,
     apiKeyEnv: ["DASHSCOPE_API_KEY"],
     modelEnv: ["DASHSCOPE_MODEL"],
-    extraDefaults: { enableSearch: false },
+    extraDefaults: { enableSearch: true },
     extraEnv: {
       enableSearch: ["DASHSCOPE_ENABLE_SEARCH"],
     },
