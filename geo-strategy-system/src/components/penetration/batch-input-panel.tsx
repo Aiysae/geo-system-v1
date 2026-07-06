@@ -18,6 +18,7 @@ import {
 import { MODEL_LABELS } from "@/lib/model-labels"
 import { apiFetch } from "@/lib/api-fetch"
 import ModelAvatar from "@/components/model-avatar"
+import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import type { Client, ModelKey } from "@/types"
 
 const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
@@ -245,6 +246,7 @@ export default function BatchInputPanel({
                 )}
               </Button>
             </div>
+            <CreditCostBadge featureKey="legacyQueryGenerateUnit" units={aiCount} />
 
             {!client.industry.trim() && !client.ourBrand.trim() && (
               <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
@@ -344,6 +346,12 @@ export default function BatchInputPanel({
           {error}
         </div>
       )}
+
+      <CreditCostBadge
+        featureKey="penetrationSlot"
+        units={Math.max(1, questionCount * client.selectedModels.length)}
+        className="w-fit"
+      />
 
       <Button
         onClick={handleRun}

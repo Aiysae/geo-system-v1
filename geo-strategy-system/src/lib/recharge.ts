@@ -83,6 +83,19 @@ export async function listPending(): Promise<RechargeRequest[]> {
     .sort((a, b) => b.createdAt - a.createdAt)
 }
 
+export async function listRequestsForUser(
+  userId: string,
+  limit = 100,
+): Promise<RechargeRequest[]> {
+  const ids = await kv.smembers<string[]>(KEY_USER_INDEX(userId))
+  if (!ids || ids.length === 0) return []
+  const records = await Promise.all(ids.map(id => kv.get<RechargeRequest>(KEY_REQ(id))))
+  return records
+    .filter((record): record is RechargeRequest => Boolean(record))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, Math.max(1, Math.floor(limit)))
+}
+
 function normalizePaymentMethod(value: unknown): RechargePaymentMethod {
   const raw = String(value || "").trim()
   if (raw === "wechat" || raw === "alipay" || raw === "other") return raw

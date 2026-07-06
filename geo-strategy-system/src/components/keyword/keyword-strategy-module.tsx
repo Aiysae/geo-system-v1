@@ -28,6 +28,7 @@ import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, FileText, Lo
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
+import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 
 // ==================== Brand Data ====================
 
@@ -1596,6 +1597,8 @@ function InputStep({
             </div>
           )}
 
+          <CreditCostBadge featureKey="keywordExtract" className="w-fit" />
+
           <button
             onClick={onExtract}
             disabled={extracting || !modelConfigured}
@@ -1717,14 +1720,17 @@ function ExtractionStep({
             <h2 className="text-sm font-semibold text-slate-700">{section.label}</h2>
             <div className="flex items-center gap-2">
               {section.key === "advantages" && (
-                <button
-                  onClick={onGenerateAdvantages}
-                  disabled={advantageStatus === "generating"}
-                  className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                >
-                  {advantageStatus === "generating" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                  生成优势
-                </button>
+                <>
+                  <CreditCostBadge featureKey="keywordAdvantages" label="预计" />
+                  <button
+                    onClick={onGenerateAdvantages}
+                    disabled={advantageStatus === "generating"}
+                    className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    {advantageStatus === "generating" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    生成优势
+                  </button>
+                </>
               )}
               <button onClick={() => addItem(section.key)}
                 className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition">
@@ -1780,6 +1786,7 @@ function ExtractionStep({
           <ArrowLeft className="h-4 w-4" /> 返回修改资料
         </button>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <CreditCostBadge featureKey="keywordStrategyGenerate" label="策略预计" className="sm:mr-1" />
           <button onClick={onReExtract} disabled={reExtracting}
             className="text-sm inline-flex w-full items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 disabled:opacity-50 transition sm:w-auto">
             {reExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -1995,16 +2002,19 @@ function StrategyStep({
                 通义千问会把下方全部建议合并为一个可直接建站的完整 Prompt，品牌资料由你另外提供。
               </div>
             </div>
-            <button
-              onClick={handleGenerateOfficialPrompt}
-              disabled={officialPromptLoading}
-              className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            >
-              {officialPromptLoading
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <Sparkles className="h-3.5 w-3.5" />}
-              {officialPromptLoading ? "通义千问生成中..." : officialPrompt ? "重新生成完整 Prompt" : "生成完整官网 Prompt"}
-            </button>
+            <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end">
+              <CreditCostBadge featureKey="keywordWebsitePrompt" />
+              <button
+                onClick={handleGenerateOfficialPrompt}
+                disabled={officialPromptLoading}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              >
+                {officialPromptLoading
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Sparkles className="h-3.5 w-3.5" />}
+                {officialPromptLoading ? "通义千问生成中..." : officialPrompt ? "重新生成完整 Prompt" : "生成完整官网 Prompt"}
+              </button>
+            </div>
           </div>
 
           {officialPromptError && (
@@ -2062,6 +2072,9 @@ function StrategyStep({
                   <div className="text-[11px] text-amber-600 mb-1"><span className="font-medium text-amber-700">劣势转优势：</span>{site.weakness_conversion}</div>
                 )}
                 <div className="text-[11px] text-slate-400"><span className="font-medium text-slate-500">交叉验证：</span>{site.cross_validation_role}</div>
+                <div className="mt-3">
+                  <CreditCostBadge featureKey="keywordWebsitePrompt" />
+                </div>
                 <button
                   onClick={() => handleGenerateThirdPartyPrompt(site, i)}
                   disabled={thirdPartyPromptLoadingKey === `third-${i}`}
@@ -2745,6 +2758,12 @@ function QuestionSettingsPanel({
           <span className={`font-bold ${totalTooHigh || noSectionsSelected ? "text-red-600" : "text-slate-800"}`}>
             合计 {sectionPlan.totalCount} 条
           </span>
+        </div>
+        <div className="mb-3">
+          <CreditCostBadge
+            featureKey="keywordQuestionUnit"
+            units={Math.max(1, sectionPlan.totalCount)}
+          />
         </div>
         <div className="space-y-1 text-[11px]">
           <div className="flex justify-between"><span className="text-slate-500">关键词生成</span><span className="font-medium text-slate-700">{sectionPlan.counts.keyword} 条</span></div>

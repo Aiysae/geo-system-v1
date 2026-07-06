@@ -19,6 +19,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { ARTICLE_PROMPT_OPTIONS, type ArticlePromptOption } from "@/lib/article-prompt-meta"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
+import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
+import { ARTICLE_PROMPT_PRICE_KEYS } from "@/lib/pricing"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type { ArticleGenerationState, ArticleModelProviderKey, ArticlePromptKey, Client } from "@/types"
 import type { QuestionItem } from "@/types/geo-strategy"
@@ -121,6 +123,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const isGenerating = article.status === "generating"
   const canGenerate = Boolean(article.coreQuestion.trim()) && !isGenerating
   const hasOutput = Boolean(article.output.trim())
+  const articleFeatureKey = ARTICLE_PROMPT_PRICE_KEYS[article.promptKey || "thirdPartyObservation"]
 
   function persist(next: ArticleGenerationState) {
     setArticle(next)
@@ -545,6 +548,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               {article.error}
             </div>
           )}
+
+          <CreditCostBadge featureKey={articleFeatureKey} className="w-fit" />
 
           <Button
             onClick={runGenerate}

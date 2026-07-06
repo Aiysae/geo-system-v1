@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, Building2, Target, Users, Swords, Lightbulb, TrendingUp, Zap, Sparkles } from "lucide-react"
+import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import type { BrandInput } from "@/types"
 
 interface InputPanelProps {
@@ -118,6 +119,8 @@ export default function InputPanel({ input, onChange, onGenerate, isGenerating }
               </div>
             )
           })}
+
+          <CreditCostBadge featureKey="legacyGeoGenerate" className="w-fit" />
 
           <Button
             className="w-full h-11 text-sm font-semibold tracking-wide bg-gradient-to-r from-[#004B73] to-[#006699] hover:from-[#003554] hover:to-[#004B73] shadow-lg shadow-[#004B73]/20 transition-all duration-300"

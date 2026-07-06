@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
@@ -649,8 +650,9 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
                 示例
               </Button>
             </div>
+            <CreditCostBadge featureKey="difficultyAssessment" className="w-fit" />
             <p className="text-xs leading-relaxed text-slate-500">
-              真实评估会消耗 5 积分，由服务端调用已配置模型；前端不会暴露 API Key。
+              真实评估由服务端调用已配置模型；前端不会暴露 API Key。
             </p>
           </CardContent>
         </Card>
