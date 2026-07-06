@@ -17,6 +17,7 @@ import {
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -676,7 +677,14 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const guard = await authAndReserveCredits(5)
+    const featureKey = "difficultyAssessment"
+    const cost = estimateFeatureCredits(featureKey)
+    const guard = await authAndReserveCredits(cost, {
+      featureKey,
+      source: "api:difficulty-assessment",
+      description: getFeaturePrice(featureKey).label,
+      metadata: { mode },
+    })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
@@ -728,7 +736,7 @@ async function handler(req: NextRequest) {
     if (!finalParsed) throw new Error("多阶段评估未生成最终报告。")
 
     const result = normalizeResult(finalParsed, context.process, providerLabel, context)
-    await settleReservedCredits(reservation, 5)
+    await settleReservedCredits(reservation, cost)
     reservation = null
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },

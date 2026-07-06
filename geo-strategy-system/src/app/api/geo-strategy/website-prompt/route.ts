@@ -8,12 +8,14 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import type { GeoStrategyPlan, ThirdPartySite } from "@/types/geo-strategy"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
-const CREDIT_COST = 3
+const FEATURE_KEY = "keywordWebsitePrompt"
+const CREDIT_COST = estimateFeatureCredits(FEATURE_KEY)
 
 type WebsitePromptKind = "official" | "third-party"
 
@@ -194,7 +196,12 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST)
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST, {
+      featureKey: FEATURE_KEY,
+      source: "api:geo-strategy:website-prompt",
+      description: getFeaturePrice(FEATURE_KEY).label,
+      metadata: { kind, provider },
+    })
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 

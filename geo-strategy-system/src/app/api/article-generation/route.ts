@@ -10,6 +10,11 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import type { ArticleModelProviderKey, ArticlePromptKey } from "@/types"
+import {
+  ARTICLE_PROMPT_PRICE_KEYS,
+  estimateFeatureCredits,
+  getFeaturePrice,
+} from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -30,12 +35,6 @@ const ARTICLE_PROMPTS: ArticlePromptKey[] = [
   "pitfallGuide",
   "shortVideoScript",
 ]
-
-const CREDIT_COST: Record<ArticlePromptKey, number> = {
-  thirdPartyObservation: 8,
-  pitfallGuide: 5,
-  shortVideoScript: 2,
-}
 
 function asPromptKey(value: unknown): ArticlePromptKey | null {
   return ARTICLE_PROMPTS.includes(value as ArticlePromptKey) ? value as ArticlePromptKey : null
@@ -156,7 +155,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST[promptKey])
+    const featureKey = ARTICLE_PROMPT_PRICE_KEYS[promptKey]
+    const cost = estimateFeatureCredits(featureKey)
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, cost, {
+      featureKey,
+      source: "api:article-generation",
+      description: getFeaturePrice(featureKey).label,
+      metadata: { promptKey, modelProvider },
+    })
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 
@@ -192,7 +198,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "AI 未返回有效文章内容，请重试" }, { status: 502 })
     }
 
-    await settleReservedCredits(reservation, CREDIT_COST[promptKey])
+    await settleReservedCredits(reservation, cost)
     reservation = null
 
     return NextResponse.json(

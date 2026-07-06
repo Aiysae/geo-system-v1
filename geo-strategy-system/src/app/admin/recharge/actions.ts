@@ -28,7 +28,9 @@ export async function approveRechargeAction(
   revalidatePath("/admin/recharge")
   return {
     ok: true,
-    message: `已为 ${result.record.username || result.record.email || result.record.userId} 充值 ${result.record.amount} 积分`,
+    message: `已为 ${result.record.username || result.record.email || result.record.userId} 充值 ${
+      result.record.credits ?? result.record.amount
+    } 积分`,
   }
 }
 

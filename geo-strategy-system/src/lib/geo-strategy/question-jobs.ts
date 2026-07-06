@@ -4,6 +4,7 @@ import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
 import { createInternalApiHeaders } from "@/lib/internal-api"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "./question-advantages"
 import type {
   GeoStrategyPlan,
@@ -694,9 +695,18 @@ async function settleQuestionJobCredits(id: string, used: number): Promise<void>
     userId: job.ownerUserId,
     amount: Math.max(1, Math.floor(job.reservedCredits || job.totalCount || 1)),
     balanceAfterReserve: 0,
+    ledgerContext: {
+      featureKey: "keywordQuestionUnit",
+      source: "question-job",
+      sourceId: id,
+      description: getFeaturePrice("keywordQuestionUnit").label,
+      metadata: {
+        requestedCount: job.totalCount,
+      },
+    },
   }
 
-  await settleReservedCredits(reservation, used)
+  await settleReservedCredits(reservation, estimateFeatureCredits("keywordQuestionUnit", used))
   await patchQuestionJob(id, { creditsSettledAt: nowIso() })
 }
 

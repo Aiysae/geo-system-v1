@@ -4,6 +4,7 @@ import { useActionState, useState, useEffect } from "react"
 import { Sparkles, X, Plus } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
 import { useCredits } from "./credits-provider"
+import { formatYuan, RECHARGE_PACKAGES, type RechargePackageKey } from "@/lib/pricing"
 
 export function RechargeButton() {
   const [open, setOpen] = useState(false)
@@ -24,7 +25,8 @@ export function RechargeButton() {
 
 function RechargeDialog({ onClose }: { onClose: () => void }) {
   const { refresh } = useCredits()
-  const [amount, setAmount] = useState<string>("100")
+  const [packageKey, setPackageKey] = useState<RechargePackageKey>("standard_299")
+  const [paymentMethod, setPaymentMethod] = useState("manual_transfer")
   const [state, formAction, pending] = useActionState<RequestRechargeResult | null, FormData>(
     async (_prev, fd) => requestRechargeAction(fd),
     null
@@ -47,7 +49,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
       aria-modal="true"
     >
       <div
-        className="relative w-[90%] max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
+        className="relative max-h-[90vh] w-[90%] max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
         onClick={e => e.stopPropagation()}
       >
         <button
@@ -71,7 +73,12 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
           {submitted ? (
             <>
               <p className="text-sm text-slate-600 leading-relaxed">
-                已提交 <span className="font-mono font-bold text-slate-900">{state!.ok && state!.amount}</span> 积分的充值申请，等待管理员审批。
+                已提交 <span className="font-bold text-slate-900">{state!.ok && state!.packageName}</span>
+                充值申请，到账积分{" "}
+                <span className="font-mono font-bold text-slate-900">
+                  {state!.ok && state!.credits}
+                </span>
+                。请完成付款后等待管理员审批。
               </p>
               <button
                 onClick={onClose}
@@ -83,23 +90,70 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
           ) : (
             <form action={formAction}>
               <p className="text-sm text-slate-600 leading-relaxed">
-                请输入希望充值的积分数值。提交后将由管理员审批，审批通过后积分立即到账。
+                选择固定套餐后提交申请。管理员核对付款后审批，审批通过后积分立即到账。
               </p>
 
-              <label className="block mt-5 mb-1.5 text-xs font-medium text-slate-700">
-                充值积分数
+              <input type="hidden" name="packageKey" value={packageKey} />
+              <input type="hidden" name="paymentMethod" value={paymentMethod} />
+
+              <div className="mt-5 space-y-2">
+                {RECHARGE_PACKAGES.map(pkg => {
+                  const selected = packageKey === pkg.key
+                  return (
+                    <button
+                      key={pkg.key}
+                      type="button"
+                      onClick={() => setPackageKey(pkg.key)}
+                      className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                        selected
+                          ? "border-[#0077B6] bg-blue-50 ring-2 ring-blue-100"
+                          : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-900">{pkg.name}</span>
+                            {"badge" in pkg && pkg.badge && (
+                              <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                                {pkg.badge}
+                              </span>
+                            )}
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-500">{pkg.description}</span>
+                        </span>
+                        <span className="shrink-0 text-right">
+                          <span className="block text-sm font-bold text-slate-900">{formatYuan(pkg.priceCents)}</span>
+                          <span className="block font-mono text-xs text-[#006AA3]">+{pkg.credits} 积分</span>
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <label className="mt-5 block text-xs font-medium text-slate-700">
+                付款方式
               </label>
-              <input
-                name="amount"
-                type="number"
-                min={1}
-                max={100000}
-                step={1}
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                required
-                className="w-full px-4 py-2.5 text-sm rounded-xl border border-slate-200 bg-white outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20 transition-all font-mono"
-                placeholder="例如 100"
+              <select
+                value={paymentMethod}
+                onChange={e => setPaymentMethod(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+              >
+                <option value="manual_transfer">人工转账 / 对公付款</option>
+                <option value="wechat">微信支付</option>
+                <option value="alipay">支付宝</option>
+                <option value="other">其他</option>
+              </select>
+
+              <label className="mt-4 block text-xs font-medium text-slate-700">
+                付款备注（选填）
+              </label>
+              <textarea
+                name="note"
+                rows={2}
+                className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+                placeholder="例如：已对公付款 / 微信昵称 / 转账时间"
               />
 
               {state && !state.ok && (

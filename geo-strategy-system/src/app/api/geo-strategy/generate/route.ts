@@ -9,12 +9,14 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import type { GeoStrategyPlan } from "@/types/geo-strategy"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
-const CREDIT_COST = 5
+const FEATURE_KEY = "keywordStrategyGenerate"
+const CREDIT_COST = estimateFeatureCredits(FEATURE_KEY)
 
 const SYSTEM_PROMPT = `你是一个资深 GEO（生成式引擎优化）策略顾问，服务对象是帮助企业提升在 ChatGPT、DeepSeek、豆包、Kimi、通义等生成式引擎中的被理解、被引用和被推荐概率。
 
@@ -219,7 +221,11 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST)
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST, {
+      featureKey: FEATURE_KEY,
+      source: "api:geo-strategy:generate",
+      description: getFeaturePrice(FEATURE_KEY).label,
+    })
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 

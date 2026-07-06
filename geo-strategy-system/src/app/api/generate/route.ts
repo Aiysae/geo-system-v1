@@ -6,6 +6,7 @@ import {
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 90
@@ -37,7 +38,13 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const guard = await authAndReserveCredits(20)
+    const featureKey = "legacyGeoGenerate"
+    const cost = estimateFeatureCredits(featureKey)
+    const guard = await authAndReserveCredits(cost, {
+      featureKey,
+      source: "api:generate",
+      description: getFeaturePrice(featureKey).label,
+    })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 

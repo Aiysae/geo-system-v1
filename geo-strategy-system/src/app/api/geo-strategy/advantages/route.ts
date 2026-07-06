@@ -7,12 +7,14 @@ import {
   reserveCreditsForUser,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
-const CREDIT_COST = 2
+const FEATURE_KEY = "keywordAdvantages"
+const CREDIT_COST = estimateFeatureCredits(FEATURE_KEY)
 
 const SYSTEM_PROMPT = `你是一个资深 GEO 优势资产生成专家。你的任务是帮助品牌、产品、服务或个人 IP 生成更适合被 ChatGPT、DeepSeek、豆包、Kimi、通义等生成式引擎理解、引用和推荐的优势数据资产。
 
@@ -177,7 +179,12 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST)
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST, {
+      featureKey: FEATURE_KEY,
+      source: "api:geo-strategy:advantages",
+      description: getFeaturePrice(FEATURE_KEY).label,
+      metadata: { requestedCount: count },
+    })
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 
