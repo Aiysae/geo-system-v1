@@ -10,6 +10,7 @@ import GemScorePanel from "./gem-score-panel"
 import RadarFiveDim from "./radar-five-dim"
 import ModelTabs from "./model-tabs"
 import { apiFetch } from "@/lib/api-fetch"
+import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import type { Client, Diagnosis } from "@/types"
 
 interface Props {
@@ -66,20 +67,23 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
               多维 AI 诊断面板
             </span>
           </div>
-          <Button
-            size="sm"
-            onClick={run}
-            disabled={loading || !client.ourBrand.trim()}
-            variant={diag ? "outline" : "default"}
-            className={diag ? "w-full gap-1.5 sm:w-auto" : "w-full gap-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:shadow-lg hover:shadow-purple-300/40 hover:-translate-y-0.5 transition-all border-0 sm:w-auto"}
-          >
-            {loading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : diag ? (
-              <RefreshCw className="h-3.5 w-3.5" />
-            ) : null}
-            {loading ? "诊断中..." : diag ? "重新诊断" : "开始诊断"}
-          </Button>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <CreditCostBadge featureKey="diagnose" />
+            <Button
+              size="sm"
+              onClick={run}
+              disabled={loading || !client.ourBrand.trim()}
+              variant={diag ? "outline" : "default"}
+              className={diag ? "w-full gap-1.5 sm:w-auto" : "w-full gap-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:shadow-lg hover:shadow-purple-300/40 hover:-translate-y-0.5 transition-all border-0 sm:w-auto"}
+            >
+              {loading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : diag ? (
+                <RefreshCw className="h-3.5 w-3.5" />
+              ) : null}
+              {loading ? "诊断中..." : diag ? "重新诊断" : "开始诊断"}
+            </Button>
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent>

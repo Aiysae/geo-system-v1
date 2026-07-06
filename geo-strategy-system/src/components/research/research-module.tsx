@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import type { Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import {
   BarChart3,
@@ -274,6 +275,10 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                 验证假设
               </Button>
             </div>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <CreditCostBadge featureKey="researchAi" label="AI 调研预计" />
+              <CreditCostBadge featureKey="researchHypothesis" label="假设验证预计" />
+            </div>
 
             {researchError && <ErrorBox message={researchError} />}
 
@@ -293,15 +298,21 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                   <div className="text-[11px] text-slate-500">基于检测竞品与豆包心智生成对比报告</div>
                 </div>
               </div>
-              <Button
-                onClick={runCompare}
-                disabled={compareLoading || !compareReady}
-                size="sm"
-                className="gap-1.5 bg-gradient-to-r from-rose-600 to-orange-500 hover:shadow-lg hover:shadow-rose-200/60 border-0"
-              >
-                {compareLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : compare ? <RefreshCw className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
-                {compareLoading ? "对比中..." : compare ? "重新对比" : "生成对比"}
-              </Button>
+              <div className="flex flex-col items-start gap-2 sm:items-end">
+                <CreditCostBadge
+                  featureKey="competitorCompareUnit"
+                  units={Math.max(1, activeSelectedCompetitors.length)}
+                />
+                <Button
+                  onClick={runCompare}
+                  disabled={compareLoading || !compareReady}
+                  size="sm"
+                  className="gap-1.5 bg-gradient-to-r from-rose-600 to-orange-500 hover:shadow-lg hover:shadow-rose-200/60 border-0"
+                >
+                  {compareLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : compare ? <RefreshCw className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
+                  {compareLoading ? "对比中..." : compare ? "重新对比" : "生成对比"}
+                </Button>
+              </div>
             </div>
 
             <SourceTabs

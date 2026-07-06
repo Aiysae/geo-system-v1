@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { Sparkles, X } from "lucide-react"
 import { registerCreditsHandlers, unregisterCreditsHandlers } from "@/lib/api-fetch"
 
@@ -117,7 +118,7 @@ function InsufficientCreditsModal({
           </div>
 
           <p className="text-sm text-slate-600 leading-relaxed">
-            当前体验算力积分不足以完成本次任务。请联系管理员进行充值，或减少问题数量 / 检测模型后重试。
+            当前体验算力积分不足以完成本次任务。你可以选择充值套餐，或减少问题数量 / 检测模型后重试。
           </p>
 
           {(typeof required === "number" || typeof balance === "number") && (
@@ -137,12 +138,21 @@ function InsufficientCreditsModal({
             </div>
           )}
 
-          <button
-            onClick={onClose}
-            className="mt-6 w-full py-2.5 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white text-sm font-medium hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all"
-          >
-            我知道了
-          </button>
+          <div className="mt-6 flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 rounded-xl bg-white py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+            >
+              我知道了
+            </button>
+            <Link
+              href="/billing"
+              onClick={onClose}
+              className="flex-1 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] py-2.5 text-center text-sm font-medium text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40"
+            >
+              去充值
+            </Link>
+          </div>
         </div>
       </div>
     </div>

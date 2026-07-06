@@ -92,7 +92,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     const requiredCredits = params.questions.length * params.models.length
     if (typeof balance === "number" && balance < requiredCredits) {
       setError(
-        `体验算力积分不足：本次检测需要 ${requiredCredits} 积分，当前余额 ${balance} 积分。请减少问题数量 / 检测模型，或申请充值后重试。`
+        `体验算力积分不足：本次检测需要 ${requiredCredits} 积分，当前余额 ${balance} 积分。请减少问题数量 / 检测模型，或前往账单页充值后重试。`
       )
       return
     }
