@@ -97,7 +97,7 @@ export default async function AdminRechargePage() {
               <thead>
                 <tr className="bg-slate-50/60 text-left text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   <th className="px-4 py-3">用户</th>
-                  <th className="px-4 py-3">申请积分</th>
+                  <th className="px-4 py-3">套餐 / 金额 / 积分</th>
                   <th className="px-4 py-3">提交时间</th>
                   <th className="px-4 py-3">操作</th>
                 </tr>

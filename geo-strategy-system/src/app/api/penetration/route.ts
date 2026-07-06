@@ -18,6 +18,7 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -774,7 +775,9 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const requiredCredits = activeModels.length * questions.length
+    const featureKey = "penetrationSlot"
+    const slotCount = activeModels.length * questions.length
+    const requiredCredits = estimateFeatureCredits(featureKey, slotCount)
     const judgeModel = await pickJudge(activeModels)
     if (!judgeModel) {
       return NextResponse.json(
@@ -783,7 +786,16 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const guard = await authAndReserveCredits(requiredCredits)
+    const guard = await authAndReserveCredits(requiredCredits, {
+      featureKey,
+      source: "api:penetration",
+      description: getFeaturePrice(featureKey).label,
+      metadata: {
+        modelCount: activeModels.length,
+        questionCount: questions.length,
+        slotCount,
+      },
+    })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
@@ -873,7 +885,7 @@ async function handler(req: NextRequest) {
     const aggregated = aggregatePenetration(byModel, ourBrand)
 
     const successfulSlots = results.filter(result => result.item.answer.trim().length > 0).length
-    await settleReservedCredits(reservation, successfulSlots)
+    await settleReservedCredits(reservation, estimateFeatureCredits(featureKey, successfulSlots))
     reservation = null
 
     return NextResponse.json(

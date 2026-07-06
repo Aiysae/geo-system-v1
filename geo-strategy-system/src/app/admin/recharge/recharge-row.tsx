@@ -4,6 +4,7 @@ import { useActionState } from "react"
 import { Check, X } from "lucide-react"
 import { approveRechargeAction, rejectRechargeAction, type AdminActionResult } from "./actions"
 import type { RechargeRequest } from "@/lib/recharge"
+import { formatYuan } from "@/lib/pricing"
 
 const initialState: AdminActionResult | null = null
 
@@ -19,6 +20,13 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
   >(async (_prev, fd) => rejectRechargeAction(fd), initialState)
 
   const busy = approvePending || rejectPending
+  const credits = req.credits ?? req.amount
+  const paymentLabel = {
+    manual_transfer: "人工转账",
+    wechat: "微信",
+    alipay: "支付宝",
+    other: "其他",
+  }[req.paymentMethod || "manual_transfer"]
   const lastError =
     approveState && !approveState.ok
       ? approveState.error
@@ -36,9 +44,23 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
         <div className="text-[10px] text-slate-400 font-mono mt-1">{req.userId}</div>
       </td>
       <td className="px-4 py-3 align-top">
+        <div className="mb-1 text-xs font-medium text-slate-700">
+          {req.packageName || "历史充值申请"}
+        </div>
+        {req.priceCents ? (
+          <div className="mb-1 font-mono text-xs font-semibold text-slate-900">
+            {formatYuan(req.priceCents)}
+          </div>
+        ) : null}
         <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-gradient-to-br from-amber-50 to-rose-50 ring-1 ring-amber-200/70 text-sm font-semibold font-mono tabular-nums text-slate-900">
-          +{req.amount}
+          +{credits}
         </span>
+        <div className="mt-1 text-[11px] text-slate-500">付款方式：{paymentLabel}</div>
+        {req.note && (
+          <div className="mt-1 max-w-[220px] rounded-md bg-slate-50 px-2 py-1 text-[11px] leading-4 text-slate-500">
+            {req.note}
+          </div>
+        )}
       </td>
       <td className="px-4 py-3 align-top text-xs text-slate-500 whitespace-nowrap">
         {new Date(req.createdAt).toLocaleString("zh-CN", { hour12: false })}

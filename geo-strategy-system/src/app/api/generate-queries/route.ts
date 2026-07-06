@@ -7,6 +7,7 @@ import {
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 // 高频疑问句智能生成 · 豆包专用 (Volcengine Ark)
 //
@@ -228,7 +229,14 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const guard = await authAndReserveCredits(count)
+    const featureKey = "legacyQueryGenerateUnit"
+    const cost = estimateFeatureCredits(featureKey, count)
+    const guard = await authAndReserveCredits(cost, {
+      featureKey,
+      source: "api:generate-queries",
+      description: getFeaturePrice(featureKey).label,
+      metadata: { requestedCount: count },
+    })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
@@ -293,7 +301,7 @@ async function handler(req: NextRequest) {
       `[generate-queries] ✓ 豆包 Bot 返回 ${questions.length} 条 → 中立过滤 ${filtered.length} 条 → 裁剪到 ${final.length} 条 | ${Date.now() - t0}ms`
     )
 
-    await settleReservedCredits(reservation, final.length)
+    await settleReservedCredits(reservation, estimateFeatureCredits(featureKey, final.length))
     reservation = null
     return NextResponse.json(
       { questions: final, generatedAt: new Date().toISOString() },

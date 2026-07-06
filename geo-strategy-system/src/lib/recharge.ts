@@ -1,19 +1,32 @@
 import { kv } from "@/lib/kv"
 import { addCreditsBy } from "./credits"
+import {
+  getRechargePackage,
+  type RechargePackageKey,
+} from "@/lib/pricing"
 
 export type RechargeStatus = "pending" | "approved" | "rejected"
+export type RechargePaymentMethod = "manual_transfer" | "wechat" | "alipay" | "other"
 
 export type RechargeRequest = {
   id: string
   userId: string
   username: string
   email: string
+  packageKey?: RechargePackageKey
+  packageName?: string
+  priceCents?: number
+  credits?: number
   amount: number
+  paymentMethod?: RechargePaymentMethod
+  note?: string
   status: RechargeStatus
   createdAt: number
   processedAt?: number
   processedBy?: string
 }
+
+export type RechargeOrder = RechargeRequest
 
 const KEY_REQ = (id: string) => `recharge_requests:${id}`
 const KEY_PENDING_SET = "recharge_requests:pending"
@@ -30,18 +43,26 @@ export async function createRequest(input: {
   userId: string
   username: string
   email: string
-  amount: number
+  packageKey: string
+  paymentMethod?: string
+  note?: string
 }): Promise<RechargeRequest> {
-  const amount = Math.floor(input.amount)
-  if (!Number.isFinite(amount) || amount < MIN_AMOUNT || amount > MAX_AMOUNT) {
-    throw new Error(`积分数值需在 ${MIN_AMOUNT} ~ ${MAX_AMOUNT} 之间`)
-  }
+  const pkg = getRechargePackage(input.packageKey)
+  if (!pkg) throw new Error("请选择有效的充值套餐")
+
+  const paymentMethod = normalizePaymentMethod(input.paymentMethod)
   const record: RechargeRequest = {
     id: newId(),
     userId: input.userId,
     username: input.username,
     email: input.email,
-    amount,
+    packageKey: pkg.key,
+    packageName: pkg.name,
+    priceCents: pkg.priceCents,
+    credits: pkg.credits,
+    amount: pkg.credits,
+    paymentMethod,
+    note: input.note?.trim().slice(0, 300) || undefined,
     status: "pending",
     createdAt: Date.now(),
   }
@@ -60,6 +81,12 @@ export async function listPending(): Promise<RechargeRequest[]> {
   return records
     .filter((r): r is RechargeRequest => !!r && r.status === "pending")
     .sort((a, b) => b.createdAt - a.createdAt)
+}
+
+function normalizePaymentMethod(value: unknown): RechargePaymentMethod {
+  const raw = String(value || "").trim()
+  if (raw === "wechat" || raw === "alipay" || raw === "other") return raw
+  return "manual_transfer"
 }
 
 /**
@@ -83,7 +110,19 @@ export async function approveRequest(
     processedBy: adminUserId,
   }
   await kv.set(KEY_REQ(requestId), updated)
-  await addCreditsBy(record.userId, record.amount)
+  await addCreditsBy(record.userId, record.credits ?? record.amount, {
+    type: "recharge_approved",
+    source: "recharge",
+    sourceId: record.id,
+    description: `充值到账：${record.packageName || "历史充值申请"}`,
+    operatorUserId: adminUserId,
+    metadata: {
+      packageKey: record.packageKey,
+      packageName: record.packageName,
+      priceCents: record.priceCents,
+      paymentMethod: record.paymentMethod,
+    },
+  })
   return { ok: true, record: updated }
 }
 

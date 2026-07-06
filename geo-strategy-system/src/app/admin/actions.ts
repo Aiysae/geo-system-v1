@@ -14,7 +14,7 @@ export async function adjustCreditsAction(
   formData: FormData
 ): Promise<AdjustCreditsState> {
   try {
-    await assertAdmin()
+    const adminId = await assertAdmin()
 
     const userId = String(formData.get("userId") || "")
     const rawAmount = Number(formData.get("amount"))
@@ -28,8 +28,18 @@ export async function adjustCreditsAction(
     const amount = Math.floor(rawAmount)
     const nextBalance =
       direction === "subtract"
-        ? await decrCreditsBy(userId, amount)
-        : await addCreditsBy(userId, amount)
+        ? await decrCreditsBy(userId, amount, {
+            type: "admin_adjust",
+            source: "admin",
+            operatorUserId: adminId,
+            description: "管理员手动扣除积分",
+          })
+        : await addCreditsBy(userId, amount, {
+            type: "admin_adjust",
+            source: "admin",
+            operatorUserId: adminId,
+            description: "管理员手动增加积分",
+          })
 
     revalidatePath("/admin")
 

@@ -8,6 +8,7 @@ import {
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -108,7 +109,13 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const guard = await authAndReserveCredits(1)
+    const featureKey = "diagnose"
+    const cost = estimateFeatureCredits(featureKey)
+    const guard = await authAndReserveCredits(cost, {
+      featureKey,
+      source: "api:diagnose",
+      description: getFeaturePrice(featureKey).label,
+    })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
@@ -148,7 +155,7 @@ async function handler(req: NextRequest) {
       generatedAt: new Date().toISOString(),
     }
 
-    await settleReservedCredits(reservation, 1)
+    await settleReservedCredits(reservation, cost)
     reservation = null
     return NextResponse.json(result)
   } catch (e) {

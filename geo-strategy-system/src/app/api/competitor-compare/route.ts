@@ -8,6 +8,7 @@ import {
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -288,8 +289,14 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "豆包 API 未配置，无法生成竞品对比报告" }, { status: 400 })
     }
 
-    const cost = 5 * selectedCompetitors.length
-    const guard = await authAndReserveCredits(cost)
+    const featureKey = "competitorCompareUnit"
+    const cost = estimateFeatureCredits(featureKey, selectedCompetitors.length)
+    const guard = await authAndReserveCredits(cost, {
+      featureKey,
+      source: "api:competitor-compare",
+      description: getFeaturePrice(featureKey).label,
+      metadata: { competitorCount: selectedCompetitors.length },
+    })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 

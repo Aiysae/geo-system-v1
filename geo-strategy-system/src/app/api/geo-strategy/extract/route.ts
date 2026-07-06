@@ -7,12 +7,14 @@ import {
   reserveCreditsForUser,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
-const CREDIT_COST = 2
+const FEATURE_KEY = "keywordExtract"
+const CREDIT_COST = estimateFeatureCredits(FEATURE_KEY)
 
 const EXTRACTION_SYSTEM = `你是一个专业的客户资料抽取助手。你需要从用户提供的资料（文本、PDF文档截图、图片等）中，抽取出结构化的客户信息。
 
@@ -153,7 +155,12 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST)
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST, {
+      featureKey: FEATURE_KEY,
+      source: "api:geo-strategy:extract",
+      description: getFeaturePrice(FEATURE_KEY).label,
+      metadata: { fileCount: files.length },
+    })
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 

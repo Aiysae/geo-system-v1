@@ -8,6 +8,7 @@ import {
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -208,8 +209,14 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "豆包 API 未配置，无法执行调研" }, { status: 400 })
     }
 
-    const cost = mode === "hypothesis" ? 5 : 8
-    const guard = await authAndReserveCredits(cost)
+    const featureKey = mode === "hypothesis" ? "researchHypothesis" : "researchAi"
+    const cost = estimateFeatureCredits(featureKey)
+    const guard = await authAndReserveCredits(cost, {
+      featureKey,
+      source: "api:research",
+      description: getFeaturePrice(featureKey).label,
+      metadata: { mode, sourceMode },
+    })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
