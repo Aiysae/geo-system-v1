@@ -104,3 +104,13 @@ export async function listCreditLedgerForUser(
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, Math.max(1, Math.floor(limit)))
 }
+
+export async function listAllCreditLedger(limit = 500): Promise<CreditLedgerEntry[]> {
+  const ids = await kv.smembers<string[]>(KEY_ALL)
+  if (!ids || ids.length === 0) return []
+  const entries = await Promise.all(ids.map(id => kv.get<CreditLedgerEntry>(KEY_ENTRY(id))))
+  return entries
+    .filter((entry): entry is CreditLedgerEntry => Boolean(entry))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, Math.max(1, Math.floor(limit)))
+}

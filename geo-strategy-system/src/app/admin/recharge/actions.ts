@@ -26,6 +26,9 @@ export async function approveRechargeAction(
   if (!result.ok) return { ok: false, error: result.reason }
 
   revalidatePath("/admin/recharge")
+  revalidatePath("/admin/ledger")
+  revalidatePath(`/admin/users/${result.record.userId}`)
+  revalidatePath("/billing")
   return {
     ok: true,
     message: `已为 ${result.record.username || result.record.email || result.record.userId} 充值 ${
@@ -50,6 +53,8 @@ export async function rejectRechargeAction(
   if (!result.ok) return { ok: false, error: result.reason }
 
   revalidatePath("/admin/recharge")
+  revalidatePath(`/admin/users/${result.record.userId}`)
+  revalidatePath("/billing")
   return { ok: true, message: "已拒绝该申请" }
 }
 

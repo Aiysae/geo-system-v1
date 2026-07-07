@@ -31,6 +31,7 @@ export type RechargeOrder = RechargeRequest
 const KEY_REQ = (id: string) => `recharge_requests:${id}`
 const KEY_PENDING_SET = "recharge_requests:pending"
 const KEY_USER_INDEX = (userId: string) => `recharge_requests:user:${userId}`
+const KEY_ALL = "recharge_requests:all"
 
 export const MIN_AMOUNT = 1
 export const MAX_AMOUNT = 100000
@@ -69,6 +70,7 @@ export async function createRequest(input: {
   await kv.set(KEY_REQ(record.id), record)
   await kv.sadd(KEY_PENDING_SET, record.id)
   await kv.sadd(KEY_USER_INDEX(record.userId), record.id)
+  await kv.sadd(KEY_ALL, record.id)
   return record
 }
 
@@ -89,6 +91,20 @@ export async function listRequestsForUser(
 ): Promise<RechargeRequest[]> {
   const ids = await kv.smembers<string[]>(KEY_USER_INDEX(userId))
   if (!ids || ids.length === 0) return []
+  const records = await Promise.all(ids.map(id => kv.get<RechargeRequest>(KEY_REQ(id))))
+  return records
+    .filter((record): record is RechargeRequest => Boolean(record))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, Math.max(1, Math.floor(limit)))
+}
+
+export async function listAllRequests(limit = 300): Promise<RechargeRequest[]> {
+  const [allIds, pendingIds] = await Promise.all([
+    kv.smembers<string[]>(KEY_ALL),
+    kv.smembers<string[]>(KEY_PENDING_SET),
+  ])
+  const ids = Array.from(new Set([...(allIds || []), ...(pendingIds || [])]))
+  if (ids.length === 0) return []
   const records = await Promise.all(ids.map(id => kv.get<RechargeRequest>(KEY_REQ(id))))
   return records
     .filter((record): record is RechargeRequest => Boolean(record))
@@ -123,6 +139,7 @@ export async function approveRequest(
     processedBy: adminUserId,
   }
   await kv.set(KEY_REQ(requestId), updated)
+  await kv.sadd(KEY_ALL, requestId)
   await addCreditsBy(record.userId, record.credits ?? record.amount, {
     type: "recharge_approved",
     source: "recharge",
@@ -156,5 +173,6 @@ export async function rejectRequest(
     processedBy: adminUserId,
   }
   await kv.set(KEY_REQ(requestId), updated)
+  await kv.sadd(KEY_ALL, requestId)
   return { ok: true, record: updated }
 }
