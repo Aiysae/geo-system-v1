@@ -26,6 +26,7 @@ export type AuthUser = {
   createdAt: string
   updatedAt: string
   lastLoginAt?: string
+  termsAcceptedAt?: string
 }
 
 export type PublicUser = Omit<AuthUser, "passwordHash">
@@ -108,6 +109,7 @@ export async function createUser(input: {
   email: string
   password: string
   name?: string
+  termsAcceptedAt?: string
 }): Promise<PublicUser> {
   const email = normalizeEmail(input.email)
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -130,6 +132,7 @@ export async function createUser(input: {
     status: "active",
     createdAt: now,
     updatedAt: now,
+    termsAcceptedAt: input.termsAcceptedAt || now,
   }
 
   const created = await kv.set(KEY_EMAIL(email), user.id, { nx: true })

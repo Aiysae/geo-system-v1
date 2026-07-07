@@ -32,6 +32,7 @@ export function LocalAuthForm({
       email: String(form.get("email") || ""),
       password: String(form.get("password") || ""),
       inviteCode: String(form.get("inviteCode") || ""),
+      termsAccepted: form.get("termsAccepted") === "on",
     }
 
     try {
@@ -131,6 +132,30 @@ export function LocalAuthForm({
             />
           </span>
         </label>
+
+        {isSignUp && (
+          <label className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600 ring-1 ring-slate-200">
+            <input
+              name="termsAccepted"
+              type="checkbox"
+              required
+              className="mt-1 h-3.5 w-3.5 rounded border-slate-300 text-[#006AA3] focus:ring-[#0077B6]"
+            />
+            <span>
+              我已阅读并同意
+              <Link href="/terms" target="_blank" className="mx-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+                服务协议
+              </Link>
+              <Link href="/privacy" target="_blank" className="mr-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+                隐私政策
+              </Link>
+              和
+              <Link href="/recharge-rules" target="_blank" className="ml-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+                充值规则
+              </Link>
+            </span>
+          </label>
+        )}
 
         {error && (
           <div className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm text-rose-700 ring-1 ring-rose-200">

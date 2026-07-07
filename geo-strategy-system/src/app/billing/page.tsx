@@ -121,6 +121,9 @@ export default async function BillingPage() {
             </div>
             <p className="mt-4 rounded-xl bg-blue-50/70 px-3 py-2 text-xs leading-5 text-slate-600 ring-1 ring-blue-100">
               {RECHARGE_PAYMENT_INFO.notice}
+              <Link href="/recharge-rules" className="ml-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+                查看充值与退款规则
+              </Link>
             </p>
           </div>
         </section>

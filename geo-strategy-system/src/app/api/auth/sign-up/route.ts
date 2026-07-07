@@ -23,9 +23,14 @@ export async function POST(request: Request) {
     const password = typeof body?.password === "string" ? body.password : ""
     const name = typeof body?.name === "string" ? body.name : ""
     const inviteCode = typeof body?.inviteCode === "string" ? body.inviteCode : ""
+    const termsAccepted = body?.termsAccepted === true
 
     if (!email || !password) {
       return NextResponse.json({ error: "请输入邮箱和密码" }, { status: 400 })
+    }
+
+    if (!termsAccepted) {
+      return NextResponse.json({ error: "请先阅读并同意服务协议、隐私政策和充值规则" }, { status: 400 })
     }
 
     if (!validateSignUpInviteCode(inviteCode)) {
@@ -40,7 +45,12 @@ export async function POST(request: Request) {
       )
     }
 
-    const user = await createUser({ email, password, name })
+    const user = await createUser({
+      email,
+      password,
+      name,
+      termsAcceptedAt: new Date().toISOString(),
+    })
     const session = await createSession(user.id)
     const response = NextResponse.json({ user })
 

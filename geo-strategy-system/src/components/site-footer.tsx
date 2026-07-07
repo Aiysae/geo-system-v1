@@ -1,3 +1,5 @@
+import Link from "next/link"
+
 type SiteFooterProps = {
   className?: string
 }
@@ -15,6 +17,18 @@ export default function SiteFooter({ className = "" }: SiteFooterProps) {
           <span>势途 GEO 生成式引擎优化提效终端</span>
           <span className="hidden text-slate-300 sm:inline">|</span>
           <span>域名：shitugeo.top</span>
+          <span className="hidden text-slate-300 sm:inline">|</span>
+          <Link href="/terms" className="font-medium text-slate-600 transition hover:text-[#004B73]">
+            服务协议
+          </Link>
+          <span className="hidden text-slate-300 sm:inline">|</span>
+          <Link href="/privacy" className="font-medium text-slate-600 transition hover:text-[#004B73]">
+            隐私政策
+          </Link>
+          <span className="hidden text-slate-300 sm:inline">|</span>
+          <Link href="/recharge-rules" className="font-medium text-slate-600 transition hover:text-[#004B73]">
+            充值规则
+          </Link>
           <span className="hidden text-slate-300 sm:inline">|</span>
           <a
             href="https://beian.miit.gov.cn/"

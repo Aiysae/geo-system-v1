@@ -1,6 +1,7 @@
 "use client"
 
 import Image from "next/image"
+import Link from "next/link"
 import { useActionState, useState, useEffect } from "react"
 import { CreditCard, Sparkles, X, Plus } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
@@ -143,7 +144,11 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                   </div>
                 )}
                 <p className="mt-2 text-[11px] text-slate-500">
-                  建议付款备注填写注册邮箱和套餐名称，便于管理员核对。
+                  建议付款备注填写注册邮箱和套餐名称，便于管理员核对。提交充值申请即表示你理解积分仅用于平台服务消耗，并同意
+                  <Link href="/recharge-rules" target="_blank" className="mx-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+                    充值与退款规则
+                  </Link>
+                  。
                 </p>
               </div>
 
