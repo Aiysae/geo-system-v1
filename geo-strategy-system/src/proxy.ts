@@ -14,13 +14,6 @@ export function proxy(req: NextRequest) {
   const isPublicPath = PUBLIC_PATHS.some(path => pathname.startsWith(path))
   const sessionId = verifySessionCookieValue(req.cookies.get(AUTH_COOKIE_NAME)?.value)
 
-  if (isPublicPath && sessionId) {
-    const homeUrl = req.nextUrl.clone()
-    homeUrl.pathname = "/"
-    homeUrl.search = ""
-    return noStore(NextResponse.redirect(homeUrl))
-  }
-
   if (!isPublicPath && !pathname.startsWith("/api") && !sessionId) {
     const signInUrl = req.nextUrl.clone()
     signInUrl.pathname = "/sign-in"

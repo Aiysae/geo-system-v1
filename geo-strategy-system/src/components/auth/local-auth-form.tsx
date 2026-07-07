@@ -9,9 +9,11 @@ type Mode = "sign-in" | "sign-up"
 export function LocalAuthForm({
   mode,
   redirectUrl,
+  inviteRequired = false,
 }: {
   mode: Mode
   redirectUrl?: string
+  inviteRequired?: boolean
 }) {
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
@@ -29,6 +31,7 @@ export function LocalAuthForm({
       name: String(form.get("name") || ""),
       email: String(form.get("email") || ""),
       password: String(form.get("password") || ""),
+      inviteCode: String(form.get("inviteCode") || ""),
     }
 
     try {
@@ -77,6 +80,22 @@ export function LocalAuthForm({
                 autoComplete="name"
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-4 focus:ring-blue-100"
                 placeholder="例如：王总"
+              />
+            </span>
+          </label>
+        )}
+
+        {isSignUp && inviteRequired && (
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-slate-600">邀请码</span>
+            <span className="relative block">
+              <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                name="inviteCode"
+                required
+                autoComplete="off"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-4 focus:ring-blue-100"
+                placeholder="请输入管理员提供的邀请码"
               />
             </span>
           </label>

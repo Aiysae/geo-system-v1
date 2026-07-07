@@ -9,6 +9,7 @@ import { formatYuan, getFeaturePrice } from "@/lib/pricing"
 import { listRequestsForUser, type RechargeRequest } from "@/lib/recharge"
 import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "../../credits-adjust-form"
+import { UserStatusForm } from "../../user-status-form"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -142,9 +143,18 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
         <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900">
             <ShieldCheck className="h-4 w-4 text-[#0077B6]" />
-            积分手动调整
+            账号管理
           </div>
-          <CreditsAdjustForm userId={user.id} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <div className="mb-2 text-xs font-medium text-slate-500">积分手动调整</div>
+              <CreditsAdjustForm userId={user.id} />
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-medium text-slate-500">账号状态</div>
+              <UserStatusForm userId={user.id} status={user.status} />
+            </div>
+          </div>
           <div className="mt-4 grid gap-2 text-xs text-slate-500 md:grid-cols-3">
             <div>用户 ID：<span className="font-mono text-slate-600">{user.id}</span></div>
             <div>注册时间：{formatTime(user.createdAt)}</div>
