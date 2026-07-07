@@ -93,6 +93,12 @@ export default async function AdminLedgerPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              href="/admin/metrics"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+            >
+              运营监控
+            </Link>
+            <Link
               href="/admin/ledger/export"
               className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
             >

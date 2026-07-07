@@ -58,6 +58,12 @@ export default async function AdminPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              href="/admin/metrics"
+              className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+            >
+              运营监控
+            </Link>
+            <Link
               href="/admin/recharge"
               className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
             >
