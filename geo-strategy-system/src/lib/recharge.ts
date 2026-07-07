@@ -19,6 +19,9 @@ export type RechargeRequest = {
   credits?: number
   amount: number
   paymentMethod?: RechargePaymentMethod
+  payerName?: string
+  paymentReference?: string
+  contact?: string
   note?: string
   status: RechargeStatus
   createdAt: number
@@ -46,6 +49,9 @@ export async function createRequest(input: {
   email: string
   packageKey: string
   paymentMethod?: string
+  payerName?: string
+  paymentReference?: string
+  contact?: string
   note?: string
 }): Promise<RechargeRequest> {
   const pkg = getRechargePackage(input.packageKey)
@@ -63,6 +69,9 @@ export async function createRequest(input: {
     credits: pkg.credits,
     amount: pkg.credits,
     paymentMethod,
+    payerName: cleanOptionalText(input.payerName, 80),
+    paymentReference: cleanOptionalText(input.paymentReference, 120),
+    contact: cleanOptionalText(input.contact, 120),
     note: input.note?.trim().slice(0, 300) || undefined,
     status: "pending",
     createdAt: Date.now(),
@@ -118,6 +127,12 @@ function normalizePaymentMethod(value: unknown): RechargePaymentMethod {
   return "manual_transfer"
 }
 
+function cleanOptionalText(value: unknown, maxLength: number): string | undefined {
+  const text = String(value || "").trim()
+  if (!text) return undefined
+  return text.slice(0, maxLength)
+}
+
 /**
  * 同意：用 SREM 当作原子锁，只有第一个把 id 从 pending 集合移除的调用方能继续；
  * 然后更新状态并给目标用户加积分。
@@ -151,6 +166,9 @@ export async function approveRequest(
       packageName: record.packageName,
       priceCents: record.priceCents,
       paymentMethod: record.paymentMethod,
+      payerName: record.payerName,
+      paymentReference: record.paymentReference,
+      contact: record.contact,
     },
   })
   return { ok: true, record: updated }

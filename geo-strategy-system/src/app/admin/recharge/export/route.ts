@@ -29,7 +29,24 @@ export async function GET() {
 
   const records = await listAllRequests(5000)
   const rows = [
-    ["申请ID", "用户ID", "用户", "邮箱", "套餐", "金额", "积分", "付款方式", "状态", "提交时间", "处理时间", "处理人", "备注"],
+    [
+      "申请ID",
+      "用户ID",
+      "用户",
+      "邮箱",
+      "套餐",
+      "金额",
+      "积分",
+      "付款方式",
+      "付款人",
+      "付款凭证",
+      "联系方式",
+      "状态",
+      "提交时间",
+      "处理时间",
+      "处理人",
+      "备注",
+    ],
     ...records.map(record => [
       record.id,
       record.userId,
@@ -39,6 +56,9 @@ export async function GET() {
       record.priceCents ? formatYuan(record.priceCents) : "",
       record.credits ?? record.amount,
       record.paymentMethod || "manual_transfer",
+      record.payerName || "",
+      record.paymentReference || "",
+      record.contact || "",
       STATUS_LABEL[record.status],
       formatTime(record.createdAt),
       formatTime(record.processedAt),
