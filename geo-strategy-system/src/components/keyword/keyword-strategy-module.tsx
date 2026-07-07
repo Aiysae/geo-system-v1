@@ -694,8 +694,9 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     updateBrand({ extracting: true, extractionError: "" })
 
     try {
-      const res = await fetch("/api/geo-strategy/extract", {
+      const res = await apiFetch("/api/geo-strategy/extract", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           files: activeBrand.uploadedFiles.map(f => ({
@@ -717,7 +718,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         }),
       })
 
-      const data = await res.json()
+      const data = await readApiJson<ExtractedProfile & { error?: string }>(res, "资料抽取")
 
       if (!res.ok) {
         throw new Error(data.error || `请求失败 (${res.status})`)
@@ -745,8 +746,9 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     updateBrand({ advantageStatus: "generating", advantageError: "" })
 
     try {
-      const res = await fetch("/api/geo-strategy/advantages", {
+      const res = await apiFetch("/api/geo-strategy/advantages", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           profile: activeBrand.extractedProfile,
@@ -765,7 +767,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         }),
       })
 
-      const data = await res.json()
+      const data = await readApiJson<{ advantages?: Array<Partial<ExtractedItem>>; error?: string }>(res, "优势生成")
       if (!res.ok) {
         throw new Error(data.error || `请求失败 (${res.status})`)
       }
