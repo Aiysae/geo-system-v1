@@ -6,9 +6,9 @@ import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 
 // Kimi (Moonshot) 适配器
 //
-// 渗透率客观盲测会通过 forceWebSearch 强制接入本地 search_web 工具；
-// 分析/裁判路径默认带联网工具。Kimi K2 thinking 模型不兼容指定官方
-// "$web_search" tool_choice，因此渗透率盲测用普通 function calling 保证强制联网。
+// 渗透率严格联网盲测通过 forceWebSearch 强制接入 Moonshot 官方 $web_search；
+// 分析/裁判路径默认带联网工具。TokenHub 等不稳定支持官方来源追踪的路径
+// 在严格盲测中直接报错，不再退回本地检索。
 // 严格按 Moonshot 文档处理 tool_calls 循环：
 //   https://platform.moonshot.cn/docs/api/tool_use#web-search
 //
@@ -73,7 +73,10 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
     throw new Error(`${LABEL} 接口配置缺失：请在后台管理页配置 API Key 和模型。`)
   }
 
-  if (useSearchTool || isTokenHub(config.baseUrl)) {
+  if (isTokenHub(config.baseUrl)) {
+    if (args.forceWebSearch) {
+      throw new Error("Kimi TokenHub 当前不提供稳定可验证的官方 $web_search 来源；严格联网盲测已禁止本地检索兜底。")
+    }
     return chatWithLocalWebSearchTool({
       url: buildAiChatUrl(config),
       apiKey: key,
@@ -98,6 +101,7 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
 
   const MAX_ROUNDS = 4
   let forceTemperatureOne = false
+  let observedSourceCount = 0
   for (let round = 0; round < MAX_ROUNDS; round++) {
     let data
     const callMoonshot = (temperature: number | undefined) =>
@@ -169,7 +173,8 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
           }
           const sources = extractSourcesFromUnknown(parsedArguments, args.user)
           if (sources.length > 0) {
-            args.onSearchSources?.({ query: args.user, sources })
+            observedSourceCount += sources.length
+            args.onSearchSources?.({ query: args.user, sources, mode: "native_web" })
           }
           // Moonshot 协议：$web_search 是 builtin，搜索已在服务器端执行，
           // 客户端只需把 arguments 原样作为 tool 结果回传。
@@ -197,7 +202,11 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
     }
     const nativeSources = extractSourcesFromUnknown(data, args.user)
     if (nativeSources.length > 0) {
-      args.onSearchSources?.({ query: args.user, sources: nativeSources })
+      observedSourceCount += nativeSources.length
+      args.onSearchSources?.({ query: args.user, sources: nativeSources, mode: "native_web" })
+    }
+    if (args.requireWebEvidence && observedSourceCount === 0) {
+      throw new Error(`${LABEL} 官方 $web_search 未返回可审计来源，已阻断本地检索兜底。`)
     }
     return content
   }

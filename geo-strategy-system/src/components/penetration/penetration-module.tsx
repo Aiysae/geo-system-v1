@@ -550,7 +550,7 @@ function RawAnswersPanel({
 }
 
 const SEARCH_MODE_LABELS: Record<PenetrationSearchMode, string> = {
-  native_web: "原生联网",
+  native_web: "官方联网",
   local_tool_search: "本地搜索增强",
   presearch_context: "预搜索上下文",
   none: "未联网",
@@ -622,7 +622,7 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
         }`}
         title={item.webFailureReason || item.webVerificationNote}
       >
-        {verified ? "联网已验证" : "联网不可验证"} · 来源 {sourceCount}
+        {verified ? "官方联网已验证" : "官方联网不可验证"} · 来源 {sourceCount}
       </span>
     </div>
   )

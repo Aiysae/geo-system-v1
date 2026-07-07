@@ -36,6 +36,8 @@ export interface ChatArgs {
   rawQuestionOnly?: boolean
   /** Reject consumer answers that cannot be tied to at least one auditable public web source. */
   requireWebEvidence?: boolean
+  /** Do not fall back to local search when provider-native web search returns no auditable sources. */
+  officialWebOnly?: boolean
   /** Per-provider request timeout in seconds. */
   timeoutSec?: number
   /** Observe the public web sources used by local search adapters. */
@@ -326,6 +328,7 @@ export async function openaiCompatChat({
   forceWebSearch,
   rawQuestionOnly,
   requireWebEvidence,
+  officialWebOnly,
   label,
   extraBody,
   extraHeaders,
@@ -405,6 +408,9 @@ export async function openaiCompatChat({
       nativeSources.length === 0
 
     if (needsAuditableFallback) {
+      if (officialWebOnly) {
+        throw new Error(`${label} 官方联网未返回可审计来源，已阻断本地检索兜底。`)
+      }
       const fallbackQuery = String(user)
       const t0 = Date.now()
       const hits = await webSearch(fallbackQuery, WEB_EVIDENCE_RESULTS_PER_CALL)

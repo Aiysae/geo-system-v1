@@ -17,6 +17,9 @@ function isTokenHub(baseUrl: string): boolean {
 export async function chatHunyuan(args: ChatArgs): Promise<string> {
   const config = await getAiProviderRuntimeSetting("hunyuan")
   if (isTokenHub(config.baseUrl)) {
+    if (args.forceWebSearch) {
+      throw new Error("腾讯 TokenHub 当前不提供稳定可验证的官方联网来源；严格联网盲测已禁止本地检索兜底。")
+    }
     return chatWithLocalWebSearchTool({
       url: buildAiChatUrl(config),
       apiKey: config.apiKey,

@@ -96,7 +96,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
   {
     key: "doubao",
     label: "豆包",
-    description: "用于疑问句生成、独立调研、竞品对比和渗透率检测。",
+    description: "用于疑问句生成、独立调研、竞品对比；渗透率检测严格模式需配置挂载官方联网搜索插件的 Bot ID。",
     defaultBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
     defaultChatPath: "/chat/completions",
     defaultModel: "",
@@ -105,13 +105,13 @@ const DEFINITIONS: AiProviderDefinition[] = [
     modelEnv: ["ARK_DOUBAO_ENDPOINT_ID"],
     extraEnv: { botId: ["ARK_DOUBAO_BOT_ID"] },
     extraFields: [
-      { key: "botId", label: "Bot ID（仅调研用）", placeholder: "bot-xxxx，渗透率盲测不会使用 Bot" },
+      { key: "botId", label: "官方联网 Bot ID", placeholder: "bot-xxxx，需挂载联网搜索插件且不接知识库" },
     ],
     presets: [
       {
         key: "doubao-official-seed-lite",
         label: "纯净盲测 · 豆包 Seed 2.0 Lite",
-        description: "渗透率盲测推荐：走火山方舟原始 Chat Completions，不读取 Bot 知识库。",
+        description: "仅适合非严格联网场景；渗透率检测严格模式需要填写官方联网 Bot ID。",
         baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
         chatPath: "/chat/completions",
         model: "doubao-seed-2-0-lite-260215",
@@ -119,7 +119,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
       {
         key: "doubao-endpoint",
         label: "纯净盲测 · 自有 Endpoint",
-        description: "使用火山方舟 ep- 开头的 Endpoint ID；适合已发布专属 Endpoint 的账号。",
+        description: "使用火山方舟 ep- 开头的 Endpoint ID；严格联网检测仍需额外填写官方联网 Bot ID。",
         baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
         chatPath: "/chat/completions",
       },
@@ -128,7 +128,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
   {
     key: "deepseek",
     label: "DeepSeek",
-    description: "用于诊断、裁判和无原生联网模型的工具搜索兜底。",
+    description: "用于诊断和结构化裁判；DeepSeek 官方接口无可验证原生联网，渗透率严格联网检测会自动拒绝。",
     defaultBaseUrl: "https://api.deepseek.com",
     defaultChatPath: "/v1/chat/completions",
     defaultModel: "deepseek-chat",
@@ -139,7 +139,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
       {
         key: "deepseek-official-chat",
         label: "DeepSeek 官方 · deepseek-chat",
-        description: "渗透率盲测推荐：支持本地 search_web 工具循环，避免 thinking 模型 tool_choice 报错。",
+        description: "适合诊断和裁判；不适合渗透率严格联网检测，因为官方接口无可验证原生联网。",
         baseUrl: "https://api.deepseek.com",
         chatPath: "/v1/chat/completions",
         model: "deepseek-chat",
@@ -157,7 +157,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
   {
     key: "qwen",
     label: "通义千问",
-    description: "用于渗透率检测和结构化裁判；默认用本地公开网页预检索，避免百炼联网插件额外计费。",
+    description: "用于渗透率检测和结构化裁判；严格联网检测必须启用百炼官方联网搜索插件。",
     defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
     defaultChatPath: "/v1/chat/completions",
     defaultModel: "qwen-plus",
@@ -175,7 +175,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
       {
         key: "qwen-official-plus",
         label: "通义官方 · qwen-plus",
-        description: "DashScope OpenAI 兼容模式；官方联网搜索插件默认关闭以避免额外计费。",
+        description: "DashScope OpenAI 兼容模式；渗透率严格联网检测需保持官方联网搜索插件开启。",
         baseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
         chatPath: "/v1/chat/completions",
         model: "qwen-plus",
@@ -263,7 +263,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
       {
         key: "hunyuan-tokenhub-hy3",
         label: "腾讯 TokenHub · HY3 Preview",
-        description: "如果你的 Key 来自腾讯 TokenHub，使用这个预设；渗透率情报会走本地 search_web 工具循环。",
+        description: "如果你的 Key 来自腾讯 TokenHub，使用这个预设；渗透率严格联网检测会拒绝该路径。",
         baseUrl: "https://tokenhub.tencentmaas.com",
         chatPath: "/v1/chat/completions",
         model: "hy3-preview",

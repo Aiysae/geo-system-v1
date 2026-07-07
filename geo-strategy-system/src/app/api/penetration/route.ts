@@ -244,9 +244,9 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
           webVerificationNote: "已请求通义千问/百炼官方联网搜索插件；该插件会产生独立百炼计费。",
         }
       : {
-          searchMode: "presearch_context",
-          promptPurity: "search_context_augmented",
-          webVerificationNote: "后台未启用通义千问/百炼官方联网搜索插件，系统先执行公开网页搜索，再把结果随问题交给通义千问。",
+          searchMode: "none",
+          promptPurity: "raw_question_only",
+          webVerificationNote: "后台未启用通义千问/百炼官方联网搜索插件，严格模式不会使用本地检索兜底。",
         }
   }
 
@@ -261,9 +261,9 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
   if (model === "hunyuan") {
     return isTokenHubBaseUrl(config.baseUrl)
       ? {
-          searchMode: "presearch_context",
-          promptPurity: "search_context_augmented",
-          webVerificationNote: "腾讯 TokenHub 不稳定支持指定工具调用，系统先执行公开网页搜索，再把结果随问题交给模型。",
+          searchMode: "none",
+          promptPurity: "raw_question_only",
+          webVerificationNote: "腾讯 TokenHub 不稳定支持官方联网来源追踪，严格模式不会使用本地检索兜底。",
         }
       : {
           searchMode: "native_web",
@@ -275,30 +275,30 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
   if (model === "deepseek") {
     return isTokenHubBaseUrl(config.baseUrl)
       ? {
-          searchMode: "presearch_context",
-          promptPurity: "search_context_augmented",
-          webVerificationNote: "DeepSeek TokenHub 网关不稳定支持指定工具调用，系统先执行公开网页搜索，再把结果随问题交给模型。",
+          searchMode: "none",
+          promptPurity: "raw_question_only",
+          webVerificationNote: "DeepSeek 当前配置不提供可验证的官方联网搜索，严格模式不会使用本地检索兜底。",
         }
       : {
-          searchMode: "local_tool_search",
-          promptPurity: "tool_augmented",
-          webVerificationNote: "DeepSeek 官方接口无原生联网开关，系统通过本地 search_web 工具强制公开网页检索。",
+          searchMode: "none",
+          promptPurity: "raw_question_only",
+          webVerificationNote: "DeepSeek 官方接口无原生联网开关，严格模式不会使用本地 search_web 工具。",
         }
   }
 
   if (model === "doubao") {
     return {
-      searchMode: "local_tool_search",
-      promptPurity: "tool_augmented",
-      webVerificationNote: "渗透率情报不使用可能带知识库的豆包 Bot，豆包 Endpoint 通过本地 search_web 工具联网增强。",
+      searchMode: "native_web",
+      promptPurity: "raw_question_only",
+      webVerificationNote: "严格模式要求豆包使用火山方舟官方联网 Bot/Agent，并返回可审计来源。",
     }
   }
 
   if (model === "kimi") {
     return {
-      searchMode: "local_tool_search",
-      promptPurity: "tool_augmented",
-      webVerificationNote: "当前 Kimi 盲测走本地 search_web 工具，以规避 K2/网关对官方联网工具强制调用的不兼容。",
+      searchMode: "native_web",
+      promptPurity: "raw_question_only",
+      webVerificationNote: "严格模式要求 Kimi 使用 Moonshot 官方 $web_search，并返回可审计来源。",
     }
   }
 
@@ -396,6 +396,7 @@ async function blindQuery(
         forceWebSearch: true,
         rawQuestionOnly: true,
         requireWebEvidence: true,
+        officialWebOnly: true,
         onSearchSources: event => {
           if (event.query?.trim()) searchQueries.add(event.query.trim())
           if (event.mode) {
@@ -411,18 +412,13 @@ async function blindQuery(
           collectedSources.push(...event.sources)
         },
       })
-      answer = (raw || "").trim()
-      const incomplete =
-        answer.length < 80 ||
-        /^(?:根据)?搜索结果(?:没有|未能)(?:直接)?(?:给出|找到|返回)/u.test(answer)
-      if (!incomplete || attempt === maxAttempts - 1) break
-      console.warn(
-        `[penetration·blind] ${adapter.label} 返回不完整（${answer.length} 字），将串行重试一次。`
-      )
+      answer = raw || ""
+      if (answer.trim() || attempt === maxAttempts - 1) break
+      console.warn(`[penetration·blind] ${adapter.label} 返回空内容，将串行重试一次。`)
       await sleep(1500)
     }
-    if (answer.trim().length < 20) {
-      throw new Error(`返回内容过短（${answer.trim().length} 字），自动重试后仍不完整`)
+    if (!answer.trim()) {
+      throw new Error("官方联网返回空内容，自动重试后仍为空。")
     }
     const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
