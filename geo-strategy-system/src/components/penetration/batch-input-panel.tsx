@@ -333,7 +333,7 @@ export default function BatchInputPanel({
       <div className="flex items-start gap-2 rounded-lg border border-cyan-200 bg-cyan-50/70 p-2.5 text-[11px] leading-relaxed text-cyan-900">
         <Globe2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-700" />
         <span>
-          每条疑问句会逐模型单独请求；结果会标注原生联网、本地搜索增强或预搜索上下文，并展示是否拿到可审计网页来源。渗透率情报不会把目标品牌、竞品清单或资料包交给被测模型。
+          每条疑问句会逐模型单独请求；严格模式只接受模型官方联网搜索返回的原始回复和可审计来源。渗透率情报不会把目标品牌、竞品清单或资料包交给被测模型。
         </span>
       </div>
 
