@@ -45,7 +45,7 @@ export async function GET() {
   ])
   const userMap = new Map(users.map(user => [user.id, user]))
   const rows = [
-    ["流水ID", "时间", "用户ID", "用户", "邮箱", "类型", "说明", "变动", "余额", "来源", "来源ID", "操作人", "计费版本"],
+    ["流水ID", "时间", "用户ID", "用户", "邮箱", "类型", "说明", "变动", "余额", "来源", "来源ID", "操作人", "计费版本", "元数据"],
     ...entries.map(entry => {
       const user = userMap.get(entry.userId)
       return [
@@ -62,6 +62,7 @@ export async function GET() {
         entry.sourceId || "",
         entry.operatorUserId || "",
         entry.pricingVersion,
+        entry.metadata ? JSON.stringify(entry.metadata) : "",
       ]
     }),
   ]

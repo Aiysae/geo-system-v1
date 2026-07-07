@@ -164,12 +164,13 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
               <div className="px-5 py-10 text-center text-sm text-slate-400">暂无充值记录</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] text-left">
+                <table className="w-full min-w-[840px] text-left">
                   <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                     <tr>
                       <th className="px-5 py-3">套餐</th>
                       <th className="px-5 py-3">金额</th>
                       <th className="px-5 py-3">积分</th>
+                      <th className="px-5 py-3">付款核对信息</th>
                       <th className="px-5 py-3">状态</th>
                       <th className="px-5 py-3">时间</th>
                     </tr>
@@ -182,6 +183,17 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
                           {record.priceCents ? formatYuan(record.priceCents) : "-"}
                         </td>
                         <td className="px-5 py-3 font-mono font-semibold text-slate-900">+{record.credits ?? record.amount}</td>
+                        <td className="px-5 py-3 text-xs leading-5 text-slate-600">
+                          {record.paymentReference || record.payerName || record.contact ? (
+                            <>
+                              {record.payerName && <div>付款人：{record.payerName}</div>}
+                              {record.paymentReference && <div>凭证：{record.paymentReference}</div>}
+                              {record.contact && <div>联系：{record.contact}</div>}
+                            </>
+                          ) : (
+                            <span className="text-slate-400">未填写</span>
+                          )}
+                        </td>
                         <td className="px-5 py-3">
                           <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-medium ring-1 ${RECHARGE_CLASS[record.status]}`}>
                             {RECHARGE_LABEL[record.status]}

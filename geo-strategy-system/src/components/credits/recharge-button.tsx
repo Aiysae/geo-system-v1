@@ -1,10 +1,11 @@
 "use client"
 
 import { useActionState, useState, useEffect } from "react"
-import { Sparkles, X, Plus } from "lucide-react"
+import { CreditCard, Sparkles, X, Plus } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
 import { useCredits } from "./credits-provider"
 import { formatYuan, RECHARGE_PACKAGES, type RechargePackageKey } from "@/lib/pricing"
+import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
 
 export function RechargeButton() {
   const [open, setOpen] = useState(false)
@@ -40,6 +41,12 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
   }, [state, refresh])
 
   const submitted = state?.ok === true
+  const hasAccountInfo = Boolean(
+    RECHARGE_PAYMENT_INFO.accountName
+    || RECHARGE_PAYMENT_INFO.accountNo
+    || RECHARGE_PAYMENT_INFO.bankName
+    || RECHARGE_PAYMENT_INFO.contact
+  )
 
   return (
     <div
@@ -49,7 +56,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
       aria-modal="true"
     >
       <div
-        className="relative max-h-[90vh] w-[90%] max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
+        className="relative max-h-[90vh] w-[90%] max-w-lg overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
         onClick={e => e.stopPropagation()}
       >
         <button
@@ -78,7 +85,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 <span className="font-mono font-bold text-slate-900">
                   {state!.ok && state!.credits}
                 </span>
-                。请完成付款后等待管理员审批。
+                。管理员核对到账后会审批加积分。
               </p>
               <button
                 onClick={onClose}
@@ -90,8 +97,27 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
           ) : (
             <form action={formAction}>
               <p className="text-sm text-slate-600 leading-relaxed">
-                选择固定套餐后提交申请。管理员核对付款后审批，审批通过后积分立即到账。
+                选择固定套餐并完成付款后提交申请。管理员核对到账后审批，审批通过后积分立即到账。
               </p>
+
+              <div className="mt-4 rounded-xl bg-blue-50/70 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-blue-100">
+                <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-900">
+                  <CreditCard className="h-3.5 w-3.5 text-[#0077B6]" />
+                  付款说明
+                </div>
+                <p>{RECHARGE_PAYMENT_INFO.notice}</p>
+                {hasAccountInfo && (
+                  <div className="mt-2 grid gap-1 rounded-lg bg-white/70 px-3 py-2 font-mono text-[11px] text-slate-600 ring-1 ring-blue-100">
+                    {RECHARGE_PAYMENT_INFO.accountName && <div>户名：{RECHARGE_PAYMENT_INFO.accountName}</div>}
+                    {RECHARGE_PAYMENT_INFO.bankName && <div>开户行：{RECHARGE_PAYMENT_INFO.bankName}</div>}
+                    {RECHARGE_PAYMENT_INFO.accountNo && <div>账号：{RECHARGE_PAYMENT_INFO.accountNo}</div>}
+                    {RECHARGE_PAYMENT_INFO.contact && <div>联系：{RECHARGE_PAYMENT_INFO.contact}</div>}
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] text-slate-500">
+                  建议付款备注填写注册邮箱和套餐名称，便于管理员核对。
+                </p>
+              </div>
 
               <input type="hidden" name="packageKey" value={packageKey} />
               <input type="hidden" name="paymentMethod" value={paymentMethod} />
@@ -145,6 +171,33 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 <option value="alipay">支付宝</option>
                 <option value="other">其他</option>
               </select>
+
+              <label className="mt-4 block text-xs font-medium text-slate-700">
+                付款人 / 付款账户名（推荐）
+              </label>
+              <input
+                name="payerName"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+                placeholder="例如：公司名称、微信昵称、支付宝实名"
+              />
+
+              <label className="mt-4 block text-xs font-medium text-slate-700">
+                付款凭证 / 流水号（推荐）
+              </label>
+              <input
+                name="paymentReference"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+                placeholder="例如：转账单号、交易号、付款截图链接"
+              />
+
+              <label className="mt-4 block text-xs font-medium text-slate-700">
+                联系方式（选填）
+              </label>
+              <input
+                name="contact"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+                placeholder="例如：手机号、微信号、邮箱"
+              />
 
               <label className="mt-4 block text-xs font-medium text-slate-700">
                 付款备注（选填）

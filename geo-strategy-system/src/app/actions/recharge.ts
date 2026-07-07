@@ -15,6 +15,9 @@ export async function requestRechargeAction(
 
   const packageKey = String(formData.get("packageKey") || "")
   const paymentMethod = String(formData.get("paymentMethod") || "manual_transfer")
+  const payerName = String(formData.get("payerName") || "")
+  const paymentReference = String(formData.get("paymentReference") || "")
+  const contact = String(formData.get("contact") || "")
   const note = String(formData.get("note") || "")
 
   try {
@@ -24,6 +27,9 @@ export async function requestRechargeAction(
       email: user.email,
       packageKey,
       paymentMethod,
+      payerName,
+      paymentReference,
+      contact,
       note,
     })
     return {

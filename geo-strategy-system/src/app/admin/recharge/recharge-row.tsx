@@ -67,6 +67,13 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
           +{credits}
         </span>
         <div className="mt-1 text-[11px] text-slate-500">付款方式：{paymentLabel}</div>
+        {(req.payerName || req.paymentReference || req.contact) && (
+          <div className="mt-2 max-w-[260px] rounded-lg bg-blue-50/70 px-2 py-1.5 text-[11px] leading-4 text-slate-600 ring-1 ring-blue-100">
+            {req.payerName && <div>付款人：{req.payerName}</div>}
+            {req.paymentReference && <div>凭证：{req.paymentReference}</div>}
+            {req.contact && <div>联系：{req.contact}</div>}
+          </div>
+        )}
         {req.note && (
           <div className="mt-1 max-w-[220px] rounded-md bg-slate-50 px-2 py-1 text-[11px] leading-4 text-slate-500">
             {req.note}

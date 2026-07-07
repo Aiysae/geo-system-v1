@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
 import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-ledger"
 import { formatYuan, getFeaturePrice, RECHARGE_PACKAGES } from "@/lib/pricing"
+import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
 import { listRequestsForUser, type RechargeRequest } from "@/lib/recharge"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import SiteFooter from "@/components/site-footer"
@@ -118,6 +119,9 @@ export default async function BillingPage() {
                 </div>
               ))}
             </div>
+            <p className="mt-4 rounded-xl bg-blue-50/70 px-3 py-2 text-xs leading-5 text-slate-600 ring-1 ring-blue-100">
+              {RECHARGE_PAYMENT_INFO.notice}
+            </p>
           </div>
         </section>
 
@@ -130,13 +134,14 @@ export default async function BillingPage() {
             <div className="px-5 py-10 text-center text-sm text-slate-400">暂无充值记录</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left">
+              <table className="w-full min-w-[920px] text-left">
                 <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-5 py-3">套餐</th>
                     <th className="px-5 py-3">金额</th>
                     <th className="px-5 py-3">积分</th>
                     <th className="px-5 py-3">付款方式</th>
+                    <th className="px-5 py-3">付款核对信息</th>
                     <th className="px-5 py-3">状态</th>
                     <th className="px-5 py-3">提交时间</th>
                     <th className="px-5 py-3">处理时间</th>
@@ -153,6 +158,17 @@ export default async function BillingPage() {
                         +{record.credits ?? record.amount}
                       </td>
                       <td className="px-5 py-3 text-slate-600">{paymentLabel(record.paymentMethod)}</td>
+                      <td className="px-5 py-3 text-xs leading-5 text-slate-600">
+                        {record.paymentReference || record.payerName || record.contact ? (
+                          <>
+                            {record.payerName && <div>付款人：{record.payerName}</div>}
+                            {record.paymentReference && <div>凭证：{record.paymentReference}</div>}
+                            {record.contact && <div>联系：{record.contact}</div>}
+                          </>
+                        ) : (
+                          <span className="text-slate-400">未填写</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3">
                         <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-medium ring-1 ${STATUS_CLASS[record.status]}`}>
                           {STATUS_LABEL[record.status]}
