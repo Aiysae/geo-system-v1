@@ -28,7 +28,12 @@ type InputMode = "manual" | "ai"
 interface Props {
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
-  onRun: (params: { questions: string[]; models: ModelKey[] }) => void
+  onRun: (params: {
+    questions: string[]
+    models: ModelKey[]
+    brandAliases: string[]
+    competitors: string[]
+  }) => void
   loading: boolean
   error: string | null
   skipped?: string[]
@@ -47,6 +52,7 @@ export default function BatchInputPanel({
   progressLabel,
 }: Props) {
   const [questionsText, setQuestionsText] = useState(() => client.questions.join("\n"))
+  const [brandAliasesText, setBrandAliasesText] = useState(() => (client.brandAliases ?? []).join("\n"))
   const [competitorsText, setCompetitorsText] = useState(() => client.competitors.join("\n"))
 
   const [inputMode, setInputMode] = useState<InputMode>("manual")
@@ -78,9 +84,10 @@ export default function BatchInputPanel({
 
   function handleRun() {
     const questions = parseLines(questionsText)
+    const brandAliases = parseLines(brandAliasesText)
     const competitors = parseLines(competitorsText)
-    onChangeClient({ questions, competitors })
-    onRun({ questions, models: client.selectedModels })
+    onChangeClient({ questions, brandAliases, competitors })
+    onRun({ questions, models: client.selectedModels, brandAliases, competitors })
   }
 
   async function runAiGenerate() {
@@ -138,13 +145,28 @@ export default function BatchInputPanel({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
+        <div className="space-y-3">
           <Label className="text-xs text-slate-600 mb-1.5 block">我方品牌名 *</Label>
           <Input
             value={client.ourBrand}
             onChange={e => onChangeClient({ ourBrand: e.target.value })}
             placeholder="如：势途"
           />
+          <div>
+            <Label className="text-xs text-slate-600 mb-1.5 block">
+              品牌别名 / 主体别名 <span className="text-slate-400">（可选，每行一个）</span>
+            </Label>
+            <Textarea
+              value={brandAliasesText}
+              onChange={e => setBrandAliasesText(e.target.value)}
+              rows={3}
+              placeholder={"品牌简称\n英文名\n公司全称 / 产品名"}
+              className="font-mono text-xs"
+            />
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+              仅用于回答后的品牌识别与统计归一，不会发送给被测模型。
+            </p>
+          </div>
         </div>
         <div>
           <Label className="text-xs text-slate-600 mb-1.5 block">所属行业</Label>

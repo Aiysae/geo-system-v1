@@ -1,6 +1,9 @@
 import type { ModelKey, PenetrationByModel } from "@/types"
-import { isSameBrand } from "@/lib/score-utils"
-import { isPlatformName } from "@/lib/platform-blacklist"
+import {
+  collectObservedBrands,
+  createBrandResolver,
+  type CanonicalBrand,
+} from "@/lib/brand-canonicalization"
 
 export interface BrandVoiceItem {
   rank: number
@@ -20,26 +23,19 @@ export interface KeywordCompetitionItem {
   perModelMentions: Partial<Record<ModelKey, number>>
 }
 
-function norm(s: string): string {
-  return s.trim().toLowerCase().replace(/[\s　]+/g, "")
-}
-
 // 把一个 slot 里的 mentionedBrands 去重后返回（去掉平台/渠道、空字符串和过短串），
-// 并把"我方品牌"的多种变体归一到 ourBrand 字面，以便上层用稳定 key 累加。
+// 并把同一主体的多种变体归一到稳定 key，以便上层累加。
 function extractValidBrands(
   brands: string[],
-  ourBrand: string,
-): Array<{ key: string; display: string; isOur: boolean }> {
-  const out: Array<{ key: string; display: string; isOur: boolean }> = []
+  canonicalize: (value: string) => CanonicalBrand | null,
+): CanonicalBrand[] {
+  const out: CanonicalBrand[] = []
   const seen = new Set<string>()
   for (const raw of brands) {
-    const b = (raw ?? "").trim()
-    if (!b || isPlatformName(b)) continue
-    const isOur = !!ourBrand && isSameBrand(b, ourBrand)
-    const key = isOur ? `__our__:${norm(ourBrand)}` : norm(b)
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    out.push({ key, display: isOur ? ourBrand.trim() || b : b, isOur })
+    const canonical = canonicalize(raw ?? "")
+    if (!canonical || seen.has(canonical.key)) continue
+    seen.add(canonical.key)
+    out.push(canonical)
   }
   return out
 }
@@ -47,7 +43,15 @@ function extractValidBrands(
 export function computeBrandVoice(
   byModel: PenetrationByModel,
   ourBrand: string,
+  brandAliases: string[] = [],
+  competitors: string[] = [],
 ): BrandVoiceItem[] {
+  const resolver = createBrandResolver({
+    ourBrand,
+    brandAliases,
+    competitors,
+    observedBrands: collectObservedBrands(byModel),
+  })
   // brandKey → { display, mentions, modelSet }
   const acc = new Map<
     string,
@@ -59,14 +63,14 @@ export function computeBrandVoice(
     const mk = model as ModelKey
     for (const slot of items) {
       if (!slot.answer?.trim()) continue
-      const cleaned = extractValidBrands(slot.mentionedBrands, ourBrand)
+      const cleaned = extractValidBrands(slot.mentionedBrands, resolver.canonicalize)
       for (const b of cleaned) {
         const prev = acc.get(b.key)
         if (prev) {
           prev.mentions += 1
           prev.models.add(mk)
           // 我方品牌优先采用最初登记的 display（即 ourBrand 字面）
-          if (!prev.isOur && b.isOur) {
+          if (!prev.isOur && b.isTarget) {
             prev.display = b.display
             prev.isOur = true
           }
@@ -75,7 +79,7 @@ export function computeBrandVoice(
             display: b.display,
             mentions: 1,
             models: new Set([mk]),
-            isOur: b.isOur,
+            isOur: b.isTarget,
           })
         }
       }
@@ -107,7 +111,16 @@ export function computeBrandVoice(
 
 export function computeKeywordCompetition(
   byModel: PenetrationByModel,
+  ourBrand = "",
+  brandAliases: string[] = [],
+  competitors: string[] = [],
 ): KeywordCompetitionItem[] {
+  const resolver = createBrandResolver({
+    ourBrand,
+    brandAliases,
+    competitors,
+    observedBrands: collectObservedBrands(byModel),
+  })
   // question → per-model brand-mention count
   const agg = new Map<
     string,
@@ -120,8 +133,7 @@ export function computeKeywordCompetition(
     for (const slot of items) {
       if (!slot.answer?.trim()) continue
       // 拒答 / 空回答 视为"该模型未参与"，提及计数为 0
-      const validBrands = slot.mentionedBrands.filter(b => !isPlatformName(b) && b.trim())
-      const count = validBrands.length
+      const count = resolver.canonicalizeList(slot.mentionedBrands).length
 
       const cur = agg.get(slot.question) ?? { perModel: {}, total: 0 }
       // 同一 (model, question) 可能因后端去重已合并；累加为安全做法

@@ -5,31 +5,30 @@ import type {
   PenetrationByModel,
   PerModelRate,
 } from "@/types"
-import { isPlatformName } from "@/lib/platform-blacklist"
-
-function norm(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, "")
-}
+import {
+  areBrandVariants,
+  collectObservedBrands,
+  createBrandResolver,
+} from "@/lib/brand-canonicalization"
 
 // 宽松匹配：把空格/大小写差异都抹掉后，任一方包含另一方即视为同一品牌
 // 例：用户填 "势途"、模型返回 "势途GEO" / "势途 GEO" → 都识别为我方
 export function isSameBrand(a: string, b: string): boolean {
-  const na = norm(a)
-  const nb = norm(b)
-  if (!na || !nb) return false
-  if (na === nb) return true
-  // 仅当较短串长度 >= 2 时启用包含匹配，避免 1 个汉字误命中
-  const shorter = na.length <= nb.length ? na : nb
-  const longer = na.length <= nb.length ? nb : na
-  return shorter.length >= 2 && longer.includes(shorter)
+  return areBrandVariants(a, b)
 }
 
 export function aggregatePenetration(
   byModel: PenetrationByModel,
-  ourBrand: string
+  ourBrand: string,
+  brandAliases: string[] = [],
+  competitors: string[] = [],
 ): PenetrationAggregated {
-  // brandCount: normalized key → { displayName, count }
-  // displayName 优先用与 ourBrand 匹配的写法；其它品牌取首次出现的原始写法
+  const resolver = createBrandResolver({
+    ourBrand,
+    brandAliases,
+    competitors,
+    observedBrands: collectObservedBrands(byModel),
+  })
   const brandCount = new Map<string, { displayName: string; count: number }>()
   const perModelRate: PerModelRate[] = []
   let ourMentions = 0
@@ -37,7 +36,6 @@ export function aggregatePenetration(
 
   const mentionedByAnyModel = new Set<string>()
   const allQuestions = new Set<string>()
-  const ourKey = norm(ourBrand)
 
   for (const [model, items] of Object.entries(byModel)) {
     if (!items) continue
@@ -49,34 +47,26 @@ export function aggregatePenetration(
       allQuestions.add(it.question)
       totalSlots++
       validModelSlots++
-      const cleanBrands = it.mentionedBrands.filter(b => !isPlatformName(b))
+      const canonicalBrands = resolver.canonicalizeList(it.mentionedBrands)
 
       // hitOur=true 是直接命中；裁判从原文抽取并校验过的简称/别名也可命中全称。
       // 这样能修复“排行榜识别到我方品牌，但提及率仍为 0%”的不一致。
-      const hitOurInThisSlot =
-        it.hitOur === true || cleanBrands.some(b => isSameBrand(b, ourBrand))
+      const hitOurInThisSlot = it.hitOur === true || canonicalBrands.some(b => b.isTarget)
       if (hitOurInThisSlot) {
         ourMentions++
         modelMentions++
         mentionedByAnyModel.add(it.question)
       }
 
-      // 累计 brandCount：我方所有变体合并到 ourKey 下；
-      // 同一 slot 内若同时出现 "势途" + "势途GEO" 只算 1 次（按 normalized key 去重）
-      const seenInSlot = new Set<string>()
-      for (const b of cleanBrands) {
-        const raw = b.trim()
-        if (!raw) continue
-        const isOur = isSameBrand(raw, ourBrand)
-        const key = isOur ? ourKey : norm(raw)
-        if (!key || seenInSlot.has(key)) continue
-        seenInSlot.add(key)
-        const prev = brandCount.get(key)
+      // 累计 brandCount：同一主体的简称、英文名、组合名合并到同一个 canonical key；
+      // 同一 slot 内若同时出现 "势途" + "势途GEO" 只算 1 次。
+      for (const brand of canonicalBrands) {
+        const prev = brandCount.get(brand.key)
         if (prev) {
           prev.count += 1
         } else {
-          brandCount.set(key, {
-            displayName: isOur ? ourBrand.trim() || raw : raw,
+          brandCount.set(brand.key, {
+            displayName: brand.display,
             count: 1,
           })
         }
@@ -100,13 +90,13 @@ export function aggregatePenetration(
     }))
     .sort((a, b) => b.count - a.count)
 
-  const rankingIdx = industryShare.findIndex(s => isSameBrand(s.brand, ourBrand))
+  const rankingIdx = industryShare.findIndex(s => resolver.canonicalize(s.brand)?.isTarget)
   const ourRanking = rankingIdx >= 0 ? rankingIdx + 1 : null
 
   const missedQuestions = Array.from(allQuestions).filter(q => !mentionedByAnyModel.has(q))
 
   const topCompetitors = industryShare
-    .filter(s => !isSameBrand(s.brand, ourBrand))
+    .filter(s => !resolver.canonicalize(s.brand)?.isTarget)
     .slice(0, 3)
     .map(s => s.brand)
 

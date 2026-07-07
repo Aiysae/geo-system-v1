@@ -11,6 +11,7 @@ import type {
 import { ADAPTERS } from "@/lib/llm"
 import { aggregatePenetration, isSameBrand, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
+import { createBrandResolver } from "@/lib/brand-canonicalization"
 import {
   authAndReserveCredits,
   refundReservedCreditsQuietly,
@@ -557,6 +558,7 @@ async function processSlot(args: {
   model: ModelKey
   question: string
   ourBrand: string
+  brandAliases: string[]
   competitors: string[]
   auditProfile: PenetrationAuditProfile
 }): Promise<PenetrationItem & { error?: string; judgeError?: string }> {
@@ -577,7 +579,12 @@ async function processSlot(args: {
     }
   }
 
-  const knownBrands = [args.ourBrand, ...args.competitors]
+  const resolver = createBrandResolver({
+    ourBrand: args.ourBrand,
+    brandAliases: args.brandAliases,
+    competitors: args.competitors,
+  })
+  const knownBrands = resolver.knownNames
   const mentionedBrands = knownBrands
     .map(x => x.trim())
     .filter((brand, index, all) => {
@@ -592,7 +599,7 @@ async function processSlot(args: {
       return all.findIndex(other => normalize(other) === normalize(brand)) === index
     })
 
-  const codeHit = answerMentionsBrand(blind.answer, args.ourBrand)
+  const codeHit = resolver.targetNames.some(brand => answerMentionsBrand(blind.answer, brand))
 
   return {
     question: args.question,
@@ -615,8 +622,16 @@ type ProcessedSlot = {
 function mergeVerifiedBrands(
   item: PenetrationItem,
   candidates: string[],
-  ourBrand: string
+  ourBrand: string,
+  brandAliases: string[],
+  competitors: string[],
 ): string[] {
+  const resolver = createBrandResolver({
+    ourBrand,
+    brandAliases,
+    competitors,
+    observedBrands: [...item.mentionedBrands, ...candidates],
+  })
   const merged = [...item.mentionedBrands, ...candidates]
     .map(brand => brand.trim())
     .filter(brand => {
@@ -630,16 +645,15 @@ function mergeVerifiedBrands(
 
   if (item.hitOur && ourBrand.trim()) merged.push(ourBrand.trim())
 
-  return merged.filter((brand, index, all) => {
-    return all.findIndex(other => normalize(other) === normalize(brand)) === index
-  })
+  return resolver.canonicalizeList(merged).map(brand => brand.display)
 }
 
 async function enrichWithBatchJudge(
   results: ProcessedSlot[],
   judgeModel: ModelKey,
   competitors: string[],
-  ourBrand: string
+  ourBrand: string,
+  brandAliases: string[],
 ): Promise<void> {
   const jobs: Array<{
     model: ModelKey
@@ -670,13 +684,17 @@ async function enrichWithBatchJudge(
       slot.item.mentionedBrands = mergeVerifiedBrands(
         slot.item,
         result?.mentionedBrands ?? [],
-        ourBrand
+        ourBrand,
+        brandAliases,
+        competitors,
       )
       // 裁判抽出的品牌必须先通过回答原文字面校验。通过后，再允许简称/公司全称
       // 之间的同品牌匹配回写 hitOur，例如“木点点”命中“木点点整装（深圳）有限公司”。
       slot.item.hitOur =
         slot.item.hitOur ||
-        slot.item.mentionedBrands.some(brand => isSameBrand(brand, ourBrand))
+        slot.item.mentionedBrands.some(brand =>
+          [ourBrand, ...brandAliases].some(target => isSameBrand(brand, target)),
+        )
       slot.item.topRecommended =
         result?.topRecommended &&
         !isPlatformName(result.topRecommended) &&
@@ -739,6 +757,9 @@ async function handler(req: NextRequest) {
     const competitors: string[] = Array.isArray(body.competitors)
       ? body.competitors.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
+    const brandAliases: string[] = Array.isArray(body.brandAliases)
+      ? body.brandAliases.map((q: unknown) => String(q).trim()).filter(Boolean)
+      : []
     const models: ModelKey[] = Array.isArray(body.models)
       ? body.models.filter((m: unknown): m is ModelKey =>
           typeof m === "string" && m in ADAPTERS
@@ -794,6 +815,7 @@ async function handler(req: NextRequest) {
         modelCount: activeModels.length,
         questionCount: questions.length,
         slotCount,
+        brandAliasCount: brandAliases.length,
       },
     })
     if (!guard.ok) return guard.response
@@ -841,6 +863,7 @@ async function handler(req: NextRequest) {
             model: m,
             question: q,
             ourBrand,
+            brandAliases,
             competitors,
             auditProfile,
           })
@@ -853,7 +876,14 @@ async function handler(req: NextRequest) {
       })
     )
     const results = groupedResults.flat()
-    await enrichWithBatchJudge(results, judgeModel, [ourBrand, ...competitors], ourBrand)
+    const knownBrandResolver = createBrandResolver({ ourBrand, brandAliases, competitors })
+    await enrichWithBatchJudge(
+      results,
+      judgeModel,
+      knownBrandResolver.knownNames,
+      ourBrand,
+      brandAliases,
+    )
     console.log(`[penetration] 全部完成 耗时 ${Date.now() - t0}ms`)
 
     // 按 model → 题目顺序整理
@@ -882,7 +912,7 @@ async function handler(req: NextRequest) {
       if (judgeErrs.length > 0) judgeErrors[m] = judgeErrs[0]
     }
 
-    const aggregated = aggregatePenetration(byModel, ourBrand)
+    const aggregated = aggregatePenetration(byModel, ourBrand, brandAliases, competitors)
 
     const successfulSlots = results.filter(result => result.item.answer.trim().length > 0).length
     await settleReservedCredits(reservation, estimateFeatureCredits(featureKey, successfulSlots))

@@ -65,6 +65,7 @@ export function createClient(name: string): Client {
     id,
     name,
     ourBrand: "",
+    brandAliases: [],
     industry: "",
     website: "",
     questions: [],
