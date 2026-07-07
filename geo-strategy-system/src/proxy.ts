@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { AUTH_COOKIE_NAME, verifySessionCookieValue } from "@/lib/session-cookie"
 
-const PUBLIC_PATHS = ["/sign-in", "/sign-up"]
+const PUBLIC_PATHS = ["/sign-in", "/sign-up", "/terms", "/privacy", "/recharge-rules"]
 
 function noStore(response: NextResponse): NextResponse {
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
