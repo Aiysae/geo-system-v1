@@ -22,6 +22,119 @@ function cleanUrl(raw: string): string | null {
   }
 }
 
+const STATIC_ASSET_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".svg",
+  ".ico",
+  ".bmp",
+  ".avif",
+  ".heic",
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".m3u8",
+  ".css",
+  ".js",
+  ".map",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+])
+
+const IMAGE_CDN_HOST_PATTERNS = [
+  /(^|\.)qpic\.cn$/,
+  /(^|\.)gtimg\.com$/,
+  /^n\.sinaimg\.cn$/,
+  /^p\d*\.itc\.cn$/,
+  /(^|\.)bdimg\.com$/,
+  /(^|\.)bdstatic\.com$/,
+  /(^|\.)alicdn\.com$/,
+  /(^|\.)aliyuncs\.com$/,
+]
+
+function pathExt(pathname: string): string {
+  const match = pathname.toLowerCase().match(/\.[a-z0-9]{2,6}$/)
+  return match?.[0] || ""
+}
+
+function textKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+}
+
+function titleLooksWeak(title: string, parsed: URL): boolean {
+  const trimmed = title.trim()
+  if (!trimmed) return true
+  const hostKey = textKey(parsed.hostname)
+  const titleKey = textKey(trimmed)
+  if (!titleKey) return true
+  return titleKey === hostKey || titleKey === textKey(parsed.hostname.replace(/^www\./, ""))
+}
+
+function hasReadablePath(parsed: URL): boolean {
+  const parts = parsed.pathname.split("/").filter(Boolean)
+  if (parts.length >= 2) return true
+  const last = parts[0] || ""
+  return /[a-z0-9]{8,}/i.test(last) || /[\u4e00-\u9fa5]{4,}/.test(decodeURIComponent(last))
+}
+
+function fallbackTitleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const last = parsed.pathname.split("/").filter(Boolean).pop() || ""
+    const decoded = decodeURIComponent(last)
+      .replace(/\.[a-z0-9]{2,6}$/i, "")
+      .replace(/[-_]+/g, " ")
+      .trim()
+    return decoded.length >= 4 ? decoded.slice(0, 80) : ""
+  } catch {
+    return ""
+  }
+}
+
+export function isAuditableSourceUrl(rawUrl: string, title = "", snippet = ""): boolean {
+  const clean = cleanUrl(rawUrl)
+  if (!clean) return false
+
+  let parsed: URL
+  try {
+    parsed = new URL(clean)
+  } catch {
+    return false
+  }
+
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "")
+  const pathname = decodeURIComponent(parsed.pathname || "/").toLowerCase()
+  const ext = pathExt(pathname)
+  if (STATIC_ASSET_EXTENSIONS.has(ext)) return false
+  if (IMAGE_CDN_HOST_PATTERNS.some(pattern => pattern.test(host))) return false
+  if (/(^|[?&])(x-oss-process|imageview2?|resize|thumbnail|watermark)=/i.test(parsed.search)) {
+    return false
+  }
+
+  const weakTitle = titleLooksWeak(title, parsed)
+  const hasSnippet = snippet.trim().length >= 12
+  const rootOnly = pathname === "/" || pathname === ""
+  if (rootOnly && weakTitle && !hasSnippet) return false
+
+  const staticPath = /(^|\/)(static|assets?|images?|imgs?|pics?|logos?|icons?|avatars?|upload|uploads|media|file|files)(\/|$)/i.test(pathname)
+  if (staticPath && weakTitle && !hasSnippet) return false
+
+  if (!hasReadablePath(parsed) && weakTitle && !hasSnippet) return false
+  return true
+}
+
 function findUrlStrings(text: string): string[] {
   const matches = text.match(/https?:\/\/[^\s"'<>]+/g) ?? []
   return matches.map(x => cleanUrl(x)).filter((x): x is string => !!x)
@@ -44,8 +157,10 @@ function pushSource(
 ) {
   const clean = cleanUrl(url)
   if (!clean) return
+  if (!isAuditableSourceUrl(clean, title, snippet)) return
+  const displayTitle = title.trim() || fallbackTitleFromUrl(clean) || normalizeSourceDomain(clean)
   out.push({
-    title: title || clean,
+    title: displayTitle,
     snippet,
     url: clean,
     domain: normalizeSourceDomain(clean),
