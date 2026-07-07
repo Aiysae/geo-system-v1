@@ -42,6 +42,8 @@ export async function adjustCreditsAction(
           })
 
     revalidatePath("/admin")
+    revalidatePath(`/admin/users/${userId}`)
+    revalidatePath("/admin/ledger")
 
     return {
       ok: true,

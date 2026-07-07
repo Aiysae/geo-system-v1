@@ -7,6 +7,16 @@ import type { RechargeRequest } from "@/lib/recharge"
 import { formatYuan } from "@/lib/pricing"
 
 const initialState: AdminActionResult | null = null
+const statusLabel: Record<RechargeRequest["status"], string> = {
+  pending: "待审批",
+  approved: "已到账",
+  rejected: "已拒绝",
+}
+const statusClass: Record<RechargeRequest["status"], string> = {
+  pending: "bg-amber-50 text-amber-700 ring-amber-200",
+  approved: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  rejected: "bg-rose-50 text-rose-700 ring-rose-200",
+}
 
 export function RechargeRow({ req }: { req: RechargeRequest }) {
   const [approveState, approveFormAction, approvePending] = useActionState<
@@ -33,6 +43,7 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
       : rejectState && !rejectState.ok
       ? rejectState.error
       : null
+  const isPending = req.status === "pending"
 
   return (
     <tr className="border-t border-slate-200 hover:bg-slate-50/60 transition">
@@ -66,30 +77,43 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
         {new Date(req.createdAt).toLocaleString("zh-CN", { hour12: false })}
       </td>
       <td className="px-4 py-3 align-top">
-        <div className="flex items-center gap-2">
-          <form action={approveFormAction}>
-            <input type="hidden" name="requestId" value={req.id} />
-            <button
-              type="submit"
-              disabled={busy}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:shadow-md hover:shadow-emerald-200/60 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 transition-all"
-            >
-              <Check className="h-3.5 w-3.5" />
-              {approvePending ? "处理中..." : "同意"}
-            </button>
-          </form>
-          <form action={rejectFormAction}>
-            <input type="hidden" name="requestId" value={req.id} />
-            <button
-              type="submit"
-              disabled={busy}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 hover:ring-rose-200 hover:text-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              <X className="h-3.5 w-3.5" />
-              {rejectPending ? "处理中..." : "拒绝"}
-            </button>
-          </form>
-        </div>
+        {isPending ? (
+          <div className="flex items-center gap-2">
+            <form action={approveFormAction}>
+              <input type="hidden" name="requestId" value={req.id} />
+              <button
+                type="submit"
+                disabled={busy}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:shadow-md hover:shadow-emerald-200/60 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 transition-all"
+              >
+                <Check className="h-3.5 w-3.5" />
+                {approvePending ? "处理中..." : "同意"}
+              </button>
+            </form>
+            <form action={rejectFormAction}>
+              <input type="hidden" name="requestId" value={req.id} />
+              <button
+                type="submit"
+                disabled={busy}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 hover:ring-rose-200 hover:text-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                <X className="h-3.5 w-3.5" />
+                {rejectPending ? "处理中..." : "拒绝"}
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-medium ring-1 ${statusClass[req.status]}`}>
+              {statusLabel[req.status]}
+            </span>
+            {req.processedAt && (
+              <div className="text-[11px] text-slate-500">
+                {new Date(req.processedAt).toLocaleString("zh-CN", { hour12: false })}
+              </div>
+            )}
+          </div>
+        )}
         {lastError && (
           <div className="mt-1.5 text-[11px] text-rose-600">{lastError}</div>
         )}

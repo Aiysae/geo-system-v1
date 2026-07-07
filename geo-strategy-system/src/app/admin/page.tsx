@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { Inbox, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
+import { Inbox, ReceiptText, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
@@ -37,6 +37,8 @@ export default async function AdminPage() {
       credits: await getCredits(user.id),
     }))
   )
+  const totalCredits = rows.reduce((sum, row) => sum + row.credits, 0)
+  const adminCount = rows.filter(row => row.user.role === "admin").length
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
@@ -59,6 +61,12 @@ export default async function AdminPage() {
               className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
             >
               充值审批 / 模型配置
+            </Link>
+            <Link
+              href="/admin/ledger"
+              className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+            >
+              积分流水
             </Link>
             <Link
               href="/"
@@ -86,6 +94,27 @@ export default async function AdminPage() {
           </span>
         </div>
 
+        <div className="mb-5 grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+            <div className="text-xs text-slate-500">用户总数</div>
+            <div className="mt-2 font-mono text-2xl font-bold text-slate-900">{rows.length}</div>
+          </div>
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-amber-200">
+            <div className="flex items-center gap-1.5 text-xs text-amber-700">
+              <Sparkles className="h-3.5 w-3.5" />
+              当前总积分
+            </div>
+            <div className="mt-2 font-mono text-2xl font-bold text-amber-700">{totalCredits}</div>
+          </div>
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-blue-200">
+            <div className="flex items-center gap-1.5 text-xs text-blue-700">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              管理员
+            </div>
+            <div className="mt-2 font-mono text-2xl font-bold text-blue-700">{adminCount}</div>
+          </div>
+        </div>
+
         {rows.length === 0 ? (
           <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-12 text-center">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-50 ring-1 ring-slate-200 flex items-center justify-center mb-4">
@@ -103,6 +132,7 @@ export default async function AdminPage() {
                   <th className="px-4 py-3">积分</th>
                   <th className="px-4 py-3">注册时间</th>
                   <th className="px-4 py-3">积分操作</th>
+                  <th className="px-4 py-3">明细</th>
                 </tr>
               </thead>
               <tbody>
@@ -133,6 +163,15 @@ export default async function AdminPage() {
                     </td>
                     <td className="px-4 py-4">
                       <CreditsAdjustForm userId={user.id} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <Link
+                        href={`/admin/users/${user.id}`}
+                        className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-[#0077B6]"
+                      >
+                        <ReceiptText className="h-3.5 w-3.5" />
+                        查看
+                      </Link>
                     </td>
                   </tr>
                 ))}
