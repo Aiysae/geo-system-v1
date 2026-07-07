@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { useActionState, useState, useEffect } from "react"
 import { CreditCard, Sparkles, X, Plus } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
@@ -43,10 +44,14 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
   const submitted = state?.ok === true
   const hasAccountInfo = Boolean(
     RECHARGE_PAYMENT_INFO.accountName
+    || RECHARGE_PAYMENT_INFO.creditCode
+    || RECHARGE_PAYMENT_INFO.registeredAddress
     || RECHARGE_PAYMENT_INFO.accountNo
     || RECHARGE_PAYMENT_INFO.bankName
+    || RECHARGE_PAYMENT_INFO.bankCode
     || RECHARGE_PAYMENT_INFO.contact
   )
+  const hasQrCodes = RECHARGE_PAYMENT_INFO.qrCodes.length > 0
 
   return (
     <div
@@ -56,7 +61,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
       aria-modal="true"
     >
       <div
-        className="relative max-h-[90vh] w-[90%] max-w-lg overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
+        className="relative max-h-[90vh] w-[94%] max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
         onClick={e => e.stopPropagation()}
       >
         <button
@@ -107,11 +112,34 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 </div>
                 <p>{RECHARGE_PAYMENT_INFO.notice}</p>
                 {hasAccountInfo && (
-                  <div className="mt-2 grid gap-1 rounded-lg bg-white/70 px-3 py-2 font-mono text-[11px] text-slate-600 ring-1 ring-blue-100">
+                  <div className="mt-2 grid gap-1 rounded-lg bg-white/70 px-3 py-2 text-[11px] text-slate-600 ring-1 ring-blue-100">
                     {RECHARGE_PAYMENT_INFO.accountName && <div>户名：{RECHARGE_PAYMENT_INFO.accountName}</div>}
+                    {RECHARGE_PAYMENT_INFO.creditCode && <div>统一社会信用代码：{RECHARGE_PAYMENT_INFO.creditCode}</div>}
+                    {RECHARGE_PAYMENT_INFO.registeredAddress && <div>注册地址：{RECHARGE_PAYMENT_INFO.registeredAddress}</div>}
                     {RECHARGE_PAYMENT_INFO.bankName && <div>开户行：{RECHARGE_PAYMENT_INFO.bankName}</div>}
-                    {RECHARGE_PAYMENT_INFO.accountNo && <div>账号：{RECHARGE_PAYMENT_INFO.accountNo}</div>}
+                    {RECHARGE_PAYMENT_INFO.accountNo && <div className="break-all font-mono">账号：{RECHARGE_PAYMENT_INFO.accountNo}</div>}
+                    {RECHARGE_PAYMENT_INFO.bankCode && <div className="font-mono">行号：{RECHARGE_PAYMENT_INFO.bankCode}</div>}
                     {RECHARGE_PAYMENT_INFO.contact && <div>联系：{RECHARGE_PAYMENT_INFO.contact}</div>}
+                  </div>
+                )}
+                {hasQrCodes && (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {RECHARGE_PAYMENT_INFO.qrCodes.map(code => (
+                      <div key={code.imageUrl} className="rounded-xl bg-white p-2 ring-1 ring-blue-100">
+                        <div className="mb-2 text-center text-xs font-semibold text-slate-900">{code.label}</div>
+                        <Image
+                          src={code.imageUrl}
+                          alt={`${code.label}收款码`}
+                          width={360}
+                          height={520}
+                          className="h-auto w-full rounded-lg object-contain"
+                          sizes="(max-width: 640px) 82vw, 280px"
+                        />
+                        {code.description && (
+                          <div className="mt-2 text-center text-[11px] text-slate-500">{code.description}</div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
                 <p className="mt-2 text-[11px] text-slate-500">
