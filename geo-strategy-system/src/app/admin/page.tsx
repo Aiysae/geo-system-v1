@@ -6,6 +6,7 @@ import { getCurrentUser, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
 import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "./credits-adjust-form"
+import { UserStatusForm } from "./user-status-form"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -129,6 +130,7 @@ export default async function AdminPage() {
                 <tr className="bg-slate-50/60 text-left text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   <th className="px-4 py-3">用户</th>
                   <th className="px-4 py-3">角色</th>
+                  <th className="px-4 py-3">状态</th>
                   <th className="px-4 py-3">积分</th>
                   <th className="px-4 py-3">注册时间</th>
                   <th className="px-4 py-3">积分操作</th>
@@ -154,6 +156,9 @@ export default async function AdminPage() {
                       <span className={user.role === "admin" ? "rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-100" : "rounded-lg bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200"}>
                         {user.role === "admin" ? "管理员" : "用户"}
                       </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <UserStatusForm userId={user.id} status={user.status} />
                     </td>
                     <td className="px-4 py-4 font-mono text-sm font-bold text-slate-900">
                       {credits}

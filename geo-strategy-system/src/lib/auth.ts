@@ -41,6 +41,27 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
 }
 
+function normalizeInviteCode(value: unknown): string {
+  return String(value || "").trim()
+}
+
+export function isSignUpInviteRequired(): boolean {
+  return Boolean(normalizeInviteCode(process.env.SIGN_UP_INVITE_CODE))
+}
+
+export function validateSignUpInviteCode(value: unknown): boolean {
+  const expected = normalizeInviteCode(process.env.SIGN_UP_INVITE_CODE)
+  if (!expected) return true
+
+  const actual = normalizeInviteCode(value)
+  if (!actual) return false
+
+  const expectedBuffer = Buffer.from(expected)
+  const actualBuffer = Buffer.from(actual)
+  if (expectedBuffer.length !== actualBuffer.length) return false
+  return timingSafeEqual(expectedBuffer, actualBuffer)
+}
+
 async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("base64url")
   const hash = (await scrypt(password, salt, PASSWORD_KEY_LENGTH)) as Buffer
@@ -215,4 +236,19 @@ export async function listUsers(): Promise<PublicUser[]> {
 export async function getUserById(userId: string): Promise<PublicUser | null> {
   const user = await kv.get<AuthUser>(KEY_USER(userId))
   return user ? toPublicUser(user) : null
+}
+
+export async function updateUserStatus(
+  userId: string,
+  status: AuthUser["status"],
+): Promise<PublicUser> {
+  const user = await kv.get<AuthUser>(KEY_USER(userId))
+  if (!user) throw new Error("用户不存在")
+  const updated: AuthUser = {
+    ...user,
+    status,
+    updatedAt: new Date().toISOString(),
+  }
+  await kv.set(KEY_USER(user.id), updated)
+  return toPublicUser(updated)
 }
