@@ -18,7 +18,7 @@ import {
   getKeywordCompetitionAction,
 } from "@/app/actions/dashboards"
 import { useCredits } from "@/components/credits/credits-provider"
-import { aggregatePenetration } from "@/lib/score-utils"
+import { aggregatePenetration, isSameBrand } from "@/lib/score-utils"
 import type {
   BrandVoiceItem,
   KeywordCompetitionItem,
@@ -88,7 +88,12 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   const [progressLabel, setProgressLabel] = useState("")
   const { balance } = useCredits()
 
-  async function handleRun(params: { questions: string[]; models: ModelKey[] }) {
+  async function handleRun(params: {
+    questions: string[]
+    models: ModelKey[]
+    brandAliases: string[]
+    competitors: string[]
+  }) {
     const requiredCredits = params.questions.length * params.models.length
     if (typeof balance === "number" && balance < requiredCredits) {
       setError(
@@ -113,9 +118,10 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ourBrand: client.ourBrand,
+            brandAliases: params.brandAliases,
             industry: client.industry,
             questions,
-            competitors: client.competitors,
+            competitors: params.competitors,
             models,
           }),
         })
@@ -138,9 +144,16 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
       function publishMergedResult(generatedAt: string) {
         const byModel = cloneByModel(mergedByModel)
         onChangeClient({
+          brandAliases: params.brandAliases,
+          competitors: params.competitors,
           penetration: {
             byModel,
-            aggregated: aggregatePenetration(byModel, client.ourBrand),
+            aggregated: aggregatePenetration(
+              byModel,
+              client.ourBrand,
+              params.brandAliases,
+              params.competitors,
+            ),
             generatedAt,
           },
         })
@@ -193,9 +206,14 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     if (!client.penetration) return undefined
     return {
       ...client.penetration,
-      aggregated: aggregatePenetration(client.penetration.byModel, client.ourBrand),
+      aggregated: aggregatePenetration(
+        client.penetration.byModel,
+        client.ourBrand,
+        client.brandAliases ?? [],
+        client.competitors,
+      ),
     }
-  }, [client.penetration, client.ourBrand])
+  }, [client.penetration, client.ourBrand, client.brandAliases, client.competitors])
   const topIndustryShare = pen?.aggregated.industryShare.slice(0, 10) ?? []
 
   return (
@@ -309,9 +327,15 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                 <MonitoringDashboards
                   penetration={pen}
                   ourBrand={client.ourBrand}
+                  brandAliases={client.brandAliases ?? []}
+                  competitors={client.competitors}
                 />
 
-                <RawAnswersPanel byModel={pen.byModel} ourBrand={client.ourBrand} />
+                <RawAnswersPanel
+                  byModel={pen.byModel}
+                  ourBrand={client.ourBrand}
+                  brandAliases={client.brandAliases ?? []}
+                />
 
                 <div className="text-[11px] text-slate-400 text-right">
                   生成于 {new Date(pen.generatedAt).toLocaleString("zh-CN")}
@@ -328,16 +352,23 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
 function RawAnswersPanel({
   byModel,
   ourBrand,
+  brandAliases,
 }: {
   byModel: PenetrationResult["byModel"]
   ourBrand: string
+  brandAliases: string[]
 }) {
   const models = (Object.keys(byModel) as ModelKey[]).filter(m => byModel[m]?.length)
   const [open, setOpen] = useState(false)
   const [activeModel, setActive] = useState<ModelKey | null>(models[0] ?? null)
   const currentModel = activeModel && models.includes(activeModel) ? activeModel : models[0] ?? null
+  const targetBrandNames = [ourBrand, ...brandAliases].map(name => name.trim()).filter(Boolean)
 
   if (models.length === 0 || !currentModel) return null
+
+  function isTargetBrand(brand: string): boolean {
+    return targetBrandNames.some(name => isSameBrand(brand, name))
+  }
 
   function highlight(text: string, brand: string): React.ReactNode {
     const b = brand.trim()
@@ -467,7 +498,7 @@ function RawAnswersPanel({
                 typeof it.hitOur === "boolean"
                   ? it.hitOur
                   : ourBrand
-                    ? it.mentionedBrands.some(b => b.toLowerCase() === ourBrand.toLowerCase().trim())
+                    ? it.mentionedBrands.some(b => isTargetBrand(b))
                     : false
               return (
                 <div key={i} className="px-4 py-3 hover:bg-slate-50/50 transition">
@@ -492,7 +523,7 @@ function RawAnswersPanel({
                   {it.mentionedBrands.length > 0 && (
                     <div className="flex flex-wrap gap-1 pl-7">
                       {it.mentionedBrands.map((b, j) => {
-                        const isOur = ourBrand && b.toLowerCase() === ourBrand.toLowerCase().trim()
+                        const isOur = isTargetBrand(b)
                         return (
                           <span
                             key={j}
@@ -747,9 +778,13 @@ function AnswerItem({
 function MonitoringDashboards({
   penetration,
   ourBrand,
+  brandAliases,
+  competitors,
 }: {
   penetration: PenetrationResult
   ourBrand: string
+  brandAliases: string[]
+  competitors: string[]
 }) {
   const [open, setOpen] = useState(true)
   const [voice, setVoice] = useState<BrandVoiceItem[] | null>(null)
@@ -767,8 +802,20 @@ function MonitoringDashboards({
     setLoading(true)
     setError(null)
     Promise.all([
-      getBrandVoiceAction({ byModel: penetration.byModel, ourBrand, cacheKey }),
-      getKeywordCompetitionAction({ byModel: penetration.byModel, ourBrand, cacheKey }),
+      getBrandVoiceAction({
+        byModel: penetration.byModel,
+        ourBrand,
+        brandAliases,
+        competitors,
+        cacheKey,
+      }),
+      getKeywordCompetitionAction({
+        byModel: penetration.byModel,
+        ourBrand,
+        brandAliases,
+        competitors,
+        cacheKey,
+      }),
     ])
       .then(([v, c]) => {
         if (cancelled) return
@@ -785,7 +832,7 @@ function MonitoringDashboards({
     return () => {
       cancelled = true
     }
-  }, [penetration.byModel, ourBrand, cacheKey])
+  }, [penetration.byModel, ourBrand, brandAliases, competitors, cacheKey])
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">

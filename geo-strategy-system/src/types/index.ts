@@ -290,6 +290,7 @@ export interface Client {
   id: string
   name: string
   ourBrand: string
+  brandAliases?: string[]
   industry: string
   website: string
   questions: string[]

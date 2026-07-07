@@ -56,34 +56,35 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[100] overflow-y-auto bg-black/50 px-3 py-4 backdrop-blur-sm animate-fade-in sm:px-6 sm:py-8"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
-      <div
-        className="relative max-h-[90vh] w-[94%] max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
-        onClick={e => e.stopPropagation()}
-      >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-slate-100 transition"
-          aria-label="关闭"
+      <div className="flex min-h-full items-start justify-center sm:items-center">
+        <div
+          className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
+          onClick={e => e.stopPropagation()}
         >
-          <X className="h-4 w-4 text-slate-500" />
-        </button>
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 z-10 p-1.5 rounded-lg hover:bg-slate-100 transition"
+            aria-label="关闭"
+          >
+            <X className="h-4 w-4 text-slate-500" />
+          </button>
 
-        <div className="px-7 pt-7 pb-6">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4 sm:px-7">
             <span className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center shadow-lg shadow-rose-200/50">
               <Sparkles className="h-5 w-5 text-white" />
             </span>
-            <h2 className="text-lg font-bold tracking-tight text-slate-900">
+            <h2 className="pr-9 text-lg font-bold tracking-tight text-slate-900">
               申请积分充值
             </h2>
           </div>
 
-          {submitted ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+            {submitted ? (
             <>
               <p className="text-sm text-slate-600 leading-relaxed">
                 已提交 <span className="font-bold text-slate-900">{state!.ok && state!.packageName}</span>
@@ -133,7 +134,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                           alt={`${code.label}收款码`}
                           width={360}
                           height={520}
-                          className="h-auto w-full rounded-lg object-contain"
+                          className="max-h-[46dvh] w-full rounded-lg object-contain sm:max-h-[360px]"
                           sizes="(max-width: 640px) 82vw, 280px"
                         />
                         {code.description && (
@@ -248,7 +249,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 </div>
               )}
 
-              <div className="mt-6 flex gap-2">
+              <div className="sticky bottom-0 -mx-5 mt-6 flex gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
                 <button
                   type="button"
                   onClick={onClose}
@@ -265,7 +266,8 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 </button>
               </div>
             </form>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
