@@ -59,7 +59,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
 
   if (!isAdminUser(currentUser)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30 px-4">
+      <div className="min-h-screen flex items-center justify-center geo-saturated-bg px-4">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl ring-1 ring-slate-200">
           <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 ring-1 ring-rose-200">
             <ShieldCheck className="h-7 w-7 text-rose-500" />
@@ -88,7 +88,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
     .reduce((sum, item) => sum + Math.abs(item.delta), 0)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
+    <div className="min-h-screen geo-saturated-bg">
       <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -112,22 +112,22 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-8 md:py-8">
         <section className="grid gap-3 md:grid-cols-4">
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <WalletCards className="h-3.5 w-3.5 text-amber-500" />
               当前积分
             </div>
             <div className="mt-2 font-mono text-3xl font-bold text-slate-900">{credits}</div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-emerald-200">
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-emerald-700">累计充值到账</div>
             <div className="mt-2 font-mono text-3xl font-bold text-emerald-700">{totalRechargeCredits}</div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-orange-200">
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-orange-700">累计功能扣费</div>
             <div className="mt-2 font-mono text-3xl font-bold text-orange-700">{totalUsageCredits}</div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-slate-500">账号状态</div>
             <div className="mt-2">
               <span className="inline-flex rounded-lg bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">

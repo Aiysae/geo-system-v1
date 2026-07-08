@@ -15,7 +15,7 @@ export default async function SignUpPage({
   if (user) redirect("/")
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
+    <div className="min-h-screen flex flex-col geo-saturated-bg">
       <main className="flex flex-1 items-center justify-center px-4 py-10">
         <LocalAuthForm
           mode="sign-up"

@@ -42,14 +42,15 @@ export default function ClientSidebar({
 
   return (
     <aside
-      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-64 shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-gradient-to-b from-[#001a2c] via-[#003554] to-[#004B73] text-white h-screen flex flex-col overflow-hidden shadow-2xl shadow-blue-900/20`}
+      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-64 shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-[#061826] text-white h-screen flex flex-col overflow-hidden shadow-2xl shadow-slate-950/35`}
     >
-      <div className="px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0 flex items-center justify-between">
+      <div className="absolute inset-x-0 top-0 h-28 bg-[linear-gradient(135deg,rgba(0,166,251,0.28),rgba(124,58,237,0.22)_46%,rgba(244,63,94,0.16))]" />
+      <div className="relative px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <img src="/logo.jpg" alt="" className="h-9 w-auto rounded-lg ring-1 ring-white/20" />
           <div className="min-w-0">
-            <div className="font-bold tracking-wide text-base bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent">势途 GEO</div>
-            <div className="text-[11px] text-white/60 mt-0.5">市场情报终端</div>
+            <div className="font-bold tracking-wide text-base bg-gradient-to-r from-white via-cyan-100 to-[#00D4FF] bg-clip-text text-transparent">势途 GEO</div>
+            <div className="text-[11px] text-white/60 mt-0.5">生成式引擎增长终端</div>
           </div>
         </div>
         {onClose && (
@@ -63,10 +64,13 @@ export default function ClientSidebar({
         )}
       </div>
 
-      <div className="flex items-center justify-between px-4 pt-5 pb-2 shrink-0">
+      <div className="relative flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/60 font-semibold">
           <Users className="h-3.5 w-3.5" /> 客户列表
         </div>
+        <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] text-cyan-100 ring-1 ring-white/10">
+          {clients.length}
+        </span>
         <button
           onClick={() => setAdding(true)}
           className="p-1 rounded hover:bg-white/10 transition"
@@ -101,7 +105,7 @@ export default function ClientSidebar({
         </div>
       )}
 
-      <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-4 space-y-0.5">
+      <nav className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-4 space-y-1">
         {clients.length === 0 && !adding && (
           <p className="px-3 py-8 text-xs text-white/40 text-center leading-relaxed">
             暂无客户
@@ -113,13 +117,16 @@ export default function ClientSidebar({
           <div
             key={c.id}
             onClick={() => onSelect(c.id)}
-            className={`group flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer text-sm transition ${
+            className={`group flex items-center justify-between rounded-lg px-3 py-2.5 cursor-pointer text-sm transition ${
               activeId === c.id
-                ? "bg-gradient-to-r from-[#0077B6] to-[#00B4D8] text-white shadow-lg shadow-cyan-500/30"
-                : "text-white/75 hover:bg-white/5"
+                ? "bg-gradient-to-r from-[#0077B6] via-[#00A6FB] to-[#7C3AED] text-white shadow-lg shadow-cyan-500/25"
+                : "text-white/72 hover:bg-white/10 hover:text-white"
             }`}
           >
-            <span className="truncate">{c.name}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${activeId === c.id ? "bg-amber-300" : "bg-cyan-300/45"}`} />
+              <span className="truncate">{c.name}</span>
+            </span>
             <button
               onClick={e => {
                 e.stopPropagation()
@@ -134,7 +141,7 @@ export default function ClientSidebar({
         ))}
       </nav>
 
-      <div className="px-4 py-3 border-t border-white/10 text-[11px] text-white/40 flex items-center gap-1.5 shrink-0">
+      <div className="relative px-4 py-3 border-t border-white/10 text-[11px] text-white/45 flex items-center gap-1.5 shrink-0">
         <Database className="h-3 w-3" />
         本地存储 · 刷新不丢
       </div>

@@ -217,20 +217,20 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   const topIndustryShare = pen?.aggregated.industryShare.slice(0, 10) ?? []
 
   return (
-    <Card>
-      <CardHeader className="pb-4">
+    <Card className="border-white/70">
+      <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
-          <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0077B6] via-[#00B4D8] to-[#48cae4] flex items-center justify-center shadow-lg shadow-cyan-200/50">
+          <span className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#0077B6] via-[#00A6FB] to-[#00D4FF] flex items-center justify-center shadow-lg shadow-cyan-300/30">
             <Target className="h-5 w-5 text-white" />
           </span>
-          <span className="min-w-0 bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent font-semibold leading-snug">
+          <span className="min-w-0 bg-gradient-to-r from-[#0077B6] via-[#00A6FB] to-[#7C3AED] bg-clip-text text-transparent font-semibold leading-snug">
             关键词渗透率与竞品情报
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[400px_minmax(0,1fr)]">
-          <div className="min-w-0 lg:border-r lg:border-slate-100 lg:pr-6">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-[400px_minmax(0,1fr)]">
+          <div className="min-w-0 lg:sticky lg:top-20 lg:self-start lg:border-r lg:border-slate-200/70 lg:pr-5">
             <BatchInputPanel
               key={client.id}
               client={client}
@@ -244,7 +244,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
             />
           </div>
 
-          <div className="min-w-0 space-y-5">
+          <div className="min-w-0 space-y-4">
             {!pen ? (
               <div className="flex h-full min-h-[300px] items-center justify-center text-center">
                 <div>
@@ -257,8 +257,8 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
             ) : (
               <>
                 <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                  <div className="min-w-0 rounded-xl border border-slate-200 p-4 bg-gradient-to-br from-slate-50 to-white">
-                    <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-1">
+                  <div className="geo-data-panel min-w-0 rounded-lg p-4">
+                    <div className="geo-section-kicker mb-1">
                       渗透率
                     </div>
                     <PenetrationDonut
@@ -267,7 +267,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                       totalSlots={pen.aggregated.totalSlots}
                     />
                   </div>
-                  <div className="min-w-0 rounded-xl border border-slate-200 p-4 bg-white">
+                  <div className="geo-data-panel min-w-0 rounded-lg p-4">
                     <BrandRankingCard
                       ranking={pen.aggregated.ourRanking}
                       totalBrands={pen.aggregated.industryShare.length}
@@ -277,8 +277,8 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                   </div>
                 </div>
 
-                <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 p-4 bg-white">
-                  <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-3">
+                <div className="geo-data-panel min-w-0 overflow-hidden rounded-lg p-4">
+                  <div className="geo-section-kicker mb-3">
                     全品牌渗透率 Top {topIndustryShare.length}
                   </div>
                   <IndustryShareChart
@@ -289,9 +289,9 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                 </div>
 
                 {pen.aggregated.perModelRate.length > 0 && (
-                  <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 p-4 bg-gradient-to-br from-white via-slate-50/40 to-blue-50/30">
+                  <div className="geo-data-panel min-w-0 overflow-hidden rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <div className="text-[11px] uppercase tracking-wider text-slate-400">
+                      <div className="geo-section-kicker">
                         各模型渗透率对比 · 趋势图
                       </div>
                       <div className="text-[10px] text-amber-600 inline-flex items-center gap-1.5">

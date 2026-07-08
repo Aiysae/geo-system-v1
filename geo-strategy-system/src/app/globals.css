@@ -1,29 +1,43 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fafbfd;
+  --background: #061826;
   --foreground: #0f172a;
   --card: #ffffff;
   --card-foreground: #0f172a;
-  --primary: #004B73;
+  --primary: #0077B6;
   --primary-foreground: #f0f9ff;
-  --secondary: #f0f6fa;
-  --secondary-foreground: #004B73;
-  --muted: #f0f6fa;
-  --muted-foreground: #5b7a92;
-  --accent: #e6f0f7;
-  --accent-foreground: #003554;
+  --secondary: #e7f6ff;
+  --secondary-foreground: #005b8a;
+  --muted: #edf4f8;
+  --muted-foreground: #587083;
+  --accent: #f0e8ff;
+  --accent-foreground: #5b21b6;
   --destructive: #dc2626;
   --destructive-foreground: #fafafa;
-  --border: #d4dfe7;
-  --input: #d4dfe7;
-  --ring: #004B73;
+  --border: #cddce6;
+  --input: #cddce6;
+  --ring: #00A6FB;
   --radius: 0.625rem;
 
-  --gradient-hero: linear-gradient(135deg, #004B73 0%, #0077B6 45%, #00B4D8 100%);
-  --gradient-accent: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  --geo-ink: #061826;
+  --geo-ink-2: #082b3d;
+  --geo-blue: #00A6FB;
+  --geo-cyan: #00D4FF;
+  --geo-violet: #7C3AED;
+  --geo-fuchsia: #E879F9;
+  --geo-rose: #F43F5E;
+  --geo-amber: #F59E0B;
+  --geo-green: #10B981;
+  --geo-panel: rgba(255, 255, 255, 0.91);
+  --geo-panel-strong: #ffffff;
+  --geo-border: rgba(6, 24, 38, 0.1);
+  --geo-shadow: 0 20px 50px -28px rgba(6, 24, 38, 0.38);
+
+  --gradient-hero: linear-gradient(135deg, #061826 0%, #004B73 40%, #00A6FB 100%);
+  --gradient-accent: linear-gradient(135deg, #00A6FB 0%, #7C3AED 48%, #F43F5E 100%);
   --gradient-success: linear-gradient(135deg, #10b981 0%, #14b8a6 100%);
-  --gradient-warm: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+  --gradient-warm: linear-gradient(135deg, #f59e0b 0%, #f43f5e 100%);
 }
 
 @theme inline {
@@ -52,12 +66,15 @@
 }
 
 body {
-  background: var(--background);
+  background:
+    linear-gradient(135deg, rgba(0, 166, 251, 0.2) 0%, transparent 26%),
+    linear-gradient(225deg, rgba(124, 58, 237, 0.16) 0%, transparent 24%),
+    linear-gradient(180deg, #061826 0%, #0a2233 42%, #eef6ff 42%, #f7fbff 100%);
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 @keyframes float-slow {
@@ -100,7 +117,7 @@ body {
 .animate-slide-in-right { animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
 .shimmer-text {
-  background: linear-gradient(90deg, #004B73 0%, #00B4D8 50%, #004B73 100%);
+  background: linear-gradient(90deg, #00A6FB 0%, #7C3AED 44%, #F43F5E 78%, #00A6FB 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -109,10 +126,59 @@ body {
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: var(--geo-panel);
+  backdrop-filter: saturate(160%) blur(18px);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: var(--geo-shadow);
+}
+
+.geo-saturated-bg {
+  background:
+    linear-gradient(135deg, rgba(0, 166, 251, 0.18) 0%, transparent 30%),
+    linear-gradient(225deg, rgba(244, 63, 94, 0.14) 0%, transparent 28%),
+    linear-gradient(180deg, #071a29 0%, #0b2a3c 34%, #eef7ff 34%, #f8fbff 100%);
+}
+
+.geo-workspace-bg {
+  background:
+    linear-gradient(135deg, rgba(0, 166, 251, 0.2) 0%, transparent 28%),
+    linear-gradient(225deg, rgba(124, 58, 237, 0.18) 0%, transparent 24%),
+    linear-gradient(180deg, #061826 0%, #0b2638 24%, #ecf7ff 24%, #f8fbff 100%);
+}
+
+.geo-data-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.9)),
+    linear-gradient(135deg, rgba(0, 166, 251, 0.16), rgba(124, 58, 237, 0.12));
+  border: 1px solid var(--geo-border);
+  box-shadow: var(--geo-shadow);
+}
+
+.geo-dark-panel {
+  background:
+    linear-gradient(135deg, rgba(0, 166, 251, 0.2), transparent 42%),
+    linear-gradient(225deg, rgba(244, 63, 94, 0.16), transparent 34%),
+    #07131f;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 22px 56px -28px rgba(0, 0, 0, 0.7);
+}
+
+.geo-section-kicker {
+  color: #4b6477;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.geo-table-head {
+  background: linear-gradient(90deg, rgba(0, 166, 251, 0.1), rgba(124, 58, 237, 0.08), rgba(245, 158, 11, 0.08));
+  color: #40576b;
+}
+
+.geo-heat-row {
+  background-image: linear-gradient(90deg, rgba(0, 166, 251, 0.07), rgba(255, 255, 255, 0));
 }
 
 ::-webkit-scrollbar {
@@ -121,11 +187,11 @@ body {
 }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 75, 115, 0.18);
+  background: rgba(0, 166, 251, 0.32);
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 75, 115, 0.32);
+  background: rgba(124, 58, 237, 0.42);
 }
 
 @media print {
