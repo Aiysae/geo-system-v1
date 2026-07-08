@@ -52,7 +52,7 @@ export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "huny
 
 export type LlmMode = "consumer" | "judge"
 
-export type ArticlePromptKey = "thirdPartyObservation" | "pitfallGuide" | "shortVideoScript"
+export type ArticlePromptKey = "thirdPartyObservation" | "pitfallGuide" | "shortVideoScript" | "rewrite"
 
 export type ArticleModelProviderKey = ModelKey | "article"
 
@@ -60,6 +60,13 @@ export interface ArticleGenerationState {
   promptKey: ArticlePromptKey
   modelProvider: ArticleModelProviderKey
   model: string
+  sourceUrl?: string
+  sourceTitle?: string
+  sourceMarkdown?: string
+  rewriteBrand?: string
+  rewriteMaterials?: string
+  extractStatus?: GenerationStatus
+  extractError?: string
   coreQuestion: string
   keywords: string
   region: string

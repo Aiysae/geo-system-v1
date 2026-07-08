@@ -8,6 +8,7 @@ import {
   FileDown,
   FileText,
   KeyRound,
+  Link,
   Loader2,
   RefreshCw,
   WandSparkles,
@@ -45,11 +46,25 @@ interface ArticleGenerationResponse {
   error?: string
 }
 
+interface ArticleExtractResponse {
+  finalUrl?: string
+  title?: string
+  markdown?: string
+  contentLength?: number
+  error?: string
+}
+
 function createInitialArticle(client: Client): ArticleGenerationState {
   return {
     promptKey: "thirdPartyObservation",
     modelProvider: "article",
     model: "",
+    sourceUrl: "",
+    sourceTitle: "",
+    sourceMarkdown: "",
+    rewriteBrand: client.ourBrand || client.name || "",
+    rewriteMaterials: "",
+    extractStatus: "idle",
     coreQuestion: "",
     keywords: "",
     region: "",
@@ -120,10 +135,17 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const quickAdvantages = keywordAdvantages.slice(0, 24)
   const hasKeywordQuickFill = keywordQuestions.length > 0 || keywordAdvantages.length > 0
 
+  const isRewrite = article.promptKey === "rewrite"
   const isGenerating = article.status === "generating"
-  const canGenerate = Boolean(article.coreQuestion.trim()) && !isGenerating
+  const isExtracting = article.extractStatus === "generating"
+  const canGenerate = isRewrite
+    ? Boolean(article.sourceMarkdown?.trim() && article.rewriteBrand?.trim() && article.rewriteMaterials?.trim()) && !isGenerating && !isExtracting
+    : Boolean(article.coreQuestion.trim()) && !isGenerating
   const hasOutput = Boolean(article.output.trim())
   const articleFeatureKey = ARTICLE_PROMPT_PRICE_KEYS[article.promptKey || "thirdPartyObservation"]
+  const visiblePrompts = isRewrite
+    ? prompts.filter(prompt => prompt.key === "rewrite")
+    : prompts.filter(prompt => prompt.key !== "rewrite")
 
   function persist(next: ArticleGenerationState) {
     setArticle(next)
@@ -146,6 +168,22 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     persist({
       ...article,
       promptKey: key,
+      status: article.status === "error" ? "idle" : article.status,
+      error: undefined,
+    })
+  }
+
+  function updateMode(mode: "generate" | "rewrite") {
+    const nextPrompt: ArticlePromptKey = mode === "rewrite"
+      ? "rewrite"
+      : article.promptKey === "rewrite"
+        ? "thirdPartyObservation"
+        : article.promptKey
+    persist({
+      ...article,
+      promptKey: nextPrompt,
+      rewriteBrand: article.rewriteBrand || client.ourBrand || client.name || "",
+      rewriteMaterials: article.rewriteMaterials || article.advantages || "",
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
     })
@@ -215,8 +253,60 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     })
   }
 
+  async function runExtractArticle() {
+    const sourceUrl = article.sourceUrl?.trim() || ""
+    if (!sourceUrl) {
+      persist({ ...article, extractStatus: "error", extractError: "请先填写文章链接" })
+      return
+    }
+    const extracting: ArticleGenerationState = {
+      ...article,
+      extractStatus: "generating",
+      extractError: undefined,
+      error: undefined,
+    }
+    persist(extracting)
+
+    try {
+      const res = await apiFetch("/api/article-generation/extract-url", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: sourceUrl }),
+      })
+      const data = await readApiJson<ArticleExtractResponse>(res, "文章读取")
+      if (!res.ok) throw new Error(data.error || "文章读取失败")
+      persist({
+        ...extracting,
+        sourceUrl: data.finalUrl || sourceUrl,
+        sourceTitle: data.title || "",
+        sourceMarkdown: data.markdown || "",
+        extractStatus: "done",
+        extractError: undefined,
+      })
+    } catch (error) {
+      persist({
+        ...extracting,
+        extractStatus: "error",
+        extractError: error instanceof Error ? error.message : "文章读取失败",
+      })
+    }
+  }
+
   async function runGenerate() {
-    if (!article.coreQuestion.trim()) {
+    if (isRewrite && !article.sourceMarkdown?.trim()) {
+      persist({ ...article, status: "error", error: "请先读取或粘贴原文内容" })
+      return
+    }
+    if (isRewrite && !article.rewriteBrand?.trim()) {
+      persist({ ...article, status: "error", error: "请先填写推荐品牌" })
+      return
+    }
+    if (isRewrite && !article.rewriteMaterials?.trim()) {
+      persist({ ...article, status: "error", error: "请先填写相关资料" })
+      return
+    }
+    if (!isRewrite && !article.coreQuestion.trim()) {
       persist({ ...article, status: "error", error: "请先填写核心搜索问题或内容主题" })
       return
     }
@@ -241,6 +331,11 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           brandName: client.ourBrand || client.name,
           industry: client.industry,
           website: client.website,
+          sourceUrl: generating.sourceUrl,
+          sourceTitle: generating.sourceTitle,
+          sourceMarkdown: generating.sourceMarkdown,
+          rewriteBrand: generating.rewriteBrand,
+          rewriteMaterials: generating.rewriteMaterials,
           coreQuestion: generating.coreQuestion,
           keywords: generating.keywords,
           region: generating.region,
@@ -250,8 +345,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           extraRequirements: generating.extraRequirements,
         }),
       })
-      const data = await readApiJson<ArticleGenerationResponse>(res, "文章生成")
-      if (!res.ok) throw new Error(data.error || "文章生成失败")
+      const data = await readApiJson<ArticleGenerationResponse>(res, isRewrite ? "文章改写" : "文章生成")
+      if (!res.ok) throw new Error(data.error || (isRewrite ? "文章改写失败" : "文章生成失败"))
       const next: ArticleGenerationState = {
         ...generating,
         promptKey: data.promptKey || generating.promptKey,
@@ -267,7 +362,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       persist({
         ...generating,
         status: "error",
-        error: error instanceof Error ? error.message : "文章生成失败",
+        error: error instanceof Error ? error.message : isRewrite ? "文章改写失败" : "文章生成失败",
       })
     }
   }
@@ -305,7 +400,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 文章生成 · GEO 内容写作台
               </div>
               <div className="truncate text-[11px] text-slate-500">
-                {activePrompt.title} · {article.model || activeProvider?.model || "后台托管模型"}
+                {isRewrite ? "文章改写" : activePrompt.title} · {article.model || activeProvider?.model || "后台托管模型"}
               </div>
             </div>
           </div>
@@ -334,6 +429,30 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-700">
               <WandSparkles className="h-3.5 w-3.5 text-[#0077B6]" />
               生成设置
+            </div>
+            <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => updateMode("generate")}
+                className={`h-9 rounded-lg text-xs font-semibold transition ${
+                  !isRewrite
+                    ? "bg-white text-[#004B73] shadow-sm"
+                    : "text-slate-500 hover:bg-white/70"
+                }`}
+              >
+                文章生成
+              </button>
+              <button
+                type="button"
+                onClick={() => updateMode("rewrite")}
+                className={`h-9 rounded-lg text-xs font-semibold transition ${
+                  isRewrite
+                    ? "bg-white text-[#004B73] shadow-sm"
+                    : "text-slate-500 hover:bg-white/70"
+                }`}
+              >
+                文章改写
+              </button>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-xs">
@@ -369,9 +488,11 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           </section>
 
           <section className="rounded-xl border border-slate-200/80 bg-white/80 p-3 shadow-sm sm:p-4">
-            <div className="mb-3 text-xs font-semibold text-slate-700">Prompt 模板</div>
+            <div className="mb-3 text-xs font-semibold text-slate-700">
+              {isRewrite ? "改写模板" : "Prompt 模板"}
+            </div>
             <div className="grid gap-2">
-              {prompts.map(prompt => {
+              {visiblePrompts.map(prompt => {
                 const active = prompt.key === article.promptKey
                 return (
                   <button
@@ -401,6 +522,82 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
           <section className="rounded-xl border border-slate-200/80 bg-white/80 p-3 shadow-sm sm:p-4">
             <div className="grid gap-3">
+              {isRewrite ? (
+                <>
+                  <Label className="text-xs">
+                    <span className="mb-1.5 block font-medium text-slate-500">原文链接</span>
+                    <div className="flex gap-2">
+                      <Input
+                        value={article.sourceUrl || ""}
+                        onChange={event => updateField("sourceUrl", event.target.value)}
+                        placeholder="粘贴需要改写的文章链接"
+                        className="h-10 rounded-lg bg-white"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={runExtractArticle}
+                        disabled={isExtracting || !article.sourceUrl?.trim()}
+                        className="h-10 shrink-0 gap-1.5 rounded-lg"
+                      >
+                        {isExtracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link className="h-3.5 w-3.5" />}
+                        读取
+                      </Button>
+                    </div>
+                  </Label>
+                  {article.extractError && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      {article.extractError}
+                    </div>
+                  )}
+                  <Label className="text-xs">
+                    <span className="mb-1.5 block font-medium text-slate-500">原文标题</span>
+                    <Input
+                      value={article.sourceTitle || ""}
+                      onChange={event => updateField("sourceTitle", event.target.value)}
+                      placeholder="读取后自动填入，也可手动修改"
+                      className="h-10 rounded-lg bg-white"
+                    />
+                  </Label>
+                  <Label className="text-xs">
+                    <span className="mb-1.5 block font-medium text-slate-500">原文 Markdown</span>
+                    <Textarea
+                      value={article.sourceMarkdown || ""}
+                      onChange={event => updateField("sourceMarkdown", event.target.value)}
+                      placeholder={"读取后的原文会显示在这里；也可以直接粘贴原文 Markdown。"}
+                      className="min-h-[220px] rounded-lg bg-white font-mono text-xs leading-5"
+                    />
+                  </Label>
+                  <Label className="text-xs">
+                    <span className="mb-1.5 block font-medium text-slate-500">推荐品牌</span>
+                    <Textarea
+                      value={article.rewriteBrand || ""}
+                      onChange={event => updateField("rewriteBrand", event.target.value)}
+                      placeholder={"填写要推荐的品牌名称、产品名称、核心卖点\n例如：杭州势途数字科技有限公司 / 势途 GEO / GEO 内容优化服务"}
+                      className="min-h-[90px] rounded-lg bg-white"
+                    />
+                  </Label>
+                  <Label className="text-xs">
+                    <span className="mb-1.5 block font-medium text-slate-500">相关资料</span>
+                    <Textarea
+                      value={article.rewriteMaterials || ""}
+                      onChange={event => updateField("rewriteMaterials", event.target.value)}
+                      placeholder={"填写品牌介绍、产品优势、应用场景、参数、案例、用户痛点、行业背景等\n系统会禁止模型编造未提供的数据、资质、价格或案例。"}
+                      className="min-h-[150px] rounded-lg bg-white"
+                    />
+                  </Label>
+                  <Label className="text-xs">
+                    <span className="mb-1.5 block font-medium text-slate-500">补充要求</span>
+                    <Textarea
+                      value={article.extraRequirements}
+                      onChange={event => updateField("extraRequirements", event.target.value)}
+                      placeholder="例如：保留原文小标题数量 / 不要提价格 / 适合小红书长文发布"
+                      className="min-h-[90px] rounded-lg bg-white"
+                    />
+                  </Label>
+                </>
+              ) : (
+                <>
               {hasKeywordQuickFill && (
                 <div className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-3">
                   <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -540,6 +737,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                   className="min-h-[95px] rounded-lg bg-white"
                 />
               </Label>
+                </>
+              )}
             </div>
           </section>
 
@@ -563,7 +762,11 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             ) : (
               <WandSparkles className="h-4 w-4" />
             )}
-            {isGenerating ? "文章生成中..." : hasOutput ? "重新生成文章" : "生成文章"}
+            {isGenerating
+              ? isRewrite ? "文章改写中..." : "文章生成中..."
+              : hasOutput
+                ? isRewrite ? "重新改写文章" : "重新生成文章"
+                : isRewrite ? "开始改写文章" : "生成文章"}
           </Button>
         </div>
 
@@ -572,7 +775,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             <div>
               <div className="text-sm font-semibold text-slate-900">生成结果</div>
               <div className="text-[11px] text-slate-500">
-                {article.status === "done" ? "已生成，可继续编辑" : "等待生成"}
+                {article.status === "done" ? "已生成，可继续编辑" : isRewrite ? "等待改写" : "等待生成"}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -594,7 +797,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           <Textarea
             value={article.output}
             onChange={event => updateField("output", event.target.value)}
-            placeholder={isGenerating ? "模型正在生成文章..." : "生成后的内容会显示在这里"}
+            placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的内容会显示在这里"}
             className="min-h-[560px] flex-1 resize-none rounded-none border-0 bg-transparent p-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0"
           />
         </section>

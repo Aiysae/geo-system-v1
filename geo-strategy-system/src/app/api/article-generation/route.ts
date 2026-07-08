@@ -34,6 +34,7 @@ const ARTICLE_PROMPTS: ArticlePromptKey[] = [
   "thirdPartyObservation",
   "pitfallGuide",
   "shortVideoScript",
+  "rewrite",
 ]
 
 function asPromptKey(value: unknown): ArticlePromptKey | null {
@@ -83,7 +84,35 @@ function buildUserPrompt(args: {
   advantages: string
   audience: string
   extraRequirements: string
+  sourceTitle?: string
+  sourceUrl?: string
+  sourceMarkdown?: string
+  rewriteBrand?: string
+  rewriteMaterials?: string
 }): string {
+  if (args.promptKey === "rewrite") {
+    return [
+      "请根据以下【原文】、【推荐品牌】和【相关资料】直接输出改写后的完整 Markdown 文章。",
+      "不要输出解释、提示词、改写说明或过程说明。",
+      "",
+      "【原文信息】",
+      `原文标题：${args.sourceTitle || "未提取到标题"}`,
+      `原文链接：${args.sourceUrl || "未提供"}`,
+      "",
+      "【原文】",
+      args.sourceMarkdown || "未提供原文",
+      "",
+      "【推荐品牌】",
+      args.rewriteBrand || args.brandName || args.clientName || "未填写",
+      "",
+      "【相关资料】",
+      args.rewriteMaterials || args.advantages || "未提供，请避免编造硬事实",
+      "",
+      "【补充要求】",
+      args.extraRequirements || "无",
+    ].join("\n")
+  }
+
   const outputNote =
     args.promptKey === "shortVideoScript"
       ? "请生成一条 30-60 秒短视频口播文案，只输出标题、正文、5个标签。"
@@ -124,6 +153,7 @@ export async function POST(req: NextRequest) {
     if (!promptKey) {
       return NextResponse.json({ error: "请选择有效的文章 Prompt" }, { status: 400 })
     }
+    const isRewrite = promptKey === "rewrite"
 
     const template = getArticlePromptTemplate(promptKey)
     if (!template) {
@@ -131,8 +161,21 @@ export async function POST(req: NextRequest) {
     }
 
     const coreQuestion = text(body.coreQuestion, 500)
-    if (!coreQuestion) {
+    const sourceMarkdown = text(body.sourceMarkdown, 60000)
+    const rewriteBrand = text(body.rewriteBrand || body.brandName, 1000)
+    const rewriteMaterials = text(body.rewriteMaterials || body.advantages, 12000)
+
+    if (!isRewrite && !coreQuestion) {
       return NextResponse.json({ error: "请填写核心搜索问题或内容主题" }, { status: 400 })
+    }
+    if (isRewrite && !sourceMarkdown) {
+      return NextResponse.json({ error: "请先读取或粘贴原文内容" }, { status: 400 })
+    }
+    if (isRewrite && !rewriteBrand) {
+      return NextResponse.json({ error: "请填写推荐品牌" }, { status: 400 })
+    }
+    if (isRewrite && !rewriteMaterials) {
+      return NextResponse.json({ error: "请填写相关资料" }, { status: 400 })
     }
 
     const userGuard = await requireUserId()
@@ -161,7 +204,7 @@ export async function POST(req: NextRequest) {
       featureKey,
       source: "api:article-generation",
       description: getFeaturePrice(featureKey).label,
-      metadata: { promptKey, modelProvider },
+      metadata: { promptKey, modelProvider, mode: isRewrite ? "rewrite" : "generate" },
     })
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
@@ -184,6 +227,11 @@ export async function POST(req: NextRequest) {
         advantages: text(body.advantages, 3000),
         audience: text(body.audience, 800),
         extraRequirements: text(body.extraRequirements, 2000),
+        sourceTitle: text(body.sourceTitle, 300),
+        sourceUrl: text(body.sourceUrl, 1000),
+        sourceMarkdown,
+        rewriteBrand,
+        rewriteMaterials,
       }),
       temperature: template.temperature,
       maxTokens: template.maxTokens,
