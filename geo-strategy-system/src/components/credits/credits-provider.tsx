@@ -1,9 +1,9 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
-import Link from "next/link"
 import { Sparkles, X } from "lucide-react"
 import { registerCreditsHandlers, unregisterCreditsHandlers } from "@/lib/api-fetch"
+import { BillingLink } from "@/components/billing/billing-link"
 
 type CreditsContextValue = {
   balance: number | null
@@ -138,13 +138,12 @@ function InsufficientCreditsModal({
             >
               我知道了
             </button>
-            <Link
-              href="/billing"
-              onClick={onClose}
+            <BillingLink
+              onNavigate={onClose}
               className="flex-1 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] py-2.5 text-center text-sm font-medium text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40"
             >
               去充值
-            </Link>
+            </BillingLink>
           </div>
         </div>
       </div>
