@@ -39,8 +39,9 @@ export type PublicUser = Omit<AuthUser, "passwordHash">
 export type PasswordResetRequest = {
   id: string
   email: string
-  userId: string
-  userName: string
+  userId?: string
+  userName?: string
+  userStatus?: AuthUser["status"] | "missing"
   status: "pending" | "link_generated" | "used"
   createdAt: string
   updatedAt: string
@@ -210,17 +211,15 @@ export async function createPasswordResetRequest(emailInput: string): Promise<vo
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return
 
   const userId = await kv.get<string>(KEY_EMAIL(email))
-  if (!userId) return
-
-  const user = await kv.get<AuthUser>(KEY_USER(userId))
-  if (!user || user.status !== "active") return
+  const user = userId ? await kv.get<AuthUser>(KEY_USER(userId)) : null
 
   const now = new Date().toISOString()
   const request: PasswordResetRequest = {
     id: `reset_req_${randomUUID().replace(/-/g, "")}`,
     email,
-    userId: user.id,
-    userName: user.name,
+    userId: user?.id || userId || undefined,
+    userName: user?.name,
+    userStatus: user?.status || "missing",
     status: "pending",
     createdAt: now,
     updatedAt: now,
@@ -255,6 +254,12 @@ export async function createPasswordResetLinkForRequest(
   const request = await kv.get<PasswordResetRequest>(KEY_PASSWORD_RESET_REQUEST(requestId))
   if (!request) throw new Error("重置申请不存在或已过期")
   if (request.status === "used") throw new Error("该重置申请已完成")
+  if (!request.userId || request.userStatus === "missing") {
+    throw new Error("该邮箱未匹配到有效用户，不能生成重置链接")
+  }
+  if (request.userStatus === "disabled") {
+    throw new Error("该用户已停用，不能生成重置链接")
+  }
 
   const user = await kv.get<AuthUser>(KEY_USER(request.userId))
   if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
