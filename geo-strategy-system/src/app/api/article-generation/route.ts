@@ -147,6 +147,7 @@ function buildUserPrompt(args: {
 
 export async function POST(req: NextRequest) {
   let reservation: CreditReservation | null = null
+  let isRewriteRequest = false
   try {
     const body = await req.json()
     const promptKey = asPromptKey(body.promptKey)
@@ -154,6 +155,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请选择有效的文章 Prompt" }, { status: 400 })
     }
     const isRewrite = promptKey === "rewrite"
+    isRewriteRequest = isRewrite
 
     const template = getArticlePromptTemplate(promptKey)
     if (!template) {
@@ -268,7 +270,7 @@ export async function POST(req: NextRequest) {
 
     if (/timeout|timed out|超时/i.test(message)) {
       return NextResponse.json(
-        { error: "文章生成超时，请稍后重试，或在后台增加文章生成模型超时时间。" },
+        { error: `${isRewriteRequest ? "文章改写" : "文章生成"}超时，请稍后重试，或在后台增加文章生成模型超时时间。` },
         { status: 504 }
       )
     }
@@ -279,6 +281,6 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    return NextResponse.json({ error: `文章生成失败：${message}` }, { status: 500 })
+    return NextResponse.json({ error: `${isRewriteRequest ? "文章改写" : "文章生成"}失败：${message}` }, { status: 500 })
   }
 }

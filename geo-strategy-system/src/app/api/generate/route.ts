@@ -206,13 +206,14 @@ async function handler(req: NextRequest) {
       console.log("[势途 GEO API] JSON 解析成功! 顶层字段:", Object.keys(strategy))
     } catch (parseErr) {
       console.error("[势途 GEO API] JSON 解析失败:", parseErr)
-      console.error("[势途 GEO API] 原始未解析文本（前 2000 字符）:\n", content.slice(0, 2000))
-      console.error("[势途 GEO API] 提取后待解析文本（前 2000 字符）:\n", jsonStr.slice(0, 2000))
+      console.error("[势途 GEO API] JSON 解析失败详情:", {
+        contentLength: content.length,
+        extractedLength: jsonStr.length,
+      })
       await refundReservedCreditsQuietly(reservation)
       reservation = null
       return NextResponse.json(
         {
-          raw: content,
           error: "无法解析 AI 返回结果，请重试",
           parseError: parseErr instanceof Error ? parseErr.message : String(parseErr),
         }
@@ -226,7 +227,6 @@ async function handler(req: NextRequest) {
       await refundReservedCreditsQuietly(reservation)
       reservation = null
       return NextResponse.json({
-        raw: content,
         error: `AI 返回结果缺少必要字段: ${missing.join(", ")}`,
         partial: strategy,
       })

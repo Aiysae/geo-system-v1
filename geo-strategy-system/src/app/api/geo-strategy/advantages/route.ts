@@ -208,7 +208,6 @@ async function handler(req: NextRequest) {
       reservation = null
       return NextResponse.json({
         error: "AI 返回格式异常，无法解析优势资产",
-        raw: raw.slice(0, 1200),
       }, { status: 422 })
     }
 

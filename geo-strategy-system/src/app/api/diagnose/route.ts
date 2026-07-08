@@ -132,7 +132,7 @@ async function handler(req: NextRequest) {
       await refundReservedCreditsQuietly(reservation)
       reservation = null
       return NextResponse.json(
-        { error: "AI 返回格式异常，请重试", raw: raw.slice(0, 500) },
+        { error: "AI 返回格式异常，请重试" },
         { status: 502 }
       )
     }

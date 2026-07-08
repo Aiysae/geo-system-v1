@@ -167,13 +167,12 @@ export function parseJsonLoose(raw: string): unknown {
   return null
 }
 
-// 严格版：解析失败时抛出含原始文本前 500 字的清晰错误，便于上层透传给前端。
+// 严格版：解析失败时只返回结构化错误，不把模型原文透传到前端或日志。
 export function parseJsonStrict<T = unknown>(raw: string, contextLabel = "LLM"): T {
   const parsed = parseJsonLoose(raw) as T | null
   if (parsed === null || parsed === undefined) {
-    const preview = (raw ?? "").trim().slice(0, 500)
     throw new Error(
-      `${contextLabel} 返回内容无法解析为 JSON（已剥离 markdown 代码块后仍失败）。原始片段：${preview}`
+      `${contextLabel} 返回内容无法解析为 JSON（已剥离 markdown 代码块后仍失败）。`
     )
   }
   return parsed
