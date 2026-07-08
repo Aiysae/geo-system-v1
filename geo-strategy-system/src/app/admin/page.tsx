@@ -2,7 +2,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { Inbox, KeyRound, ReceiptText, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
-import { getCurrentUser, listUsers } from "@/lib/auth"
+import { getCurrentUser, listPasswordResetRequests, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
 import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "./credits-adjust-form"
@@ -31,7 +31,10 @@ export default async function AdminPage() {
     )
   }
 
-  const users = await listUsers()
+  const [users, passwordResetRequests] = await Promise.all([
+    listUsers(),
+    listPasswordResetRequests(120),
+  ])
   const rows = await Promise.all(
     users.map(async user => ({
       user,
@@ -40,6 +43,7 @@ export default async function AdminPage() {
   )
   const totalCredits = rows.reduce((sum, row) => sum + row.credits, 0)
   const adminCount = rows.filter(row => row.user.role === "admin").length
+  const pendingPasswordResetCount = passwordResetRequests.filter(request => request.status === "pending").length
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
@@ -81,6 +85,11 @@ export default async function AdminPage() {
             >
               <KeyRound className="h-3.5 w-3.5 text-[#0077B6]" />
               密码重置
+              {pendingPasswordResetCount > 0 && (
+                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-700">
+                  {pendingPasswordResetCount}
+                </span>
+              )}
             </Link>
             <Link
               href="/"

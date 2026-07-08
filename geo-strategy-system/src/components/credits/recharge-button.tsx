@@ -4,7 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useActionState, useState, useEffect } from "react"
 import { createPortal } from "react-dom"
-import { CreditCard, Sparkles, X, Plus } from "lucide-react"
+import { Building2, CreditCard, QrCode, Sparkles, X, Plus } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
 import { useCredits } from "./credits-provider"
 import { formatYuan, RECHARGE_PACKAGES, type RechargePackageKey } from "@/lib/pricing"
@@ -60,7 +60,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
     || RECHARGE_PAYMENT_INFO.bankCode
     || RECHARGE_PAYMENT_INFO.contact
   )
-  const hasQrCodes = RECHARGE_PAYMENT_INFO.qrCodes.length > 0
+  const selectedQrCode = RECHARGE_PAYMENT_INFO.qrCodes.find(code => code.method === paymentMethod)
 
   const dialog = (
     <div
@@ -121,37 +121,6 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                   付款说明
                 </div>
                 <p>{RECHARGE_PAYMENT_INFO.notice}</p>
-                {hasAccountInfo && (
-                  <div className="mt-2 grid gap-1 rounded-lg bg-white/70 px-3 py-2 text-[11px] text-slate-600 ring-1 ring-blue-100">
-                    {RECHARGE_PAYMENT_INFO.accountName && <div>户名：{RECHARGE_PAYMENT_INFO.accountName}</div>}
-                    {RECHARGE_PAYMENT_INFO.creditCode && <div>统一社会信用代码：{RECHARGE_PAYMENT_INFO.creditCode}</div>}
-                    {RECHARGE_PAYMENT_INFO.registeredAddress && <div>注册地址：{RECHARGE_PAYMENT_INFO.registeredAddress}</div>}
-                    {RECHARGE_PAYMENT_INFO.bankName && <div>开户行：{RECHARGE_PAYMENT_INFO.bankName}</div>}
-                    {RECHARGE_PAYMENT_INFO.accountNo && <div className="break-all font-mono">账号：{RECHARGE_PAYMENT_INFO.accountNo}</div>}
-                    {RECHARGE_PAYMENT_INFO.bankCode && <div className="font-mono">行号：{RECHARGE_PAYMENT_INFO.bankCode}</div>}
-                    {RECHARGE_PAYMENT_INFO.contact && <div>联系：{RECHARGE_PAYMENT_INFO.contact}</div>}
-                  </div>
-                )}
-                {hasQrCodes && (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {RECHARGE_PAYMENT_INFO.qrCodes.map(code => (
-                      <div key={code.imageUrl} className="rounded-xl bg-white p-2 ring-1 ring-blue-100">
-                        <div className="mb-2 text-center text-xs font-semibold text-slate-900">{code.label}</div>
-                        <Image
-                          src={code.imageUrl}
-                          alt={`${code.label}收款码`}
-                          width={360}
-                          height={520}
-                          className="max-h-[34dvh] min-h-[180px] w-full rounded-lg object-contain sm:max-h-[320px]"
-                          sizes="(max-width: 640px) 82vw, 280px"
-                        />
-                        {code.description && (
-                          <div className="mt-2 text-center text-[11px] text-slate-500">{code.description}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
                 <p className="mt-2 text-[11px] text-slate-500">
                   建议付款备注填写注册邮箱和套餐名称，便于管理员核对。提交充值申请即表示你理解积分仅用于平台服务消耗，并同意
                   <Link href="/recharge-rules" target="_blank" className="mx-1 font-medium text-[#006AA3] hover:text-[#004B73]">
@@ -213,6 +182,12 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 <option value="alipay">支付宝</option>
                 <option value="other">其他</option>
               </select>
+
+              <PaymentMethodInfo
+                hasAccountInfo={hasAccountInfo}
+                paymentMethod={paymentMethod}
+                selectedQrCode={selectedQrCode}
+              />
 
               <label className="mt-4 block text-xs font-medium text-slate-700">
                 付款人 / 付款账户名（推荐）
@@ -283,4 +258,86 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
 
   if (typeof document === "undefined") return null
   return createPortal(dialog, document.body)
+}
+
+function PaymentMethodInfo({
+  hasAccountInfo,
+  paymentMethod,
+  selectedQrCode,
+}: {
+  hasAccountInfo: boolean
+  paymentMethod: string
+  selectedQrCode?: (typeof RECHARGE_PAYMENT_INFO.qrCodes)[number]
+}) {
+  if (paymentMethod === "manual_transfer") {
+    return (
+      <div className="mt-3 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-emerald-100">
+        <div className="mb-2 flex items-center gap-1.5 font-semibold text-slate-900">
+          <Building2 className="h-3.5 w-3.5 text-emerald-700" />
+          对公转账账户
+        </div>
+        {hasAccountInfo ? (
+          <div className="grid gap-1 rounded-lg bg-white/80 px-3 py-2 text-[11px] text-slate-700 ring-1 ring-emerald-100">
+            {RECHARGE_PAYMENT_INFO.accountName && <div>账户名称：{RECHARGE_PAYMENT_INFO.accountName}</div>}
+            {RECHARGE_PAYMENT_INFO.creditCode && <div>统一社会信用代码：{RECHARGE_PAYMENT_INFO.creditCode}</div>}
+            {RECHARGE_PAYMENT_INFO.registeredAddress && <div>注册地址：{RECHARGE_PAYMENT_INFO.registeredAddress}</div>}
+            {RECHARGE_PAYMENT_INFO.accountNo && (
+              <div className="break-all font-mono">账户号码：{RECHARGE_PAYMENT_INFO.accountNo}</div>
+            )}
+            {RECHARGE_PAYMENT_INFO.bankName && <div>开户银行：{RECHARGE_PAYMENT_INFO.bankName}</div>}
+            {RECHARGE_PAYMENT_INFO.bankCode && <div className="font-mono">行号：{RECHARGE_PAYMENT_INFO.bankCode}</div>}
+            {RECHARGE_PAYMENT_INFO.contact && <div>联系：{RECHARGE_PAYMENT_INFO.contact}</div>}
+          </div>
+        ) : (
+          <div className="rounded-lg bg-white/80 px-3 py-2 text-[11px] text-rose-600 ring-1 ring-rose-100">
+            当前未配置对公账户信息，请联系管理员。
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-slate-500">
+          转账备注建议填写注册邮箱和充值套餐，提交申请时同步填写付款人或流水号。
+        </p>
+      </div>
+    )
+  }
+
+  if (paymentMethod === "wechat" || paymentMethod === "alipay") {
+    return (
+      <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-slate-200">
+        <div className="mb-2 flex items-center gap-1.5 font-semibold text-slate-900">
+          <QrCode className="h-3.5 w-3.5 text-[#0077B6]" />
+          {paymentMethod === "wechat" ? "微信收款码" : "支付宝收款码"}
+        </div>
+        {selectedQrCode ? (
+          <div className="mx-auto max-w-sm rounded-xl bg-white p-2 ring-1 ring-slate-200">
+            <div className="mb-2 text-center text-xs font-semibold text-slate-900">{selectedQrCode.label}</div>
+            <Image
+              src={selectedQrCode.imageUrl}
+              alt={`${selectedQrCode.label}收款码`}
+              width={360}
+              height={520}
+              className="max-h-[36dvh] min-h-[180px] w-full rounded-lg object-contain sm:max-h-[360px]"
+              sizes="(max-width: 640px) 82vw, 320px"
+              priority={false}
+            />
+            {selectedQrCode.description && (
+              <div className="mt-2 text-center text-[11px] text-slate-500">{selectedQrCode.description}</div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-lg bg-white px-3 py-2 text-[11px] text-rose-600 ring-1 ring-rose-100">
+            当前未配置该付款方式的收款码，请切换其他方式或联系管理员。
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-slate-500">
+          付款后请在下方填写付款人、交易号或付款截图链接，便于后台核对到账。
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600 ring-1 ring-slate-200">
+      请选择微信、支付宝或对公转账。其他付款方式需先与管理员确认后再提交申请。
+    </div>
+  )
 }

@@ -15,6 +15,8 @@ export default async function AdminPasswordResetsPage() {
   if (!isAdminUser(currentUser)) redirect("/admin")
 
   const requests = await listPasswordResetRequests(120)
+  const pendingCount = requests.filter(request => request.status === "pending").length
+  const unmatchedCount = requests.filter(request => (request.userStatus || (request.userId ? "active" : "missing")) === "missing").length
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
@@ -46,6 +48,14 @@ export default async function AdminPasswordResetsPage() {
             <p className="mt-1 text-xs leading-5 text-slate-500">
               用户提交申请后，管理员在这里生成一次性链接并发给用户。链接 30 分钟内有效，使用一次后失效。
             </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-lg bg-amber-50 px-2.5 py-1 font-medium text-amber-700 ring-1 ring-amber-200">
+                待处理 {pendingCount}
+              </span>
+              <span className="rounded-lg bg-slate-50 px-2.5 py-1 font-medium text-slate-600 ring-1 ring-slate-200">
+                未匹配邮箱 {unmatchedCount}
+              </span>
+            </div>
           </div>
           {requests.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-slate-400">暂无密码重置申请</div>
@@ -55,6 +65,7 @@ export default async function AdminPasswordResetsPage() {
                 <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-5 py-3">用户</th>
+                    <th className="px-5 py-3">匹配状态</th>
                     <th className="px-5 py-3">状态</th>
                     <th className="px-5 py-3">申请时间</th>
                     <th className="px-5 py-3">链接过期时间</th>

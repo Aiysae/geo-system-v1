@@ -16,12 +16,31 @@ const STATUS_CLASS: Record<PasswordResetRequest["status"], string> = {
   used: "bg-emerald-50 text-emerald-700 ring-emerald-200",
 }
 
+const MATCH_STATUS_LABEL = {
+  active: "有效用户",
+  disabled: "用户已停用",
+  missing: "未匹配用户",
+} as const
+
+const MATCH_STATUS_CLASS = {
+  active: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  disabled: "bg-rose-50 text-rose-700 ring-rose-200",
+  missing: "bg-slate-50 text-slate-600 ring-slate-200",
+} as const
+
 function formatTime(value?: string): string {
   if (!value) return "-"
   return new Date(value).toLocaleString("zh-CN", { hour12: false })
 }
 
 export function PasswordResetRow({ request }: { request: PasswordResetRequest }) {
+  const matchStatus = request.userStatus || (request.userId ? "active" : "missing")
+  const canGenerateLink = request.status !== "used" && matchStatus === "active" && Boolean(request.userId)
+  const disabledReason = matchStatus === "missing"
+    ? "该邮箱未匹配到系统用户，不能生成链接"
+    : matchStatus === "disabled"
+      ? "该用户已停用，不能生成链接"
+      : ""
   const [state, formAction, pending] = useActionState<PasswordResetLinkState, FormData>(
     createPasswordResetLinkAction,
     {},
@@ -35,8 +54,13 @@ export function PasswordResetRow({ request }: { request: PasswordResetRequest })
   return (
     <tr className="border-t border-slate-100 text-sm">
       <td className="px-5 py-3">
-        <div className="font-medium text-slate-900">{request.userName || "用户"}</div>
+        <div className="font-medium text-slate-900">{request.userName || "未匹配用户"}</div>
         <div className="mt-0.5 font-mono text-xs text-slate-500">{request.email}</div>
+      </td>
+      <td className="px-5 py-3">
+        <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-medium ring-1 ${MATCH_STATUS_CLASS[matchStatus]}`}>
+          {MATCH_STATUS_LABEL[matchStatus]}
+        </span>
       </td>
       <td className="px-5 py-3">
         <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-medium ring-1 ${STATUS_CLASS[request.status]}`}>
@@ -50,11 +74,16 @@ export function PasswordResetRow({ request }: { request: PasswordResetRequest })
           <input type="hidden" name="requestId" value={request.id} />
           <button
             type="submit"
-            disabled={pending || request.status === "used"}
+            disabled={pending || !canGenerateLink}
             className="inline-flex w-fit items-center rounded-lg bg-[#006AA3] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#004B73] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending ? "生成中..." : "生成重置链接"}
+            {pending ? "生成中..." : canGenerateLink ? "生成重置链接" : "不能生成链接"}
           </button>
+          {disabledReason && (
+            <div className="text-xs text-slate-500">
+              {disabledReason}
+            </div>
+          )}
           {state.message && (
             <div className={`text-xs ${state.ok ? "text-emerald-700" : "text-rose-600"}`}>
               {state.message}
