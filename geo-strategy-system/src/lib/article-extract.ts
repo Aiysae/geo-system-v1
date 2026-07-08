@@ -26,6 +26,7 @@ const UA =
 function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split(".").map(Number)
   if (parts.length !== 4 || parts.some(part => !Number.isInteger(part))) return true
+  if (parts.some(part => part < 0 || part > 255)) return true
   const [a, b] = parts
   return (
     a === 0 ||
@@ -39,17 +40,47 @@ function isPrivateIpv4(ip: string): boolean {
   )
 }
 
+function normalizeHostAddress(host: string): string {
+  return host.startsWith("[") && host.endsWith("]")
+    ? host.slice(1, -1).toLowerCase()
+    : host.toLowerCase()
+}
+
+function ipv4FromMappedIpv6(ip: string): string | null {
+  const rest = ip.toLowerCase().match(/^::ffff:(.+)$/)?.[1]
+  if (!rest) return null
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(rest)) return rest
+
+  const groups = rest.split(":").filter(Boolean)
+  if (groups.length < 2) return null
+  const high = Number.parseInt(groups[groups.length - 2], 16)
+  const low = Number.parseInt(groups[groups.length - 1], 16)
+  if (![high, low].every(value => Number.isInteger(value) && value >= 0 && value <= 0xffff)) {
+    return null
+  }
+  return [
+    (high >> 8) & 0xff,
+    high & 0xff,
+    (low >> 8) & 0xff,
+    low & 0xff,
+  ].join(".")
+}
+
 function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase()
+  const lower = normalizeHostAddress(ip)
+  const mappedIpv4 = ipv4FromMappedIpv6(lower)
+  if (mappedIpv4) return isPrivateIpv4(mappedIpv4)
+
+  const firstSegment = Number.parseInt(lower.split(":")[0] || "", 16)
+  const isLinkLocal = Number.isFinite(firstSegment) && firstSegment >= 0xfe80 && firstSegment <= 0xfebf
+
   return (
     lower === "::1" ||
     lower === "::" ||
     lower.startsWith("fc") ||
     lower.startsWith("fd") ||
-    lower.startsWith("fe80") ||
-    lower.startsWith("::ffff:127.") ||
-    lower.startsWith("::ffff:10.") ||
-    lower.startsWith("::ffff:192.168.")
+    lower.startsWith("ff") ||
+    isLinkLocal
   )
 }
 
@@ -76,7 +107,7 @@ async function validatePublicUrl(rawUrl: string): Promise<URL> {
   if (parsed.username || parsed.password) {
     throw new Error("文章链接不能包含用户名或密码。")
   }
-  const host = parsed.hostname.toLowerCase()
+  const host = normalizeHostAddress(parsed.hostname)
   if (!host || host === "localhost" || host.endsWith(".localhost")) {
     throw new Error("文章链接不能指向 localhost。")
   }

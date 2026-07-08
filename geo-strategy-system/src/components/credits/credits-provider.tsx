@@ -44,13 +44,6 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // 页面加载后初始化积分；未登录页面会收到 401 并保持为空。
-  useEffect(() => {
-    queueMicrotask(() => {
-      void refresh()
-    })
-  }, [refresh])
-
   // 注册 fetch 桥接回调
   useEffect(() => {
     registerCreditsHandlers({

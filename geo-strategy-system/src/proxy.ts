@@ -11,7 +11,7 @@ function noStore(response: NextResponse): NextResponse {
 
 export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl
-  const isPublicPath = PUBLIC_PATHS.some(path => pathname.startsWith(path))
+  const isPublicPath = pathname === "/" || PUBLIC_PATHS.some(path => pathname.startsWith(path))
   const sessionId = verifySessionCookieValue(req.cookies.get(AUTH_COOKIE_NAME)?.value)
 
   if (!isPublicPath && !pathname.startsWith("/api") && !sessionId) {

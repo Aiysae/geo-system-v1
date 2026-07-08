@@ -1,12 +1,8 @@
-import { redirect } from "next/navigation"
-import AppShell from "@/components/app-shell"
-import { getCurrentUser } from "@/lib/auth"
+import { AuthenticatedAppShell } from "@/components/auth/authenticated-app-shell"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-export default async function HomePage() {
-  const user = await getCurrentUser()
-  if (!user) redirect("/sign-in?redirect_url=/")
-  return <AppShell />
+export default function HomePage() {
+  return <AuthenticatedAppShell />
 }

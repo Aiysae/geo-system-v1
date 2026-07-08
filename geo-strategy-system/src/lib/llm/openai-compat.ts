@@ -54,6 +54,12 @@ function redactSecrets(text: string): string {
     .replace(/Bearer\s+[A-Za-z0-9._\-]{16,}/gi, "Bearer ***")
 }
 
+function safeErrorSnippet(text: string, max = 500): string {
+  return redactSecrets(text)
+    .replace(/\s+/g, " ")
+    .slice(0, max)
+}
+
 function parseOnlyAllowedTemperature(message: string): number | null {
   if (!/invalid temperature/i.test(message)) return null
   const match = message.match(/only\s+([0-9]+(?:\.[0-9]+)?)\s+is\s+allowed/i)
@@ -231,17 +237,16 @@ export async function openaiCompatRaw({
       upstreamCode = parsed?.error?.code || parsed?.code || ""
       upstreamMsg = parsed?.error?.message || parsed?.message || ""
     } catch (parseErr) {
-      // 撕掉假报错的面具：JSON.parse 失败时打印未解析的 raw text，便于定位为什么只输出 1 个 token
       const parseErrorMsg = parseErr instanceof Error ? parseErr.message : String(parseErr)
       console.error(
-        `[${label}·raw-parse-fail] JSON.parse 解析错误响应体失败：${parseErrorMsg}\n--- 原始未解析 raw text 开始 ---\n${txt}\n--- 原始未解析 raw text 结束 ---`
+        `[${label}·raw-parse-fail] JSON.parse 解析错误响应体失败：${parseErrorMsg} | bodyLength=${txt.length} | bodyPreview=${safeErrorSnippet(txt, 240)}`
       )
     }
     console.error(
-      `[${label}·HTTP ${res.status} ${res.statusText || ""}] model=${model} | code=${upstreamCode || "-"} | message=${upstreamMsg || txt.slice(0, 500) || "(empty body)"}`
+      `[${label}·HTTP ${res.status} ${res.statusText || ""}] model=${model} | code=${upstreamCode || "-"} | message=${safeErrorSnippet(upstreamMsg || txt, 300) || "(empty body)"}`
     )
     throw new Error(
-      `${label} 接口调用失败 HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}${upstreamCode ? ` [${upstreamCode}]` : ""}：${upstreamMsg || txt.slice(0, 200) || "(无响应体)"}`
+      `${label} 接口调用失败 HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}${upstreamCode ? ` [${upstreamCode}]` : ""}：${safeErrorSnippet(upstreamMsg || txt, 200) || "(无响应体)"}`
     )
   }
 
@@ -252,9 +257,9 @@ export async function openaiCompatRaw({
   } catch (parseErr) {
     const msg = parseErr instanceof Error ? parseErr.message : String(parseErr)
     console.error(
-      `[${label}·success-parse-fail] HTTP 200 但响应体不是合法 JSON：${msg}\n--- Kimi 原始未解析 raw text 开始 ---\n${okText}\n--- Kimi 原始未解析 raw text 结束 ---`
+      `[${label}·success-parse-fail] HTTP 200 但响应体不是合法 JSON：${msg} | bodyLength=${okText.length} | bodyPreview=${safeErrorSnippet(okText, 240)}`
     )
-    throw new Error(`${label} 返回体解析失败：${msg}（原始内容已打印到服务端控制台）`)
+    throw new Error(`${label} 返回体解析失败：${msg}（服务端已记录响应长度和脱敏摘要）`)
   }
 }
 

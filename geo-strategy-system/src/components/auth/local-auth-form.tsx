@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { ArrowRight, Loader2, LockKeyhole, Mail, UserRound } from "lucide-react"
 
 type Mode = "sign-in" | "sign-up"
@@ -17,6 +18,7 @@ export function LocalAuthForm({
 }) {
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
+  const router = useRouter()
   const isSignUp = mode === "sign-up"
   const target = isSignUp ? "/api/auth/sign-up" : "/api/auth/sign-in"
   const nextUrl = sanitizeRedirect(redirectUrl)
@@ -48,7 +50,9 @@ export function LocalAuthForm({
         return
       }
 
-      window.location.assign(nextUrl)
+      await waitForSessionReady()
+      router.replace(nextUrl)
+      router.refresh()
     } catch {
       setError("网络连接失败，请稍后重试")
     } finally {
@@ -184,6 +188,17 @@ export function LocalAuthForm({
       </div>
     </div>
   )
+}
+
+async function waitForSessionReady(): Promise<void> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const res = await fetch("/api/me", {
+      cache: "no-store",
+      credentials: "same-origin",
+    }).catch(() => null)
+    if (res?.ok) return
+    await new Promise(resolve => window.setTimeout(resolve, 120 * (attempt + 1)))
+  }
 }
 
 function sanitizeRedirect(value?: string): string {

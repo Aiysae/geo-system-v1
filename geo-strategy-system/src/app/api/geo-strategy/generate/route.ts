@@ -194,10 +194,7 @@ async function generateStrategyWithRetries(args: {
     }
   }
 
-  const rawPreview = lastRaw.trim().slice(0, 1200)
-  throw new Error(
-    `${lastError || "AI 返回格式异常"}${rawPreview ? `。原始片段：${rawPreview}` : ""}`
-  )
+  throw new Error(lastError || "AI 返回格式异常")
 }
 
 async function handler(req: NextRequest) {
