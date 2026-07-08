@@ -17,7 +17,7 @@ export default async function AdminRechargePage() {
   if (!user) redirect("/sign-in?redirect_url=/admin/recharge")
   if (!isAdminUser(user)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30 px-4">
+      <div className="min-h-screen flex items-center justify-center geo-saturated-bg px-4">
         <div className="w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 p-8 text-center">
           <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-50 ring-1 ring-rose-200 flex items-center justify-center mb-5">
             <ShieldCheck className="h-7 w-7 text-rose-500" />
@@ -41,7 +41,7 @@ export default async function AdminRechargePage() {
   const approvedCredits = approved.reduce((sum, item) => sum + (item.credits ?? item.amount), 0)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
+    <div className="min-h-screen geo-saturated-bg">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm shadow-slate-200/40">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -110,19 +110,19 @@ export default async function AdminRechargePage() {
         </div>
 
         <div className="mb-5 grid gap-3 md:grid-cols-4">
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-slate-500">总申请</div>
             <div className="mt-2 font-mono text-2xl font-bold text-slate-900">{requests.length}</div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-amber-200">
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-amber-700">待审批</div>
             <div className="mt-2 font-mono text-2xl font-bold text-amber-700">{pending.length}</div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-emerald-200">
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-emerald-700">已到账</div>
             <div className="mt-2 font-mono text-2xl font-bold text-emerald-700">{approved.length}</div>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-slate-500">到账积分</div>
             <div className="mt-2 font-mono text-2xl font-bold text-slate-900">{approvedCredits}</div>
           </div>

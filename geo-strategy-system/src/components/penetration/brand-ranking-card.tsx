@@ -12,6 +12,15 @@ interface Props {
   topCompetitors: string[]
 }
 
+const MODEL_BAR: Record<string, string> = {
+  doubao: "bg-gradient-to-r from-sky-400 to-cyan-300",
+  deepseek: "bg-gradient-to-r from-indigo-500 to-violet-400",
+  qwen: "bg-gradient-to-r from-fuchsia-500 to-pink-400",
+  kimi: "bg-gradient-to-r from-slate-500 to-slate-400",
+  ernie: "bg-gradient-to-r from-emerald-500 to-teal-400",
+  hunyuan: "bg-gradient-to-r from-rose-500 to-orange-400",
+}
+
 export default function BrandRankingCard({
   ranking,
   totalBrands,
@@ -21,14 +30,14 @@ export default function BrandRankingCard({
   const inIndustry = ranking != null
   return (
     <div className="space-y-4">
-      <div className="text-center py-3">
+      <div className="rounded-lg bg-gradient-to-br from-[#061826] via-[#0b2a3c] to-[#004B73] px-4 py-4 text-center text-white">
         {inIndustry ? (
           <>
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-500 mb-1">
+            <div className="flex items-center justify-center gap-2 text-xs text-cyan-100/70 mb-1">
               <Trophy className="h-3.5 w-3.5" /> 行业实时排位
             </div>
-            <div className="text-5xl font-bold text-[#004B73]">
-              第 {ranking} <span className="text-2xl text-slate-400">/ {totalBrands}</span>
+            <div className="text-5xl font-bold text-white">
+              第 {ranking} <span className="text-2xl text-cyan-100/45">/ {totalBrands}</span>
             </div>
           </>
         ) : (
@@ -36,13 +45,13 @@ export default function BrandRankingCard({
             <div className="flex items-center justify-center gap-2 text-xs text-amber-600 mb-1">
               <TrendingDown className="h-3.5 w-3.5" /> 未进入行业推荐
             </div>
-            <div className="text-3xl font-bold text-slate-400">未上榜</div>
+            <div className="text-3xl font-bold text-white/60">未上榜</div>
           </>
         )}
       </div>
 
       <div>
-        <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-2">
+        <div className="geo-section-kicker mb-2">
           各模型提及率
         </div>
         <div className="space-y-1.5">
@@ -55,9 +64,9 @@ export default function BrandRankingCard({
                   <ModelAvatar model={p.model} size="xs" />
                   <span className="truncate">{MODEL_LABELS[p.model]}</span>
                 </span>
-                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden ring-1 ring-slate-200/70">
                   <div
-                    className="h-full bg-[#004B73] rounded-full"
+                    className={`h-full rounded-full ${MODEL_BAR[p.model] || "bg-gradient-to-r from-[#0077B6] to-[#00D4FF]"}`}
                     style={{ width: `${hasValidAnswer ? Math.min(pct, 100) : 0}%` }}
                   />
                 </div>
@@ -76,14 +85,14 @@ export default function BrandRankingCard({
 
       {topCompetitors.length > 0 && (
         <div>
-          <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-2">
+          <div className="geo-section-kicker mb-2">
             主要竞品 Top {topCompetitors.length}
           </div>
           <div className="flex flex-wrap gap-1.5">
             {topCompetitors.map(c => (
               <span
                 key={c}
-                className="text-xs px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md"
+                className="text-xs px-2 py-0.5 bg-gradient-to-r from-slate-100 to-cyan-50 text-slate-700 rounded-md ring-1 ring-slate-200/70"
               >
                 {c}
               </span>

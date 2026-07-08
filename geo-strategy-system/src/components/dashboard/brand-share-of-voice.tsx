@@ -22,13 +22,15 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
   const maxMentions = items[0]?.mentions ?? 1
 
   return (
-    <div className="rounded-2xl bg-slate-900/95 ring-1 ring-slate-800 overflow-hidden shadow-xl shadow-black/20">
-      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-800/80">
+    <div className="geo-dark-panel rounded-lg overflow-hidden">
+      <div className="px-5 py-4 flex items-center justify-between border-b border-white/10 bg-white/[0.03]">
         <div className="flex items-center gap-2.5">
-          <AudioLines className="h-4 w-4 text-slate-400" />
-          <div className="text-sm font-semibold text-slate-200">品牌声量表</div>
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#00A6FB] to-[#7C3AED]">
+            <AudioLines className="h-4 w-4 text-white" />
+          </span>
+          <div className="text-sm font-semibold text-white">品牌声量表</div>
           {targetRank && (
-            <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30">
+            <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-400/18 text-amber-200 ring-1 ring-amber-300/35">
               我方排名 #{targetRank}
             </span>
           )}
@@ -47,7 +49,7 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
         <>
           <div className="overflow-x-auto">
             <div className="min-w-[780px]">
-              <div className="grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_70px_60px] items-center gap-4 px-5 py-2.5 text-[11px] uppercase tracking-wider text-slate-500 bg-slate-800/40">
+              <div className="grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_70px_60px] items-center gap-4 px-5 py-2.5 text-[11px] uppercase tracking-wider text-cyan-100/55 bg-white/[0.04]">
                 <div>排名</div>
                 <div>品牌</div>
                 <div>声量强度</div>
@@ -85,12 +87,12 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
                 </div>
               </div>
 
-              <div className="flex justify-center bg-slate-900/60 border-t border-slate-800/60">
+              <div className="flex justify-center bg-white/[0.03] border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setExpanded(v => !v)}
                   aria-expanded={expanded}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 my-1 text-xs font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 my-1 text-xs font-medium text-cyan-100/65 hover:text-white hover:bg-white/10 rounded-md transition-colors"
                 >
                   {expanded ? (
                     <>
@@ -120,26 +122,50 @@ function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: nu
     item.penetrationRate < 0.001 ? 2 : 1
   )
 
+  const rankTone = item.isTarget
+    ? {
+        row: "bg-gradient-to-r from-amber-400/18 via-amber-400/[0.07] to-transparent ring-1 ring-inset ring-amber-300/35",
+        rank: "bg-gradient-to-r from-amber-300 to-orange-300 text-slate-950",
+        bar: "bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400",
+      }
+    : item.rank === 1
+      ? {
+          row: "bg-gradient-to-r from-cyan-400/13 via-cyan-400/[0.04] to-transparent",
+          rank: "bg-gradient-to-r from-cyan-300 to-sky-400 text-slate-950",
+          bar: "bg-gradient-to-r from-cyan-300 via-sky-400 to-blue-500",
+        }
+      : item.rank === 2
+        ? {
+            row: "bg-gradient-to-r from-violet-400/12 via-violet-400/[0.04] to-transparent",
+            rank: "bg-gradient-to-r from-violet-300 to-fuchsia-400 text-slate-950",
+            bar: "bg-gradient-to-r from-violet-300 via-fuchsia-400 to-rose-400",
+          }
+        : item.rank === 3
+          ? {
+              row: "bg-gradient-to-r from-emerald-400/12 via-emerald-400/[0.04] to-transparent",
+              rank: "bg-gradient-to-r from-emerald-300 to-teal-400 text-slate-950",
+              bar: "bg-gradient-to-r from-emerald-300 via-teal-400 to-cyan-400",
+            }
+          : {
+              row: "hover:bg-white/[0.04]",
+              rank: "bg-slate-800 text-slate-400 ring-1 ring-slate-700",
+              bar: "bg-gradient-to-r from-[#0077B6] via-[#00A6FB] to-[#00D4FF]",
+            }
+
   return (
     <div
       className={`grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_70px_60px] items-center gap-4 px-5 py-3.5 transition-colors ${
-        item.isTarget
-          ? "bg-gradient-to-r from-amber-500/15 via-amber-500/[0.06] to-transparent ring-1 ring-inset ring-amber-400/30"
-          : "hover:bg-slate-800/30"
+        rankTone.row
       }`}
     >
-      <div
-        className={`text-sm tabular-nums ${
-          item.isTarget ? "text-amber-300 font-semibold" : "text-slate-500"
-        }`}
-      >
+      <div className={`inline-flex h-7 w-9 items-center justify-center rounded-md text-xs font-bold tabular-nums ${rankTone.rank}`}>
         {item.rank}
       </div>
 
       <div className="min-w-0">
         <div
           className={`text-sm truncate ${
-            item.isTarget ? "text-amber-200 font-semibold" : "text-slate-200 font-medium"
+            item.isTarget ? "text-amber-200 font-semibold" : "text-slate-100 font-medium"
           }`}
           title={item.brand}
         >
@@ -157,13 +183,9 @@ function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: nu
         </div>
       </div>
 
-      <div className="relative h-2 rounded-full bg-slate-800/80 overflow-hidden">
+      <div className="relative h-2.5 rounded-full bg-slate-800/80 overflow-hidden ring-1 ring-white/5">
         <div
-          className={`absolute inset-y-0 left-0 rounded-full ${
-            item.isTarget
-              ? "bg-gradient-to-r from-amber-400 to-orange-400"
-              : "bg-gradient-to-r from-[#0077B6] via-[#00B4D8] to-[#48cae4]"
-          }`}
+          className={`absolute inset-y-0 left-0 rounded-full ${rankTone.bar}`}
           style={{ width: `${widthPct}%` }}
         />
       </div>

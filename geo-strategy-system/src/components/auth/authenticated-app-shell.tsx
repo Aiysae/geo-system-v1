@@ -48,8 +48,8 @@ export function AuthenticatedAppShell() {
   if (state === "authenticated") return <AppShell />
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30 px-4">
-      <div className="rounded-2xl bg-white px-6 py-5 text-center text-sm text-slate-500 shadow-xl ring-1 ring-slate-200">
+    <div className="flex min-h-screen items-center justify-center geo-saturated-bg px-4">
+      <div className="rounded-lg bg-white/92 px-6 py-5 text-center text-sm text-slate-600 shadow-xl ring-1 ring-white/70">
         {state === "checking" ? "正在确认登录状态..." : message}
       </div>
     </div>

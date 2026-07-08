@@ -43,6 +43,23 @@ function truncate(s: string, n: number): string {
 
 export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }: Props) {
   const [sortOrder, setSortOrder] = useState<SortOrder>("redOcean")
+  const mode = sortOrder === "redOcean"
+    ? {
+        title: "红海竞争",
+        panel: "from-rose-500/25 via-orange-500/12 to-transparent",
+        barFrom: "#F43F5E",
+        barMid: "#F97316",
+        barTo: "#F59E0B",
+        active: "bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow shadow-rose-500/20",
+      }
+    : {
+        title: "蓝海机会",
+        panel: "from-cyan-500/25 via-blue-500/12 to-transparent",
+        barFrom: "#10B981",
+        barMid: "#00A6FB",
+        barTo: "#00D4FF",
+        active: "bg-gradient-to-r from-emerald-500 to-cyan-500 text-white shadow shadow-cyan-500/20",
+      }
 
   const data = useMemo(() => {
     // 1) 先按竞争热度排序
@@ -66,11 +83,16 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
   const chartHeight = Math.max(data.length * 34 + 60, 320)
 
   return (
-    <div className="rounded-2xl bg-slate-900/95 ring-1 ring-slate-800 overflow-hidden shadow-xl shadow-black/20">
-      <div className="px-5 py-4 flex items-center justify-between border-b border-slate-800/80 gap-3 flex-wrap">
+    <div className={`rounded-lg bg-slate-950 ring-1 ring-slate-800 overflow-hidden shadow-xl shadow-black/25`}>
+      <div className={`px-5 py-4 flex items-center justify-between border-b border-white/10 gap-3 flex-wrap bg-gradient-to-r ${mode.panel}`}>
         <div className="flex items-center gap-2.5">
-          <Activity className="h-4 w-4 text-slate-400" />
-          <div className="text-sm font-semibold text-slate-200">关键词竞争热度</div>
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/12 ring-1 ring-white/15">
+            <Activity className="h-4 w-4 text-white" />
+          </span>
+          <div>
+            <div className="text-sm font-semibold text-white">关键词竞争热度</div>
+            <div className="mt-0.5 text-[10px] text-white/48">{mode.title}视角</div>
+          </div>
           <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 ring-1 ring-slate-700">
             已过滤 0 参与模型的拒答题
           </span>
@@ -81,7 +103,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
             onClick={() => setSortOrder("redOcean")}
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md transition ${
               sortOrder === "redOcean"
-                ? "bg-gradient-to-r from-rose-500/80 to-orange-500/80 text-white shadow"
+                ? mode.active
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
@@ -92,7 +114,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
             onClick={() => setSortOrder("blueOcean")}
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md transition ${
               sortOrder === "blueOcean"
-                ? "bg-gradient-to-r from-cyan-500/80 to-blue-500/80 text-white shadow"
+                ? mode.active
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
@@ -117,9 +139,9 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
               >
                 <defs>
                   <linearGradient id="kc-bar" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#0077B6" />
-                    <stop offset="50%" stopColor="#00B4D8" />
-                    <stop offset="100%" stopColor="#48cae4" />
+                    <stop offset="0%" stopColor={mode.barFrom} />
+                    <stop offset="52%" stopColor={mode.barMid} />
+                    <stop offset="100%" stopColor={mode.barTo} />
                   </linearGradient>
                 </defs>
 
@@ -196,7 +218,10 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
 
           <div className="mt-3 flex items-center gap-4 text-[11px] text-slate-400 px-2">
             <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block w-3 h-2 rounded-sm bg-gradient-to-r from-[#0077B6] to-[#48cae4]" />
+              <span
+                className="inline-block w-3 h-2 rounded-sm"
+                style={{ background: `linear-gradient(90deg, ${mode.barFrom}, ${mode.barTo})` }}
+              />
               品牌提及总数
             </span>
             <span className="inline-flex items-center gap-1.5">

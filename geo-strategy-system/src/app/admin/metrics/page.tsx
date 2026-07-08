@@ -48,7 +48,7 @@ export default async function AdminMetricsPage() {
 
   if (!isAdminUser(currentUser)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30 px-4">
+      <div className="min-h-screen flex items-center justify-center geo-saturated-bg px-4">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl ring-1 ring-slate-200">
           <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 ring-1 ring-rose-200">
             <ShieldCheck className="h-7 w-7 text-rose-500" />
@@ -64,7 +64,7 @@ export default async function AdminMetricsPage() {
   const maxDailyUsage = Math.max(...metrics.daily.map(item => item.usageNet), 0)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/30">
+    <div className="min-h-screen geo-saturated-bg">
       <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -366,21 +366,21 @@ function MetricCard({
   tone: "orange" | "blue" | "emerald" | "amber" | "slate"
 }) {
   const toneClass = {
-    orange: "ring-orange-200 text-orange-700 bg-orange-50",
-    blue: "ring-blue-200 text-blue-700 bg-blue-50",
-    emerald: "ring-emerald-200 text-emerald-700 bg-emerald-50",
-    amber: "ring-amber-200 text-amber-700 bg-amber-50",
-    slate: "ring-slate-200 text-slate-700 bg-slate-50",
+    orange: "from-[#F97316] to-[#F43F5E]",
+    blue: "from-[#0077B6] to-[#00A6FB]",
+    emerald: "from-[#10B981] to-[#00D4FF]",
+    amber: "from-[#F59E0B] to-[#F97316]",
+    slate: "from-[#061826] to-[#334155]",
   }[tone]
 
   return (
-    <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-      <div className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium ring-1 ${toneClass}`}>
+    <div className={`rounded-lg bg-gradient-to-br ${toneClass} p-4 text-white shadow-lg shadow-slate-900/12 ring-1 ring-white/20`}>
+      <div className="inline-flex items-center gap-1.5 rounded-lg bg-white/13 px-2 py-1 text-xs font-medium text-white ring-1 ring-white/18">
         {icon}
         {label}
       </div>
-      <div className="mt-3 font-mono text-3xl font-bold text-slate-900">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{note}</div>
+      <div className="mt-3 font-mono text-3xl font-bold text-white">{value}</div>
+      <div className="mt-1 text-xs text-white/72">{note}</div>
     </div>
   )
 }
