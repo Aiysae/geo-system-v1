@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { Inbox, ReceiptText, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
+import { Inbox, KeyRound, ReceiptText, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
@@ -74,6 +74,13 @@ export default async function AdminPage() {
               className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
             >
               积分流水
+            </Link>
+            <Link
+              href="/admin/password-resets"
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+            >
+              <KeyRound className="h-3.5 w-3.5 text-[#0077B6]" />
+              密码重置
             </Link>
             <Link
               href="/"

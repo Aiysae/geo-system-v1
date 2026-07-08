@@ -2,7 +2,7 @@ import "server-only"
 
 import { kv } from "@/lib/kv"
 import { cookies } from "next/headers"
-import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto"
+import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto"
 import { promisify } from "util"
 import { AUTH_COOKIE_NAME, createSessionCookieValue, verifySessionCookieValue } from "./session-cookie"
 
@@ -15,6 +15,11 @@ const KEY_USER = (id: string) => `auth:users:${id}`
 const KEY_EMAIL = (email: string) => `auth:emails:${email}`
 const KEY_SESSION = (id: string) => `auth:sessions:${id}`
 const KEY_USER_SET = "auth:users"
+const KEY_PASSWORD_RESET_REQUEST = (id: string) => `auth:password_reset_requests:${id}`
+const KEY_PASSWORD_RESET_REQUEST_SET = "auth:password_reset_requests"
+const KEY_PASSWORD_RESET_TOKEN = (hash: string) => `auth:password_reset_tokens:${hash}`
+const PASSWORD_RESET_REQUEST_TTL_SECONDS = 60 * 60 * 24 * 7
+const PASSWORD_RESET_TOKEN_TTL_SECONDS = 60 * 30
 
 export type AuthUser = {
   id: string
@@ -31,11 +36,34 @@ export type AuthUser = {
 
 export type PublicUser = Omit<AuthUser, "passwordHash">
 
+export type PasswordResetRequest = {
+  id: string
+  email: string
+  userId: string
+  userName: string
+  status: "pending" | "link_generated" | "used"
+  createdAt: string
+  updatedAt: string
+  linkGeneratedAt?: string
+  linkGeneratedBy?: string
+  tokenExpiresAt?: string
+  usedAt?: string
+}
+
 type AuthSession = {
   id: string
   userId: string
   createdAt: string
   expiresAt: string
+}
+
+type PasswordResetTokenRecord = {
+  tokenHash: string
+  userId: string
+  requestId: string
+  createdAt: string
+  expiresAt: string
+  createdByAdminId: string
 }
 
 export function normalizeEmail(email: string): string {
@@ -92,6 +120,16 @@ function validatePassword(password: string): string | null {
     return "密码需要同时包含字母和数字"
   }
   return null
+}
+
+function hashPasswordResetToken(token: string): string {
+  return createHash("sha256").update(token).digest("base64url")
+}
+
+function assertValidResetToken(token: string): void {
+  if (!/^[A-Za-z0-9_-]{32,200}$/.test(token)) {
+    throw new Error("重置链接无效或已过期")
+  }
 }
 
 function resolveRole(email: string): AuthUser["role"] {
@@ -163,6 +201,136 @@ export async function authenticateUser(emailInput: string, password: string): Pr
     updatedAt: new Date().toISOString(),
   }
   await kv.set(KEY_USER(user.id), updated)
+
+  return toPublicUser(updated)
+}
+
+export async function createPasswordResetRequest(emailInput: string): Promise<void> {
+  const email = normalizeEmail(emailInput)
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return
+
+  const userId = await kv.get<string>(KEY_EMAIL(email))
+  if (!userId) return
+
+  const user = await kv.get<AuthUser>(KEY_USER(userId))
+  if (!user || user.status !== "active") return
+
+  const now = new Date().toISOString()
+  const request: PasswordResetRequest = {
+    id: `reset_req_${randomUUID().replace(/-/g, "")}`,
+    email,
+    userId: user.id,
+    userName: user.name,
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  await kv.set(KEY_PASSWORD_RESET_REQUEST(request.id), request, {
+    ex: PASSWORD_RESET_REQUEST_TTL_SECONDS,
+  })
+  await kv.sadd(KEY_PASSWORD_RESET_REQUEST_SET, request.id)
+}
+
+export async function listPasswordResetRequests(limit = 100): Promise<PasswordResetRequest[]> {
+  const ids = await kv.smembers<string[]>(KEY_PASSWORD_RESET_REQUEST_SET)
+  const records = await Promise.all(
+    ids.map(async id => {
+      const record = await kv.get<PasswordResetRequest>(KEY_PASSWORD_RESET_REQUEST(id))
+      if (!record) await kv.srem(KEY_PASSWORD_RESET_REQUEST_SET, id)
+      return record
+    })
+  )
+
+  return records
+    .filter((record): record is PasswordResetRequest => Boolean(record))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, Math.max(1, Math.floor(limit)))
+}
+
+export async function createPasswordResetLinkForRequest(
+  requestId: string,
+  adminUserId: string,
+): Promise<{ path: string; expiresAt: string; request: PasswordResetRequest }> {
+  const request = await kv.get<PasswordResetRequest>(KEY_PASSWORD_RESET_REQUEST(requestId))
+  if (!request) throw new Error("重置申请不存在或已过期")
+  if (request.status === "used") throw new Error("该重置申请已完成")
+
+  const user = await kv.get<AuthUser>(KEY_USER(request.userId))
+  if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
+
+  const token = randomBytes(32).toString("base64url")
+  const tokenHash = hashPasswordResetToken(token)
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + PASSWORD_RESET_TOKEN_TTL_SECONDS * 1000).toISOString()
+  const record: PasswordResetTokenRecord = {
+    tokenHash,
+    userId: user.id,
+    requestId: request.id,
+    createdAt: now.toISOString(),
+    expiresAt,
+    createdByAdminId: adminUserId,
+  }
+
+  await kv.set(KEY_PASSWORD_RESET_TOKEN(tokenHash), record, {
+    ex: PASSWORD_RESET_TOKEN_TTL_SECONDS,
+  })
+
+  const updated: PasswordResetRequest = {
+    ...request,
+    status: "link_generated",
+    updatedAt: now.toISOString(),
+    linkGeneratedAt: now.toISOString(),
+    linkGeneratedBy: adminUserId,
+    tokenExpiresAt: expiresAt,
+  }
+  await kv.set(KEY_PASSWORD_RESET_REQUEST(updated.id), updated, {
+    ex: PASSWORD_RESET_REQUEST_TTL_SECONDS,
+  })
+
+  return {
+    path: `/reset-password?token=${encodeURIComponent(token)}`,
+    expiresAt,
+    request: updated,
+  }
+}
+
+export async function resetPasswordWithToken(token: string, newPassword: string): Promise<PublicUser> {
+  assertValidResetToken(token)
+
+  const passwordError = validatePassword(newPassword)
+  if (passwordError) throw new Error(passwordError)
+
+  const tokenHash = hashPasswordResetToken(token)
+  const record = await kv.get<PasswordResetTokenRecord>(KEY_PASSWORD_RESET_TOKEN(tokenHash))
+  if (!record || new Date(record.expiresAt).getTime() <= Date.now()) {
+    await kv.del(KEY_PASSWORD_RESET_TOKEN(tokenHash))
+    throw new Error("重置链接无效或已过期")
+  }
+
+  const user = await kv.get<AuthUser>(KEY_USER(record.userId))
+  if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
+
+  const now = new Date().toISOString()
+  const updated: AuthUser = {
+    ...user,
+    passwordHash: await hashPassword(newPassword),
+    updatedAt: now,
+  }
+  await kv.set(KEY_USER(user.id), updated)
+  await kv.del(KEY_PASSWORD_RESET_TOKEN(tokenHash))
+
+  const request = await kv.get<PasswordResetRequest>(KEY_PASSWORD_RESET_REQUEST(record.requestId))
+  if (request) {
+    await kv.set(KEY_PASSWORD_RESET_REQUEST(request.id), {
+      ...request,
+      status: "used",
+      usedAt: now,
+      updatedAt: now,
+    } satisfies PasswordResetRequest, {
+      ex: PASSWORD_RESET_REQUEST_TTL_SECONDS,
+    })
+  }
 
   return toPublicUser(updated)
 }

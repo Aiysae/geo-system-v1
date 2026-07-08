@@ -122,7 +122,14 @@ export function LocalAuthForm({
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-slate-600">密码</span>
+          <span className="mb-1.5 flex items-center justify-between gap-2 text-xs font-medium text-slate-600">
+            <span>密码</span>
+            {!isSignUp && (
+              <Link href="/forgot-password" className="font-medium text-[#006AA3] hover:text-[#004B73]">
+                忘记密码？
+              </Link>
+            )}
+          </span>
           <span className="relative block">
             <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input

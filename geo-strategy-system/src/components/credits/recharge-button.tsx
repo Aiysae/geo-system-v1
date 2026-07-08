@@ -3,6 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useActionState, useState, useEffect } from "react"
+import { createPortal } from "react-dom"
 import { CreditCard, Sparkles, X, Plus } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
 import { useCredits } from "./credits-provider"
@@ -35,7 +36,14 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
     null
   )
 
-  // 提交成功后刷新积分（虽然审批通过才到账，但保险起见同步一次）
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [])
+
   useEffect(() => {
     if (state?.ok) {
       refresh()
@@ -54,16 +62,16 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
   )
   const hasQrCodes = RECHARGE_PAYMENT_INFO.qrCodes.length > 0
 
-  return (
+  const dialog = (
     <div
-      className="fixed inset-0 z-[100] overflow-y-auto bg-black/50 px-3 py-4 backdrop-blur-sm animate-fade-in sm:px-6 sm:py-8"
+      className="fixed inset-0 z-[9999] overflow-hidden bg-black/50 px-3 py-3 backdrop-blur-sm animate-fade-in sm:px-6 sm:py-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
-      <div className="flex min-h-full items-start justify-center sm:items-center">
+      <div className="flex min-h-full items-center justify-center">
         <div
-          className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
+          className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 sm:max-h-[92dvh]"
           onClick={e => e.stopPropagation()}
         >
           <button
@@ -74,7 +82,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
             <X className="h-4 w-4 text-slate-500" />
           </button>
 
-          <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4 sm:px-7">
+          <div className="shrink-0 flex items-center gap-3 border-b border-slate-100 px-5 py-4 sm:px-7">
             <span className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center shadow-lg shadow-rose-200/50">
               <Sparkles className="h-5 w-5 text-white" />
             </span>
@@ -83,26 +91,26 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
             </h2>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-7">
             {submitted ? (
-            <>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                已提交 <span className="font-bold text-slate-900">{state!.ok && state!.packageName}</span>
-                充值申请，到账积分{" "}
-                <span className="font-mono font-bold text-slate-900">
-                  {state!.ok && state!.credits}
-                </span>
-                。管理员核对到账后会审批加积分。
-              </p>
-              <button
-                onClick={onClose}
-                className="mt-6 w-full py-2.5 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white text-sm font-medium hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all"
-              >
-                好的
-              </button>
-            </>
-          ) : (
-            <form action={formAction}>
+              <>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  已提交 <span className="font-bold text-slate-900">{state!.ok && state!.packageName}</span>
+                  充值申请，到账积分{" "}
+                  <span className="font-mono font-bold text-slate-900">
+                    {state!.ok && state!.credits}
+                  </span>
+                  。管理员核对到账后会审批加积分。
+                </p>
+                <button
+                  onClick={onClose}
+                  className="mt-6 w-full py-2.5 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white text-sm font-medium hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all"
+                >
+                  好的
+                </button>
+              </>
+            ) : (
+            <form action={formAction} className="min-h-0">
               <p className="text-sm text-slate-600 leading-relaxed">
                 选择固定套餐并完成付款后提交申请。管理员核对到账后审批，审批通过后积分立即到账。
               </p>
@@ -134,7 +142,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                           alt={`${code.label}收款码`}
                           width={360}
                           height={520}
-                          className="max-h-[46dvh] w-full rounded-lg object-contain sm:max-h-[360px]"
+                          className="max-h-[34dvh] min-h-[180px] w-full rounded-lg object-contain sm:max-h-[320px]"
                           sizes="(max-width: 640px) 82vw, 280px"
                         />
                         {code.description && (
@@ -272,4 +280,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   )
+
+  if (typeof document === "undefined") return null
+  return createPortal(dialog, document.body)
 }
