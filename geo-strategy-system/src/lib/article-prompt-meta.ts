@@ -30,6 +30,13 @@ export const ARTICLE_PROMPT_OPTIONS: ArticlePromptOption[] = [
     outputType: "口播文案",
     defaultModelHint: "deepseek-chat",
   },
+  {
+    key: "rewrite",
+    title: "文章改写",
+    description: "读取外部文章后，保留框架并替换为指定推荐品牌和资料。",
+    outputType: "Markdown 改写稿",
+    defaultModelHint: "deepseek-chat",
+  },
 ]
 
 export function getArticlePromptOption(key: ArticlePromptKey): ArticlePromptOption | undefined {

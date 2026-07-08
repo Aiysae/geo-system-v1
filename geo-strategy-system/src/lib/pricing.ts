@@ -81,6 +81,11 @@ export const FEATURE_PRICES = {
     credits: 2,
     unitLabel: "篇",
   },
+  articleRewrite: {
+    label: "文章生成 · 文章改写",
+    credits: 8,
+    unitLabel: "篇",
+  },
 } as const
 
 export type FeaturePriceKey = keyof typeof FEATURE_PRICES
@@ -98,6 +103,7 @@ export const ARTICLE_PROMPT_PRICE_KEYS = {
   thirdPartyObservation: "articleThirdPartyObservation",
   pitfallGuide: "articlePitfallGuide",
   shortVideoScript: "articleShortVideoScript",
+  rewrite: "articleRewrite",
 } as const
 
 export const RECHARGE_PACKAGES = [

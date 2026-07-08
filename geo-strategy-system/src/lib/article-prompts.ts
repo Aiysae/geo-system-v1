@@ -568,6 +568,25 @@ const SHORT_VIDEO_SCRIPT_PROMPT = String.raw`你是一位深耕AI搜索优化领
 - 品牌名：【请替换为你的品牌名】
 - 具体业务：【请替换为你的具体业务】`
 
+const ARTICLE_REWRITE_PROMPT = String.raw`你是一名专业内容编辑。请根据我提供的【原文】、【推荐品牌】和【相关资料】，对文章进行原创化改写。
+
+改写要求：
+
+1. 保留原文的整体框架、段落结构、标题层级和论述顺序，不要改变文章的基本逻辑。
+2. 将原文中推荐的品牌、产品、公司、案例，全部替换为我提供的【推荐品牌】。
+3. 将原文中的相关资料、参数、卖点、背景信息、案例依据，替换为我提供的【相关资料】。
+4. 不要直接照搬原文句子，不要只做同义词替换。需要重新组织语言、调整表达方式、改写句式和段落内部逻辑。
+5. 可以在不改变文章主题的前提下，适当增加过渡句、解释句、场景化描述和行业分析，让文章更自然、更像原创内容。
+6. 不要编造没有提供的数据、资质、案例、价格、排名或承诺。
+7. 保持原文的写作风格和目标读者，但内容表达要明显区别于原文。
+8. 输出一篇完整文章，不要解释改写过程。
+
+补充约束：
+- 输出 Markdown 格式，尽量保留原文的标题层级、段落数量、列表和表格位置。
+- 如果原文里存在多个推荐对象，除非【相关资料】明确提供多个对象，否则统一改写为【推荐品牌】。
+- 如果【相关资料】没有覆盖原文中的某个具体事实、数字、资质、案例或价格，不要沿用原文事实，也不要编造替代事实；可以改写为审慎表达。
+- 不要输出“以下是改写稿”“改写说明”“处理过程”等正文外内容。`
+
 const TEMPLATES: Record<ArticlePromptKey, ArticlePromptTemplate> = {
   thirdPartyObservation: {
     key: "thirdPartyObservation",
@@ -586,6 +605,12 @@ const TEMPLATES: Record<ArticlePromptKey, ArticlePromptTemplate> = {
     template: SHORT_VIDEO_SCRIPT_PROMPT,
     maxTokens: 4096,
     temperature: 0.65,
+  },
+  rewrite: {
+    key: "rewrite",
+    template: ARTICLE_REWRITE_PROMPT,
+    maxTokens: 12000,
+    temperature: 0.55,
   },
 }
 
