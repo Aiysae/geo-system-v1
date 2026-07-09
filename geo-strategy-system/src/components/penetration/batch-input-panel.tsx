@@ -78,7 +78,6 @@ export default function BatchInputPanel({
     const set = new Set(client.selectedModels)
     if (set.has(m)) set.delete(m)
     else set.add(m)
-    if (!set.has("doubao")) set.add("doubao")
     onChangeClient({ selectedModels: ALL_MODELS.filter(k => set.has(k)) })
   }
 
@@ -301,7 +300,6 @@ export default function BatchInputPanel({
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {ALL_MODELS.map(m => {
             const checked = client.selectedModels.includes(m)
-            const isDoubao = m === "doubao"
             return (
               <label
                 key={m}
@@ -319,11 +317,6 @@ export default function BatchInputPanel({
                 />
                 <ModelAvatar model={m} size="xs" />
                 <span className="font-medium">{MODEL_LABELS[m]}</span>
-                {isDoubao && (
-                  <span className="ml-auto text-[10px] bg-[#004B73] text-white px-1.5 py-0.5 rounded">
-                    必含
-                  </span>
-                )}
               </label>
             )
           })}
