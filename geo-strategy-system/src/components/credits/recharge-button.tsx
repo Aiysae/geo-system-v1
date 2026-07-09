@@ -29,7 +29,7 @@ export function RechargeButton() {
 
 function RechargeDialog({ onClose }: { onClose: () => void }) {
   const { refresh } = useCredits()
-  const [packageKey, setPackageKey] = useState<RechargePackageKey>("standard_299")
+  const [packageKey, setPackageKey] = useState<RechargePackageKey>("standard_99")
   const [paymentMethod, setPaymentMethod] = useState("manual_transfer")
   const [state, formAction, pending] = useActionState<RequestRechargeResult | null, FormData>(
     async (_prev, fd) => requestRechargeAction(fd),
@@ -112,7 +112,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
             ) : (
             <form action={formAction} className="min-h-0">
               <p className="text-sm text-slate-600 leading-relaxed">
-                选择固定套餐并完成付款后提交申请。管理员核对到账后审批，审批通过后积分立即到账。
+                选择套餐并完成付款后提交申请。管理员核对到账后审批，审批通过后积分立即到账。
               </p>
 
               <div className="mt-4 rounded-xl bg-blue-50/70 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-blue-100">
@@ -126,7 +126,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                   <Link href="/recharge-rules" target="_blank" className="mx-1 font-medium text-[#006AA3] hover:text-[#004B73]">
                     充值与退款规则
                   </Link>
-                  。
+                  。首购体验包每个账号仅限提交一次。
                 </p>
               </div>
 

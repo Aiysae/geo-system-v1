@@ -109,10 +109,17 @@ export default async function BillingPage() {
               <CreditCard className="h-4 w-4 text-[#0077B6]" />
               当前充值套餐
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {RECHARGE_PACKAGES.map(pkg => (
                 <div key={pkg.key} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                  <div className="text-sm font-semibold text-slate-900">{pkg.name}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-semibold text-slate-900">{pkg.name}</div>
+                    {"badge" in pkg && pkg.badge && (
+                      <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                        {pkg.badge}
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-1 font-mono text-lg font-bold text-slate-900">{formatYuan(pkg.priceCents)}</div>
                   <div className="font-mono text-xs font-medium text-[#006AA3]">+{pkg.credits} 积分</div>
                   <p className="mt-2 text-[11px] leading-4 text-slate-500">{pkg.description}</p>

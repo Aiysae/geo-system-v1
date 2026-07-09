@@ -56,6 +56,15 @@ export async function createRequest(input: {
 }): Promise<RechargeRequest> {
   const pkg = getRechargePackage(input.packageKey)
   if (!pkg) throw new Error("请选择有效的充值套餐")
+  if ("firstPurchaseOnly" in pkg && pkg.firstPurchaseOnly) {
+    const previousRequests = await listRequestsForUser(input.userId, 300)
+    const hasUsedFirstPurchasePackage = previousRequests.some(
+      request => request.packageKey === pkg.key && request.status !== "rejected"
+    )
+    if (hasUsedFirstPurchasePackage) {
+      throw new Error("首购体验包每个账号仅限提交一次，请选择轻量包或标准包。")
+    }
+  }
 
   const paymentMethod = normalizePaymentMethod(input.paymentMethod)
   const record: RechargeRequest = {
