@@ -1,11 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import dynamic from "next/dynamic"
 import {
-  CheckCircle2,
-  Copy,
-  Download,
-  FileDown,
   FileText,
   KeyRound,
   Link,
@@ -54,6 +51,18 @@ interface ArticleExtractResponse {
   error?: string
 }
 
+const ArticleMarkdownWorkspace = dynamic(
+  () => import("@/components/article/article-markdown-workspace"),
+  {
+    ssr: false,
+    loading: () => (
+      <section className="flex min-h-[620px] flex-col rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm text-slate-500 shadow-sm">
+        Markdown 工作台加载中...
+      </section>
+    ),
+  }
+)
+
 function createInitialArticle(client: Client): ArticleGenerationState {
   return {
     promptKey: "thirdPartyObservation",
@@ -83,7 +92,6 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const [providers, setProviders] = useState<AiProviderPublicSetting[]>([])
   const [prompts, setPrompts] = useState<ArticlePromptOption[]>(ARTICLE_PROMPT_OPTIONS)
   const [settingsError, setSettingsError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -365,26 +373,6 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         error: error instanceof Error ? error.message : isRewrite ? "文章改写失败" : "文章生成失败",
       })
     }
-  }
-
-  async function copyOutput() {
-    if (!hasOutput) return
-    await navigator.clipboard.writeText(article.output)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1400)
-  }
-
-  function exportMarkdown() {
-    if (!hasOutput) return
-    const blob = new Blob([article.output], { type: "text/markdown;charset=utf-8" })
-    downloadBlob(blob, `${buildFileBaseName(client, activePrompt)}.md`)
-  }
-
-  function exportWord() {
-    if (!hasOutput) return
-    const html = buildWordHtml(article.output, client.name)
-    const blob = new Blob([html], { type: "application/msword;charset=utf-8" })
-    downloadBlob(blob, `${buildFileBaseName(client, activePrompt)}.doc`)
   }
 
   return (
@@ -770,37 +758,14 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           </Button>
         </div>
 
-        <section className="flex min-h-[620px] flex-col rounded-xl border border-slate-200/80 bg-white/90 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-3 sm:px-4">
-            <div>
-              <div className="text-sm font-semibold text-slate-900">生成结果</div>
-              <div className="text-[11px] text-slate-500">
-                {article.status === "done" ? "已生成，可继续编辑" : isRewrite ? "等待改写" : "等待生成"}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={copyOutput} disabled={!hasOutput}>
-                {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied ? "已复制" : "复制"}
-              </Button>
-              <Button size="sm" variant="outline" onClick={exportMarkdown} disabled={!hasOutput}>
-                <Download className="h-3.5 w-3.5" />
-                导出 MD
-              </Button>
-              <Button size="sm" variant="outline" onClick={exportWord} disabled={!hasOutput}>
-                <FileDown className="h-3.5 w-3.5" />
-                导出文档
-              </Button>
-            </div>
-          </div>
-
-          <Textarea
-            value={article.output}
-            onChange={event => updateField("output", event.target.value)}
-            placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的内容会显示在这里"}
-            className="min-h-[560px] flex-1 resize-none rounded-none border-0 bg-transparent p-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0"
-          />
-        </section>
+        <ArticleMarkdownWorkspace
+          value={article.output}
+          onChange={value => updateField("output", value)}
+          fileBaseName={buildFileBaseName(client, activePrompt)}
+          title={client.ourBrand || client.name || activePrompt.title || "文章生成"}
+          statusText={article.status === "done" ? "已生成，可编辑、预览和导出" : isRewrite ? "等待改写" : "等待生成"}
+          placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的 Markdown 内容会显示在这里"}
+        />
       </div>
     </div>
   )
@@ -855,40 +820,4 @@ function collectKeywordAdvantages(client: Client): string[] {
     ...baseAdvantages,
     ...questionAdvantages,
   ])
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
-
-function buildWordHtml(content: string, title: string): string {
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>${escapeHtml(title || "文章生成")}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif; line-height: 1.75; color: #172033; }
-    pre { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <pre>${escapeHtml(content)}</pre>
-</body>
-</html>`
 }
