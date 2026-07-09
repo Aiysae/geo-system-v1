@@ -192,6 +192,9 @@ const DEFINITIONS: AiProviderDefinition[] = [
     defaultTimeout: 300,
     apiKeyEnv: ["MOONSHOT_API_KEY"],
     modelEnv: ["MOONSHOT_MODEL"],
+    baseUrlEnv: ["MOONSHOT_BASE_URL"],
+    urlEnv: ["MOONSHOT_CHAT_URL"],
+    chatPathEnv: ["MOONSHOT_CHAT_PATH"],
     presets: [
       {
         key: "kimi-moonshot-k2",
