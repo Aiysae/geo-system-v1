@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Image from "next/image"
 import { Plus, Trash2, Users, Database, X } from "lucide-react"
 import type { Client } from "@/types"
 
@@ -47,7 +48,15 @@ export default function ClientSidebar({
       <div className="absolute inset-x-0 top-0 h-28 bg-[linear-gradient(135deg,rgba(0,166,251,0.28),rgba(124,58,237,0.22)_46%,rgba(244,63,94,0.16))]" />
       <div className="relative px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <img src="/logo.jpg" alt="" className="h-9 w-auto rounded-lg ring-1 ring-white/20" />
+          <Image
+            src="/logo.jpg"
+            alt=""
+            width={935}
+            height={1136}
+            sizes="36px"
+            priority
+            className="h-9 w-auto rounded-lg ring-1 ring-white/20"
+          />
           <div className="min-w-0">
             <div className="font-bold tracking-wide text-base bg-gradient-to-r from-white via-cyan-100 to-[#00D4FF] bg-clip-text text-transparent">势途 GEO</div>
             <div className="text-[11px] text-white/60 mt-0.5">生成式引擎增长终端</div>

@@ -2,6 +2,7 @@
 
 // Browser-local customer workspace mounted behind the authenticated server page.
 import { useEffect, useState, useCallback } from "react"
+import Image from "next/image"
 import ClientSidebar from "@/components/sidebar/client-sidebar"
 import PenetrationModule from "@/components/penetration/penetration-module"
 import ResearchModule from "@/components/research/research-module"
@@ -151,7 +152,15 @@ function StickyHeader({
           >
             <Menu className="h-5 w-5 text-white" />
           </button>
-          <img src="/logo.jpg" alt="" className="h-8 w-auto rounded-lg ring-1 ring-white/20 shrink-0" />
+          <Image
+            src="/logo.jpg"
+            alt=""
+            width={935}
+            height={1136}
+            sizes="32px"
+            priority
+            className="h-8 w-auto rounded-lg ring-1 ring-white/20 shrink-0"
+          />
           <div className="min-w-0">
             <div className="max-w-[150px] truncate bg-gradient-to-r from-white via-cyan-100 to-[#00D4FF] bg-clip-text text-sm font-bold tracking-wide text-transparent sm:max-w-none">
               势途 GEO · 市场情报大盘

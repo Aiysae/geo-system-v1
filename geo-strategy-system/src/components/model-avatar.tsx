@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import type { ModelKey } from "@/types"
 import { MODEL_LABELS } from "@/lib/model-labels"
 
@@ -31,11 +32,14 @@ export default function ModelAvatar({ model, size = "sm", className = "" }: Prop
       title={MODEL_LABELS[model]}
       aria-label={MODEL_LABELS[model]}
     >
-      <img
+      <Image
         src={MODEL_LOGOS[model]}
         alt=""
+        width={32}
+        height={32}
         className="h-full w-full object-cover"
         loading="lazy"
+        unoptimized
       />
     </span>
   )
