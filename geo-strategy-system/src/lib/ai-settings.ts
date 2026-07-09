@@ -188,7 +188,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
     description: "用于渗透率检测和结构化裁判，支持 Moonshot 官方联网工具。",
     defaultBaseUrl: "https://api.moonshot.cn",
     defaultChatPath: "/v1/chat/completions",
-    defaultModel: "moonshot-v1-8k",
+    defaultModel: "kimi-k2.6",
     defaultTimeout: 300,
     apiKeyEnv: ["MOONSHOT_API_KEY"],
     modelEnv: ["MOONSHOT_MODEL"],
@@ -198,11 +198,11 @@ const DEFINITIONS: AiProviderDefinition[] = [
     presets: [
       {
         key: "kimi-moonshot-k2",
-        label: "Moonshot 官方 · Kimi K2",
+        label: "Moonshot 官方 · Kimi K2.6",
         description: "使用 Moonshot 官方接口和内置 $web_search 联网工具。",
         baseUrl: "https://api.moonshot.cn",
         chatPath: "/v1/chat/completions",
-        model: "kimi-k2.5",
+        model: "kimi-k2.6",
       },
       {
         key: "kimi-tokenhub-k26",
