@@ -58,6 +58,11 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
         <div className="mb-1 text-xs font-medium text-slate-700">
           {req.packageName || "历史充值申请"}
         </div>
+        {(req.paymentOutTradeNo || req.paymentOrderId) && (
+          <div className="mb-1 font-mono text-[10px] text-slate-400">
+            订单：{req.paymentOutTradeNo || req.paymentOrderId}
+          </div>
+        )}
         {req.priceCents ? (
           <div className="mb-1 font-mono text-xs font-semibold text-slate-900">
             {formatYuan(req.priceCents)}

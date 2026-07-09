@@ -102,6 +102,12 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                   </span>
                   。管理员核对到账后会审批加积分。
                 </p>
+                {state!.ok && state!.paymentOutTradeNo && (
+                  <div className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">
+                    订单号：
+                    <span className="font-mono text-slate-900">{state!.paymentOutTradeNo}</span>
+                  </div>
+                )}
                 <button
                   onClick={onClose}
                   className="mt-6 w-full py-2.5 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white text-sm font-medium hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all"
