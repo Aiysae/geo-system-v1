@@ -1,4 +1,4 @@
-export const PRICING_VERSION = "commercial-mvp-2026-07-06"
+export const PRICING_VERSION = "commercial-mvp-2026-07-09"
 
 export const FEATURE_PRICES = {
   diagnose: {
@@ -108,26 +108,50 @@ export const ARTICLE_PROMPT_PRICE_KEYS = {
 
 export const RECHARGE_PACKAGES = [
   {
-    key: "starter_99",
-    name: "入门包",
-    priceCents: 9900,
-    credits: 1000,
-    description: "适合小批量体验检测、疑问句生成和文章生成。",
+    key: "trial_990",
+    name: "首购体验包",
+    priceCents: 990,
+    credits: 100,
+    badge: "限首购",
+    firstPurchaseOnly: true,
+    description: "适合第一次体验 GEO 检测、疑问句生成和文章改写。",
   },
   {
-    key: "standard_299",
+    key: "light_49",
+    name: "轻量包",
+    priceCents: 4900,
+    credits: 600,
+    description: "适合个体老板、运营人员做小批量检测和内容生产。",
+  },
+  {
+    key: "standard_99",
     name: "标准包",
-    priceCents: 29900,
-    credits: 3500,
+    priceCents: 9900,
+    credits: 1500,
     badge: "推荐",
-    description: "适合持续做 GEO 检测、关键词策略和内容生产。",
+    description: "适合单品牌商家持续做检测、关键词策略和文章生成。",
   },
   {
-    key: "growth_699",
+    key: "growth_299",
     name: "增长包",
+    priceCents: 29900,
+    credits: 5500,
+    description: "适合本地服务商家、增长团队做月度高频检测。",
+  },
+  {
+    key: "team_699",
+    name: "团队包",
     priceCents: 69900,
-    credits: 9000,
-    description: "适合多客户、多模型、多批次检测的高频使用。",
+    credits: 15000,
+    description: "适合代运营、咨询顾问和多客户批量交付场景。",
+  },
+  {
+    key: "enterprise_1999",
+    name: "企业包",
+    priceCents: 199900,
+    credits: 50000,
+    badge: "对公优先",
+    description: "适合企业市场部、品牌方长期监控和批量报告需求。",
   },
 ] as const
 
