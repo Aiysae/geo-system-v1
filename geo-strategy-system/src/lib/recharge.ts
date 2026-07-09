@@ -1,6 +1,11 @@
 import { kv } from "@/lib/kv"
 import { addCreditsBy } from "./credits"
 import {
+  cancelPaymentOrder,
+  createPaymentOrder,
+  creditPaymentOrder,
+} from "@/lib/payment-orders"
+import {
   getRechargePackage,
   type RechargePackageKey,
 } from "@/lib/pricing"
@@ -18,6 +23,8 @@ export type RechargeRequest = {
   priceCents?: number
   credits?: number
   amount: number
+  paymentOrderId?: string
+  paymentOutTradeNo?: string
   paymentMethod?: RechargePaymentMethod
   payerName?: string
   paymentReference?: string
@@ -66,9 +73,25 @@ export async function createRequest(input: {
     }
   }
 
+  const requestId = newId()
   const paymentMethod = normalizePaymentMethod(input.paymentMethod)
+  const paymentOrder = await createPaymentOrder({
+    userId: input.userId,
+    username: input.username,
+    email: input.email,
+    rechargeRequestId: requestId,
+    packageKey: pkg.key,
+    packageName: pkg.name,
+    priceCents: pkg.priceCents,
+    credits: pkg.credits,
+    provider: paymentMethod,
+    payerName: input.payerName,
+    paymentReference: input.paymentReference,
+    contact: input.contact,
+    note: input.note,
+  })
   const record: RechargeRequest = {
-    id: newId(),
+    id: requestId,
     userId: input.userId,
     username: input.username,
     email: input.email,
@@ -77,6 +100,8 @@ export async function createRequest(input: {
     priceCents: pkg.priceCents,
     credits: pkg.credits,
     amount: pkg.credits,
+    paymentOrderId: paymentOrder.id,
+    paymentOutTradeNo: paymentOrder.outTradeNo,
     paymentMethod,
     payerName: cleanOptionalText(input.payerName, 80),
     paymentReference: cleanOptionalText(input.paymentReference, 120),
@@ -156,6 +181,35 @@ export async function approveRequest(
   const record = await kv.get<RechargeRequest>(KEY_REQ(requestId))
   if (!record) return { ok: false, reason: "申请记录已丢失" }
 
+  if (record.paymentOrderId) {
+    const paymentResult = await creditPaymentOrder({
+      orderId: record.paymentOrderId,
+      operatorUserId: adminUserId,
+      providerTradeId: record.paymentReference,
+      source: "manual_approval",
+    })
+    if (!paymentResult.ok) {
+      await kv.sadd(KEY_PENDING_SET, requestId)
+      return { ok: false, reason: paymentResult.reason }
+    }
+  } else {
+    await addCreditsBy(record.userId, record.credits ?? record.amount, {
+      type: "recharge_approved",
+      source: "recharge",
+      sourceId: record.id,
+      description: `充值到账：${record.packageName || "历史充值申请"}`,
+      operatorUserId: adminUserId,
+      metadata: {
+        packageKey: record.packageKey,
+        packageName: record.packageName,
+        priceCents: record.priceCents,
+        paymentMethod: record.paymentMethod,
+        payerName: record.payerName,
+        paymentReference: record.paymentReference,
+        contact: record.contact,
+      },
+    })
+  }
   const updated: RechargeRequest = {
     ...record,
     status: "approved",
@@ -164,22 +218,6 @@ export async function approveRequest(
   }
   await kv.set(KEY_REQ(requestId), updated)
   await kv.sadd(KEY_ALL, requestId)
-  await addCreditsBy(record.userId, record.credits ?? record.amount, {
-    type: "recharge_approved",
-    source: "recharge",
-    sourceId: record.id,
-    description: `充值到账：${record.packageName || "历史充值申请"}`,
-    operatorUserId: adminUserId,
-    metadata: {
-      packageKey: record.packageKey,
-      packageName: record.packageName,
-      priceCents: record.priceCents,
-      paymentMethod: record.paymentMethod,
-      payerName: record.payerName,
-      paymentReference: record.paymentReference,
-      contact: record.contact,
-    },
-  })
   return { ok: true, record: updated }
 }
 
@@ -201,5 +239,8 @@ export async function rejectRequest(
   }
   await kv.set(KEY_REQ(requestId), updated)
   await kv.sadd(KEY_ALL, requestId)
+  if (record.paymentOrderId) {
+    await cancelPaymentOrder(record.paymentOrderId, "管理员拒绝充值申请")
+  }
   return { ok: true, record: updated }
 }

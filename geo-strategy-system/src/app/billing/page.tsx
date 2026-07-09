@@ -144,10 +144,11 @@ export default async function BillingPage() {
             <div className="px-5 py-10 text-center text-sm text-slate-400">暂无充值记录</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] text-left">
+              <table className="w-full min-w-[1040px] text-left">
                 <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-5 py-3">套餐</th>
+                    <th className="px-5 py-3">订单号</th>
                     <th className="px-5 py-3">金额</th>
                     <th className="px-5 py-3">积分</th>
                     <th className="px-5 py-3">付款方式</th>
@@ -161,6 +162,9 @@ export default async function BillingPage() {
                   {recharges.map(record => (
                     <tr key={record.id} className="border-t border-slate-100 text-sm">
                       <td className="px-5 py-3 font-medium text-slate-900">{record.packageName || "历史充值申请"}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-slate-500">
+                        {record.paymentOutTradeNo || record.paymentOrderId || "-"}
+                      </td>
                       <td className="px-5 py-3 font-mono text-slate-700">
                         {record.priceCents ? formatYuan(record.priceCents) : "-"}
                       </td>

@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth"
 import { createRequest } from "@/lib/recharge"
 
 export type RequestRechargeResult =
-  | { ok: true; credits: number; packageName: string; priceCents?: number }
+  | { ok: true; credits: number; packageName: string; priceCents?: number; paymentOutTradeNo?: string }
   | { ok: false; error: string }
 
 export async function requestRechargeAction(
@@ -37,6 +37,7 @@ export async function requestRechargeAction(
       credits: request.credits ?? request.amount,
       packageName: request.packageName || "充值套餐",
       priceCents: request.priceCents,
+      paymentOutTradeNo: request.paymentOutTradeNo,
     }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "提交失败" }
