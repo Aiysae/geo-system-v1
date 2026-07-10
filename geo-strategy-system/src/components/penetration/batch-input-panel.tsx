@@ -34,6 +34,7 @@ interface Props {
     brandAliases: string[]
     competitors: string[]
   }) => void
+  onStop: () => void
   loading: boolean
   error: string | null
   skipped?: string[]
@@ -45,6 +46,7 @@ export default function BatchInputPanel({
   client,
   onChangeClient,
   onRun,
+  onStop,
   loading,
   error,
   skipped,
@@ -368,23 +370,28 @@ export default function BatchInputPanel({
         className="w-fit"
       />
 
-      <Button
-        onClick={handleRun}
-        disabled={!canRun}
-        className="w-full bg-gradient-to-r from-[#004B73] via-[#0077B6] to-[#00B4D8] hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all border-0 gap-2 py-5 text-sm font-medium"
-      >
-        {loading ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {progressLabel || "正在并行检测..."}
-          </>
-        ) : (
+      {loading ? (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onStop}
+          className="w-full gap-2 border-rose-200 py-5 text-sm font-medium text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+        >
+          <XCircle className="h-4 w-4" />
+          停止检测 · {progressLabel || "后台任务运行中"}
+        </Button>
+      ) : (
+        <Button
+          onClick={handleRun}
+          disabled={!canRun}
+          className="w-full bg-gradient-to-r from-[#004B73] via-[#0077B6] to-[#00B4D8] hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all border-0 gap-2 py-5 text-sm font-medium"
+        >
           <>
             <Play className="h-4 w-4" />
             开始多模型检测 ({client.selectedModels.length} × {questionCount})
           </>
-        )}
-      </Button>
+        </Button>
+      )}
 
       {/* 红色 Toast：AI 生成失败时右下角浮窗，4.5 秒自动消失 */}
       {aiToast && (

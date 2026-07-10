@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Target, ChevronDown, MessageSquare, BarChart3, Globe2, ExternalLink } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
@@ -17,7 +17,6 @@ import {
   getBrandVoiceAction,
   getKeywordCompetitionAction,
 } from "@/app/actions/dashboards"
-import { useCredits } from "@/components/credits/credits-provider"
 import { aggregatePenetration, isSameBrand } from "@/lib/score-utils"
 import type {
   BrandVoiceItem,
@@ -27,6 +26,7 @@ import type {
   Client,
   ModelKey,
   PenetrationItem,
+  PenetrationJobRecord,
   PenetrationPromptPurity,
   PenetrationResult,
   PenetrationSource,
@@ -39,54 +39,96 @@ interface Props {
   onChangeClient: (patch: Partial<Client>) => void
 }
 
-const PENETRATION_BATCH_SLOT_LIMIT = 6
-const PENETRATION_BATCH_QUESTION_LIMIT = 4
-
-type PenetrationApiResponse = {
-  error?: string
-  skipped?: string[]
-  byModel?: PenetrationResult["byModel"]
-  aggregated?: PenetrationResult["aggregated"]
-  generatedAt?: string
-  modelErrors?: Partial<Record<ModelKey, string>>
-}
-
-function buildDetectionBatches(
-  questions: string[],
-  models: ModelKey[]
-): Array<{ questions: string[]; models: ModelKey[] }> {
-  const questionBatchSize = Math.max(
-    1,
-    Math.min(
-      PENETRATION_BATCH_QUESTION_LIMIT,
-      Math.floor(PENETRATION_BATCH_SLOT_LIMIT / Math.max(1, models.length))
-    )
-  )
-  const batches: Array<{ questions: string[]; models: ModelKey[] }> = []
-  for (let start = 0; start < questions.length; start += questionBatchSize) {
-    batches.push({
-      questions: questions.slice(start, start + questionBatchSize),
-      models,
-    })
-  }
-  return batches
-}
-
-function cloneByModel(byModel: PenetrationResult["byModel"]): PenetrationResult["byModel"] {
-  const cloned: PenetrationResult["byModel"] = {}
-  for (const [model, items] of Object.entries(byModel) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
-    if (items?.length) cloned[model] = [...items]
-  }
-  return cloned
-}
-
 export default function PenetrationModule({ client, onChangeClient }: Props) {
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(Boolean(client.penetrationJobId))
   const [error, setError] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
   const [modelErrors, setModelErrors] = useState<Partial<Record<ModelKey, string>>>({})
   const [progressLabel, setProgressLabel] = useState("")
-  const { balance } = useCredits()
+  const publishedResultAtRef = useRef(client.penetration?.generatedAt || "")
+
+  useEffect(() => {
+    const jobId = client.penetrationJobId
+    if (!jobId) return
+
+    const controller = new AbortController()
+    let stopped = false
+    let failedPolls = 0
+
+    async function poll() {
+      while (!stopped) {
+        try {
+          const res = await apiFetch(`/api/penetration/jobs/${jobId}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          })
+          const job = await readApiJson<PenetrationJobRecord & { error?: string }>(
+            res,
+            "疑问句检测任务查询",
+          )
+          if (!res.ok) throw new Error(job.error || `任务查询失败 (${res.status})`)
+          if (stopped) return
+
+          failedPolls = 0
+          setError(null)
+          setLoading(job.status === "queued" || job.status === "running")
+          setSkipped(job.skipped || [])
+          setModelErrors(job.modelErrors || {})
+          setProgressLabel(
+            job.status === "queued"
+              ? "后台任务排队中..."
+              : `后台检测 ${job.completedSlots}/${job.totalSlots}（第 ${Math.min(job.completedBatches + 1, job.totalBatches)}/${job.totalBatches} 批）`,
+          )
+
+          if (job.result && job.result.generatedAt !== publishedResultAtRef.current) {
+            publishedResultAtRef.current = job.result.generatedAt
+            onChangeClient({ penetration: job.result })
+          }
+
+          if (job.status === "succeeded") {
+            onChangeClient({
+              ...(job.result ? { penetration: job.result } : {}),
+              penetrationJobId: undefined,
+            })
+            setLoading(false)
+            setProgressLabel("")
+            return
+          }
+          if (job.status === "failed") {
+            onChangeClient({ penetrationJobId: undefined })
+            setError(job.error || "疑问句检测后台任务失败")
+            setLoading(false)
+            setProgressLabel("")
+            return
+          }
+          if (job.status === "cancelled") {
+            onChangeClient({
+              ...(job.result ? { penetration: job.result } : {}),
+              penetrationJobId: undefined,
+            })
+            setError(job.result ? "检测已停止，已保留当前完成结果。" : "检测已停止。")
+            setLoading(false)
+            setProgressLabel("")
+            return
+          }
+        } catch {
+          if (stopped || controller.signal.aborted) return
+          failedPolls += 1
+          if (failedPolls >= 3) {
+            setError("后台检测仍在继续，刚才进度刷新失败；系统会自动重试，不需要重新发起任务。")
+          }
+        }
+
+        await new Promise(resolve => window.setTimeout(resolve, failedPolls >= 3 ? 6000 : 2000))
+      }
+    }
+
+    void poll()
+    return () => {
+      stopped = true
+      controller.abort()
+    }
+  }, [client.penetrationJobId, onChangeClient])
 
   async function handleRun(params: {
     questions: string[]
@@ -94,110 +136,64 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     brandAliases: string[]
     competitors: string[]
   }) {
-    const requiredCredits = params.questions.length * params.models.length
-    if (typeof balance === "number" && balance < requiredCredits) {
-      setError(
-        `体验算力积分不足：本次检测需要 ${requiredCredits} 积分，当前余额 ${balance} 积分。请减少问题数量 / 检测模型，或前往账单页充值后重试。`
-      )
-      return
-    }
-
     setLoading(true)
     setError(null)
     setSkipped([])
     setModelErrors({})
-    setProgressLabel("")
+    setProgressLabel("正在创建后台检测任务...")
     try {
-      async function requestBatch(
-        questions: string[],
-        models: ModelKey[]
-      ): Promise<PenetrationApiResponse> {
-        const res = await apiFetch("/api/penetration", {
-          method: "POST",
-          cache: "no-store",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ourBrand: client.ourBrand,
-            brandAliases: params.brandAliases,
-            industry: client.industry,
-            questions,
-            competitors: params.competitors,
-            models,
-          }),
-        })
-        const data = await readApiJson<PenetrationApiResponse>(res, "疑问句检测")
-        if (!res.ok) {
-          if (Array.isArray(data.skipped)) setSkipped(data.skipped)
-          throw new Error(data.error || "请求失败")
-        }
-        if (!data.byModel || !data.generatedAt) {
-          throw new Error("疑问句检测返回数据不完整，请重新检测。")
-        }
-        return data
-      }
-
-      const batches = buildDetectionBatches(params.questions, params.models)
-      const mergedByModel: PenetrationResult["byModel"] = {}
-      const skippedLabels = new Set<string>()
-      const mergedModelErrors: Partial<Record<ModelKey, string>> = {}
-
-      function publishMergedResult(generatedAt: string) {
-        const byModel = cloneByModel(mergedByModel)
-        onChangeClient({
+      const res = await apiFetch("/api/penetration/jobs", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: client.id,
+          ourBrand: client.ourBrand,
           brandAliases: params.brandAliases,
+          industry: client.industry,
+          questions: params.questions,
           competitors: params.competitors,
-          penetration: {
-            byModel,
-            aggregated: aggregatePenetration(
-              byModel,
-              client.ourBrand,
-              params.brandAliases,
-              params.competitors,
-            ),
-            generatedAt,
-          },
-        })
+          models: params.models,
+        }),
+      })
+      const job = await readApiJson<PenetrationJobRecord & { error?: string }>(
+        res,
+        "疑问句检测任务创建",
+      )
+      if (!res.ok) {
+        if (Array.isArray(job.skipped)) setSkipped(job.skipped)
+        throw new Error(job.error || "后台检测任务创建失败")
       }
+      if (!job.id) throw new Error("后台检测任务创建失败：未返回任务 ID")
 
-      let generatedAt = new Date().toISOString()
-      for (let index = 0; index < batches.length; index++) {
-        const batch = batches[index]
-        setProgressLabel(
-          batches.length > 1
-            ? `正在检测第 ${index + 1}/${batches.length} 批（${batch.models.length} × ${batch.questions.length}）...`
-            : "正在并行检测..."
-        )
-
-        const data = await requestBatch(batch.questions, batch.models)
-        generatedAt = data.generatedAt || new Date().toISOString()
-
-        for (const [model, items] of Object.entries(data.byModel || {}) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
-          if (!items?.length) continue
-          mergedByModel[model] = [...(mergedByModel[model] || []), ...items]
-        }
-        for (const item of data.skipped || []) skippedLabels.add(item)
-        if (data.modelErrors && typeof data.modelErrors === "object") {
-          for (const [model, message] of Object.entries(data.modelErrors) as Array<[ModelKey, string]>) {
-            if (!message) continue
-            mergedModelErrors[model] = mergedModelErrors[model]
-              ? `${mergedModelErrors[model]}；${message}`
-              : message
-          }
-        }
-
-        setSkipped(Array.from(skippedLabels))
-        setModelErrors(mergedModelErrors)
-        publishMergedResult(generatedAt)
-      }
-
-      if (Object.keys(mergedByModel).length === 0) {
-        throw new Error("疑问句检测没有返回有效结果，请重新检测。")
-      }
+      setSkipped(job.skipped || [])
+      setProgressLabel(`后台检测 0/${job.totalSlots}`)
+      onChangeClient({
+        brandAliases: params.brandAliases,
+        competitors: params.competitors,
+        penetrationJobId: job.id,
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : "未知错误")
-    } finally {
       setLoading(false)
       setProgressLabel("")
+    }
+  }
+
+  async function handleStop() {
+    const jobId = client.penetrationJobId
+    if (!jobId) return
+    setProgressLabel("正在停止后台检测...")
+    try {
+      await apiFetch(`/api/penetration/jobs/${jobId}`, {
+        method: "PATCH",
+        cache: "no-store",
+      })
+    } finally {
+      onChangeClient({ penetrationJobId: undefined })
+      setLoading(false)
+      setProgressLabel("")
+      setError(client.penetration ? "检测已停止，已保留当前完成结果。" : "检测已停止。")
     }
   }
 
@@ -236,6 +232,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               client={client}
               onChangeClient={onChangeClient}
               onRun={handleRun}
+              onStop={handleStop}
               loading={loading}
               error={error}
               skipped={skipped}
@@ -250,7 +247,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                 <div>
                   <div className="text-sm text-slate-500 mb-1">情报大盘待生成</div>
                   <div className="text-xs text-slate-400">
-                    填写左侧信息后点击检测，多模型并行调用，约 10-30 秒返回
+                    填写左侧信息后点击检测，任务会在后台分批执行，可随时切换客户面板
                   </div>
                 </div>
               </div>
