@@ -3,6 +3,7 @@ import "server-only"
 import fs from "fs"
 import path from "path"
 import { kv as vercelKv } from "@vercel/kv"
+import { createClient } from "redis"
 
 type SetOptions = {
   nx?: boolean
@@ -44,9 +45,7 @@ const DEFAULT_LOCAL_KV_FILE = process.env.NODE_ENV === "production"
   ? "/var/lib/geo-system/kv.json"
   : path.join(process.cwd(), ".data", "kv.json")
 
-const useLocalKv = process.env.KV_BACKEND === "file"
-  || !process.env.KV_REST_API_URL
-  || !process.env.KV_REST_API_TOKEN
+const configuredBackend = String(process.env.KV_BACKEND || "").trim().toLowerCase()
 
 function expiresAtFromOptions(options?: SetOptions): number | undefined {
   if (!options?.ex || !Number.isFinite(options.ex)) return undefined
@@ -249,4 +248,149 @@ class LocalFileKv implements KvClient {
   }
 }
 
-export const kv: KvClient = useLocalKv ? new LocalFileKv() : (vercelKv as KvClient)
+function redisUrl(): string {
+  const value = String(process.env.REDIS_URL || "").trim()
+  if (!value) throw new Error("REDIS_URL is required when KV_BACKEND=redis")
+  return value
+}
+
+function createRedisClient() {
+  return createClient({
+    url: redisUrl(),
+    socket: {
+      connectTimeout: 5_000,
+      reconnectStrategy: retries => Math.min(100 * 2 ** Math.min(retries, 5), 3_000),
+    },
+  })
+}
+
+type NodeRedisClient = ReturnType<typeof createRedisClient>
+
+const redisGlobal = globalThis as typeof globalThis & {
+  __geoSystemRedisClient?: NodeRedisClient
+  __geoSystemRedisConnectPromise?: Promise<NodeRedisClient>
+}
+
+async function getRedisClient(): Promise<NodeRedisClient> {
+  if (redisGlobal.__geoSystemRedisClient?.isReady) {
+    return redisGlobal.__geoSystemRedisClient
+  }
+  if (redisGlobal.__geoSystemRedisConnectPromise) {
+    return redisGlobal.__geoSystemRedisConnectPromise
+  }
+
+  const client = createRedisClient()
+  client.on("error", error => {
+    const message = error instanceof Error ? error.message : "unknown error"
+    console.error(`[redis] ${message}`)
+  })
+
+  redisGlobal.__geoSystemRedisClient = client
+  redisGlobal.__geoSystemRedisConnectPromise = client.connect()
+    .then(() => client)
+    .catch(error => {
+      redisGlobal.__geoSystemRedisClient = undefined
+      redisGlobal.__geoSystemRedisConnectPromise = undefined
+      throw error
+    })
+  return redisGlobal.__geoSystemRedisConnectPromise
+}
+
+function encodeRedisValue(value: unknown): string {
+  const encoded = JSON.stringify(value)
+  return encoded === undefined ? "null" : encoded
+}
+
+function decodeRedisValue<T>(value: string): T {
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return value as T
+  }
+}
+
+function encodeRedisArgument(value: unknown): string {
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+    return String(value)
+  }
+  return encodeRedisValue(value)
+}
+
+class RedisKv implements KvClient {
+  async get<T = unknown>(key: string): Promise<T | null> {
+    const client = await getRedisClient()
+    const value = await client.get(key)
+    return value === null ? null : decodeRedisValue<T>(value)
+  }
+
+  async set(key: string, value: unknown, options?: SetOptions): Promise<"OK" | null> {
+    const client = await getRedisClient()
+    const result = await client.set(key, encodeRedisValue(value), {
+      condition: options?.nx ? "NX" : undefined,
+      expiration: options?.ex
+        ? { type: "EX", value: Math.max(1, Math.floor(options.ex)) }
+        : undefined,
+    })
+    return result === "OK" ? "OK" : null
+  }
+
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    if (members.length === 0) return 0
+    const client = await getRedisClient()
+    return client.sAdd(key, members.map(String))
+  }
+
+  async smembers<T = string[]>(key: string): Promise<T> {
+    const client = await getRedisClient()
+    return await client.sMembers(key) as T
+  }
+
+  async del(key: string): Promise<number> {
+    const client = await getRedisClient()
+    return client.del(key)
+  }
+
+  async srem(key: string, ...members: string[]): Promise<number> {
+    if (members.length === 0) return 0
+    const client = await getRedisClient()
+    return client.sRem(key, members.map(String))
+  }
+
+  async incrby(key: string, amount: number): Promise<number> {
+    const client = await getRedisClient()
+    return client.incrBy(key, Math.trunc(amount))
+  }
+
+  async decrby(key: string, amount: number): Promise<number> {
+    const client = await getRedisClient()
+    return client.decrBy(key, Math.trunc(amount))
+  }
+
+  async eval<TResult = unknown, TData = unknown>(
+    script: string,
+    keys: string[],
+    args: TData[],
+  ): Promise<TResult> {
+    const client = await getRedisClient()
+    return await client.eval(script, {
+      keys,
+      arguments: args.map(encodeRedisArgument),
+    }) as TResult
+  }
+}
+
+function createKvClient(): KvClient {
+  if (configuredBackend === "file") return new LocalFileKv()
+  if (configuredBackend === "redis") return new RedisKv()
+  if (configuredBackend === "vercel" || configuredBackend === "upstash") {
+    return vercelKv as KvClient
+  }
+  if (configuredBackend) throw new Error(`Unsupported KV_BACKEND: ${configuredBackend}`)
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    return vercelKv as KvClient
+  }
+  return new LocalFileKv()
+}
+
+export const kv: KvClient = createKvClient()
