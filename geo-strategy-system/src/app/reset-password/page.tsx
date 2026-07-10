@@ -25,7 +25,7 @@ export default async function ResetPasswordPage({
             </p>
             <Link
               href="/forgot-password"
-              className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40"
+              className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-[#087F9C] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40"
             >
               重新申请
             </Link>

@@ -179,7 +179,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
             <button
               type="submit"
               disabled={pending}
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#004B73] to-[#0077B6] px-4 text-xs font-medium text-white transition hover:shadow-md hover:shadow-blue-200/60 disabled:opacity-60"
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#087F9C] px-4 text-xs font-medium text-white transition hover:shadow-md hover:shadow-blue-200/60 disabled:opacity-60"
             >
               <Save className="h-3.5 w-3.5" />
               {pending ? "保存中..." : "保存配置"}

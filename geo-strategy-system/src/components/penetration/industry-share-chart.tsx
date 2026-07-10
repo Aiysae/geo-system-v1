@@ -20,9 +20,9 @@ interface Props {
 }
 
 const TOP_RANK_GRADIENTS = [
-  { from: "#F59E0B", to: "#F43F5E" },
-  { from: "#7C3AED", to: "#E879F9" },
-  { from: "#10B981", to: "#00D4FF" },
+  { from: "#B98725", to: "#E1B85C" },
+  { from: "#7E8D94", to: "#B8C3C7" },
+  { from: "#9C633F", to: "#D49A68" },
 ]
 
 export default function IndustryShareChart({ items, ourBrand, totalSlots }: Props) {
@@ -57,8 +57,8 @@ export default function IndustryShareChart({ items, ourBrand, totalSlots }: Prop
               </linearGradient>
             ))}
             <linearGradient id="barRest" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#64748B" stopOpacity={0.72} />
-              <stop offset="100%" stopColor="#94A3B8" stopOpacity={0.46} />
+              <stop offset="0%" stopColor="#2F7180" stopOpacity={0.88} />
+              <stop offset="100%" stopColor="#5C949C" stopOpacity={0.72} />
             </linearGradient>
           </defs>
           <XAxis type="number" hide />

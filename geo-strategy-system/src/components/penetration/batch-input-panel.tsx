@@ -226,7 +226,7 @@ export default function BatchInputPanel({
             onClick={() => setInputMode("manual")}
             className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition font-medium ${
               inputMode === "manual"
-                ? "bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white shadow"
+                ? "bg-[#087F9C] text-white shadow"
                 : "bg-transparent text-slate-600 hover:text-[#0077B6]"
             }`}
           >

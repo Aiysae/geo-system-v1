@@ -20,7 +20,7 @@ interface Props {
   overallRate: number
 }
 
-const COLORS = ["#004B73", "#0077B6", "#00B4D8", "#48cae4", "#10b981", "#f43f5e"]
+const COLORS = ["#087F9C", "#0D9879", "#6656A8", "#7E8D94", "#C79A3B", "#D14D64"]
 
 export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
   const validRates = perModelRate.filter(item => item.total > 0)

@@ -217,14 +217,14 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
           className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-white/20 sm:max-h-[92dvh]"
           onClick={event => event.stopPropagation()}
         >
-          <div className="shrink-0 bg-[#071B2B] px-5 py-4 text-white sm:px-7 sm:py-5">
+          <div className="shrink-0 bg-[#081C24] px-5 py-4 text-white sm:px-7 sm:py-5">
             <div className="flex items-start justify-between gap-4">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#00A6FB] shadow-lg shadow-cyan-500/20">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#087F9C] shadow-sm">
                   <FileDown className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
-                  <h2 id="report-export-title" className="text-lg font-bold">生成专业可视化报告</h2>
+                  <h2 id="report-export-title" className="geo-display-title text-xl">生成专业可视化报告</h2>
                   <p className="mt-1 truncate text-xs text-cyan-100/70">{client.name} · A4 商业版式 · 可点击信源</p>
                 </div>
               </div>
@@ -263,11 +263,11 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                           onClick={() => setKind(option.kind)}
                           disabled={generating}
                           className={`flex min-h-[86px] items-start gap-3 rounded-lg border p-3 text-left transition ${selected
-                            ? "border-[#00A6FB] bg-sky-50 ring-2 ring-sky-100"
+                            ? "border-[#087F9C] bg-[#edf5f3] ring-2 ring-[#087F9C]/10"
                             : "border-slate-200 bg-white hover:border-sky-200 hover:bg-slate-50"
                           }`}
                         >
-                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-[#00A6FB] text-white" : "bg-slate-100 text-slate-500"}`}>
+                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-[#087F9C] text-white" : "bg-slate-100 text-slate-500"}`}>
                             <Icon className="h-4 w-4" />
                           </span>
                           <span>
@@ -339,7 +339,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                       <span className="font-mono font-bold text-[#005B8A]">{job?.progress || 0}%</span>
                     </div>
                     <div className="mt-2 h-2 overflow-hidden rounded-full bg-white ring-1 ring-sky-100">
-                      <div className="h-full rounded-full bg-gradient-to-r from-[#00A6FB] via-[#6D5DFB] to-[#12B981] transition-all duration-500" style={{ width: `${job?.progress || 4}%` }} />
+                      <div className="h-full rounded-full bg-[#0D9879] transition-all duration-500" style={{ width: `${job?.progress || 4}%` }} />
                     </div>
                   </div>
                 )}
@@ -365,7 +365,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                 type="button"
                 onClick={generateReport}
                 disabled={!canGenerate || generating}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#0077B6] via-[#00A6FB] to-[#6D5DFB] px-6 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#087F9C] bg-[#087F9C] px-6 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#066B83] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 {generating ? "正在生成" : "生成并下载 PDF"}

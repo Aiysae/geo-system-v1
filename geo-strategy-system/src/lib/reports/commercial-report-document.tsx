@@ -47,19 +47,21 @@ Font.registerHyphenationCallback(word => {
 })
 
 const COLORS = {
-  ink: "#071B2B",
-  blue: "#00A6FB",
-  violet: "#6D5DFB",
-  amber: "#F59E0B",
-  green: "#12B981",
-  paper: "#F4F8FB",
-  line: "#D9E5EC",
-  text: "#243746",
-  muted: "#6B7F8E",
+  ink: "#081C24",
+  blue: "#087F9C",
+  violet: "#6656A8",
+  amber: "#C79A3B",
+  silver: "#87959B",
+  bronze: "#A96E43",
+  green: "#0D9879",
+  paper: "#F3F6F5",
+  line: "#D8E2E1",
+  text: "#263B3F",
+  muted: "#687B7F",
   white: "#FFFFFF",
-  red: "#E24A5A",
-  cyan: "#00B4D8",
-  slate: "#7992A3",
+  red: "#D14D64",
+  cyan: "#22A8B5",
+  slate: "#6E888E",
 }
 
 const MODEL_LABELS: Record<ModelKey, string> = {
@@ -750,7 +752,7 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
   const penetration = input.penetration!
   const brands = penetration.aggregated.industryShare.slice(0, 10)
   const maxBrandRate = Math.max(0.01, ...brands.map(item => item.penetrationRate))
-  const rankColors = [COLORS.amber, COLORS.violet, COLORS.blue]
+  const rankColors = [COLORS.amber, COLORS.silver, COLORS.bronze]
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
@@ -791,7 +793,7 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
   const penetration = input.penetration!
   const brands = penetration.aggregated.industryShare.slice(0, 10)
   const models = penetration.aggregated.perModelRate
-  const rankColors = [COLORS.amber, COLORS.violet, COLORS.blue]
+  const rankColors = [COLORS.amber, COLORS.silver, COLORS.bronze]
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
@@ -918,7 +920,7 @@ function SourcesPage({ input, answers, sources }: { input: CommercialReportInput
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>高频来源域名</Text>
         {domains.slice(0, 12).map((item, index) => (
-          <HorizontalBar key={item.domain} label={item.domain} value={item.count / Math.max(1, domains[0]?.count || 1)} display={`${item.count} 次`} color={index < 3 ? [COLORS.amber, COLORS.violet, COLORS.blue][index] : COLORS.slate} />
+          <HorizontalBar key={item.domain} label={item.domain} value={item.count / Math.max(1, domains[0]?.count || 1)} display={`${item.count} 次`} color={index < 3 ? [COLORS.amber, COLORS.silver, COLORS.bronze][index] : COLORS.slate} />
         ))}
       </View>
       <View style={styles.methodology}>

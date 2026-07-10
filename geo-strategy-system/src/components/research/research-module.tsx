@@ -243,17 +243,17 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
     <Card>
       <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
-          <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-200/50">
+          <span className="geo-module-icon bg-[#0D9879]">
             <Brain className="h-5 w-5 text-white" />
           </span>
-          <span className="min-w-0 bg-gradient-to-r from-emerald-600 to-cyan-600 bg-clip-text text-transparent font-semibold leading-snug">
+          <span className="geo-display-title min-w-0 text-lg leading-snug text-[#173B36]">
             独立调研 · 豆包深度品牌画像与竞品对比
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-          <section className="rounded-xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/40 to-cyan-50/30 p-4">
+          <section className="geo-section-panel p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2">
                 <Search className="h-4 w-4 text-emerald-600" />
@@ -311,7 +311,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               <Button
                 onClick={() => runResearch("ai")}
                 disabled={researchLoading || !researchReady}
-                className="gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:shadow-lg hover:shadow-emerald-200/60 border-0"
+                className="gap-1.5 border-[#0D9879] bg-[#0D9879] hover:border-[#0B7F66] hover:bg-[#0B7F66]"
                 size="sm"
               >
                 {researchLoading && mode === "ai" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
@@ -350,7 +350,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             )}
           </section>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <section className="geo-section-panel p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
               <div className="flex items-center gap-2">
                 <Swords className="h-4 w-4 text-rose-600" />
@@ -368,7 +368,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                   onClick={runCompare}
                   disabled={compareLoading || !compareReady}
                   size="sm"
-                  className="gap-1.5 bg-gradient-to-r from-rose-600 to-orange-500 hover:shadow-lg hover:shadow-rose-200/60 border-0"
+                  className="gap-1.5 border-[#D14D64] bg-[#D14D64] hover:border-[#B83F55] hover:bg-[#B83F55]"
                 >
                   {compareLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : compare ? <RefreshCw className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
                   {compareLoading ? "对比中..." : compare ? "重新对比" : "生成对比"}

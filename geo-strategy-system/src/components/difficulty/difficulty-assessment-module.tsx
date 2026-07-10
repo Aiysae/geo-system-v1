@@ -734,10 +734,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 
   return (
     <div className="min-w-0 space-y-5">
-      <section className="no-print rounded-lg border border-cyan-100 bg-[linear-gradient(120deg,rgba(240,249,255,0.96),rgba(255,255,255,0.98)_48%,rgba(245,243,255,0.9))] p-4 shadow-sm sm:p-5">
+      <section className="geo-section-panel no-print p-4 sm:p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-3">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-[#004B73] to-[#00B4D8] shadow-lg shadow-blue-200/50">
+            <span className="geo-module-icon bg-[#D14D64]">
               <Gauge className="h-5 w-5 text-white" />
             </span>
             <div>
@@ -941,7 +941,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                     {result.level}
                   </span>
                 </div>
-                <CardTitle className="text-xl leading-tight text-slate-900 md:text-2xl">
+                <CardTitle className="geo-display-title text-2xl leading-tight text-slate-900 md:text-3xl">
                   {activeEntry
                     ? formatEntryTitle(activeEntry)
                     : reportMode === "brand" ? "品牌 GEO 难度测评示例" : "GEO 难度测评示例"}
@@ -955,7 +955,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                   <div className="text-[11px] text-slate-400">
                     {reportMode === "brand" ? "品牌难度分" : "垄断总分"}
                   </div>
-                  <div className="text-5xl font-black tabular-nums tracking-tight text-[#004B73]">
+                  <div className="geo-data-number text-5xl font-bold text-[#087F9C]">
                     {result.totalScore}
                   </div>
                 </div>
@@ -1001,7 +1001,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#004B73] via-[#0077B6] to-[#00B4D8]"
+                          className="h-full rounded-full bg-[#087F9C]"
                           style={{ width: `${percent}%` }}
                         />
                       </div>

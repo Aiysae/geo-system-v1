@@ -156,7 +156,7 @@ function StickyHeader({
   onExportReport: () => void
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-cyan-300/15 bg-[#061826]/95 text-white shadow-lg shadow-slate-950/20 backdrop-blur-md sticky-header">
+    <header className="sticky top-0 z-30 border-b border-white/10 bg-[#081C24]/96 text-white shadow-[0_10px_28px_-24px_rgba(0,0,0,0.9)] backdrop-blur-md sticky-header">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 py-2.5 flex flex-wrap items-center gap-2 sm:gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
           {/* 移动端汉堡按钮：触发左侧抽屉。md+ 隐藏 */}
@@ -174,10 +174,10 @@ function StickyHeader({
             height={1136}
             sizes="32px"
             priority
-            className="h-8 w-auto rounded-lg ring-1 ring-white/20 shrink-0"
+            className="h-8 w-auto rounded-md ring-1 ring-white/20 shrink-0"
           />
           <div className="min-w-0">
-            <div className="max-w-[150px] truncate bg-gradient-to-r from-white via-cyan-100 to-[#00D4FF] bg-clip-text text-sm font-bold tracking-wide text-transparent sm:max-w-none">
+            <div className="geo-brand-title max-w-[150px] truncate text-base text-white sm:max-w-none">
               势途 GEO · 市场情报大盘
             </div>
             {client ? (
@@ -196,7 +196,7 @@ function StickyHeader({
           {client && (
             <button
               onClick={onExportReport}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 md:px-3.5 py-2 rounded-lg bg-gradient-to-r from-[#00A6FB] to-[#7C3AED] text-white hover:shadow-lg hover:shadow-cyan-400/25 hover:-translate-y-0.5 transition-all whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#22A8B5] bg-[#087F9C] px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#066B83] md:px-3.5"
             >
               <FileDown className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">导出专业报告</span>
@@ -218,7 +218,7 @@ function CreditsPill() {
   const { balance, unlimited } = useCredits()
   return (
     <div
-      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-300/20 to-rose-400/20 ring-1 ring-amber-200/30 text-[11px] font-medium text-white"
+      className="inline-flex items-center gap-1.5 rounded-lg bg-[#C79A3B]/16 px-2.5 py-1.5 text-[11px] font-medium text-white ring-1 ring-[#C79A3B]/35"
       title="体验算力积分余额"
     >
       <Sparkles className="h-3.5 w-3.5 text-amber-300" />
@@ -234,10 +234,10 @@ function EmptyState({ onCreate }: { onCreate: (name: string) => void }) {
   const [name, setName] = useState("")
   return (
     <div className="h-screen flex flex-col items-center justify-center px-6 animate-fade-in-up">
-      <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#004B73] via-[#0077B6] to-[#00B4D8] flex items-center justify-center mb-7 shadow-2xl shadow-blue-300/40 animate-pulse-ring">
+      <div className="mb-7 flex h-20 w-20 items-center justify-center rounded-lg bg-[#087F9C] shadow-[0_18px_40px_-24px_rgba(8,127,156,0.8)]">
         <Sparkles className="h-12 w-12 text-white" />
       </div>
-      <h2 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-600 bg-clip-text text-transparent">
+      <h2 className="geo-display-title text-3xl text-slate-900">
         欢迎使用势途 GEO 市场情报终端
       </h2>
       <p className="text-sm text-slate-500 mt-3 max-w-md text-center leading-relaxed">
@@ -263,7 +263,7 @@ function EmptyState({ onCreate }: { onCreate: (name: string) => void }) {
               setName("")
             }
           }}
-          className="px-5 py-3 text-sm rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 text-white font-medium transition-all"
+          className="rounded-lg bg-[#087F9C] px-5 py-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#066B83]"
         >
           创建
         </button>
@@ -285,18 +285,18 @@ function Dashboard({
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 py-4 md:py-6 animate-fade-in-up print-container">
-      <header className="mb-4 md:mb-5 overflow-hidden rounded-lg border border-white/15 bg-[#061826] shadow-xl shadow-slate-950/15">
-        <div className="flex flex-col gap-3 bg-[linear-gradient(110deg,rgba(0,166,251,0.28),rgba(124,58,237,0.22)_48%,rgba(244,63,94,0.2))] px-4 py-4 sm:flex-row sm:items-end sm:justify-between md:px-5">
+      <header className="geo-client-banner mb-4 overflow-hidden rounded-lg border border-white/12 shadow-[0_16px_36px_-26px_rgba(0,0,0,0.78)] md:mb-5">
+        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-end sm:justify-between md:px-5">
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">
+          <div className="mb-1.5 text-[11px] font-semibold uppercase text-cyan-50/65">
             当前客户
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl break-words">
+          <h1 className="geo-display-title break-words text-3xl text-white md:text-4xl">
             {client.name}
           </h1>
           {client.industry && (
-            <span className="inline-flex items-center gap-1.5 mt-2.5 text-xs px-2.5 py-1 rounded-full bg-white/10 backdrop-blur border border-white/15 text-cyan-50 shadow-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-[#00D4FF] to-[#F59E0B]"></span>
+            <span className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-white/18 bg-white/10 px-2.5 py-1 text-xs text-cyan-50 backdrop-blur">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#C79A3B]"></span>
               {client.industry}
             </span>
           )}
@@ -356,54 +356,54 @@ const DASHBOARD_MODULES: Array<{
     label: "渗透率情报",
     desc: "多模型盲测",
     icon: Target,
-    activeClass: "bg-gradient-to-r from-[#0077B6] to-[#00D4FF] text-white shadow-lg shadow-sky-400/25",
-    iconClass: "bg-sky-100 text-[#0077B6]",
-    dotClass: "from-[#0077B6] to-[#00D4FF]",
+    activeClass: "bg-[#087F9C] text-white shadow-sm",
+    iconClass: "bg-cyan-50 text-[#087F9C]",
+    dotClass: "bg-[#22A8B5]",
   },
   {
     key: "research",
     label: "独立调研",
     desc: "品牌画像",
     icon: Brain,
-    activeClass: "bg-gradient-to-r from-[#10B981] to-[#00D4FF] text-white shadow-lg shadow-emerald-400/25",
-    iconClass: "bg-emerald-100 text-emerald-700",
-    dotClass: "from-[#10B981] to-[#00D4FF]",
+    activeClass: "bg-[#0D9879] text-white shadow-sm",
+    iconClass: "bg-emerald-50 text-[#0D9879]",
+    dotClass: "bg-[#0D9879]",
   },
   {
     key: "diagnosis",
     label: "AI 诊断",
     desc: "五维评分",
     icon: Radar,
-    activeClass: "bg-gradient-to-r from-[#7C3AED] to-[#E879F9] text-white shadow-lg shadow-violet-400/25",
-    iconClass: "bg-violet-100 text-violet-700",
-    dotClass: "from-[#7C3AED] to-[#E879F9]",
+    activeClass: "bg-[#6656A8] text-white shadow-sm",
+    iconClass: "bg-violet-50 text-[#6656A8]",
+    dotClass: "bg-[#6656A8]",
   },
   {
     key: "difficulty",
     label: "难度测评",
     desc: "行业垄断评分",
     icon: Gauge,
-    activeClass: "bg-gradient-to-r from-[#F43F5E] to-[#F59E0B] text-white shadow-lg shadow-rose-400/25",
-    iconClass: "bg-rose-100 text-rose-700",
-    dotClass: "from-[#F43F5E] to-[#F59E0B]",
+    activeClass: "bg-[#D14D64] text-white shadow-sm",
+    iconClass: "bg-rose-50 text-[#D14D64]",
+    dotClass: "bg-[#D14D64]",
   },
   {
     key: "keyword",
     label: "关键词策略",
     desc: "资料抽取与疑问句池",
     icon: ListOrdered,
-    activeClass: "bg-gradient-to-r from-[#F59E0B] to-[#00A6FB] text-white shadow-lg shadow-amber-400/25",
-    iconClass: "bg-amber-100 text-amber-700",
-    dotClass: "from-[#F59E0B] to-[#00A6FB]",
+    activeClass: "bg-[#B7852E] text-white shadow-sm",
+    iconClass: "bg-amber-50 text-[#9A6C20]",
+    dotClass: "bg-[#C79A3B]",
   },
   {
     key: "article",
     label: "文章生成",
     desc: "Prompt 内容生产",
     icon: FileText,
-    activeClass: "bg-gradient-to-r from-[#7C3AED] to-[#F43F5E] text-white shadow-lg shadow-fuchsia-400/25",
-    iconClass: "bg-fuchsia-100 text-fuchsia-700",
-    dotClass: "from-[#7C3AED] to-[#F43F5E]",
+    activeClass: "bg-[#9B527E] text-white shadow-sm",
+    iconClass: "bg-fuchsia-50 text-[#9B527E]",
+    dotClass: "bg-[#9B527E]",
   },
 ]
 
@@ -416,7 +416,7 @@ function ModuleNav({
 }) {
   return (
     <nav className="no-print -mx-1 overflow-x-auto pb-1">
-      <div className="inline-flex min-w-full gap-1.5 rounded-lg border border-white/70 bg-white/88 p-1.5 shadow-lg shadow-slate-900/10 backdrop-blur sm:grid sm:grid-cols-6">
+      <div className="inline-flex min-w-full gap-1 rounded-lg border border-[#d8e2e1] bg-white/96 p-1.5 shadow-[0_12px_30px_-26px_rgba(8,28,36,0.58)] backdrop-blur sm:grid sm:grid-cols-6">
         {DASHBOARD_MODULES.map(item => {
           const Icon = item.icon
           const isActive = active === item.key
@@ -425,20 +425,20 @@ function ModuleNav({
               key={item.key}
               type="button"
               onClick={() => onChange(item.key)}
-              className={`min-w-[148px] sm:min-w-0 flex items-center gap-2 rounded-lg px-3 py-2.5 text-left transition ${
+              className={`flex min-w-[148px] items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors sm:min-w-0 ${
                 isActive
                   ? item.activeClass
                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
               }`}
             >
-              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                isActive ? "bg-white/18" : item.iconClass
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+                isActive ? "bg-white/16" : item.iconClass
               }`}>
                 <Icon className="h-4 w-4" />
               </span>
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5 text-xs font-semibold sm:text-sm">
-                  <span className={`h-1.5 w-1.5 rounded-full bg-gradient-to-r ${item.dotClass}`} />
+                  <span className={`h-1.5 w-1.5 rounded-full ${item.dotClass}`} />
                   <span className="truncate">{item.label}</span>
                 </span>
                 <span className={`block text-[10px] truncate ${isActive ? "text-white/78" : "text-slate-400"}`}>
