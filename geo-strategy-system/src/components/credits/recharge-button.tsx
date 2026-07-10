@@ -4,7 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useActionState, useState, useEffect } from "react"
 import { createPortal } from "react-dom"
-import { Building2, CreditCard, QrCode, Sparkles, X, Plus } from "lucide-react"
+import { Building2, CreditCard, MessageCircle, QrCode, Sparkles, X, Plus } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
 import { useCredits } from "./credits-provider"
 import { formatYuan, RECHARGE_PACKAGES, type RechargePackageKey } from "@/lib/pricing"
@@ -195,6 +195,8 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 selectedQrCode={selectedQrCode}
               />
 
+              <CustomerServiceInfo />
+
               <label className="mt-4 block text-xs font-medium text-slate-700">
                 付款人 / 付款账户名（推荐）
               </label>
@@ -264,6 +266,44 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
 
   if (typeof document === "undefined") return null
   return createPortal(dialog, document.body)
+}
+
+function CustomerServiceInfo() {
+  const wechatId = RECHARGE_PAYMENT_INFO.serviceWechatId
+  const qrImageUrl = RECHARGE_PAYMENT_INFO.serviceWechatQrImageUrl
+
+  if (!wechatId && !qrImageUrl) return null
+
+  return (
+    <div className="mt-3 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-emerald-100">
+      <div className="mb-2 flex items-center gap-1.5 font-semibold text-slate-900">
+        <MessageCircle className="h-3.5 w-3.5 text-emerald-700" />
+        充值客服微信
+      </div>
+      <div className="flex items-center gap-4 rounded-lg bg-white/85 px-3 py-3 ring-1 ring-emerald-100">
+        {qrImageUrl ? (
+          <Image
+            src={qrImageUrl}
+            alt="充值客服微信二维码"
+            width={160}
+            height={160}
+            className="h-28 w-28 shrink-0 rounded-lg object-contain sm:h-32 sm:w-32"
+            sizes="(max-width: 640px) 112px, 128px"
+          />
+        ) : null}
+        <div className="min-w-0">
+          <p className="text-[11px] leading-5 text-slate-600">
+            充值、对公付款、发票或到账问题，可以扫码添加客服微信。
+          </p>
+          {wechatId ? (
+            <p className="mt-2 break-all font-mono text-sm font-semibold text-slate-900">
+              微信号：{wechatId}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function PaymentMethodInfo({
