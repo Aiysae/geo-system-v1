@@ -136,6 +136,37 @@ export interface DifficultyAssessmentEntry {
   result: DifficultyAssessmentResult
 }
 
+export type DifficultyModelSelection = "auto" | ModelKey
+
+export type DifficultyJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
+
+export interface DifficultyJobRecord {
+  id: string
+  clientId: string
+  status: DifficultyJobStatus
+  mode: DifficultyAssessmentMode
+  industry: string
+  city: string
+  targetBrand?: string
+  website?: string
+  requestedModel: DifficultyModelSelection
+  currentModel?: ModelKey
+  currentStage?: DifficultyStageKey
+  completedStages: number
+  totalStages: number
+  progressPercent: number
+  attempts: number
+  stageModels: Partial<Record<DifficultyStageKey, ModelKey>>
+  modelErrors: Partial<Record<ModelKey, string>>
+  result?: DifficultyAssessmentResult
+  error?: string
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  finishedAt?: string
+  creditsRefunded?: boolean
+}
+
 export interface PenetrationSource {
   title: string
   snippet: string
@@ -380,4 +411,5 @@ export interface Client {
   keywordStrategy?: KeywordStrategyState
   articleGeneration?: ArticleGenerationState
   difficultyAssessments?: DifficultyAssessmentEntry[]
+  difficultyJobId?: string
 }

@@ -55,12 +55,15 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
     const onVisibility = () => {
       if (document.visibilityState === "visible") void refresh()
     }
+    const onCreditsRefresh = () => void refresh()
     window.addEventListener("focus", onFocus)
+    window.addEventListener("credits:refresh", onCreditsRefresh)
     document.addEventListener("visibilitychange", onVisibility)
     return () => {
       window.clearTimeout(initialRefresh)
       window.clearInterval(timer)
       window.removeEventListener("focus", onFocus)
+      window.removeEventListener("credits:refresh", onCreditsRefresh)
       document.removeEventListener("visibilitychange", onVisibility)
     }
   }, [refresh])

@@ -1,0 +1,104 @@
+import { NextRequest, NextResponse } from "next/server"
+import {
+  configuredDifficultyModels,
+  DIFFICULTY_MODEL_ORDER,
+  normalizeDifficultyInput,
+} from "@/lib/difficulty/assessment"
+import { createDifficultyJob, createDifficultyJobId } from "@/lib/difficulty/jobs"
+import { ADAPTERS, MODEL_LABELS } from "@/lib/llm"
+import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import {
+  refundReservedCreditsQuietly,
+  requireUserId,
+  reserveCreditsForUser,
+  type CreditReservation,
+} from "@/lib/with-credits"
+import type { DifficultyModelSelection, ModelKey } from "@/types"
+
+export const runtime = "nodejs"
+export const maxDuration = 60
+export const dynamic = "force-dynamic"
+
+function requestedModel(value: unknown): DifficultyModelSelection {
+  if (value === "auto" || value === undefined || value === null || value === "") return "auto"
+  if (typeof value === "string" && value in ADAPTERS) return value as ModelKey
+  throw new Error("请选择有效的测评模型")
+}
+
+export async function GET() {
+  const userGuard = await requireUserId()
+  if (!userGuard.ok) return userGuard.response
+  const models = await Promise.all(
+    DIFFICULTY_MODEL_ORDER.map(async key => ({
+      key,
+      label: MODEL_LABELS[key],
+      configured: await ADAPTERS[key].configured(),
+    })),
+  )
+  return NextResponse.json({ models }, { headers: { "Cache-Control": "private, no-store" } })
+}
+
+export async function POST(req: NextRequest) {
+  let reservation: CreditReservation | null = null
+  try {
+    const userGuard = await requireUserId()
+    if (!userGuard.ok) return userGuard.response
+
+    const body = await req.json()
+    const clientId = String(body.clientId || "").trim()
+    if (!clientId) {
+      return NextResponse.json({ error: "客户标识缺失，请刷新页面后重试" }, { status: 400 })
+    }
+    const request = normalizeDifficultyInput(body)
+    const selected = requestedModel(body.model)
+    if (selected !== "auto" && !await ADAPTERS[selected].configured()) {
+      return NextResponse.json(
+        { error: `${MODEL_LABELS[selected]}尚未配置可用的 API Key，请换一个模型或选择自动推荐` },
+        { status: 400 },
+      )
+    }
+
+    const modelCandidates = await configuredDifficultyModels(selected === "auto" ? undefined : selected)
+    if (modelCandidates.length === 0) {
+      return NextResponse.json(
+        { error: "没有任何已配置的大模型可用，请先在后台管理页配置至少一个 API Key" },
+        { status: 400 },
+      )
+    }
+
+    const featureKey = "difficultyAssessment"
+    const cost = estimateFeatureCredits(featureKey)
+    const jobId = createDifficultyJobId()
+    const creditGuard = await reserveCreditsForUser(userGuard.userId, cost, {
+      featureKey,
+      source: "api:difficulty-assessment:jobs",
+      sourceId: jobId,
+      description: getFeaturePrice(featureKey).label,
+      metadata: {
+        clientId,
+        mode: request.mode,
+        requestedModel: selected,
+      },
+    })
+    if (!creditGuard.ok) return creditGuard.response
+    reservation = creditGuard.reservation
+
+    const job = await createDifficultyJob({
+      id: jobId,
+      clientId,
+      request,
+      requestedModel: selected,
+      modelCandidates,
+      ownerUserId: userGuard.userId,
+      reservation,
+    })
+    reservation = null
+    return NextResponse.json(job, { status: 202 })
+  } catch (error) {
+    await refundReservedCreditsQuietly(reservation)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "创建难度测评任务失败" },
+      { status: 400 },
+    )
+  }
+}
