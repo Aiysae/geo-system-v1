@@ -234,6 +234,48 @@ export interface PenetrationJobRecord {
   finishedAt?: string
 }
 
+export type CommercialReportKind = "combined" | "penetration" | "difficulty"
+export type CommercialReportDetail = "concise" | "full"
+export type CommercialReportJobStatus = "queued" | "running" | "succeeded" | "failed"
+
+export interface ReportExportPreset {
+  kind?: CommercialReportKind
+  difficultyEntryId?: string
+}
+
+export interface CommercialReportInput {
+  kind: CommercialReportKind
+  detail: CommercialReportDetail
+  client: {
+    id: string
+    name: string
+    ourBrand: string
+    brandAliases: string[]
+    industry: string
+    website: string
+  }
+  penetration?: PenetrationResult
+  difficulty?: DifficultyAssessmentEntry
+}
+
+export interface CommercialReportJobRecord {
+  id: string
+  clientId: string
+  kind: CommercialReportKind
+  detail: CommercialReportDetail
+  status: CommercialReportJobStatus
+  progress: number
+  stage: string
+  fileName?: string
+  fileSize?: number
+  error?: string
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  finishedAt?: string
+  expiresAt: string
+}
+
 export interface DiagnosisDimensions {
   authority: number
   structure: number
