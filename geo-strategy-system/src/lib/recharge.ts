@@ -1,5 +1,5 @@
 import { kv } from "@/lib/kv"
-import { addCreditsBy } from "./credits"
+import { addCreditsBy, getCredits } from "./credits"
 import {
   cancelPaymentOrder,
   createPaymentOrder,
@@ -174,13 +174,14 @@ function cleanOptionalText(value: unknown, maxLength: number): string | undefine
 export async function approveRequest(
   requestId: string,
   adminUserId: string
-): Promise<{ ok: true; record: RechargeRequest } | { ok: false; reason: string }> {
+): Promise<{ ok: true; record: RechargeRequest; balance: number } | { ok: false; reason: string }> {
   const removed = await kv.srem(KEY_PENDING_SET, requestId)
   if (!removed) return { ok: false, reason: "该申请已被处理或不存在" }
 
   const record = await kv.get<RechargeRequest>(KEY_REQ(requestId))
   if (!record) return { ok: false, reason: "申请记录已丢失" }
 
+  let balance: number
   if (record.paymentOrderId) {
     const paymentResult = await creditPaymentOrder({
       orderId: record.paymentOrderId,
@@ -192,8 +193,9 @@ export async function approveRequest(
       await kv.sadd(KEY_PENDING_SET, requestId)
       return { ok: false, reason: paymentResult.reason }
     }
+    balance = paymentResult.credited ? paymentResult.balance : await getCredits(record.userId)
   } else {
-    await addCreditsBy(record.userId, record.credits ?? record.amount, {
+    balance = await addCreditsBy(record.userId, record.credits ?? record.amount, {
       type: "recharge_approved",
       source: "recharge",
       sourceId: record.id,
@@ -218,7 +220,7 @@ export async function approveRequest(
   }
   await kv.set(KEY_REQ(requestId), updated)
   await kv.sadd(KEY_ALL, requestId)
-  return { ok: true, record: updated }
+  return { ok: true, record: updated, balance }
 }
 
 export async function rejectRequest(

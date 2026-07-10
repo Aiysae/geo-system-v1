@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { ArrowLeft, CreditCard, ReceiptText, Sparkles } from "lucide-react"
 import { getCurrentUser } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
+import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-ledger"
 import { formatYuan, getFeaturePrice, RECHARGE_PACKAGES } from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
@@ -64,6 +65,7 @@ export default async function BillingPage() {
     listRequestsForUser(user.id, 80),
     listCreditLedgerForUser(user.id, 120),
   ])
+  const unlimited = hasUnlimitedCreditAccess(user)
 
   return (
     <div className="min-h-screen geo-saturated-bg">
@@ -95,7 +97,8 @@ export default async function BillingPage() {
               <Sparkles className="h-4 w-4 text-amber-500" />
               当前积分
             </div>
-            <div className="font-mono text-4xl font-bold tracking-tight text-slate-900">{credits}</div>
+            <div className="text-4xl font-bold tracking-tight text-slate-900">{unlimited ? "无限" : credits}</div>
+            {unlimited && <div className="mt-1 font-mono text-[11px] text-slate-400">账面余额 {credits}</div>}
             <p className="mt-2 text-xs leading-5 text-slate-500">
               所有功能扣费、失败退回、充值到账都会进入下方消费流水。
             </p>

@@ -127,6 +127,9 @@ class LocalFileKv implements KvClient {
     keys: string[],
     args: TData[],
   ): Promise<TResult> {
+    if (script.includes("admin_adjustment_v1")) {
+      return this.evalAdminAdjustment(keys, args) as TResult
+    }
     if (script.includes('redis.call("INCR"')) {
       return this.evalRateLimit(keys[0], args) as TResult
     }
@@ -189,6 +192,41 @@ class LocalFileKv implements KvClient {
     this.state[key] = { type: "value", value: next }
     this.persist()
     return [1, next]
+  }
+
+  private evalAdminAdjustment<TData>(keys: string[], args: TData[]): [number, number | string] {
+    const [key, operationKey] = keys
+    const completed = this.getEntry(operationKey)
+    if (completed?.type === "value") {
+      return [2, typeof completed.value === "string" ? completed.value : JSON.stringify(completed.value)]
+    }
+
+    const initial = Number(args[0] ?? 0)
+    const delta = Math.trunc(Number(args[1] ?? 0))
+    const pendingResult = String(args[2] ?? "")
+    const ttlSeconds = Number(args[3] ?? 0)
+    const current = this.getEntry(key)
+    const currentValue = current?.type === "value" ? Number(current.value) : initial
+    const balance = Number.isFinite(currentValue) ? currentValue : 0
+    const next = balance + delta
+
+    if (!Number.isFinite(delta) || delta === 0 || next < 0) return [0, balance]
+    let result: Record<string, unknown>
+    try {
+      result = JSON.parse(pendingResult) as Record<string, unknown>
+    } catch {
+      return [0, balance]
+    }
+    result.balance = next
+    const encoded = JSON.stringify(result)
+    this.state[key] = { type: "value", value: next, expiresAt: current?.expiresAt }
+    this.state[operationKey] = {
+      type: "value",
+      value: result,
+      expiresAt: ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : undefined,
+    }
+    this.persist()
+    return [1, encoded]
   }
 
   private load(): LocalState {
