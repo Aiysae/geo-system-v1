@@ -594,25 +594,28 @@ function DonutChart({ value, display, label, color = COLORS.blue }: {
   label: string
   color?: string
 }) {
-  const normalized = Math.max(0, Math.min(1, value))
+  const normalized = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0
   const radius = 42
   const circumference = 2 * Math.PI * radius
   const progress = circumference * normalized
+  const partialDash = normalized > 0 && normalized < 1
   return (
     <View style={styles.ringBox} wrap={false}>
       <Svg width={112} height={112} viewBox="0 0 112 112">
         <Circle cx={56} cy={56} r={radius} fill="none" stroke="#DDE8EF" strokeWidth={12} />
-        <Circle
-          cx={56}
-          cy={56}
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth={12}
-          strokeLinecap="round"
-          strokeDasharray={`${progress} ${circumference - progress}`}
-          transform="rotate(-90 56 56)"
-        />
+        {normalized > 0 ? (
+          <Circle
+            cx={56}
+            cy={56}
+            r={radius}
+            fill="none"
+            stroke={color}
+            strokeWidth={12}
+            strokeLinecap="round"
+            strokeDasharray={partialDash ? `${progress} ${circumference - progress}` : undefined}
+            transform="rotate(-90 56 56)"
+          />
+        ) : null}
       </Svg>
       <View style={styles.ringOverlay}>
         <Text style={styles.ringValue}>{display}</Text>
