@@ -116,6 +116,7 @@ npm run kv:migrate:file-to-redis -- --source /var/lib/geo-system/kv.json --verif
 ```
 
 迁移命令默认拒绝向非空 Redis 写入，避免覆盖已有数据。
+上线后安装 `deploy/redis/` 中的备份脚本和 systemd 定时器，每日生成 Redis RDB 快照并保留 14 天。
 
 ---
 

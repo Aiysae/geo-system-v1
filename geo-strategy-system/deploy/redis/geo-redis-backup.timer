@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily GEO system Redis backup
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=geo-redis-backup.service
+
+[Install]
+WantedBy=timers.target

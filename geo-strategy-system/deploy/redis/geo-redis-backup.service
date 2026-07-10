@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up GEO system Redis data
+After=redis.service
+Requires=redis.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/geo-redis-backup
