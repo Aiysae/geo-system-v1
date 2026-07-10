@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import {
+  authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
-  requireUserId,
-  reserveCreditsForUser,
   type CreditReservation,
 } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
@@ -139,9 +138,6 @@ function asArray(value: unknown): unknown[] {
 async function handler(req: NextRequest) {
   let reservation: CreditReservation | null = null
   try {
-    const userGuard = await requireUserId()
-    if (!userGuard.ok) return userGuard.response
-
     const body = await req.json() as {
       files?: UploadedPayloadFile[]
       projectInfo?: ExtractProjectInfo
@@ -155,7 +151,7 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST, {
+    const creditGuard = await authAndReserveCreditsForRequest(req, CREDIT_COST, {
       featureKey: FEATURE_KEY,
       source: "api:geo-strategy:extract",
       description: getFeaturePrice(FEATURE_KEY).label,

@@ -925,6 +925,7 @@ export async function createQuestionJob(
   publicOrigin?: string,
   ownerUserId?: string,
   reservedCredits?: number,
+  id?: string,
 ): Promise<QuestionJobRecord> {
   if (!input.strategy) {
     throw new Error("请提供策略方案")
@@ -948,7 +949,7 @@ export async function createQuestionJob(
   )
   const now = nowIso()
   const stored: StoredQuestionJobRecord = {
-    id: `qjob_${randomUUID().replace(/-/g, "")}`,
+    id: id || `qjob_${randomUUID().replace(/-/g, "")}`,
     status: "queued",
     totalCount,
     completedCount: 0,

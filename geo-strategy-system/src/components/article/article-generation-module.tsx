@@ -24,7 +24,7 @@ import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-s
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { ARTICLE_PROMPT_PRICE_KEYS } from "@/lib/pricing"
 import { buildArticleSourceModelGroups } from "@/lib/article-source-options"
-import { cancelBackgroundJob } from "@/lib/background-job-client"
+import { cancelBackgroundJob, createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type {
@@ -132,13 +132,6 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
     audience: article.audience,
     extraRequirements: article.extraRequirements,
   }
-}
-
-function createJobRequestId(prefix: string): string {
-  const suffix = typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID().replace(/-/g, "")
-    : `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`
-  return `${prefix}_${suffix}`
 }
 
 export default function ArticleGenerationModule({ client, onChangeClient }: Props) {
@@ -416,14 +409,18 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     persist(extracting)
 
     try {
-      const res = await apiFetch("/api/article-generation/extract-url", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: sourceUrl }),
+      const data = await createIdempotentApiJob<ArticleExtractResponse>({
+        endpoint: "/api/article-generation/extract-url",
+        requestId: createBackgroundRequestId("article_extract"),
+        label: "文章读取",
+        payload: { url: sourceUrl },
+        onRetry: () => {
+          persist({
+            ...extracting,
+            extractError: "网络暂时中断，正在重新确认原文读取结果...",
+          })
+        },
       })
-      const data = await readApiJson<ArticleExtractResponse>(res, "文章读取")
-      if (!res.ok) throw new Error(data.error || "文章读取失败")
       persist({
         ...extracting,
         sourceUrl: data.finalUrl || sourceUrl,
@@ -464,7 +461,10 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       status: "generating",
       error: undefined,
     }
-    persistArticleAndJob(generating, { requestId: createJobRequestId("article") })
+    persistArticleAndJob(generating, {
+      requestId: createBackgroundRequestId("article"),
+      payload: buildArticleJobPayload(client, generating),
+    })
   }
 
   async function stopArticleJob() {

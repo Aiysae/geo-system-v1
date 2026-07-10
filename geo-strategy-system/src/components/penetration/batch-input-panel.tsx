@@ -16,10 +16,11 @@ import {
   Globe2,
 } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/model-labels"
-import { apiFetch } from "@/lib/api-fetch"
 import ModelAvatar from "@/components/model-avatar"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
-import type { Client, ModelKey } from "@/types"
+import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
+import { createBackgroundRequestId } from "@/lib/background-job-client"
+import type { BackgroundJobRef, Client, ModelKey } from "@/types"
 
 const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
 
@@ -60,8 +61,64 @@ export default function BatchInputPanel({
   const [inputMode, setInputMode] = useState<InputMode>("manual")
   const [aiCount, setAiCount] = useState(5)
   const [aiKeywords, setAiKeywords] = useState("")
-  const [aiLoading, setAiLoading] = useState(false)
   const [aiToast, setAiToast] = useState<string | null>(null)
+  const aiJobRef = client.backgroundJobs?.queryGeneration
+  const aiLoading = Boolean(aiJobRef)
+  const aiPayload = {
+    industry: client.industry,
+    brand: client.ourBrand,
+    count: aiCount,
+    keywords: aiKeywords,
+  }
+
+  function backgroundJobsWith(ref?: BackgroundJobRef) {
+    const next = { ...(client.backgroundJobs || {}) }
+    if (ref) next.queryGeneration = ref
+    else delete next.queryGeneration
+    return next
+  }
+
+  const aiJobState = useResumableBackgroundJob<{ questions?: string[] }>({
+    kind: "queryGeneration",
+    clientId: client.id,
+    jobRef: aiJobRef,
+    payload: aiPayload,
+    onAccepted: job => {
+      onChangeClient({
+        backgroundJobs: backgroundJobsWith({ requestId: job.requestId, jobId: job.id }),
+      })
+    },
+    onSucceeded: job => {
+      const generated = Array.isArray(job.result?.questions) ? job.result.questions : []
+      if (generated.length === 0) {
+        setAiToast("生成失败：豆包未返回任何疑问句")
+        onChangeClient({ backgroundJobs: backgroundJobsWith() })
+        return
+      }
+
+      const existing = parseLines(questionsText)
+      const seen = new Set(existing)
+      const merged = [...existing]
+      for (const question of generated) {
+        const value = String(question || "").trim()
+        if (value && !seen.has(value)) {
+          seen.add(value)
+          merged.push(value)
+        }
+      }
+      setQuestionsText(merged.join("\n"))
+      setInputMode("manual")
+      setAiToast(null)
+      onChangeClient({
+        questions: merged,
+        backgroundJobs: backgroundJobsWith(),
+      })
+    },
+    onFailed: message => {
+      setAiToast(message)
+      onChangeClient({ backgroundJobs: backgroundJobsWith() })
+    },
+  })
 
   useEffect(() => {
     if (!aiToast) return
@@ -91,51 +148,14 @@ export default function BatchInputPanel({
     onRun({ questions, models: client.selectedModels, brandAliases, competitors })
   }
 
-  async function runAiGenerate() {
-    setAiLoading(true)
-    try {
-      const res = await apiFetch("/api/generate-queries", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          industry: client.industry,
-          brand: client.ourBrand,
-          count: aiCount,
-          keywords: aiKeywords,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(data?.error || "生成失败，请检查豆包 API 配置")
-      }
-      const generated = Array.isArray(data.questions) ? (data.questions as string[]) : []
-      if (generated.length === 0) {
-        throw new Error("生成失败：豆包未返回任何疑问句")
-      }
-
-      // 按行去重追加到 textarea
-      const existing = parseLines(questionsText)
-      const seen = new Set(existing)
-      const merged = [...existing]
-      for (const q of generated) {
-        const s = q.trim()
-        if (s && !seen.has(s)) {
-          seen.add(s)
-          merged.push(s)
-        }
-      }
-      const mergedText = merged.join("\n")
-      setQuestionsText(mergedText)
-      onChangeClient({ questions: merged })
-
-      // 自动切回手动 Tab，方便用户审核 / 微调
-      setInputMode("manual")
-    } catch (e) {
-      setAiToast(e instanceof Error ? e.message : "生成失败，请检查豆包 API 配置")
-    } finally {
-      setAiLoading(false)
-    }
+  function runAiGenerate() {
+    setAiToast(null)
+    onChangeClient({
+      backgroundJobs: backgroundJobsWith({
+        requestId: createBackgroundRequestId("query_generation"),
+        payload: aiPayload,
+      }),
+    })
   }
 
   const questionCount = parseLines(questionsText).length
@@ -283,6 +303,15 @@ export default function BatchInputPanel({
               </Button>
             </div>
             <CreditCostBadge featureKey="legacyQueryGenerateUnit" units={aiCount} />
+
+            {aiLoading && (
+              <div className="rounded-lg border border-orange-200 bg-white/75 px-3 py-2 text-[11px] leading-5 text-orange-800">
+                <div className="font-medium">{aiJobState.currentJob?.stage || "疑问句正在转入服务器后台"}</div>
+                <div className="text-orange-700/80">
+                  {aiJobState.connectionNotice || "可以切换客户或刷新页面，生成结果会自动追加到疑问句列表。"}
+                </div>
+              </div>
+            )}
 
             {!client.industry.trim() && !client.ourBrand.trim() && (
               <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">

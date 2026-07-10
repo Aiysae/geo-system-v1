@@ -3,7 +3,7 @@ import type { CompetitorCompareResult, CompetitorComparison } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonStrict } from "@/lib/score-utils"
 import {
-  authAndReserveCredits,
+  authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
   settleReservedCredits,
   type CreditReservation,
@@ -291,7 +291,7 @@ async function handler(req: NextRequest) {
 
     const featureKey = "competitorCompareUnit"
     const cost = estimateFeatureCredits(featureKey, selectedCompetitors.length)
-    const guard = await authAndReserveCredits(cost, {
+    const guard = await authAndReserveCreditsForRequest(req, cost, {
       featureKey,
       source: "api:competitor-compare",
       description: getFeaturePrice(featureKey).label,

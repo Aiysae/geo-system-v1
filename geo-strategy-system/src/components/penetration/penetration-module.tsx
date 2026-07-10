@@ -13,6 +13,7 @@ import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import {
   getBrandVoiceAction,
   getKeywordCompetitionAction,
@@ -142,11 +143,11 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     setModelErrors({})
     setProgressLabel("正在创建后台检测任务...")
     try {
-      const res = await apiFetch("/api/penetration/jobs", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const job = await createIdempotentApiJob<PenetrationJobRecord & { error?: string }>({
+        endpoint: "/api/penetration/jobs",
+        requestId: createBackgroundRequestId("penetration"),
+        label: "疑问句检测任务创建",
+        payload: {
           clientId: client.id,
           ourBrand: client.ourBrand,
           brandAliases: params.brandAliases,
@@ -154,18 +155,15 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           questions: params.questions,
           competitors: params.competitors,
           models: params.models,
-        }),
+        },
+        onRetry: () => {
+          setProgressLabel("网络暂时中断，正在确认检测任务是否已经创建...")
+          setError("请勿重复点击，系统正在用同一请求编号自动确认任务。")
+        },
       })
-      const job = await readApiJson<PenetrationJobRecord & { error?: string }>(
-        res,
-        "疑问句检测任务创建",
-      )
-      if (!res.ok) {
-        if (Array.isArray(job.skipped)) setSkipped(job.skipped)
-        throw new Error(job.error || "后台检测任务创建失败")
-      }
       if (!job.id) throw new Error("后台检测任务创建失败：未返回任务 ID")
 
+      setError(null)
       setSkipped(job.skipped || [])
       setProgressLabel(`后台检测 0/${job.totalSlots}`)
       onChangeClient({

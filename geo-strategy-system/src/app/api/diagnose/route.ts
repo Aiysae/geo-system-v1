@@ -3,7 +3,7 @@ import type { Diagnosis } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
-  authAndReserveCredits,
+  authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
   settleReservedCredits,
   type CreditReservation,
@@ -111,7 +111,7 @@ async function handler(req: NextRequest) {
 
     const featureKey = "diagnose"
     const cost = estimateFeatureCredits(featureKey)
-    const guard = await authAndReserveCredits(cost, {
+    const guard = await authAndReserveCreditsForRequest(req, cost, {
       featureKey,
       source: "api:diagnose",
       description: getFeaturePrice(featureKey).label,

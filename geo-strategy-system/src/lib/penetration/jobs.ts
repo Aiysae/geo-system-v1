@@ -378,6 +378,7 @@ async function runJob(jobId: string): Promise<void> {
 }
 
 export async function createPenetrationJob(args: {
+  id?: string
   request: PenetrationJobRequest
   ownerUserId: string
   reservation: CreditReservation
@@ -386,7 +387,7 @@ export async function createPenetrationJob(args: {
   const batches = buildBatches(args.request.questions, args.request.models)
   const now = nowIso()
   const stored: StoredPenetrationJob = {
-    id: `pjob_${randomUUID().replace(/-/g, "")}`,
+    id: args.id || `pjob_${randomUUID().replace(/-/g, "")}`,
     clientId: args.request.clientId,
     status: "queued",
     totalSlots: args.request.questions.length * args.request.models.length,
