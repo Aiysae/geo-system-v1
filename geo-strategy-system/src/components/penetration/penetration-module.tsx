@@ -224,9 +224,17 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="grid min-w-0 gap-5 lg:grid-cols-[400px_minmax(0,1fr)]">
-          <div className="min-w-0 lg:sticky lg:top-20 lg:self-start lg:border-r lg:border-slate-200/70 lg:pr-5">
+      <CardContent className="space-y-5">
+        <div className="no-print min-w-0 rounded-lg border border-cyan-100 bg-[linear-gradient(120deg,rgba(240,249,255,0.96),rgba(255,255,255,0.98)_48%,rgba(245,243,255,0.9))] p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">检测配置</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围后，结果将在下方按完整页面宽度生成</div>
+            </div>
+            <div className="rounded-md bg-[#071B2B] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
+              官方联网 · 纯净盲测
+            </div>
+          </div>
             <BatchInputPanel
               key={client.id}
               client={client}
@@ -239,15 +247,15 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               modelErrors={modelErrors}
               progressLabel={progressLabel}
             />
-          </div>
+        </div>
 
-          <div className="min-w-0 space-y-4">
+        <div className="min-w-0 space-y-4">
             {!pen ? (
-              <div className="flex h-full min-h-[300px] items-center justify-center text-center">
+              <div className="flex min-h-[300px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/60 text-center">
                 <div>
                   <div className="text-sm text-slate-500 mb-1">情报大盘待生成</div>
                   <div className="text-xs text-slate-400">
-                    填写左侧信息后点击检测，任务会在后台分批执行，可随时切换客户面板
+                    填写上方信息后点击检测，任务会在后台分批执行，可随时切换客户面板
                   </div>
                 </div>
               </div>
@@ -339,7 +347,6 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                 </div>
               </>
             )}
-          </div>
         </div>
       </CardContent>
     </Card>

@@ -10,8 +10,9 @@ import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
 import KeywordStrategyModule from "@/components/keyword/keyword-strategy-module"
 import ArticleGenerationModule from "@/components/article/article-generation-module"
 import DifficultyAssessmentModule from "@/components/difficulty/difficulty-assessment-module"
+import ReportExportDialog from "@/components/reports/report-export-dialog"
 import SiteFooter from "@/components/site-footer"
-import { Brain, FileText, Gauge, ListOrdered, Menu, Printer, Radar, Sparkles, Target } from "lucide-react"
+import { Brain, FileDown, FileText, Gauge, ListOrdered, Menu, Radar, Sparkles, Target } from "lucide-react"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { AccountMenu } from "@/components/auth/account-menu"
@@ -23,7 +24,7 @@ import {
   deleteClient as removeClient,
   createClient,
 } from "@/lib/storage"
-import type { Client } from "@/types"
+import type { Client, ReportExportPreset } from "@/types"
 
 export default function Home() {
   const [clients, setClients] = useState<Client[]>([])
@@ -31,6 +32,7 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false)
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [reportExportPreset, setReportExportPreset] = useState<ReportExportPreset | null>(null)
 
   useEffect(() => {
     const list = listClients()
@@ -49,6 +51,7 @@ export default function Home() {
     persistActiveId(id)
     // 移动端：选中客户后自动收起抽屉，直接进入详情面板
     setSidebarOpen(false)
+    setReportExportPreset(null)
   }, [])
 
   const handleCreate = useCallback((name: string) => {
@@ -111,6 +114,7 @@ export default function Home() {
         <StickyHeader
           client={active}
           onOpenSidebar={() => setSidebarOpen(true)}
+          onExportReport={() => setReportExportPreset({})}
         />
         {!hydrated ? (
           <div className="h-screen flex items-center justify-center text-slate-400 text-sm">
@@ -121,11 +125,23 @@ export default function Home() {
         ) : (
           // key={active.id}：切换客户时强制 Dashboard 整子树重挂载，
           // 彻底清空各 Module 内的 isDetecting/loading/progress 等运行时状态，根治状态泄露。
-          <Dashboard key={active.id} client={active} onChangeClient={handleChangeClient} />
+          <Dashboard
+            key={active.id}
+            client={active}
+            onChangeClient={handleChangeClient}
+            onExportReport={setReportExportPreset}
+          />
         )}
         <SiteFooter />
         </div>
       </main>
+      {active && reportExportPreset && (
+        <ReportExportDialog
+          client={active}
+          preset={reportExportPreset}
+          onClose={() => setReportExportPreset(null)}
+        />
+      )}
     </div>
   )
 }
@@ -133,13 +149,12 @@ export default function Home() {
 function StickyHeader({
   client,
   onOpenSidebar,
+  onExportReport,
 }: {
   client: Client | null
   onOpenSidebar: () => void
+  onExportReport: () => void
 }) {
-  function handlePrint() {
-    window.print()
-  }
   return (
     <header className="sticky top-0 z-30 border-b border-cyan-300/15 bg-[#061826]/95 text-white shadow-lg shadow-slate-950/20 backdrop-blur-md sticky-header">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 py-2.5 flex flex-wrap items-center gap-2 sm:gap-3">
@@ -180,11 +195,11 @@ function StickyHeader({
         <div className="no-print order-last flex w-full justify-end sm:order-none sm:w-auto sm:justify-start">
           {client && (
             <button
-              onClick={handlePrint}
+              onClick={onExportReport}
               className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 md:px-3.5 py-2 rounded-lg bg-gradient-to-r from-[#00A6FB] to-[#7C3AED] text-white hover:shadow-lg hover:shadow-cyan-400/25 hover:-translate-y-0.5 transition-all whitespace-nowrap shrink-0"
             >
-              <Printer className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">导出 PDF 报告</span>
+              <FileDown className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">导出专业报告</span>
               <span className="sm:hidden">导出</span>
             </button>
           )}
@@ -260,9 +275,11 @@ function EmptyState({ onCreate }: { onCreate: (name: string) => void }) {
 function Dashboard({
   client,
   onChangeClient,
+  onExportReport,
 }: {
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
+  onExportReport: (preset: ReportExportPreset) => void
 }) {
   const [activeModule, setActiveModule] = useState<DashboardModuleKey>("penetration")
 
@@ -306,7 +323,11 @@ function Dashboard({
           <DiagnosisModule client={client} onChangeClient={onChangeClient} />
         )}
         {activeModule === "difficulty" && (
-          <DifficultyAssessmentModule client={client} onChangeClient={onChangeClient} />
+          <DifficultyAssessmentModule
+            client={client}
+            onChangeClient={onChangeClient}
+            onExportReport={onExportReport}
+          />
         )}
         {activeModule === "keyword" && (
           <KeywordStrategyModule client={client} onChangeClient={onChangeClient} />

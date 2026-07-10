@@ -14,6 +14,7 @@ import {
   Loader2,
   Play,
   Table2,
+  Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,12 +28,14 @@ import type {
   DifficultyAssessmentMode,
   DifficultyAssessmentResult,
   DifficultyLevel,
+  ReportExportPreset,
   DifficultyStageKey,
 } from "@/types"
 
 interface Props {
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
+  onExportReport?: (preset: ReportExportPreset) => void
 }
 
 const INDUSTRY_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string }> = [
@@ -441,7 +444,7 @@ function createEntry(args: {
   }
 }
 
-export default function DifficultyAssessmentModule({ client, onChangeClient }: Props) {
+export default function DifficultyAssessmentModule({ client, onChangeClient, onExportReport }: Props) {
   const [mode, setMode] = useState<DifficultyAssessmentMode>("industry")
   const [industry, setIndustry] = useState(() => client.industry || "")
   const [city, setCity] = useState("全国")
@@ -550,26 +553,19 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
   }
 
   return (
-    <div className="grid min-w-0 gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <div className="space-y-5 no-print">
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#004B73] to-[#00B4D8] shadow-lg shadow-blue-200/50">
-                <Gauge className="h-5 w-5 text-white" />
-              </span>
-              <span className="min-w-0">
-                <span className="block bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text font-semibold text-transparent">
-                  GEO 难度测评
-                </span>
-                <span className="mt-1 block text-xs font-normal text-slate-400">
-                  调研 → 对比 → 评分 → 复核 → 报告
-                </span>
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+    <div className="min-w-0 space-y-5">
+      <section className="no-print rounded-lg border border-cyan-100 bg-[linear-gradient(120deg,rgba(240,249,255,0.96),rgba(255,255,255,0.98)_48%,rgba(245,243,255,0.9))] p-4 shadow-sm sm:p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-[#004B73] to-[#00B4D8] shadow-lg shadow-blue-200/50">
+              <Gauge className="h-5 w-5 text-white" />
+            </span>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">GEO 难度测评配置</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">调研、对比、评分、复核和报告将连续呈现在下方</div>
+            </div>
+          </div>
+          <div className="grid w-full grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:w-auto sm:min-w-[260px]">
               <button
                 type="button"
                 onClick={() => switchMode("industry")}
@@ -594,8 +590,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
                 <Building2 className="h-4 w-4" />
                 品牌评估
               </button>
-            </div>
-            <div className="space-y-2">
+          </div>
+        </div>
+
+        <div className={`grid gap-3 md:grid-cols-2 ${mode === "brand" ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
+            <div>
               <Label htmlFor="difficulty-industry">行业/赛道</Label>
               <Input
                 id="difficulty-industry"
@@ -606,7 +605,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
             </div>
             {mode === "brand" && (
               <>
-                <div className="space-y-2">
+                <div>
                   <Label htmlFor="difficulty-brand">查询品牌</Label>
                   <Input
                     id="difficulty-brand"
@@ -615,7 +614,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
                     placeholder="输入要评估的品牌名"
                   />
                 </div>
-                <div className="space-y-2">
+                <div>
                   <Label htmlFor="difficulty-website">官网/资料</Label>
                   <Input
                     id="difficulty-website"
@@ -626,7 +625,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
                 </div>
               </>
             )}
-            <div className="space-y-2">
+            <div>
               <Label htmlFor="difficulty-city">城市/地区</Label>
               <Input
                 id="difficulty-city"
@@ -635,79 +634,74 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
                 placeholder="全国、上海、深圳"
               />
             </div>
-            {error && (
-              <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              <Button type="button" onClick={runAssessment} disabled={loading}>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                {loading ? "评估中" : "开始评估"}
-              </Button>
-              <Button type="button" variant="outline" onClick={loadSample} disabled={loading}>
-                示例
-              </Button>
-            </div>
-            <CreditCostBadge featureKey="difficultyAssessment" className="w-fit" />
-            <p className="text-xs leading-relaxed text-slate-500">
-              真实评估由服务端调用已配置模型；前端不会暴露 API Key。
-            </p>
-          </CardContent>
-        </Card>
+        </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-sm text-slate-700">
-              <History className="h-4 w-4 text-[#0077B6]" />
-              历史测评
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {history.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-xs text-slate-400">
-                暂无历史报告，先运行一次测评。
+        {error && (
+          <div className="mt-3 flex gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-col gap-3 border-t border-slate-200/70 pt-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <CreditCostBadge featureKey="difficultyAssessment" className="w-fit" />
+            <p className="mt-1 text-[11px] text-slate-500">真实评估由服务端模型完成，API Key 不会暴露到浏览器。</p>
+          </div>
+          <div className="grid w-full grid-cols-2 gap-2 lg:w-auto lg:min-w-[300px]">
+            <Button type="button" variant="outline" onClick={loadSample} disabled={loading}>
+              示例
+            </Button>
+            <Button type="button" onClick={runAssessment} disabled={loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {loading ? "评估中" : "开始评估"}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="no-print rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <History className="h-4 w-4 text-[#0077B6]" />
+            历史测评
+          </div>
+          <div className="text-[11px] text-slate-400">{history.length} 份报告</div>
+        </div>
+        {history.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
+            暂无历史报告，先运行一次测评。
+          </div>
+        ) : (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {history.map(entry => (
+              <div
+                key={entry.id}
+                className={`flex min-w-[240px] items-center gap-2 rounded-lg border px-3 py-2 text-xs transition ${
+                  activeEntry?.id === entry.id ? "border-[#0077B6] bg-blue-50/70" : "border-slate-200 bg-white"
+                }`}
+              >
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setActiveEntry(entry)}>
+                  <span className="block truncate font-semibold text-slate-800">{formatEntryTitle(entry)}</span>
+                  <span className="mt-1 flex items-center justify-between gap-2 text-slate-500">
+                    <span>{entry.result.totalScore}分 · {entry.result.level}</span>
+                    <span>{formatDate(entry.createdAt)}</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteEntry(entry.id)}
+                  className="rounded-md p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                  aria-label={`删除 ${formatEntryTitle(entry)}`}
+                  title="删除报告"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
-            ) : (
-              <div className="space-y-2">
-                {history.map(entry => (
-                  <div
-                    key={entry.id}
-                    className={`rounded-xl border px-3 py-2.5 text-xs transition ${
-                      activeEntry?.id === entry.id ? "border-[#0077B6] bg-blue-50/70" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      className="block w-full text-left"
-                      onClick={() => setActiveEntry(entry)}
-                    >
-                      <span className="block truncate font-semibold text-slate-800">
-                        {formatEntryTitle(entry)}
-                      </span>
-                      <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                        {modeForEntry(entry) === "brand" ? "品牌报告" : "行业报告"}
-                      </span>
-                      <span className="mt-1 flex items-center justify-between gap-2 text-slate-500">
-                        <span>{entry.result.totalScore}分 / {entry.result.level}</span>
-                        <span>{formatDate(entry.createdAt)}</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteEntry(entry.id)}
-                      className="mt-2 text-[11px] text-slate-400 hover:text-red-600"
-                    >
-                      删除
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="min-w-0 space-y-5">
         {loading && (
@@ -754,9 +748,15 @@ export default function DifficultyAssessmentModule({ client, onChangeClient }: P
                     {result.totalScore}
                   </div>
                 </div>
-                <Button type="button" variant="outline" className="no-print" onClick={() => window.print()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="no-print"
+                  onClick={() => onExportReport?.({ kind: "difficulty", difficultyEntryId: activeEntry?.id })}
+                  disabled={!activeEntry || !onExportReport}
+                >
                   <FileText className="h-4 w-4" />
-                  打印报告
+                  导出该报告
                 </Button>
               </div>
             </div>

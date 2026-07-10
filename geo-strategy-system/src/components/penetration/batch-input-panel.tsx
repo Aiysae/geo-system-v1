@@ -145,39 +145,52 @@ export default function BatchInputPanel({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="space-y-3">
-          <Label className="text-xs text-slate-600 mb-1.5 block">我方品牌名 *</Label>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div>
+          <Label className="mb-1.5 block text-xs text-slate-600">我方品牌名 *</Label>
           <Input
             value={client.ourBrand}
             onChange={e => onChangeClient({ ourBrand: e.target.value })}
             placeholder="如：势途"
           />
-          <div>
-            <Label className="text-xs text-slate-600 mb-1.5 block">
-              品牌别名 / 主体别名 <span className="text-slate-400">（可选，每行一个）</span>
-            </Label>
-            <Textarea
-              value={brandAliasesText}
-              onChange={e => setBrandAliasesText(e.target.value)}
-              rows={3}
-              placeholder={"品牌简称\n英文名\n公司全称 / 产品名"}
-              className="font-mono text-xs"
-            />
-            <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-              仅用于回答后的品牌识别与统计归一，不会发送给被测模型。
-            </p>
-          </div>
         </div>
         <div>
-          <Label className="text-xs text-slate-600 mb-1.5 block">所属行业</Label>
+          <Label className="mb-1.5 block text-xs text-slate-600">所属行业</Label>
           <Input
             value={client.industry}
             onChange={e => onChangeClient({ industry: e.target.value })}
             placeholder="如：B端 AI Agent 工具"
           />
         </div>
+        <div>
+          <Label className="mb-1.5 block text-xs text-slate-600">
+            品牌别名 <span className="text-slate-400">（每行一个）</span>
+          </Label>
+          <Textarea
+            value={brandAliasesText}
+            onChange={e => setBrandAliasesText(e.target.value)}
+            rows={2}
+            placeholder={"品牌简称\n英文名 / 公司全称"}
+            className="min-h-[42px] font-mono text-xs"
+          />
+        </div>
+        <div>
+          <Label className="mb-1.5 block text-xs text-slate-600">
+            已知主要竞品 <span className="text-slate-400">（每行一个）</span>
+          </Label>
+          <Textarea
+            value={competitorsText}
+            onChange={e => setCompetitorsText(e.target.value)}
+            rows={2}
+            placeholder={"竞品A\n竞品B"}
+            className="min-h-[42px] font-mono text-xs"
+          />
+        </div>
       </div>
+
+      <p className="text-[11px] leading-relaxed text-slate-400">
+        品牌别名仅用于回答后的品牌识别与统计归一，不会发送给被测模型。
+      </p>
 
       <div>
         <div className="flex items-center justify-between mb-2">
@@ -285,21 +298,8 @@ export default function BatchInputPanel({
       </div>
 
       <div>
-        <Label className="text-xs text-slate-600 mb-1.5 block">
-          已知主要竞品 <span className="text-slate-400">（可选，每行一个）</span>
-        </Label>
-        <Textarea
-          value={competitorsText}
-          onChange={e => setCompetitorsText(e.target.value)}
-          rows={2}
-          placeholder={"竞品A\n竞品B"}
-          className="font-mono text-xs"
-        />
-      </div>
-
-      <div>
         <Label className="text-xs text-slate-600 mb-2 block">检测模型 *</Label>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
           {ALL_MODELS.map(m => {
             const checked = client.selectedModels.includes(m)
             return (
@@ -364,34 +364,34 @@ export default function BatchInputPanel({
         </div>
       )}
 
-      <CreditCostBadge
-        featureKey="penetrationSlot"
-        units={Math.max(1, questionCount * client.selectedModels.length)}
-        className="w-fit"
-      />
+      <div className="flex flex-col gap-3 border-t border-slate-200/70 pt-4 lg:flex-row lg:items-center lg:justify-between">
+        <CreditCostBadge
+          featureKey="penetrationSlot"
+          units={Math.max(1, questionCount * client.selectedModels.length)}
+          className="w-fit"
+        />
 
-      {loading ? (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onStop}
-          className="w-full gap-2 border-rose-200 py-5 text-sm font-medium text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-        >
-          <XCircle className="h-4 w-4" />
-          停止检测 · {progressLabel || "后台任务运行中"}
-        </Button>
-      ) : (
-        <Button
-          onClick={handleRun}
-          disabled={!canRun}
-          className="w-full bg-gradient-to-r from-[#004B73] via-[#0077B6] to-[#00B4D8] hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 transition-all border-0 gap-2 py-5 text-sm font-medium"
-        >
-          <>
+        {loading ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onStop}
+            className="w-full gap-2 border-rose-200 px-6 py-5 text-sm font-medium text-rose-700 hover:bg-rose-50 hover:text-rose-800 lg:w-auto lg:min-w-[300px]"
+          >
+            <XCircle className="h-4 w-4" />
+            停止检测 · {progressLabel || "后台任务运行中"}
+          </Button>
+        ) : (
+          <Button
+            onClick={handleRun}
+            disabled={!canRun}
+            className="w-full gap-2 border-0 bg-gradient-to-r from-[#004B73] via-[#0077B6] to-[#00B4D8] px-6 py-5 text-sm font-medium transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 lg:w-auto lg:min-w-[300px]"
+          >
             <Play className="h-4 w-4" />
             开始多模型检测 ({client.selectedModels.length} × {questionCount})
-          </>
-        </Button>
-      )}
+          </Button>
+        )}
+      </div>
 
       {/* 红色 Toast：AI 生成失败时右下角浮窗，4.5 秒自动消失 */}
       {aiToast && (
