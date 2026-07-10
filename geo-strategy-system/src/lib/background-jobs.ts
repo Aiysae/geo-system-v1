@@ -109,6 +109,15 @@ function resolveTask(kind: BackgroundJobKind, payload: unknown): TaskDefinition 
         label: getFeaturePrice(featureKey).label,
       }
     }
+    case "queryGeneration": {
+      const units = Math.min(30, Math.max(1, Math.floor(Number(body.count) || 5)))
+      return {
+        endpoint: "/api/generate-queries",
+        featureKey: "legacyQueryGenerateUnit",
+        units,
+        label: getFeaturePrice("legacyQueryGenerateUnit").label,
+      }
+    }
     case "research": {
       const featureKey = body.mode === "hypothesis" ? "researchHypothesis" : "researchAi"
       return {
@@ -405,6 +414,7 @@ function scheduleJob(jobId: string): void {
 export function isBackgroundJobKind(value: unknown): value is BackgroundJobKind {
   return [
     "articleGeneration",
+    "queryGeneration",
     "research",
     "diagnosis",
     "competitorCompare",

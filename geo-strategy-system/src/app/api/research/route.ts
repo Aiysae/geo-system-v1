@@ -3,7 +3,7 @@ import type { ResearchDimension, ResearchMode, ResearchResult, ResearchSourceMod
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonStrict } from "@/lib/score-utils"
 import {
-  authAndReserveCredits,
+  authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
   settleReservedCredits,
   type CreditReservation,
@@ -211,7 +211,7 @@ async function handler(req: NextRequest) {
 
     const featureKey = mode === "hypothesis" ? "researchHypothesis" : "researchAi"
     const cost = estimateFeatureCredits(featureKey)
-    const guard = await authAndReserveCredits(cost, {
+    const guard = await authAndReserveCreditsForRequest(req, cost, {
       featureKey,
       source: "api:research",
       description: getFeaturePrice(featureKey).label,

@@ -23,12 +23,14 @@ import {
   type QuestionJobRecord,
   type QuestionModelProvider,
 } from "@/types/geo-strategy"
-import type { Client } from "@/types"
+import type { BackgroundJobKind, BackgroundJobRef, Client } from "@/types"
 import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
+import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
+import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 
 // ==================== Brand Data ====================
 
@@ -77,6 +79,23 @@ interface BrandData {
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]
+}
+
+interface AdvantagesJobResult {
+  advantages?: Array<Partial<ExtractedItem>>
+}
+
+interface WebsitePromptJobPayload {
+  kind?: "third-party"
+  plan: GeoStrategyPlan
+  site?: ThirdPartySite
+  siteIndex?: number
+}
+
+interface WebsitePromptJobResult {
+  prompt?: string
+  model?: string
+  provider?: string
 }
 
 function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandData {
@@ -156,7 +175,13 @@ function createBrandFromClient(client: Client): BrandData {
       ...(saved.categoryConfig || {}),
     },
     completedSteps: saved.completedSteps?.length ? saved.completedSteps : fallback.completedSteps,
-    extracting: false,
+    extracting: Boolean(client.backgroundJobs?.keywordExtract),
+    advantageStatus: client.backgroundJobs?.keywordAdvantages
+      ? "generating"
+      : saved.advantageStatus === "generating" ? "idle" : saved.advantageStatus,
+    strategyStatus: client.backgroundJobs?.keywordStrategy
+      ? "generating"
+      : saved.strategyStatus === "generating" ? "idle" : saved.strategyStatus,
   }
 }
 
@@ -625,6 +650,166 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     }
   }, [])
 
+  const extractJobRef = client.backgroundJobs?.keywordExtract
+  const advantagesJobRef = client.backgroundJobs?.keywordAdvantages
+  const strategyJobRef = client.backgroundJobs?.keywordStrategy
+
+  const backgroundJobsWith = useCallback((kind: BackgroundJobKind, ref?: BackgroundJobRef) => {
+    const next = { ...(client.backgroundJobs || {}) }
+    if (ref) next[kind] = ref
+    else delete next[kind]
+    return next
+  }, [client.backgroundJobs])
+
+  const rawInputs = {
+    project_name: activeBrand.projectName,
+    industry: activeBrand.industry,
+    audience: activeBrand.audience,
+    location_terms: activeBrand.locationTerms,
+    product_description: activeBrand.productDesc,
+    core_advantages: activeBrand.coreAdvantages,
+    pain_points_raw: activeBrand.painPointsRaw,
+    competitors_raw: activeBrand.competitorsRaw,
+    geo_goals: activeBrand.geoGoals,
+  }
+  const extractPayload = {
+    files: activeBrand.uploadedFiles.map(file => ({
+      name: file.name,
+      content: file.content,
+      fileType: file.type,
+    })),
+    projectInfo: rawInputs,
+  }
+  const advantagesPayload = {
+    profile: activeBrand.extractedProfile,
+    rawInputs,
+    count: 10,
+  }
+  const strategyPayload = { profile: activeBrand.extractedProfile }
+
+  const extractJobState = useResumableBackgroundJob<ExtractedProfile>({
+    kind: "keywordExtract",
+    clientId: client.id,
+    jobRef: extractJobRef,
+    payload: extractPayload,
+    onAccepted: job => {
+      onChangeClient({
+        backgroundJobs: backgroundJobsWith("keywordExtract", {
+          requestId: job.requestId,
+          jobId: job.id,
+        }),
+      })
+    },
+    onSucceeded: job => {
+      if (!job.result || typeof job.result !== "object") {
+        updateBrand({ extracting: false, extractionError: "后台资料抽取结果不完整，请重新抽取。" })
+        onChangeClient({ backgroundJobs: backgroundJobsWith("keywordExtract") })
+        return
+      }
+      updateBrand({
+        extracting: false,
+        extractionError: "",
+        extractedProfile: normalizeExtractedProfile(job.result),
+        step: "extraction",
+        completedSteps: [...new Set([...activeBrand.completedSteps, "extraction" as ToolStep])],
+      })
+      onChangeClient({ backgroundJobs: backgroundJobsWith("keywordExtract") })
+    },
+    onFailed: message => {
+      updateBrand({ extracting: false, extractionError: message })
+      onChangeClient({ backgroundJobs: backgroundJobsWith("keywordExtract") })
+    },
+  })
+
+  const advantagesJobState = useResumableBackgroundJob<AdvantagesJobResult>({
+    kind: "keywordAdvantages",
+    clientId: client.id,
+    jobRef: advantagesJobRef,
+    payload: advantagesPayload,
+    onAccepted: job => {
+      onChangeClient({
+        backgroundJobs: backgroundJobsWith("keywordAdvantages", {
+          requestId: job.requestId,
+          jobId: job.id,
+        }),
+      })
+    },
+    onSucceeded: job => {
+      if (!activeBrand.extractedProfile) {
+        updateBrand({ advantageStatus: "error", advantageError: "当前资料已变化，请重新生成优势。" })
+        onChangeClient({ backgroundJobs: backgroundJobsWith("keywordAdvantages") })
+        return
+      }
+
+      const generated = (job.result?.advantages || [])
+        .map(item => ({
+          id: genId(),
+          text: String(item.text || "").trim(),
+          enabled: item.enabled !== false,
+          confidence: item.confidence === "high" || item.confidence === "low"
+            ? item.confidence
+            : "medium" as const,
+        }))
+        .filter(item => item.text)
+      const existing = activeBrand.extractedProfile.advantages || []
+      const seen = new Set(existing.map(item => item.text.trim()))
+      const merged = [
+        ...existing,
+        ...generated.filter(item => {
+          if (seen.has(item.text)) return false
+          seen.add(item.text)
+          return true
+        }),
+      ]
+
+      updateBrand({
+        extractedProfile: { ...activeBrand.extractedProfile, advantages: merged },
+        advantageStatus: "done",
+        advantageError: "",
+      })
+      onChangeClient({ backgroundJobs: backgroundJobsWith("keywordAdvantages") })
+    },
+    onFailed: message => {
+      updateBrand({ advantageStatus: "error", advantageError: message })
+      onChangeClient({ backgroundJobs: backgroundJobsWith("keywordAdvantages") })
+    },
+  })
+
+  const strategyJobState = useResumableBackgroundJob<GeoStrategyPlan>({
+    kind: "keywordStrategy",
+    clientId: client.id,
+    jobRef: strategyJobRef,
+    payload: strategyPayload,
+    onAccepted: job => {
+      onChangeClient({
+        backgroundJobs: backgroundJobsWith("keywordStrategy", {
+          requestId: job.requestId,
+          jobId: job.id,
+        }),
+      })
+    },
+    onSucceeded: job => {
+      const result = job.result
+      if (!result?.project_name || !result.profile || !result.keyword_strategy) {
+        updateBrand({ strategyStatus: "error", strategyError: "后台策略结果不完整，请重新生成。" })
+        onChangeClient({ backgroundJobs: backgroundJobsWith("keywordStrategy") })
+        return
+      }
+      updateBrand({
+        strategyPlan: result,
+        strategyStatus: "done",
+        strategyError: "",
+        step: "strategy",
+        completedSteps: [...new Set([...activeBrand.completedSteps, "strategy" as ToolStep])],
+      })
+      onChangeClient({ backgroundJobs: backgroundJobsWith("keywordStrategy") })
+    },
+    onFailed: message => {
+      updateBrand({ strategyStatus: "error", strategyError: message })
+      onChangeClient({ backgroundJobs: backgroundJobsWith("keywordStrategy") })
+    },
+  })
+
   // File handlers
   const handleFilesSelected = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -685,58 +870,21 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   }, [activeBrand.uploadedFiles, updateBrand])
 
   // Extraction
-  const handleExtract = useCallback(async () => {
+  const handleExtract = useCallback(() => {
     if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
       updateBrand({ extractionError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。" })
       return
     }
 
     updateBrand({ extracting: true, extractionError: "" })
+    onChangeClient({
+      backgroundJobs: backgroundJobsWith("keywordExtract", {
+        requestId: createBackgroundRequestId("keyword_extract"),
+      }),
+    })
+  }, [backgroundJobsWith, keywordModelSetting, onChangeClient, updateBrand])
 
-    try {
-      const res = await apiFetch("/api/geo-strategy/extract", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          files: activeBrand.uploadedFiles.map(f => ({
-            name: f.name,
-            content: f.content,
-            fileType: f.type,
-          })),
-          projectInfo: {
-            project_name: activeBrand.projectName,
-            industry: activeBrand.industry,
-            audience: activeBrand.audience,
-            location_terms: activeBrand.locationTerms,
-            product_description: activeBrand.productDesc,
-            core_advantages: activeBrand.coreAdvantages,
-            pain_points_raw: activeBrand.painPointsRaw,
-            competitors_raw: activeBrand.competitorsRaw,
-            geo_goals: activeBrand.geoGoals,
-          },
-        }),
-      })
-
-      const data = await readApiJson<ExtractedProfile & { error?: string }>(res, "资料抽取")
-
-      if (!res.ok) {
-        throw new Error(data.error || `请求失败 (${res.status})`)
-      }
-
-      updateBrand({
-        extractedProfile: normalizeExtractedProfile(data as ExtractedProfile),
-        step: "extraction",
-        completedSteps: [...new Set([...activeBrand.completedSteps, "extraction" as ToolStep])],
-      })
-    } catch (err) {
-      updateBrand({ extractionError: err instanceof Error ? err.message : "提取失败" })
-    } finally {
-      updateBrand({ extracting: false })
-    }
-  }, [activeBrand.uploadedFiles, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, activeBrand.completedSteps, keywordModelSetting, updateBrand])
-
-  const handleGenerateAdvantages = useCallback(async () => {
+  const handleGenerateAdvantages = useCallback(() => {
     if (!activeBrand.extractedProfile) return
     if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
       updateBrand({ advantageError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。" })
@@ -744,107 +892,24 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     }
 
     updateBrand({ advantageStatus: "generating", advantageError: "" })
-
-    try {
-      const res = await apiFetch("/api/geo-strategy/advantages", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profile: activeBrand.extractedProfile,
-          rawInputs: {
-            project_name: activeBrand.projectName,
-            industry: activeBrand.industry,
-            audience: activeBrand.audience,
-            location_terms: activeBrand.locationTerms,
-            product_description: activeBrand.productDesc,
-            core_advantages: activeBrand.coreAdvantages,
-            pain_points_raw: activeBrand.painPointsRaw,
-            competitors_raw: activeBrand.competitorsRaw,
-            geo_goals: activeBrand.geoGoals,
-          },
-          count: 10,
-        }),
-      })
-
-      const data = await readApiJson<{ advantages?: Array<Partial<ExtractedItem>>; error?: string }>(res, "优势生成")
-      if (!res.ok) {
-        throw new Error(data.error || `请求失败 (${res.status})`)
-      }
-
-      const generated = ((data.advantages || []) as Array<Partial<ExtractedItem>>)
-        .map(item => ({
-          id: genId(),
-          text: String(item.text || "").trim(),
-          enabled: item.enabled !== false,
-          confidence: item.confidence === "high" || item.confidence === "low" ? item.confidence : "medium" as const,
-        }))
-        .filter(item => item.text)
-
-      const existing = activeBrand.extractedProfile.advantages || []
-      const seen = new Set(existing.map(item => item.text.trim()))
-      const merged = [
-        ...existing,
-        ...generated.filter(item => {
-          if (seen.has(item.text)) return false
-          seen.add(item.text)
-          return true
-        }),
-      ]
-
-      updateBrand({
-        extractedProfile: {
-          ...activeBrand.extractedProfile,
-          advantages: merged,
-        },
-        advantageStatus: "done",
-      })
-    } catch (err) {
-      updateBrand({
-        advantageError: err instanceof Error ? err.message : "优势生成失败",
-        advantageStatus: "error",
-      })
-    }
-  }, [activeBrand.extractedProfile, activeBrand.projectName, activeBrand.industry, activeBrand.audience, activeBrand.locationTerms, activeBrand.productDesc, activeBrand.coreAdvantages, activeBrand.painPointsRaw, activeBrand.competitorsRaw, activeBrand.geoGoals, keywordModelSetting, updateBrand])
+    onChangeClient({
+      backgroundJobs: backgroundJobsWith("keywordAdvantages", {
+        requestId: createBackgroundRequestId("keyword_advantages"),
+      }),
+    })
+  }, [activeBrand.extractedProfile, backgroundJobsWith, keywordModelSetting, onChangeClient, updateBrand])
 
   // Strategy generation
-  const handleGenerateStrategy = useCallback(async () => {
+  const handleGenerateStrategy = useCallback(() => {
     if (!activeBrand.extractedProfile) return
 
     updateBrand({ strategyStatus: "generating", strategyError: "" })
-
-    try {
-      const res = await apiFetch("/api/geo-strategy/generate", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profile: activeBrand.extractedProfile,
-        }),
-      })
-
-      const data = await readApiJson<GeoStrategyPlan & { error?: string }>(res, "策略生成")
-
-      if (!res.ok) {
-        throw new Error(data.error || `请求失败 (${res.status})`)
-      }
-      if (!data.project_name || !data.profile || !data.keyword_strategy) {
-        throw new Error("策略生成返回数据不完整，请重新生成。")
-      }
-
-      updateBrand({
-        strategyPlan: data as GeoStrategyPlan,
-        strategyStatus: "done",
-        step: "strategy",
-        completedSteps: [...new Set([...activeBrand.completedSteps, "strategy" as ToolStep])],
-      })
-    } catch (err) {
-      updateBrand({
-        strategyError: err instanceof Error ? err.message : "生成失败",
-        strategyStatus: "error",
-      })
-    }
-  }, [activeBrand.extractedProfile, activeBrand.completedSteps, updateBrand])
+    onChangeClient({
+      backgroundJobs: backgroundJobsWith("keywordStrategy", {
+        requestId: createBackgroundRequestId("keyword_strategy"),
+      }),
+    })
+  }, [activeBrand.extractedProfile, backgroundJobsWith, onChangeClient, updateBrand])
 
   // Question generation
   const handleGenerateQuestions = useCallback(async () => {
@@ -939,12 +1004,13 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     )
 
     try {
-      const createRes = await apiFetch("/api/geo-strategy/question-jobs", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
+      const job = await createIdempotentApiJob<QuestionJobRecord & { error?: string }>({
+        endpoint: "/api/geo-strategy/question-jobs",
+        requestId: createBackgroundRequestId("keyword_questions"),
+        label: "疑问句任务创建",
         signal: controller.signal,
-        body: JSON.stringify({
+        payload: {
+          clientId: client.id,
           strategy: strategyPlan,
           totalCount: effectiveCount,
           categoryConfig: activeBrand.categoryConfig,
@@ -955,13 +1021,15 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           painScenarioKeywords,
           customPainScenarios,
           allocationOverrides,
-        }),
+        },
+        onRetry: () => {
+          if (!isCurrentRun()) return
+          updateBrand({
+            questionError: "网络暂时中断，正在确认疑问句任务是否已经创建；请勿重复点击。",
+            questionStatus: "generating",
+          })
+        },
       })
-      const job = await readApiJson<QuestionJobRecord & { error?: string }>(createRes, "疑问句任务创建")
-
-      if (!createRes.ok) {
-        throw new Error(job.error || `任务创建失败 (${createRes.status})`)
-      }
       if (!job.id) {
         throw new Error("疑问句任务创建失败：未返回任务 ID")
       }
@@ -988,7 +1056,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionJobProgress: undefined,
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.categoryConfig, questionProviderSettings, updateBrand])
+  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.categoryConfig, client.id, questionProviderSettings, updateBrand])
 
   const handleStopGenerateQuestions = useCallback(async () => {
     const jobId = activeBrand.questionJobId
@@ -1227,6 +1295,19 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   const ab = activeBrand
   const keywordModelName = keywordModelSetting?.model || "后台托管模型"
   const keywordModelConfigured = keywordModelSetting?.hasApiKey ?? true
+  const activeKeywordJobLabel = extractJobRef
+    ? "资料抽取"
+    : advantagesJobRef ? "优势生成" : strategyJobRef ? "策略生成" : ""
+  const activeKeywordJobStage = extractJobRef
+    ? extractJobState.currentJob?.stage
+    : advantagesJobRef
+      ? advantagesJobState.currentJob?.stage
+      : strategyJobState.currentJob?.stage
+  const activeKeywordJobNotice = extractJobRef
+    ? extractJobState.connectionNotice
+    : advantagesJobRef
+      ? advantagesJobState.connectionNotice
+      : strategyJobState.connectionNotice
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br from-white via-blue-50/30 to-cyan-50/20 shadow-sm">
@@ -1258,6 +1339,14 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         </div>
 
         <main className="px-3 sm:px-5 lg:px-6 py-5 md:py-6">
+          {(extractJobRef || advantagesJobRef || strategyJobRef) && (
+            <KeywordBackgroundJobNotice
+              label={activeKeywordJobLabel}
+              stage={activeKeywordJobStage}
+              notice={activeKeywordJobNotice}
+            />
+          )}
+
           {/* Step 1: Input */}
           {(ab.step === "input") && (
             <InputStep
@@ -1283,7 +1372,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               onRemoveFile={removeFile}
               fileInputRef={fileInputRef}
               onFilesSelected={handleFilesSelected}
-              extracting={ab.extracting}
+              extracting={Boolean(extractJobRef)}
               extractionError={ab.extractionError}
               onExtract={handleExtract}
               modelConfigured={keywordModelConfigured}
@@ -1298,12 +1387,12 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               onProfileChange={p => setBrandField("extractedProfile", p)}
               onBack={() => updateBrand({ step: "input" })}
               onGenerate={handleGenerateStrategy}
-              generating={ab.strategyStatus === "generating"}
+              generating={Boolean(strategyJobRef)}
               strategyError={ab.strategyError}
-              advantageStatus={ab.advantageStatus}
+              advantageStatus={advantagesJobRef ? "generating" : ab.advantageStatus}
               advantageError={ab.advantageError}
               onGenerateAdvantages={handleGenerateAdvantages}
-              reExtracting={ab.extracting}
+              reExtracting={Boolean(extractJobRef)}
               onReExtract={handleReExtract}
             />
           )}
@@ -1312,6 +1401,13 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           {(ab.step === "strategy") && ab.strategyPlan && (
             <StrategyStep
               plan={ab.strategyPlan}
+              clientId={client.id}
+              websitePromptJobRef={client.backgroundJobs?.keywordWebsitePrompt}
+              onChangeWebsitePromptJob={ref => {
+                onChangeClient({
+                  backgroundJobs: backgroundJobsWith("keywordWebsitePrompt", ref),
+                })
+              }}
               questions={ab.questions}
               questionStatus={ab.questionStatus}
               questionError={ab.questionError}
@@ -1346,6 +1442,25 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             />
           )}
         </main>
+    </div>
+  )
+}
+
+function KeywordBackgroundJobNotice({
+  label,
+  stage,
+  notice,
+}: {
+  label: string
+  stage?: string
+  notice?: string | null
+}) {
+  return (
+    <div className="mb-5 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-xs leading-5 text-cyan-900">
+      <div className="font-semibold">{label}：{stage || "任务正在转入服务器后台"}</div>
+      <div className="text-[11px] text-cyan-800/80">
+        {notice || "可以切换客户或刷新页面，任务完成后结果会自动恢复。"}
+      </div>
     </div>
   )
 }
@@ -1807,7 +1922,8 @@ function ExtractionStep({
 // ==================== Step 3: Strategy ====================
 
 function StrategyStep({
-  plan, questions, questionStatus, questionError,
+  plan, clientId, websitePromptJobRef, onChangeWebsitePromptJob,
+  questions, questionStatus, questionError,
   questionJobProgress,
   questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios,
   categoryConfig, questionProviderSettings, onCategoryConfigChange,
@@ -1816,6 +1932,9 @@ function StrategyStep({
   hasQuestions,
 }: {
   plan: GeoStrategyPlan
+  clientId: string
+  websitePromptJobRef?: BackgroundJobRef
+  onChangeWebsitePromptJob: (ref?: BackgroundJobRef) => void
   questions: QuestionItem[]
   questionStatus: GenerationStatus
   questionError: string
@@ -1850,12 +1969,18 @@ function StrategyStep({
   const [activePromptKey, setActivePromptKey] = useState<string | null>(null)
   const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null)
   const [officialPrompt, setOfficialPrompt] = useState("")
-  const [officialPromptLoading, setOfficialPromptLoading] = useState(false)
   const [officialPromptError, setOfficialPromptError] = useState("")
   const [thirdPartyPrompts, setThirdPartyPrompts] = useState<Record<string, string>>({})
-  const [thirdPartyPromptLoadingKey, setThirdPartyPromptLoadingKey] = useState<string | null>(null)
   const [thirdPartyPromptErrors, setThirdPartyPromptErrors] = useState<Record<string, string>>({})
   const questionAdvantages = extractQuestionAdvantages(plan)
+  const websitePromptPayload = websitePromptJobRef?.payload as WebsitePromptJobPayload | undefined
+  const websitePromptKey = websitePromptJobRef
+    ? websitePromptPayload?.kind === "third-party" && Number.isInteger(websitePromptPayload.siteIndex)
+      ? `third-${websitePromptPayload.siteIndex}`
+      : "official"
+    : null
+  const officialPromptLoading = websitePromptKey === "official"
+  const thirdPartyPromptLoadingKey = websitePromptKey?.startsWith("third-") ? websitePromptKey : null
 
   const handleCopyPrompt = useCallback(async (key: string, prompt: string) => {
     try {
@@ -1867,73 +1992,87 @@ function StrategyStep({
     }
   }, [])
 
-  const handleGenerateOfficialPrompt = useCallback(async () => {
-    setOfficialPromptLoading(true)
-    setOfficialPromptError("")
-
-    try {
-      const res = await apiFetch("/api/geo-strategy/website-prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+  const websitePromptJobState = useResumableBackgroundJob<WebsitePromptJobResult>({
+    kind: "keywordWebsitePrompt",
+    clientId,
+    jobRef: websitePromptJobRef,
+    payload: websitePromptPayload || { plan },
+    onAccepted: job => {
+      onChangeWebsitePromptJob({
+        requestId: job.requestId,
+        jobId: job.id,
+        payload: websitePromptPayload || { plan },
       })
-      const data = await readApiJson<{ prompt?: string; model?: string; error?: string }>(
-        res,
-        "官网 Prompt 生成"
-      )
-
-      if (!res.ok || !data.prompt) {
-        throw new Error(data.error || "官网 Prompt 生成失败，请稍后重试")
+    },
+    onSucceeded: job => {
+      const key = websitePromptKey || "official"
+      const prompt = String(job.result?.prompt || "").trim()
+      if (!prompt) {
+        if (key === "official") {
+          setOfficialPromptError("后台官网 Prompt 结果不完整，请重新生成。")
+        } else {
+          setThirdPartyPromptErrors(current => ({
+            ...current,
+            [key]: "后台第三方网站 Prompt 结果不完整，请重新生成。",
+          }))
+        }
+        onChangeWebsitePromptJob()
+        return
       }
 
-      setOfficialPrompt(data.prompt)
-    } catch (error) {
-      setOfficialPromptError(error instanceof Error ? error.message : "官网 Prompt 生成失败")
-    } finally {
-      setOfficialPromptLoading(false)
-    }
-  }, [plan])
+      if (key === "official") {
+        setOfficialPrompt(prompt)
+        setOfficialPromptError("")
+      } else {
+        setActivePromptKey(key)
+        setThirdPartyPrompts(current => ({ ...current, [key]: prompt }))
+        setThirdPartyPromptErrors(current => {
+          const next = { ...current }
+          delete next[key]
+          return next
+        })
+      }
+      onChangeWebsitePromptJob()
+    },
+    onFailed: message => {
+      const key = websitePromptKey || "official"
+      if (key === "official") {
+        setOfficialPromptError(message)
+      } else {
+        setThirdPartyPromptErrors(current => ({ ...current, [key]: message }))
+      }
+      onChangeWebsitePromptJob()
+    },
+  })
 
-  const handleGenerateThirdPartyPrompt = useCallback(async (site: ThirdPartySite, index: number) => {
+  const handleGenerateOfficialPrompt = useCallback(() => {
+    setOfficialPromptError("")
+    const payload: WebsitePromptJobPayload = { plan }
+    onChangeWebsitePromptJob({
+      requestId: createBackgroundRequestId("website_official"),
+      payload,
+    })
+  }, [onChangeWebsitePromptJob, plan])
+
+  const handleGenerateThirdPartyPrompt = useCallback((site: ThirdPartySite, index: number) => {
     const key = `third-${index}`
     setActivePromptKey(key)
-    setThirdPartyPromptLoadingKey(key)
     setThirdPartyPromptErrors(current => {
       const next = { ...current }
       delete next[key]
       return next
     })
-
-    try {
-      const res = await apiFetch("/api/geo-strategy/website-prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kind: "third-party",
-          plan,
-          site,
-          siteIndex: index,
-        }),
-      })
-      const data = await readApiJson<{ prompt?: string; model?: string; provider?: string; error?: string }>(
-        res,
-        "第三方网站 Prompt 生成"
-      )
-
-      if (!res.ok || !data.prompt) {
-        throw new Error(data.error || "第三方网站 Prompt 生成失败，请稍后重试")
-      }
-
-      setThirdPartyPrompts(current => ({ ...current, [key]: data.prompt || "" }))
-    } catch (error) {
-      setThirdPartyPromptErrors(current => ({
-        ...current,
-        [key]: error instanceof Error ? error.message : "第三方网站 Prompt 生成失败",
-      }))
-    } finally {
-      setThirdPartyPromptLoadingKey(current => current === key ? null : current)
+    const payload: WebsitePromptJobPayload = {
+      kind: "third-party",
+      plan,
+      site,
+      siteIndex: index,
     }
-  }, [plan])
+    onChangeWebsitePromptJob({
+      requestId: createBackgroundRequestId("website_third_party"),
+      payload,
+    })
+  }, [onChangeWebsitePromptJob, plan])
 
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -1959,6 +2098,14 @@ function StrategyStep({
           </button>
         </div>
       </div>
+
+      {websitePromptJobRef && (
+        <KeywordBackgroundJobNotice
+          label={websitePromptKey === "official" ? "官网 Prompt 生成" : "第三方网站 Prompt 生成"}
+          stage={websitePromptJobState.currentJob?.stage}
+          notice={websitePromptJobState.connectionNotice}
+        />
+      )}
 
       {/* Strategy summary */}
       <Card title="策略总览" icon={<Sparkles className="h-4 w-4 text-blue-500" />}>
@@ -2008,7 +2155,7 @@ function StrategyStep({
               <CreditCostBadge featureKey="keywordWebsitePrompt" />
               <button
                 onClick={handleGenerateOfficialPrompt}
-                disabled={officialPromptLoading}
+                disabled={Boolean(websitePromptJobRef)}
                 className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
               >
                 {officialPromptLoading
@@ -2079,8 +2226,8 @@ function StrategyStep({
                 </div>
                 <button
                   onClick={() => handleGenerateThirdPartyPrompt(site, i)}
-                  disabled={thirdPartyPromptLoadingKey === `third-${i}`}
-                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-xs font-medium text-cyan-700 transition hover:bg-cyan-100"
+                  disabled={Boolean(websitePromptJobRef)}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-xs font-medium text-cyan-700 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {thirdPartyPromptLoadingKey === `third-${i}`
                     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

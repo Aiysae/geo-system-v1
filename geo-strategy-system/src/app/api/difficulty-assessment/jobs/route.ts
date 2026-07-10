@@ -4,7 +4,14 @@ import {
   DIFFICULTY_MODEL_ORDER,
   normalizeDifficultyInput,
 } from "@/lib/difficulty/assessment"
-import { createDifficultyJob, createDifficultyJobId } from "@/lib/difficulty/jobs"
+import { createDifficultyJob, getDifficultyJob } from "@/lib/difficulty/jobs"
+import {
+  acquireJobRequest,
+  jobIdFromRequest,
+  normalizeJobRequestId,
+  releaseJobRequestClaim,
+  type JobRequestClaim,
+} from "@/lib/job-request-idempotency"
 import { ADAPTERS, MODEL_LABELS } from "@/lib/llm"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import {
@@ -40,6 +47,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   let reservation: CreditReservation | null = null
+  let requestClaim: JobRequestClaim | null = null
   try {
     const userGuard = await requireUserId()
     if (!userGuard.ok) return userGuard.response
@@ -49,6 +57,8 @@ export async function POST(req: NextRequest) {
     if (!clientId) {
       return NextResponse.json({ error: "客户标识缺失，请刷新页面后重试" }, { status: 400 })
     }
+    const requestId = normalizeJobRequestId(body.requestId)
+    const jobId = jobIdFromRequest("djob", userGuard.userId, requestId)
     const request = normalizeDifficultyInput(body)
     const selected = requestedModel(body.model)
     if (selected !== "auto" && !await ADAPTERS[selected].configured()) {
@@ -66,9 +76,23 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const acquired = await acquireJobRequest({
+      namespace: "difficulty",
+      ownerUserId: userGuard.userId,
+      requestId,
+      existingJobId: jobId,
+      loadExisting: id => getDifficultyJob(id, userGuard.userId),
+    })
+    if (acquired.status === "existing") {
+      return NextResponse.json(acquired.job, { status: 202 })
+    }
+    if (acquired.status === "pending") {
+      return NextResponse.json({ error: "测评任务正在创建，系统会自动重试" }, { status: 409 })
+    }
+    requestClaim = acquired.claim
+
     const featureKey = "difficultyAssessment"
     const cost = estimateFeatureCredits(featureKey)
-    const jobId = createDifficultyJobId()
     const creditGuard = await reserveCreditsForUser(userGuard.userId, cost, {
       featureKey,
       source: "api:difficulty-assessment:jobs",
@@ -80,7 +104,11 @@ export async function POST(req: NextRequest) {
         requestedModel: selected,
       },
     })
-    if (!creditGuard.ok) return creditGuard.response
+    if (!creditGuard.ok) {
+      await releaseJobRequestClaim(requestClaim)
+      requestClaim = null
+      return creditGuard.response
+    }
     reservation = creditGuard.reservation
 
     const job = await createDifficultyJob({
@@ -93,8 +121,11 @@ export async function POST(req: NextRequest) {
       reservation,
     })
     reservation = null
+    await releaseJobRequestClaim(requestClaim)
+    requestClaim = null
     return NextResponse.json(job, { status: 202 })
   } catch (error) {
+    await releaseJobRequestClaim(requestClaim)
     await refundReservedCreditsQuietly(reservation)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "创建难度测评任务失败" },

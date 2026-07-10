@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import {
-  authAndReserveCredits,
+  authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
   settleReservedCredits,
   type CreditReservation,
@@ -231,7 +231,7 @@ async function handler(req: NextRequest) {
 
     const featureKey = "legacyQueryGenerateUnit"
     const cost = estimateFeatureCredits(featureKey, count)
-    const guard = await authAndReserveCredits(cost, {
+    const guard = await authAndReserveCreditsForRequest(req, cost, {
       featureKey,
       source: "api:generate-queries",
       description: getFeaturePrice(featureKey).label,

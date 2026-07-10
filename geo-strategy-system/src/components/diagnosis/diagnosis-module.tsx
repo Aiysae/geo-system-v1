@@ -9,9 +9,10 @@ import { Radar, Loader2, RefreshCw } from "lucide-react"
 import GemScorePanel from "./gem-score-panel"
 import RadarFiveDim from "./radar-five-dim"
 import ModelTabs from "./model-tabs"
-import { apiFetch } from "@/lib/api-fetch"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
-import type { Client, Diagnosis } from "@/types"
+import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
+import { createBackgroundRequestId } from "@/lib/background-job-client"
+import type { BackgroundJobRef, Client, Diagnosis } from "@/types"
 
 interface Props {
   client: Client
@@ -19,38 +20,59 @@ interface Props {
 }
 
 export default function DiagnosisModule({ client, onChangeClient }: Props) {
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const jobRef = client.backgroundJobs?.diagnosis
+  const loading = Boolean(jobRef)
+  const payload = {
+    ourBrand: client.ourBrand,
+    industry: client.industry,
+    website: client.website,
+    penetration: client.penetration,
+  }
 
-  async function run() {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await apiFetch("/api/diagnose", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ourBrand: client.ourBrand,
-          industry: client.industry,
-          website: client.website,
-          penetration: client.penetration,
-        }),
+  function backgroundJobsWith(ref?: BackgroundJobRef) {
+    const next = { ...(client.backgroundJobs || {}) }
+    if (ref) next.diagnosis = ref
+    else delete next.diagnosis
+    return next
+  }
+
+  const jobState = useResumableBackgroundJob<Diagnosis>({
+    kind: "diagnosis",
+    clientId: client.id,
+    jobRef,
+    payload,
+    onAccepted: job => {
+      onChangeClient({
+        backgroundJobs: backgroundJobsWith({ requestId: job.requestId, jobId: job.id }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "诊断失败")
-      const d: Diagnosis = {
-        gemScore: data.gemScore,
-        dimensions: data.dimensions,
-        modelDiagnosis: data.modelDiagnosis,
-        generatedAt: data.generatedAt,
+    },
+    onSucceeded: job => {
+      if (!job.result?.generatedAt) {
+        setError("后台诊断任务返回数据不完整，请重新生成。")
+        onChangeClient({ backgroundJobs: backgroundJobsWith() })
+        return
       }
-      onChangeClient({ diagnosis: d })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "未知错误")
-    } finally {
-      setLoading(false)
-    }
+      setError(null)
+      onChangeClient({
+        diagnosis: job.result,
+        backgroundJobs: backgroundJobsWith(),
+      })
+    },
+    onFailed: message => {
+      setError(message)
+      onChangeClient({ backgroundJobs: backgroundJobsWith() })
+    },
+  })
+
+  function run() {
+    setError(null)
+    onChangeClient({
+      backgroundJobs: backgroundJobsWith({
+        requestId: createBackgroundRequestId("diagnosis"),
+        payload,
+      }),
+    })
   }
 
   const diag = client.diagnosis
@@ -100,6 +122,15 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
         {error && (
           <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5 mb-4">
             {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-800">
+            <div className="font-medium">{jobState.currentJob?.stage || "诊断任务正在转入服务器后台"}</div>
+            <div className="text-[11px] text-violet-700/80">
+              {jobState.connectionNotice || "可以切换客户或刷新页面，诊断结果会自动恢复。"}
+            </div>
           </div>
         )}
 

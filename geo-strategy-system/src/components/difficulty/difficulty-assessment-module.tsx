@@ -23,6 +23,7 @@ import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import type {
   Client,
   DifficultyAssessmentEntry,
@@ -655,11 +656,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
     setProgressPercent(0)
     setProgressLabel("正在创建后台测评任务...")
     try {
-      const res = await apiFetch("/api/difficulty-assessment/jobs", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const job = await createIdempotentApiJob<DifficultyJobRecord & { error?: string }>({
+        endpoint: "/api/difficulty-assessment/jobs",
+        requestId: createBackgroundRequestId("difficulty"),
+        label: "GEO 难度测评任务创建",
+        payload: {
           clientId: client.id,
           mode,
           industry: targetIndustry,
@@ -667,14 +668,14 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           targetBrand: mode === "brand" ? brandName : undefined,
           website: mode === "brand" ? brandWebsite : undefined,
           model: selectedModel,
-        }),
+        },
+        onRetry: () => {
+          setProgressLabel("网络暂时中断，正在确认测评任务是否已经创建...")
+          setError("请勿重复点击，系统正在用同一请求编号自动确认任务。")
+        },
       })
-      const job = await readApiJson<DifficultyJobRecord & { error?: string }>(
-        res,
-        "GEO 难度测评任务创建"
-      )
-      if (!res.ok) throw new Error(job.error || "评估任务创建失败")
       if (!job.id) throw new Error("评估任务创建失败：未返回任务 ID")
+      setError(null)
       onChangeClient({ difficultyJobId: job.id })
       setProgressLabel("后台任务已创建，正在排队...")
       window.dispatchEvent(new Event("credits:refresh"))

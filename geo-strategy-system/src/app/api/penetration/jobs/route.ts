@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { ADAPTERS } from "@/lib/llm"
-import { createPenetrationJob, type PenetrationJobRequest } from "@/lib/penetration/jobs"
+import { createPenetrationJob, getPenetrationJob, type PenetrationJobRequest } from "@/lib/penetration/jobs"
+import {
+  acquireJobRequest,
+  jobIdFromRequest,
+  normalizeJobRequestId,
+  releaseJobRequestClaim,
+  type JobRequestClaim,
+} from "@/lib/job-request-idempotency"
 import {
   refundReservedCreditsQuietly,
   requireUserId,
@@ -24,6 +31,7 @@ function stringList(value: unknown): string[] {
 
 export async function POST(req: NextRequest) {
   let reservation: CreditReservation | null = null
+  let requestClaim: JobRequestClaim | null = null
   try {
     const userGuard = await requireUserId()
     if (!userGuard.ok) return userGuard.response
@@ -35,6 +43,8 @@ export async function POST(req: NextRequest) {
     const questions = stringList(body.questions)
     const ourBrand = String(body.ourBrand || "").trim()
     const clientId = String(body.clientId || "").trim()
+    const requestId = normalizeJobRequestId(body.requestId)
+    const jobId = jobIdFromRequest("pjob", userGuard.userId, requestId)
 
     if (!clientId) return NextResponse.json({ error: "客户标识缺失，请刷新页面后重试" }, { status: 400 })
     if (!ourBrand) return NextResponse.json({ error: "请填写我方品牌名" }, { status: 400 })
@@ -61,6 +71,21 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const acquired = await acquireJobRequest({
+      namespace: "penetration",
+      ownerUserId: userGuard.userId,
+      requestId,
+      existingJobId: jobId,
+      loadExisting: id => getPenetrationJob(id, userGuard.userId),
+    })
+    if (acquired.status === "existing") {
+      return NextResponse.json(acquired.job, { status: 202 })
+    }
+    if (acquired.status === "pending") {
+      return NextResponse.json({ error: "检测任务正在创建，系统会自动重试" }, { status: 409 })
+    }
+    requestClaim = acquired.claim
+
     const request: PenetrationJobRequest = {
       clientId,
       ourBrand,
@@ -75,6 +100,7 @@ export async function POST(req: NextRequest) {
     const creditGuard = await reserveCreditsForUser(userGuard.userId, credits, {
       featureKey: "penetrationSlot",
       source: "api:penetration:jobs",
+      sourceId: jobId,
       description: getFeaturePrice("penetrationSlot").label,
       metadata: {
         clientId,
@@ -83,18 +109,26 @@ export async function POST(req: NextRequest) {
         slotCount,
       },
     })
-    if (!creditGuard.ok) return creditGuard.response
+    if (!creditGuard.ok) {
+      await releaseJobRequestClaim(requestClaim)
+      requestClaim = null
+      return creditGuard.response
+    }
     reservation = creditGuard.reservation
 
     const job = await createPenetrationJob({
+      id: jobId,
       request,
       ownerUserId: userGuard.userId,
       reservation,
       skipped,
     })
     reservation = null
+    await releaseJobRequestClaim(requestClaim)
+    requestClaim = null
     return NextResponse.json(job, { status: 202 })
   } catch (error) {
+    await releaseJobRequestClaim(requestClaim)
     await refundReservedCreditsQuietly(reservation)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "创建疑问句检测任务失败" },

@@ -68,10 +68,14 @@ export function useResumableBackgroundJob<TResult>(options: Options<TResult>) {
               kind: latest.current.kind,
               clientId: latest.current.clientId,
               requestId: activeRequestId,
-              payload: latest.current.payload,
+              payload: latest.current.jobRef?.payload ?? latest.current.payload,
               signal: controller.signal,
             })
             if (stopped) return
+            if (job.clientId !== latest.current.clientId) {
+              latest.current.onFailed("后台任务与当前客户不匹配，已停止同步以避免数据串用。")
+              return
+            }
             setCurrentJob(job)
             setConnectionNotice(null)
             latest.current.onAccepted(job)
@@ -95,6 +99,10 @@ export function useResumableBackgroundJob<TResult>(options: Options<TResult>) {
         try {
           const job = await getBackgroundJob<TResult>(jobId, controller.signal)
           if (stopped) return
+          if (job.clientId !== latest.current.clientId) {
+            latest.current.onFailed("后台任务与当前客户不匹配，已停止同步以避免数据串用。", job)
+            return
+          }
           failures = 0
           setCurrentJob(job)
           setConnectionNotice(null)

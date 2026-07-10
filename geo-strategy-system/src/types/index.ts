@@ -63,6 +63,7 @@ export type ArticleModelProviderKey = ModelKey | "article"
 
 export type BackgroundJobKind =
   | "articleGeneration"
+  | "queryGeneration"
   | "research"
   | "diagnosis"
   | "competitorCompare"
@@ -76,6 +77,7 @@ export type BackgroundJobStatus = "queued" | "running" | "succeeded" | "failed" 
 export interface BackgroundJobRef {
   requestId: string
   jobId?: string
+  payload?: unknown
 }
 
 export interface BackgroundJobRecord<TResult = unknown> {

@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import {
+  authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
-  requireUserId,
-  reserveCreditsForUser,
   type CreditReservation,
 } from "@/lib/with-credits"
 import type { GeoStrategyPlan, ThirdPartySite } from "@/types/geo-strategy"
@@ -160,9 +159,6 @@ function stripCodeFence(value: string): string {
 export async function POST(req: NextRequest) {
   let reservation: CreditReservation | null = null
   try {
-    const userGuard = await requireUserId()
-    if (!userGuard.ok) return userGuard.response
-
     const body = await req.json() as {
       kind?: WebsitePromptKind
       plan?: GeoStrategyPlan
@@ -196,7 +192,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, CREDIT_COST, {
+    const creditGuard = await authAndReserveCreditsForRequest(req, CREDIT_COST, {
       featureKey: FEATURE_KEY,
       source: "api:geo-strategy:website-prompt",
       description: getFeaturePrice(FEATURE_KEY).label,

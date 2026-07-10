@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
-import type { Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
+import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
+import { createBackgroundRequestId } from "@/lib/background-job-client"
+import type { BackgroundJobKind, BackgroundJobRef, Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import {
   BarChart3,
   Brain,
@@ -45,8 +46,6 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
   const [customCompetitorsText, setCustomCompetitorsText] = useState(() => (client.competitorCompareCustomCompetitors ?? []).join("\n"))
   const [selectedCompetitors, setSelectedCompetitors] = useState<string[]>(() => client.competitorCompareSelectedCompetitors ?? client.competitorCompare?.selectedCompetitors ?? [])
   const [hypothesis, setHypothesis] = useState(() => client.research?.hypothesis ?? "")
-  const [researchLoading, setResearchLoading] = useState(false)
-  const [compareLoading, setCompareLoading] = useState(false)
   const [researchError, setResearchError] = useState<string | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
 
@@ -73,6 +72,105 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
     ? !!manualInput.fullName.trim() && !!manualInput.industry.trim()
     : !!client.ourBrand.trim()
   const compareReady = !!(client.ourBrand.trim() || manualInput.fullName.trim()) && activeSelectedCompetitors.length > 0
+  const researchJobRef = client.backgroundJobs?.research
+  const compareJobRef = client.backgroundJobs?.competitorCompare
+  const researchLoading = Boolean(researchJobRef)
+  const compareLoading = Boolean(compareJobRef)
+
+  function backgroundJobsWith(kind: BackgroundJobKind, ref?: BackgroundJobRef) {
+    const next = { ...(client.backgroundJobs || {}) }
+    if (ref) next[kind] = ref
+    else delete next[kind]
+    return next
+  }
+
+  function researchPayload(nextMode: ResearchMode) {
+    return {
+      mode: nextMode,
+      sourceMode: researchSourceMode,
+      hypothesis,
+      ourBrand: effectiveOurBrand,
+      region: researchSourceMode === "manual" ? manualInput.region : "",
+      aliases: researchSourceMode === "manual" ? parseLines(manualInput.aliases) : [],
+      industry: effectiveIndustry,
+      website: researchSourceMode === "manual" ? "" : client.website,
+      competitors: researchSourceMode === "manual" ? [] : client.competitors,
+      penetration: researchSourceMode === "module" ? client.penetration : undefined,
+    }
+  }
+
+  function comparePayload() {
+    const compareOurBrand = client.ourBrand.trim() || manualInput.fullName.trim()
+    const compareIndustry = compareSourceMode === "manual"
+      ? manualInput.industry.trim() || client.industry
+      : client.industry
+    const allCompetitors = compareSourceMode === "manual" ? customCompetitorOptions : compareOptions
+    return {
+      ourBrand: compareOurBrand,
+      industry: compareIndustry,
+      website: client.website,
+      competitors: allCompetitors,
+      selectedCompetitors: activeSelectedCompetitors,
+      penetration: compareSourceMode === "module" ? client.penetration : undefined,
+    }
+  }
+
+  const researchJobState = useResumableBackgroundJob<ResearchResult>({
+    kind: "research",
+    clientId: client.id,
+    jobRef: researchJobRef,
+    payload: researchPayload(mode),
+    onAccepted: job => {
+      onChangeClient({
+        backgroundJobs: backgroundJobsWith("research", { requestId: job.requestId, jobId: job.id }),
+      })
+    },
+    onSucceeded: job => {
+      if (!job.result?.generatedAt) {
+        setResearchError("后台调研任务返回数据不完整，请重新生成。")
+        onChangeClient({ backgroundJobs: backgroundJobsWith("research") })
+        return
+      }
+      setResearchError(null)
+      onChangeClient({
+        research: job.result,
+        backgroundJobs: backgroundJobsWith("research"),
+      })
+    },
+    onFailed: message => {
+      setResearchError(message)
+      onChangeClient({ backgroundJobs: backgroundJobsWith("research") })
+    },
+  })
+
+  const compareJobState = useResumableBackgroundJob<CompetitorCompareResult>({
+    kind: "competitorCompare",
+    clientId: client.id,
+    jobRef: compareJobRef,
+    payload: comparePayload(),
+    onAccepted: job => {
+      onChangeClient({
+        backgroundJobs: backgroundJobsWith("competitorCompare", { requestId: job.requestId, jobId: job.id }),
+      })
+    },
+    onSucceeded: job => {
+      const data = job.result
+      if (!data?.generatedAt || (!data.comparisons?.length && !data.competitor)) {
+        setCompareError("竞品优劣势对比返回数据不完整，请重新生成。")
+        onChangeClient({ backgroundJobs: backgroundJobsWith("competitorCompare") })
+        return
+      }
+      setCompareError(null)
+      onChangeClient({
+        competitorCompare: data,
+        backgroundJobs: backgroundJobsWith("competitorCompare"),
+      })
+    },
+    onFailed: message => {
+      setCompareError(message)
+      onChangeClient({ backgroundJobs: backgroundJobsWith("competitorCompare") })
+    },
+  })
 
   function updateResearchSourceMode(value: ResearchSourceMode) {
     setResearchSourceMode(value)
@@ -115,72 +213,27 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
     })
   }
 
-  async function runResearch(nextMode: ResearchMode) {
+  function runResearch(nextMode: ResearchMode) {
     setMode(nextMode)
-    setResearchLoading(true)
     setResearchError(null)
-    try {
-      const res = await apiFetch("/api/research", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: nextMode,
-          sourceMode: researchSourceMode,
-          hypothesis,
-          ourBrand: effectiveOurBrand,
-          region: researchSourceMode === "manual" ? manualInput.region : "",
-          aliases: researchSourceMode === "manual" ? parseLines(manualInput.aliases) : [],
-          industry: effectiveIndustry,
-          website: researchSourceMode === "manual" ? "" : client.website,
-          competitors: researchSourceMode === "manual" ? [] : client.competitors,
-          penetration: researchSourceMode === "module" ? client.penetration : undefined,
-        }),
-      })
-      const data = await readApiJson<ResearchResult & { error?: string }>(res, "独立调研")
-      if (!res.ok) throw new Error(data.error || "调研失败")
-      onChangeClient({ research: data as ResearchResult })
-    } catch (error) {
-      setResearchError(error instanceof Error ? error.message : "未知错误")
-    } finally {
-      setResearchLoading(false)
-    }
+    const payload = researchPayload(nextMode)
+    onChangeClient({
+      backgroundJobs: backgroundJobsWith("research", {
+        requestId: createBackgroundRequestId("research"),
+        payload,
+      }),
+    })
   }
 
-  async function runCompare() {
-    setCompareLoading(true)
+  function runCompare() {
     setCompareError(null)
-    try {
-      const compareOurBrand = client.ourBrand.trim() || manualInput.fullName.trim()
-      const compareIndustry = compareSourceMode === "manual" ? manualInput.industry.trim() || client.industry : client.industry
-      const allCompetitors = compareSourceMode === "manual" ? customCompetitorOptions : compareOptions
-      const res = await apiFetch("/api/competitor-compare", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ourBrand: compareOurBrand,
-          industry: compareIndustry,
-          website: client.website,
-          competitors: allCompetitors,
-          selectedCompetitors: activeSelectedCompetitors,
-          penetration: compareSourceMode === "module" ? client.penetration : undefined,
-        }),
-      })
-      const data = await readApiJson<CompetitorCompareResult & { error?: string }>(
-        res,
-        "竞品优劣势对比"
-      )
-      if (!res.ok) throw new Error(data.error || "竞品对比失败")
-      if (!data.generatedAt || (!data.comparisons?.length && !data.competitor)) {
-        throw new Error("竞品优劣势对比返回数据不完整，请重新生成。")
-      }
-      onChangeClient({ competitorCompare: data as CompetitorCompareResult })
-    } catch (error) {
-      setCompareError(error instanceof Error ? error.message : "未知错误")
-    } finally {
-      setCompareLoading(false)
-    }
+    const payload = comparePayload()
+    onChangeClient({
+      backgroundJobs: backgroundJobsWith("competitorCompare", {
+        requestId: createBackgroundRequestId("compare"),
+        payload,
+      }),
+    })
   }
 
   const research = client.research
@@ -280,6 +333,14 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               <CreditCostBadge featureKey="researchHypothesis" label="假设验证预计" />
             </div>
 
+            {researchLoading && (
+              <BackgroundJobNotice
+                stage={researchJobState.currentJob?.stage}
+                notice={researchJobState.connectionNotice}
+                tone="emerald"
+              />
+            )}
+
             {researchError && <ErrorBox message={researchError} />}
 
             {!research ? (
@@ -341,6 +402,14 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               selected={activeSelectedCompetitors}
               onToggle={toggleCompetitor}
             />
+
+            {compareLoading && (
+              <BackgroundJobNotice
+                stage={compareJobState.currentJob?.stage}
+                notice={compareJobState.connectionNotice}
+                tone="rose"
+              />
+            )}
 
             {compareError && <ErrorBox message={compareError} />}
 
@@ -496,6 +565,28 @@ function ErrorBox({ message }: { message: string }) {
   return (
     <div className="mb-4 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5">
       {message}
+    </div>
+  )
+}
+
+function BackgroundJobNotice({
+  stage,
+  notice,
+  tone,
+}: {
+  stage?: string
+  notice?: string | null
+  tone: "emerald" | "rose"
+}) {
+  const classes = tone === "rose"
+    ? "border-rose-200 bg-rose-50 text-rose-800"
+    : "border-emerald-200 bg-emerald-50 text-emerald-800"
+  return (
+    <div className={`mb-4 rounded-lg border px-3 py-2 text-xs leading-5 ${classes}`}>
+      <div className="font-medium">{stage || "任务正在转入服务器后台"}</div>
+      <div className="text-[11px] opacity-80">
+        {notice || "可以切换客户或刷新页面，结果会自动恢复。"}
+      </div>
     </div>
   )
 }
