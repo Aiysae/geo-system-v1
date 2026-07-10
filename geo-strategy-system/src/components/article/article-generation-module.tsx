@@ -488,15 +488,15 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br from-white via-slate-50/70 to-cyan-50/30 shadow-sm">
-      <div className="border-b border-slate-200/70 bg-white/85 backdrop-blur">
+    <div className="overflow-hidden rounded-lg border border-[#d8e2e1] bg-white/96 shadow-[0_12px_32px_-26px_rgba(8,28,36,0.5)]">
+      <div className="border-b border-[#d8e2e1] bg-white/95 backdrop-blur">
         <div className="flex flex-col gap-3 px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#004B73] to-[#00B4D8] shadow-md shadow-cyan-200/50">
+            <div className="geo-module-icon h-9 w-9 bg-[#9B527E]">
               <FileText className="h-4 w-4 text-white" />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-semibold tracking-tight text-slate-900 sm:text-base">
+              <div className="geo-display-title text-lg text-[#573047]">
                 文章生成 · GEO 内容写作台
               </div>
               <div className="truncate text-[11px] text-slate-500">
@@ -525,7 +525,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
       <div className="grid gap-4 p-3 sm:p-5 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] lg:p-6">
         <div className="space-y-4">
-          <section className="rounded-xl border border-slate-200/80 bg-white/80 p-3 shadow-sm sm:p-4">
+          <section className="geo-section-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-700">
               <WandSparkles className="h-3.5 w-3.5 text-[#0077B6]" />
               生成设置
@@ -587,7 +587,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             )}
           </section>
 
-          <section className="rounded-xl border border-slate-200/80 bg-white/80 p-3 shadow-sm sm:p-4">
+          <section className="geo-section-panel p-3 sm:p-4">
             <div className="mb-3 text-xs font-semibold text-slate-700">
               {isRewrite ? "改写模板" : "Prompt 模板"}
             </div>
@@ -620,7 +620,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-200/80 bg-white/80 p-3 shadow-sm sm:p-4">
+          <section className="geo-section-panel p-3 sm:p-4">
             <div className="grid gap-3">
               {isRewrite ? (
                 <>
@@ -972,7 +972,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             <Button
               onClick={runGenerate}
               disabled={!canGenerate}
-              className="h-11 min-w-0 flex-1 gap-2 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-blue-300/40"
+              className="h-11 min-w-0 flex-1 gap-2 rounded-xl bg-[#087F9C] text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-blue-300/40"
             >
               {isGenerating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

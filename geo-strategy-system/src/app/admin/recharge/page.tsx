@@ -45,11 +45,11 @@ export default async function AdminRechargePage() {
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm shadow-slate-200/40">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#004B73] to-[#0077B6] flex items-center justify-center shadow-lg shadow-blue-300/40">
+            <span className="w-10 h-10 rounded-xl bg-[#087F9C] flex items-center justify-center shadow-sm">
               <ShieldCheck className="h-5 w-5 text-white" />
             </span>
             <div>
-              <div className="text-sm font-bold tracking-wide bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent">
+              <div className="geo-brand-title text-lg text-[#12343C]">
                 势途 GEO · 管理后台
               </div>
               <div className="text-[11px] text-slate-500 mt-0.5">积分充值审批</div>

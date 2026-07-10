@@ -36,12 +36,12 @@ export function PasswordResetRequestForm() {
   }
 
   return (
-    <div className="w-full max-w-md rounded-2xl bg-white px-7 py-8 shadow-xl ring-1 ring-slate-200">
+    <div className="w-full max-w-md rounded-lg bg-white px-7 py-8 shadow-[0_24px_64px_-34px_rgba(0,0,0,0.7)] ring-1 ring-white/30">
       <div className="mb-7">
-        <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#004B73] to-[#0077B6] shadow-lg shadow-blue-300/40">
+        <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[#087F9C] shadow-sm">
           <Mail className="h-5 w-5 text-white" />
         </div>
-        <h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-950">找回密码</h1>
+        <h1 className="geo-display-title mt-4 text-3xl text-slate-950">找回密码</h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-500">
           输入注册邮箱后，系统会创建一条密码重置申请。管理员确认后会提供一次性重置链接。
         </p>
@@ -58,7 +58,7 @@ export function PasswordResetRequestForm() {
               type="email"
               required
               autoComplete="email"
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-4 focus:ring-blue-100"
+              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#087F9C] focus:ring-2 focus:ring-[#087F9C]/15"
               placeholder="name@example.com"
             />
           </span>
@@ -78,7 +78,7 @@ export function PasswordResetRequestForm() {
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#087F9C] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {pending && <Loader2 className="h-4 w-4 animate-spin" />}
           提交重置申请

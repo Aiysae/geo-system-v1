@@ -81,11 +81,11 @@ export default async function AdminLedgerPage() {
       <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#004B73] to-[#0077B6] shadow-lg shadow-blue-300/40">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#087F9C] shadow-sm">
               <ReceiptText className="h-5 w-5 text-white" />
             </span>
             <div>
-              <div className="bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-sm font-bold tracking-wide text-transparent">
+              <div className="geo-brand-title text-lg text-[#12343C]">
                 势途 GEO · 积分流水审计
               </div>
               <div className="mt-0.5 text-[11px] text-slate-500">最近 500 条积分变动</div>

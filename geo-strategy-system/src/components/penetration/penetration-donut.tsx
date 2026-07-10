@@ -23,19 +23,16 @@ export default function PenetrationDonut({ rate, mentions, totalSlots }: Props) 
         <PieChart>
           <defs>
             <linearGradient id="donutMentioned" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#0077B6" />
-              <stop offset="42%" stopColor="#00A6FB" />
-              <stop offset="76%" stopColor="#7C3AED" />
-              <stop offset="100%" stopColor="#F43F5E" />
+              <stop offset="0%" stopColor="#087F9C" />
+              <stop offset="100%" stopColor="#0D9879" />
             </linearGradient>
             <linearGradient id="donutMissed" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#e2e8f0" />
-              <stop offset="100%" stopColor="#f1f5f9" />
+              <stop offset="0%" stopColor="#dce5e4" />
+              <stop offset="100%" stopColor="#eef3f2" />
             </linearGradient>
             <radialGradient id="donutGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#00A6FB" stopOpacity={0.35} />
-              <stop offset="60%" stopColor="#7C3AED" stopOpacity={0.1} />
-              <stop offset="100%" stopColor="#061826" stopOpacity={0} />
+              <stop offset="0%" stopColor="#0D9879" stopOpacity={0.18} />
+              <stop offset="100%" stopColor="#081C24" stopOpacity={0} />
             </radialGradient>
             <filter id="donutShadow" x="-20%" y="-20%" width="140%" height="140%">
               <feGaussianBlur stdDeviation="3" />
@@ -61,7 +58,7 @@ export default function PenetrationDonut({ rate, mentions, totalSlots }: Props) 
             dataKey="value"
             stroke="none"
             isAnimationActive={false}
-            fill="rgba(0, 119, 182, 0.08)"
+            fill="rgba(8, 127, 156, 0.08)"
           />
 
           {/* 主环 */}
@@ -79,24 +76,22 @@ export default function PenetrationDonut({ rate, mentions, totalSlots }: Props) 
             isAnimationActive
             animationDuration={900}
           >
-            {totalSlots === 0 ? (
-              <Cell fill="url(#donutMissed)" />
-            ) : (
-              <>
-                <Cell fill="url(#donutMentioned)" />
-                <Cell fill="url(#donutMissed)" />
-              </>
-            )}
+            {safeData.map((entry, index) => (
+              <Cell
+                key={entry.name}
+                fill={totalSlots === 0 || index === 1 ? "#DCE5E4" : "#087F9C"}
+              />
+            ))}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
 
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <div className="text-4xl font-extrabold bg-gradient-to-r from-[#0077B6] via-[#7C3AED] to-[#F43F5E] bg-clip-text text-transparent tabular-nums tracking-tight">
+          <div className="geo-data-number text-4xl font-bold text-[#0B5967]">
           {pct}%
         </div>
         <div className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span className="w-1.5 h-1.5 rounded-full bg-gradient-to-r from-[#00A6FB] to-[#F43F5E]"></span>
+          <span className="h-1.5 w-1.5 rounded-full bg-[#C79A3B]"></span>
           <span className="tabular-nums font-medium text-slate-700">{mentions}</span>
           <span className="text-slate-400">/ {totalSlots} 次提及</span>
         </div>

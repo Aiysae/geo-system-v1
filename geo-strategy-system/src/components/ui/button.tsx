@@ -4,16 +4,16 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00A6FB]/35 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#087F9C]/30 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "border-0 bg-gradient-to-r from-[#0077B6] via-[#00A6FB] to-[#7C3AED] text-white shadow-lg shadow-sky-500/20 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-violet-500/20",
-        destructive: "bg-gradient-to-r from-[#F43F5E] to-[#F97316] text-white shadow-sm hover:-translate-y-0.5 hover:shadow-lg hover:shadow-rose-500/20",
-        outline: "border border-slate-200 bg-white/85 text-slate-700 shadow-sm hover:border-[#00A6FB]/40 hover:bg-sky-50 hover:text-[#005b8a]",
-        secondary: "bg-gradient-to-r from-cyan-50 to-violet-50 text-[#005b8a] shadow-sm ring-1 ring-sky-100 hover:from-cyan-100 hover:to-violet-100",
-        ghost: "text-slate-600 hover:bg-sky-50 hover:text-[#005b8a]",
-        link: "text-[#0077B6] underline-offset-4 hover:text-[#7C3AED] hover:underline",
+        default: "border border-[#087F9C] bg-[#087F9C] text-white shadow-sm hover:border-[#066B83] hover:bg-[#066B83]",
+        destructive: "border border-[#D14D64] bg-[#D14D64] text-white shadow-sm hover:border-[#B83F55] hover:bg-[#B83F55]",
+        outline: "border border-[#cbd8d8] bg-white text-slate-700 shadow-sm hover:border-[#87afb4] hover:bg-[#f1f7f6] hover:text-[#0b665f]",
+        secondary: "border border-[#cfe3df] bg-[#e9f4f2] text-[#0b665f] hover:bg-[#dceeea]",
+        ghost: "text-slate-600 hover:bg-[#edf4f3] hover:text-[#0b665f]",
+        link: "text-[#087F9C] underline-offset-4 hover:text-[#0B665F] hover:underline",
       },
       size: {
         default: "h-9 px-4 py-2",

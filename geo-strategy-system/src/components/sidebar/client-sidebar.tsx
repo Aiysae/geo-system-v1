@@ -43,9 +43,8 @@ export default function ClientSidebar({
 
   return (
     <aside
-      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-64 shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-[#061826] text-white h-screen flex flex-col overflow-hidden shadow-2xl shadow-slate-950/35`}
+      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-64 shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-[#071A20] text-white h-screen flex flex-col overflow-hidden shadow-[10px_0_36px_-28px_rgba(0,0,0,0.9)]`}
     >
-      <div className="absolute inset-x-0 top-0 h-28 bg-[linear-gradient(135deg,rgba(0,166,251,0.28),rgba(124,58,237,0.22)_46%,rgba(244,63,94,0.16))]" />
       <div className="relative px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <Image
@@ -55,10 +54,10 @@ export default function ClientSidebar({
             height={1136}
             sizes="36px"
             priority
-            className="h-9 w-auto rounded-lg ring-1 ring-white/20"
+            className="h-9 w-auto rounded-md ring-1 ring-white/20"
           />
           <div className="min-w-0">
-            <div className="font-bold tracking-wide text-base bg-gradient-to-r from-white via-cyan-100 to-[#00D4FF] bg-clip-text text-transparent">势途 GEO</div>
+            <div className="geo-brand-title text-lg text-white">势途 GEO</div>
             <div className="text-[11px] text-white/60 mt-0.5">生成式引擎增长终端</div>
           </div>
         </div>
@@ -128,12 +127,12 @@ export default function ClientSidebar({
             onClick={() => onSelect(c.id)}
             className={`group flex items-center justify-between rounded-lg px-3 py-2.5 cursor-pointer text-sm transition ${
               activeId === c.id
-                ? "bg-gradient-to-r from-[#0077B6] via-[#00A6FB] to-[#7C3AED] text-white shadow-lg shadow-cyan-500/25"
+                ? "bg-[#087F9C] text-white shadow-sm"
                 : "text-white/72 hover:bg-white/10 hover:text-white"
             }`}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <span className={`h-2 w-2 shrink-0 rounded-full ${activeId === c.id ? "bg-amber-300" : "bg-cyan-300/45"}`} />
+              <span className={`h-2 w-2 shrink-0 rounded-full ${activeId === c.id ? "bg-[#E1B85C]" : "bg-cyan-300/45"}`} />
               <span className="truncate">{c.name}</span>
             </span>
             <button

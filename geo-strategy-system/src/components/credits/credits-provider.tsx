@@ -113,7 +113,7 @@ function InsufficientCreditsModal({
       aria-modal="true"
     >
       <div
-        className="relative w-[90%] max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200"
+        className="relative w-[90%] max-w-md rounded-lg bg-white shadow-2xl ring-1 ring-slate-200"
         onClick={e => e.stopPropagation()}
       >
         <button
@@ -126,7 +126,7 @@ function InsufficientCreditsModal({
 
         <div className="px-7 pt-7 pb-6">
           <div className="flex items-center gap-3 mb-4">
-            <span className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center shadow-lg shadow-rose-200/50">
+            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#C79A3B] shadow-sm">
               <Sparkles className="h-5 w-5 text-white" />
             </span>
             <h2 className="text-lg font-bold tracking-tight text-slate-900">
@@ -164,7 +164,7 @@ function InsufficientCreditsModal({
             </button>
             <BillingLink
               onNavigate={onClose}
-              className="flex-1 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] py-2.5 text-center text-sm font-medium text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40"
+              className="flex-1 rounded-lg bg-[#087F9C] py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-[#066B83]"
             >
               去充值
             </BillingLink>

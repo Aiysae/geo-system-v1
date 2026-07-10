@@ -122,41 +122,36 @@ function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: nu
     item.penetrationRate < 0.001 ? 2 : 1
   )
 
-  const rankTone = item.isTarget
-    ? {
-        row: "bg-gradient-to-r from-amber-400/18 via-amber-400/[0.07] to-transparent ring-1 ring-inset ring-amber-300/35",
-        rank: "bg-gradient-to-r from-amber-300 to-orange-300 text-slate-950",
-        bar: "bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400",
-      }
-    : item.rank === 1
+  const rankTone = item.rank === 1
       ? {
-          row: "bg-gradient-to-r from-cyan-400/13 via-cyan-400/[0.04] to-transparent",
-          rank: "bg-gradient-to-r from-cyan-300 to-sky-400 text-slate-950",
-          bar: "bg-gradient-to-r from-cyan-300 via-sky-400 to-blue-500",
+          row: "bg-[#C79A3B]/10",
+          rank: "bg-[#C79A3B] text-white",
+          bar: "bg-[#C79A3B]",
         }
       : item.rank === 2
         ? {
-            row: "bg-gradient-to-r from-violet-400/12 via-violet-400/[0.04] to-transparent",
-            rank: "bg-gradient-to-r from-violet-300 to-fuchsia-400 text-slate-950",
-            bar: "bg-gradient-to-r from-violet-300 via-fuchsia-400 to-rose-400",
+            row: "bg-slate-300/[0.07]",
+            rank: "bg-[#87959B] text-white",
+            bar: "bg-[#87959B]",
           }
         : item.rank === 3
           ? {
-              row: "bg-gradient-to-r from-emerald-400/12 via-emerald-400/[0.04] to-transparent",
-              rank: "bg-gradient-to-r from-emerald-300 to-teal-400 text-slate-950",
-              bar: "bg-gradient-to-r from-emerald-300 via-teal-400 to-cyan-400",
+              row: "bg-[#A96E43]/10",
+              rank: "bg-[#A96E43] text-white",
+              bar: "bg-[#A96E43]",
             }
           : {
               row: "hover:bg-white/[0.04]",
               rank: "bg-slate-800 text-slate-400 ring-1 ring-slate-700",
-              bar: "bg-gradient-to-r from-[#0077B6] via-[#00A6FB] to-[#00D4FF]",
+              bar: "bg-[#3F7F8D]",
             }
+  const targetTone = item.isTarget ? "ring-1 ring-inset ring-[#E1B85C]/55" : ""
 
   return (
     <div
       className={`grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_70px_60px] items-center gap-4 px-5 py-3.5 transition-colors ${
         rankTone.row
-      }`}
+      } ${targetTone}`}
     >
       <div className={`inline-flex h-7 w-9 items-center justify-center rounded-md text-xs font-bold tabular-nums ${rankTone.rank}`}>
         {item.rank}

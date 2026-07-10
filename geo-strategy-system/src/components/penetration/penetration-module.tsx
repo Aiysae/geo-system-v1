@@ -231,25 +231,25 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   const topIndustryShare = pen?.aggregated.industryShare.slice(0, 10) ?? []
 
   return (
-    <Card className="border-white/70">
+    <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
-          <span className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#0077B6] via-[#00A6FB] to-[#00D4FF] flex items-center justify-center shadow-lg shadow-cyan-300/30">
+          <span className="geo-module-icon bg-[#087F9C]">
             <Target className="h-5 w-5 text-white" />
           </span>
-          <span className="min-w-0 bg-gradient-to-r from-[#0077B6] via-[#00A6FB] to-[#7C3AED] bg-clip-text text-transparent font-semibold leading-snug">
+          <span className="geo-display-title min-w-0 text-lg leading-snug text-[#12343C]">
             关键词渗透率与竞品情报
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="no-print min-w-0 rounded-lg border border-cyan-100 bg-[linear-gradient(120deg,rgba(240,249,255,0.96),rgba(255,255,255,0.98)_48%,rgba(245,243,255,0.9))] p-4 shadow-sm sm:p-5">
+        <div className="geo-section-panel no-print min-w-0 p-4 sm:p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-3">
             <div>
               <div className="text-sm font-semibold text-slate-900">检测配置</div>
               <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围后，结果将在下方按完整页面宽度生成</div>
             </div>
-            <div className="rounded-md bg-[#071B2B] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
+            <div className="rounded-md bg-[#0A222A] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
               官方联网 · 纯净盲测
             </div>
           </div>
@@ -330,7 +330,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                 )}
 
                 {pen.aggregated.missedQuestions.length > 0 && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
                     <div className="text-[11px] uppercase tracking-wider text-amber-700 mb-2">
                       未被任一模型提及的疑问句（{pen.aggregated.missedQuestions.length}）
                     </div>
@@ -470,7 +470,7 @@ function RawAnswersPanel({
                 onClick={() => setActive(m)}
                 className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${
                   currentModel === m
-                    ? "bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white shadow"
+                    ? "bg-[#087F9C] text-white shadow"
                     : "bg-white text-slate-600 border border-slate-200 hover:border-[#0077B6]"
                 }`}
               >

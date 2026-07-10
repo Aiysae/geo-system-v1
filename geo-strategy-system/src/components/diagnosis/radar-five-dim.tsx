@@ -40,17 +40,17 @@ export default function RadarFiveDim({ dimensions }: Props) {
         <RadarChart data={data} margin={{ top: 16, right: 36, bottom: 16, left: 36 }}>
           <defs>
             <linearGradient id="radarMainFill" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#00B4D8" stopOpacity={0.55} />
-              <stop offset="60%" stopColor="#0077B6" stopOpacity={0.45} />
-              <stop offset="100%" stopColor="#004B73" stopOpacity={0.4} />
+              <stop offset="0%" stopColor="#22A8B5" stopOpacity={0.52} />
+              <stop offset="60%" stopColor="#087F9C" stopOpacity={0.44} />
+              <stop offset="100%" stopColor="#0D9879" stopOpacity={0.38} />
             </linearGradient>
             <linearGradient id="radarMainStroke" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#0077B6" />
-              <stop offset="100%" stopColor="#00B4D8" />
+              <stop offset="0%" stopColor="#087F9C" />
+              <stop offset="100%" stopColor="#0D9879" />
             </linearGradient>
             <radialGradient id="radarBgGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#00B4D8" stopOpacity={0.12} />
-              <stop offset="100%" stopColor="#0077B6" stopOpacity={0} />
+              <stop offset="0%" stopColor="#0D9879" stopOpacity={0.1} />
+              <stop offset="100%" stopColor="#087F9C" stopOpacity={0} />
             </radialGradient>
           </defs>
 

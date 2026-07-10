@@ -1310,15 +1310,15 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       : strategyJobState.connectionNotice
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br from-white via-blue-50/30 to-cyan-50/20 shadow-sm">
-      <div className="border-b border-slate-200/70 bg-white/85 backdrop-blur">
+    <div className="overflow-hidden rounded-lg border border-[#d8e2e1] bg-white/96 shadow-[0_12px_32px_-26px_rgba(8,28,36,0.5)]">
+      <div className="border-b border-[#d8e2e1] bg-white/95 backdrop-blur">
         <div className="px-3 sm:px-5 lg:px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#004B73] to-[#00B4D8] flex items-center justify-center shrink-0 shadow-md shadow-cyan-200/50">
+            <div className="geo-module-icon h-9 w-9 bg-[#B7852E]">
               <Sparkles className="h-4 w-4 text-white" />
             </div>
             <div className="min-w-0">
-              <div className="text-sm sm:text-base font-semibold tracking-tight bg-gradient-to-r from-[#004B73] to-[#0077B6] bg-clip-text text-transparent">
+              <div className="geo-display-title text-lg text-[#523E1C]">
                 关键词策略 · GEO 策略生成工具
               </div>
               <div className="text-[11px] text-slate-500 truncate">
@@ -1326,7 +1326,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               </div>
             </div>
           </div>
-          <div className="w-full sm:w-auto inline-flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-600">
+          <div className="inline-flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-[#d8e2e1] bg-[#f5f7f6] px-3 py-2 text-xs text-slate-600 sm:w-auto">
             <span className={`h-2 w-2 rounded-full ${keywordModelConfigured ? "bg-emerald-500" : "bg-amber-500"}`} />
             <span className="font-medium text-slate-700">{keywordModelName}</span>
             <span className="text-slate-400">后台托管</span>
@@ -1529,14 +1529,14 @@ function InputStep({
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-800">GEO 策略方案生成</h1>
+        <h1 className="geo-display-title text-3xl text-slate-900">GEO 策略方案生成</h1>
         <p className="text-sm text-slate-500 mt-1">上传客户资料，填写基础信息，系统将自动抽取结构化数据并生成优化策略</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Upload Area */}
         <div className="lg:col-span-1 space-y-4">
-          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
+          <div className="geo-section-panel p-4 sm:p-5">
             <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
               <CloudUpload className="h-4 w-4 text-blue-500" />
               上传资料
@@ -1585,7 +1585,7 @@ function InputStep({
             )}
           </div>
 
-          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
+          <div className="geo-section-panel p-4 sm:p-5">
             <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
               <Search className="h-4 w-4 text-purple-500" />
               竞争与目标
@@ -1719,7 +1719,7 @@ function InputStep({
           <button
             onClick={onExtract}
             disabled={extracting || !modelConfigured}
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white hover:shadow-lg hover:shadow-blue-300/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0 transition-all"
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold rounded-xl bg-[#087F9C] text-white hover:shadow-lg hover:shadow-blue-300/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0 transition-all"
           >
             {extracting ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> AI 正在抽取资料...</>
@@ -1910,7 +1910,7 @@ function ExtractionStep({
             重新抽取
           </button>
           <button onClick={onGenerate} disabled={generating}
-            className="text-sm inline-flex w-full items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-white font-semibold hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 transition-all sm:w-auto">
+            className="text-sm inline-flex w-full items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#087F9C] text-white font-semibold hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 transition-all sm:w-auto">
             {generating ? <><Loader2 className="h-4 w-4 animate-spin" /> 生成中...</> : <><Sparkles className="h-4 w-4" /> 确认并生成策略</>}
           </button>
         </div>
