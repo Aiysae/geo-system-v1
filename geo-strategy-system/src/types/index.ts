@@ -214,6 +214,26 @@ export interface PenetrationResult {
   generatedAt: string
 }
 
+export type PenetrationJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
+
+export interface PenetrationJobRecord {
+  id: string
+  clientId: string
+  status: PenetrationJobStatus
+  totalSlots: number
+  completedSlots: number
+  totalBatches: number
+  completedBatches: number
+  result?: PenetrationResult
+  skipped: string[]
+  modelErrors: Partial<Record<ModelKey, string>>
+  error?: string
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  finishedAt?: string
+}
+
 export interface DiagnosisDimensions {
   authority: number
   structure: number
@@ -306,6 +326,7 @@ export interface Client {
   createdAt: string
   updatedAt: string
   penetration?: PenetrationResult
+  penetrationJobId?: string
   research?: ResearchResult
   competitorCompare?: CompetitorCompareResult
   researchSourceMode?: ResearchSourceMode

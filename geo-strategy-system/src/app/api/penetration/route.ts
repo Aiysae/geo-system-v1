@@ -20,6 +20,7 @@ import {
 } from "@/lib/with-credits"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import { isInternalApiRequest } from "@/lib/internal-api"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -745,6 +746,7 @@ function modelConcurrency(model: ModelKey): number {
 async function handler(req: NextRequest) {
   let reservation: CreditReservation | null = null
   try {
+    const internalJobRequest = isInternalApiRequest(req, "penetration-job")
     const body = await req.json()
     const ourBrand = String(body.ourBrand || "").trim()
     const questions: string[] = Array.isArray(body.questions)
@@ -803,19 +805,21 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const guard = await authAndReserveCredits(requiredCredits, {
-      featureKey,
-      source: "api:penetration",
-      description: getFeaturePrice(featureKey).label,
-      metadata: {
-        modelCount: activeModels.length,
-        questionCount: questions.length,
-        slotCount,
-        brandAliasCount: brandAliases.length,
-      },
-    })
-    if (!guard.ok) return guard.response
-    reservation = guard.reservation
+    if (!internalJobRequest) {
+      const guard = await authAndReserveCredits(requiredCredits, {
+        featureKey,
+        source: "api:penetration",
+        description: getFeaturePrice(featureKey).label,
+        metadata: {
+          modelCount: activeModels.length,
+          questionCount: questions.length,
+          slotCount,
+          brandAliasCount: brandAliases.length,
+        },
+      })
+      if (!guard.ok) return guard.response
+      reservation = guard.reservation
+    }
 
     const auditProfiles = Object.fromEntries(
       await Promise.all(
@@ -911,8 +915,10 @@ async function handler(req: NextRequest) {
     const aggregated = aggregatePenetration(byModel, ourBrand, brandAliases, competitors)
 
     const successfulSlots = results.filter(result => result.item.answer.trim().length > 0).length
-    await settleReservedCredits(reservation, estimateFeatureCredits(featureKey, successfulSlots))
-    reservation = null
+    if (reservation) {
+      await settleReservedCredits(reservation, estimateFeatureCredits(featureKey, successfulSlots))
+      reservation = null
+    }
 
     return NextResponse.json(
       {
