@@ -33,7 +33,7 @@ export async function approveRechargeAction(
     ok: true,
     message: `已为 ${result.record.username || result.record.email || result.record.userId} 充值 ${
       result.record.credits ?? result.record.amount
-    } 积分`,
+    } 积分，到账后余额 ${result.balance}`,
   }
 }
 

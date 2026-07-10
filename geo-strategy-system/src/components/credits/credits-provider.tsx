@@ -7,6 +7,7 @@ import { BillingLink } from "@/components/billing/billing-link"
 
 type CreditsContextValue = {
   balance: number | null
+  unlimited: boolean
   refresh: () => Promise<void>
 }
 
@@ -22,6 +23,7 @@ type ModalState = { required?: number; balance?: number } | null
 
 export function CreditsProvider({ children }: { children: React.ReactNode }) {
   const [balance, setBalance] = useState<number | null>(null)
+  const [unlimited, setUnlimited] = useState(false)
   const [modal, setModal] = useState<ModalState>(null)
   // 避免短时间内多次成功触发并发 refresh
   const refreshingRef = useRef(false)
@@ -34,8 +36,10 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json()
         if (typeof data?.credits === "number") setBalance(data.credits)
+        setUnlimited(data?.unlimited === true)
       } else if (res.status === 401) {
         setBalance(null)
+        setUnlimited(false)
       }
     } catch {
       /* 静默 */
@@ -43,6 +47,23 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
       refreshingRef.current = false
     }
   }, [])
+
+  useEffect(() => {
+    const initialRefresh = window.setTimeout(() => void refresh(), 0)
+    const timer = window.setInterval(() => void refresh(), 30_000)
+    const onFocus = () => void refresh()
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refresh()
+    }
+    window.addEventListener("focus", onFocus)
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.clearTimeout(initialRefresh)
+      window.clearInterval(timer)
+      window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [refresh])
 
   // 注册 fetch 桥接回调
   useEffect(() => {
@@ -59,7 +80,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
   }, [refresh])
 
   return (
-    <CreditsContext.Provider value={{ balance, refresh }}>
+    <CreditsContext.Provider value={{ balance, unlimited, refresh }}>
       {children}
       {modal && (
         <InsufficientCreditsModal

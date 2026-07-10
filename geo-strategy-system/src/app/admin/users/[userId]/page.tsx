@@ -4,6 +4,7 @@ import { ArrowLeft, ReceiptText, ShieldCheck, UserRound, WalletCards } from "luc
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, getUserById } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
+import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-ledger"
 import { formatYuan, getFeaturePrice } from "@/lib/pricing"
 import { listRequestsForUser, type RechargeRequest } from "@/lib/recharge"
@@ -86,6 +87,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
   const totalUsageCredits = ledger
     .filter(item => item.type === "usage_reserved" || item.type === "usage_extra")
     .reduce((sum, item) => sum + Math.abs(item.delta), 0)
+  const unlimited = hasUnlimitedCreditAccess(user)
 
   return (
     <div className="min-h-screen geo-saturated-bg">
@@ -117,7 +119,8 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
               <WalletCards className="h-3.5 w-3.5 text-amber-500" />
               当前积分
             </div>
-            <div className="mt-2 font-mono text-3xl font-bold text-slate-900">{credits}</div>
+            <div className="mt-2 text-3xl font-bold text-slate-900">{unlimited ? "无限" : credits}</div>
+            {unlimited && <div className="mt-1 font-mono text-[10px] text-slate-400">账面余额 {credits}</div>}
           </div>
           <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-emerald-700">累计充值到账</div>
@@ -148,7 +151,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">积分手动调整</div>
-              <CreditsAdjustForm userId={user.id} />
+              <CreditsAdjustForm userId={user.id} disabled={unlimited} />
             </div>
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">账号状态</div>

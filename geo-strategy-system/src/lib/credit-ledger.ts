@@ -58,6 +58,7 @@ function cleanMetadata(
 }
 
 export async function writeCreditLedgerEntry(input: {
+  id?: string
   userId: string
   delta: number
   balanceAfter?: number
@@ -68,7 +69,10 @@ export async function writeCreditLedgerEntry(input: {
     throw new Error("积分流水 delta 不能为 0")
   }
 
-  const id = `ledger_${Date.now().toString(36)}_${randomUUID().replace(/-/g, "").slice(0, 12)}`
+  const requestedId = input.id?.trim()
+  const id = requestedId && /^ledger_[a-zA-Z0-9_-]{8,180}$/.test(requestedId)
+    ? requestedId
+    : `ledger_${Date.now().toString(36)}_${randomUUID().replace(/-/g, "").slice(0, 12)}`
   const context = input.context || {}
   const entry: CreditLedgerEntry = {
     id,
@@ -86,7 +90,16 @@ export async function writeCreditLedgerEntry(input: {
     createdAt: Date.now(),
   }
 
-  await kv.set(KEY_ENTRY(entry.id), entry)
+  const created = await kv.set(KEY_ENTRY(entry.id), entry, { nx: true })
+  if (!created) {
+    const existing = await kv.get<CreditLedgerEntry>(KEY_ENTRY(entry.id))
+    if (!existing || existing.userId !== entry.userId || existing.delta !== entry.delta) {
+      throw new Error("积分流水幂等键冲突")
+    }
+    await kv.sadd(KEY_USER_INDEX(existing.userId), existing.id)
+    await kv.sadd(KEY_ALL, existing.id)
+    return existing
+  }
   await kv.sadd(KEY_USER_INDEX(entry.userId), entry.id)
   await kv.sadd(KEY_ALL, entry.id)
   return entry

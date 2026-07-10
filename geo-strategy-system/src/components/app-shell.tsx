@@ -215,7 +215,7 @@ function StickyHeader({
 }
 
 function CreditsPill() {
-  const { balance } = useCredits()
+  const { balance, unlimited } = useCredits()
   return (
     <div
       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-300/20 to-rose-400/20 ring-1 ring-amber-200/30 text-[11px] font-medium text-white"
@@ -224,7 +224,7 @@ function CreditsPill() {
       <Sparkles className="h-3.5 w-3.5 text-amber-300" />
       <span className="hidden sm:inline text-white/60">积分</span>
       <span className="font-mono font-bold text-white tabular-nums">
-        {balance === null ? "…" : balance}
+        {unlimited ? "无限" : balance === null ? "…" : balance}
       </span>
     </div>
   )

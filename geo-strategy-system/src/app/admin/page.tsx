@@ -4,6 +4,7 @@ import { Inbox, KeyRound, ReceiptText, ShieldCheck, Sparkles, UsersRound } from 
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listPasswordResetRequests, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
+import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "./credits-adjust-form"
 import { UserStatusForm } from "./user-status-form"
@@ -39,9 +40,10 @@ export default async function AdminPage() {
     users.map(async user => ({
       user,
       credits: await getCredits(user.id),
+      unlimited: hasUnlimitedCreditAccess(user),
     }))
   )
-  const totalCredits = rows.reduce((sum, row) => sum + row.credits, 0)
+  const totalCredits = rows.reduce((sum, row) => sum + (row.unlimited ? 0 : row.credits), 0)
   const adminCount = rows.filter(row => row.user.role === "admin").length
   const pendingPasswordResetCount = passwordResetRequests.filter(request => request.status === "pending").length
 
@@ -125,7 +127,7 @@ export default async function AdminPage() {
           <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="flex items-center gap-1.5 text-xs text-amber-700">
               <Sparkles className="h-3.5 w-3.5" />
-              当前总积分
+              可计费用户总积分
             </div>
             <div className="mt-2 font-mono text-2xl font-bold text-amber-700">{totalCredits}</div>
           </div>
@@ -160,7 +162,7 @@ export default async function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ user, credits }) => (
+                {rows.map(({ user, credits, unlimited }) => (
                   <tr key={user.id} className="border-t border-slate-100 align-top">
                     <td className="px-4 py-4">
                       <div className="flex items-start gap-3">
@@ -182,14 +184,21 @@ export default async function AdminPage() {
                     <td className="px-4 py-4">
                       <UserStatusForm userId={user.id} status={user.status} />
                     </td>
-                    <td className="px-4 py-4 font-mono text-sm font-bold text-slate-900">
-                      {credits}
+                    <td className="px-4 py-4 text-sm font-bold text-slate-900">
+                      {unlimited ? (
+                        <div>
+                          <span className="rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700 ring-1 ring-blue-100">无限</span>
+                          <div className="mt-1 font-mono text-[10px] font-normal text-slate-400">账面 {credits}</div>
+                        </div>
+                      ) : (
+                        <span className="font-mono">{credits}</span>
+                      )}
                     </td>
                     <td className="px-4 py-4 text-xs text-slate-500">
                       {new Date(user.createdAt).toLocaleString("zh-CN", { hour12: false })}
                     </td>
                     <td className="px-4 py-4">
-                      <CreditsAdjustForm userId={user.id} />
+                      <CreditsAdjustForm userId={user.id} disabled={unlimited} />
                     </td>
                     <td className="px-4 py-4">
                       <Link

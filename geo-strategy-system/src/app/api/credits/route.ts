@@ -17,9 +17,12 @@ export async function GET() {
       credits: UNLIMITED_CREDITS_BALANCE,
       initial: CREDITS_INITIAL,
       unlimited: true,
-    })
+    }, { headers: { "Cache-Control": "private, no-store" } })
   }
 
   const credits = await getCredits(user.id)
-  return NextResponse.json({ credits, initial: CREDITS_INITIAL, unlimited: false })
+  return NextResponse.json(
+    { credits, initial: CREDITS_INITIAL, unlimited: false },
+    { headers: { "Cache-Control": "private, no-store" } },
+  )
 }
