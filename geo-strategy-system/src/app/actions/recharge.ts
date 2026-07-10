@@ -5,13 +5,19 @@ import { createRequest } from "@/lib/recharge"
 
 export type RequestRechargeResult =
   | { ok: true; credits: number; packageName: string; priceCents?: number; paymentOutTradeNo?: string }
-  | { ok: false; error: string }
+  | { ok: false; error: string; code?: "UNAUTHENTICATED" }
 
 export async function requestRechargeAction(
   formData: FormData
 ): Promise<RequestRechargeResult> {
   const user = await getCurrentUser()
-  if (!user) return { ok: false, error: "未登录" }
+  if (!user) {
+    return {
+      ok: false,
+      code: "UNAUTHENTICATED",
+      error: "登录状态已失效，请重新登录后提交充值申请。",
+    }
+  }
 
   const packageKey = String(formData.get("packageKey") || "")
   const paymentMethod = String(formData.get("paymentMethod") || "manual_transfer")

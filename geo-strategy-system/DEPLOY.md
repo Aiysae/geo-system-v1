@@ -91,6 +91,32 @@ chmod 600 /var/www/geo-strategy-system/.env.production
 
 **切勿**将 `.env.production` 提交到 Git。
 
+### 生产 Redis 存储
+
+商业化环境不得使用 `KV_BACKEND=file`。单台 ECS 可在本机安装 Redis，并仅监听 `127.0.0.1` / `::1`：
+
+```bash
+sudo dnf install -y redis
+sudo systemctl enable --now redis
+```
+
+Redis 配置需保持 `protected-mode yes`，开启 `appendonly yes` 和 `appendfsync everysec`，并设置强密码。生产环境变量使用：
+
+```bash
+KV_BACKEND=redis
+REDIS_URL=redis://:strong-password@127.0.0.1:6379/0
+```
+
+从旧的文件 KV 切换前，先停止应用写入并备份 `/var/lib/geo-system/kv.json`，再执行：
+
+```bash
+npm run kv:migrate:file-to-redis -- --source /var/lib/geo-system/kv.json
+MIGRATION_CONFIRM=FILE_TO_REDIS npm run kv:migrate:file-to-redis -- --source /var/lib/geo-system/kv.json --apply
+npm run kv:migrate:file-to-redis -- --source /var/lib/geo-system/kv.json --verify
+```
+
+迁移命令默认拒绝向非空 Redis 写入，避免覆盖已有数据。
+
 ---
 
 ## 五、构建与启动

@@ -237,6 +237,14 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               {state && !state.ok && (
                 <div className="mt-3 text-xs text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded-lg px-3 py-2">
                   {state.error}
+                  {state.code === "UNAUTHENTICATED" ? (
+                    <Link
+                      href="/sign-in?redirect_url=/"
+                      className="ml-1 font-semibold underline underline-offset-2"
+                    >
+                      重新登录
+                    </Link>
+                  ) : null}
                 </div>
               )}
 

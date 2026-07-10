@@ -50,7 +50,11 @@ export function LocalAuthForm({
         return
       }
 
-      await waitForSessionReady()
+      const sessionReady = await waitForSessionReady()
+      if (!sessionReady) {
+        setError("账号已创建，但登录状态尚未建立，请稍后重试或直接登录。")
+        return
+      }
       router.replace(nextUrl)
       router.refresh()
     } catch {
@@ -197,15 +201,16 @@ export function LocalAuthForm({
   )
 }
 
-async function waitForSessionReady(): Promise<void> {
+async function waitForSessionReady(): Promise<boolean> {
   for (let attempt = 0; attempt < 6; attempt++) {
     const res = await fetch("/api/me", {
       cache: "no-store",
       credentials: "same-origin",
     }).catch(() => null)
-    if (res?.ok) return
+    if (res?.ok) return true
     await new Promise(resolve => window.setTimeout(resolve, 120 * (attempt + 1)))
   }
+  return false
 }
 
 function sanitizeRedirect(value?: string): string {
