@@ -3,6 +3,7 @@ import "server-only"
 import { createHmac, timingSafeEqual } from "crypto"
 
 export const INTERNAL_API_TOKEN_HEADER = "x-geo-internal-token"
+export const INTERNAL_API_USER_HEADER = "x-geo-internal-user"
 
 function getInternalSecret(): string {
   const secret =
@@ -41,4 +42,10 @@ export function isInternalApiRequest(request: Request, scope: string): boolean {
   const expectedBytes = Buffer.from(expected)
   if (actualBytes.length !== expectedBytes.length) return false
   return timingSafeEqual(actualBytes, expectedBytes)
+}
+
+export function getInternalApiUserId(request: Request, scope: string): string | null {
+  if (!isInternalApiRequest(request, scope)) return null
+  const userId = String(request.headers.get(INTERNAL_API_USER_HEADER) || "").trim()
+  return userId && userId.length <= 160 ? userId : null
 }

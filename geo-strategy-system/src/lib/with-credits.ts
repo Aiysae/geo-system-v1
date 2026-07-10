@@ -3,6 +3,7 @@ import { addCreditsBy, decrCreditsBy, getCredits, reserveCreditsBy } from "./cre
 import { getCurrentUser, getUserById, type PublicUser } from "./auth"
 import { isAdminUser } from "./admin"
 import type { CreditLedgerContext } from "./credit-ledger"
+import { getInternalApiUserId } from "./internal-api"
 
 type UserIdGuard =
   | { ok: true; userId: string }
@@ -156,6 +157,36 @@ export async function authAndReserveCredits(
     reservation: reserved.reservation,
     balance: reserved.balance,
   }
+}
+
+/**
+ * Long-running background jobs reserve credits before dispatch. Their internal
+ * API call therefore receives a zero-value reservation so the existing route
+ * can run unchanged without charging the user a second time.
+ */
+export async function authAndReserveCreditsForRequest(
+  request: Request,
+  required: number,
+  context?: CreditLedgerContext,
+): Promise<
+  | { ok: true; userId: string; reservation: CreditReservation; balance: number }
+  | { ok: false; response: Response }
+> {
+  const internalUserId = getInternalApiUserId(request, "background-job")
+  if (internalUserId) {
+    return {
+      ok: true,
+      userId: internalUserId,
+      balance: UNLIMITED_CREDITS_BALANCE,
+      reservation: {
+        userId: internalUserId,
+        amount: 0,
+        balanceAfterReserve: UNLIMITED_CREDITS_BALANCE,
+        ledgerContext: context,
+      },
+    }
+  }
+  return authAndReserveCredits(required, context)
 }
 
 export async function refundReservedCredits(reservation: CreditReservation): Promise<void> {

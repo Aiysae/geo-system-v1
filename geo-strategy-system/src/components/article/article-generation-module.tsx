@@ -11,6 +11,7 @@ import {
   Link,
   Loader2,
   RefreshCw,
+  Square,
   WandSparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -23,11 +24,14 @@ import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-s
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { ARTICLE_PROMPT_PRICE_KEYS } from "@/lib/pricing"
 import { buildArticleSourceModelGroups } from "@/lib/article-source-options"
+import { cancelBackgroundJob } from "@/lib/background-job-client"
+import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type {
   ArticleGenerationState,
   ArticleModelProviderKey,
   ArticlePromptKey,
+  BackgroundJobRef,
   Client,
   ModelKey,
 } from "@/types"
@@ -74,6 +78,9 @@ const ArticleMarkdownWorkspace = dynamic(
 )
 
 function createInitialArticle(client: Client): ArticleGenerationState {
+  const saved = client.articleGeneration
+  const interruptedLegacyRequest = saved?.status === "generating"
+    && !client.backgroundJobs?.articleGeneration
   return {
     promptKey: "thirdPartyObservation",
     modelProvider: "article",
@@ -93,8 +100,45 @@ function createInitialArticle(client: Client): ArticleGenerationState {
     extraRequirements: "",
     output: "",
     status: "idle",
-    ...(client.articleGeneration ?? {}),
+    ...(saved ?? {}),
+    ...(interruptedLegacyRequest
+      ? {
+          status: "idle" as const,
+          error: "上次生成连接已经中断，请重新发起；新任务将支持断线恢复。",
+        }
+      : {}),
   }
+}
+
+function buildArticleJobPayload(client: Client, article: ArticleGenerationState) {
+  return {
+    promptKey: article.promptKey,
+    modelProvider: article.modelProvider,
+    model: article.model,
+    clientName: client.name,
+    brandName: client.ourBrand || client.name,
+    industry: client.industry,
+    website: client.website,
+    sourceUrl: article.sourceUrl,
+    sourceTitle: article.sourceTitle,
+    sourceMarkdown: article.sourceMarkdown,
+    rewriteBrand: article.rewriteBrand,
+    rewriteMaterials: article.rewriteMaterials,
+    coreQuestion: article.coreQuestion,
+    keywords: article.keywords,
+    region: article.region,
+    business: article.business,
+    advantages: article.advantages,
+    audience: article.audience,
+    extraRequirements: article.extraRequirements,
+  }
+}
+
+function createJobRequestId(prefix: string): string {
+  const suffix = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID().replace(/-/g, "")
+    : `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`
+  return `${prefix}_${suffix}`
 }
 
 export default function ArticleGenerationModule({ client, onChangeClient }: Props) {
@@ -103,6 +147,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const [prompts, setPrompts] = useState<ArticlePromptOption[]>(ARTICLE_PROMPT_OPTIONS)
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [preferredSourceModel, setPreferredSourceModel] = useState<ModelKey | null>(null)
+  const [stoppingJob, setStoppingJob] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -172,11 +217,79 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const visiblePrompts = isRewrite
     ? prompts.filter(prompt => prompt.key === "rewrite")
     : prompts.filter(prompt => prompt.key !== "rewrite")
+  const articleJobRef = client.backgroundJobs?.articleGeneration
 
   function persist(next: ArticleGenerationState) {
     setArticle(next)
     onChangeClient({ articleGeneration: next })
   }
+
+  function backgroundJobsWith(ref?: BackgroundJobRef) {
+    const next = { ...(client.backgroundJobs || {}) }
+    if (ref) next.articleGeneration = ref
+    else delete next.articleGeneration
+    return next
+  }
+
+  function persistArticleAndJob(
+    nextArticle: ArticleGenerationState,
+    ref?: BackgroundJobRef,
+  ) {
+    setArticle(nextArticle)
+    onChangeClient({
+      articleGeneration: nextArticle,
+      backgroundJobs: backgroundJobsWith(ref),
+    })
+  }
+
+  const articleJobState = useResumableBackgroundJob<ArticleGenerationResponse>({
+    kind: "articleGeneration",
+    clientId: client.id,
+    jobRef: articleJobRef,
+    payload: buildArticleJobPayload(client, article),
+    onAccepted: job => {
+      onChangeClient({
+        backgroundJobs: backgroundJobsWith({ requestId: job.requestId, jobId: job.id }),
+      })
+    },
+    onSucceeded: job => {
+      const data = job.result
+      if (!data?.article) {
+        const next = {
+          ...article,
+          status: "error" as const,
+          error: "后台文章任务没有返回有效内容，请重新生成。",
+        }
+        persistArticleAndJob(next)
+        return
+      }
+      const next: ArticleGenerationState = {
+        ...article,
+        promptKey: data.promptKey || article.promptKey,
+        modelProvider: data.modelProvider || article.modelProvider,
+        model: data.model || article.model,
+        output: data.article,
+        generatedAt: data.generatedAt || new Date().toISOString(),
+        status: "done",
+        error: undefined,
+      }
+      persistArticleAndJob(next)
+    },
+    onFailed: message => {
+      persistArticleAndJob({
+        ...article,
+        status: "error",
+        error: message,
+      })
+    },
+    onCancelled: () => {
+      persistArticleAndJob({
+        ...article,
+        status: "idle",
+        error: "文章任务已停止，预扣积分会自动退回。",
+      })
+    },
+  })
 
   function updateField<K extends keyof ArticleGenerationState>(
     key: K,
@@ -328,7 +441,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     }
   }
 
-  async function runGenerate() {
+  function runGenerate() {
     if (isRewrite && !article.sourceMarkdown?.trim()) {
       persist({ ...article, status: "error", error: "请先读取或粘贴原文内容" })
       return
@@ -351,54 +464,26 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       status: "generating",
       error: undefined,
     }
-    persist(generating)
+    persistArticleAndJob(generating, { requestId: createJobRequestId("article") })
+  }
 
+  async function stopArticleJob() {
+    if (!articleJobRef?.jobId || stoppingJob) return
+    setStoppingJob(true)
     try {
-      const res = await apiFetch("/api/article-generation", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          promptKey: generating.promptKey,
-          modelProvider: generating.modelProvider,
-          model: generating.model,
-          clientName: client.name,
-          brandName: client.ourBrand || client.name,
-          industry: client.industry,
-          website: client.website,
-          sourceUrl: generating.sourceUrl,
-          sourceTitle: generating.sourceTitle,
-          sourceMarkdown: generating.sourceMarkdown,
-          rewriteBrand: generating.rewriteBrand,
-          rewriteMaterials: generating.rewriteMaterials,
-          coreQuestion: generating.coreQuestion,
-          keywords: generating.keywords,
-          region: generating.region,
-          business: generating.business,
-          advantages: generating.advantages,
-          audience: generating.audience,
-          extraRequirements: generating.extraRequirements,
-        }),
+      await cancelBackgroundJob(articleJobRef.jobId)
+      persistArticleAndJob({
+        ...article,
+        status: "idle",
+        error: "文章任务已停止，预扣积分会自动退回。",
       })
-      const data = await readApiJson<ArticleGenerationResponse>(res, isRewrite ? "文章改写" : "文章生成")
-      if (!res.ok) throw new Error(data.error || (isRewrite ? "文章改写失败" : "文章生成失败"))
-      const next: ArticleGenerationState = {
-        ...generating,
-        promptKey: data.promptKey || generating.promptKey,
-        modelProvider: data.modelProvider || generating.modelProvider,
-        model: data.model || generating.model,
-        output: data.article || "",
-        generatedAt: data.generatedAt || new Date().toISOString(),
-        status: "done",
-        error: undefined,
-      }
-      persist(next)
     } catch (error) {
       persist({
-        ...generating,
-        status: "error",
-        error: error instanceof Error ? error.message : isRewrite ? "文章改写失败" : "文章生成失败",
+        ...article,
+        error: error instanceof Error ? error.message : "停止任务失败，后台任务仍在继续。",
       })
+    } finally {
+      setStoppingJob(false)
     }
   }
 
@@ -870,26 +955,53 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           )}
 
+          {isGenerating && (
+            <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs leading-5 text-cyan-800">
+              <div className="font-medium">
+                {articleJobState.currentJob?.stage || "任务正在转入服务器后台"}
+              </div>
+              <div className="text-[11px] text-cyan-700/80">
+                {articleJobState.connectionNotice || "可以切换客户或刷新页面，生成结果会自动恢复。"}
+              </div>
+            </div>
+          )}
+
           <CreditCostBadge featureKey={articleFeatureKey} className="w-fit" />
 
-          <Button
-            onClick={runGenerate}
-            disabled={!canGenerate}
-            className="h-11 w-full gap-2 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-blue-300/40"
-          >
-            {isGenerating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : hasOutput ? (
-              <RefreshCw className="h-4 w-4" />
-            ) : (
-              <WandSparkles className="h-4 w-4" />
+          <div className="flex gap-2">
+            <Button
+              onClick={runGenerate}
+              disabled={!canGenerate}
+              className="h-11 min-w-0 flex-1 gap-2 rounded-xl bg-gradient-to-r from-[#004B73] to-[#0077B6] text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-blue-300/40"
+            >
+              {isGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : hasOutput ? (
+                <RefreshCw className="h-4 w-4" />
+              ) : (
+                <WandSparkles className="h-4 w-4" />
+              )}
+              {isGenerating
+                ? articleJobState.currentJob?.status === "queued"
+                  ? "任务排队中..."
+                  : isRewrite ? "后台改写中..." : "后台生成中..."
+                : hasOutput
+                  ? isRewrite ? "重新改写文章" : "重新生成文章"
+                  : isRewrite ? "开始改写文章" : "生成文章"}
+            </Button>
+            {isGenerating && articleJobRef?.jobId && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void stopArticleJob()}
+                disabled={stoppingJob}
+                className="h-11 shrink-0 gap-1.5 rounded-xl border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+              >
+                {stoppingJob ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                停止
+              </Button>
             )}
-            {isGenerating
-              ? isRewrite ? "文章改写中..." : "文章生成中..."
-              : hasOutput
-                ? isRewrite ? "重新改写文章" : "重新生成文章"
-                : isRewrite ? "开始改写文章" : "生成文章"}
-          </Button>
+          </div>
         </div>
 
         <ArticleMarkdownWorkspace
