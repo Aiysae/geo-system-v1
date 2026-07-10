@@ -61,6 +61,40 @@ export type ArticlePromptKey =
 
 export type ArticleModelProviderKey = ModelKey | "article"
 
+export type BackgroundJobKind =
+  | "articleGeneration"
+  | "research"
+  | "diagnosis"
+  | "competitorCompare"
+  | "keywordExtract"
+  | "keywordAdvantages"
+  | "keywordStrategy"
+  | "keywordWebsitePrompt"
+
+export type BackgroundJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
+
+export interface BackgroundJobRef {
+  requestId: string
+  jobId?: string
+}
+
+export interface BackgroundJobRecord<TResult = unknown> {
+  id: string
+  kind: BackgroundJobKind
+  clientId: string
+  requestId: string
+  status: BackgroundJobStatus
+  progressPercent: number
+  stage: string
+  result?: TResult
+  error?: string
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  finishedAt?: string
+  creditsRefunded?: boolean
+}
+
 export interface ArticleGenerationState {
   promptKey: ArticlePromptKey
   modelProvider: ArticleModelProviderKey
@@ -417,4 +451,5 @@ export interface Client {
   articleGeneration?: ArticleGenerationState
   difficultyAssessments?: DifficultyAssessmentEntry[]
   difficultyJobId?: string
+  backgroundJobs?: Partial<Record<BackgroundJobKind, BackgroundJobRef>>
 }

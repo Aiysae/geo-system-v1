@@ -3,9 +3,8 @@ import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getArticlePromptTemplate } from "@/lib/article-prompts"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import {
+  authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
-  requireUserId,
-  reserveCreditsForUser,
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
@@ -212,9 +211,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请填写相关资料" }, { status: 400 })
     }
 
-    const userGuard = await requireUserId()
-    if (!userGuard.ok) return userGuard.response
-
     const modelProvider = asProviderKey(body.modelProvider)
     const config = await getAiProviderRuntimeSetting(modelProvider)
     const model = text(body.model, 160) || config.model
@@ -234,7 +230,7 @@ export async function POST(req: NextRequest) {
 
     const featureKey = ARTICLE_PROMPT_PRICE_KEYS[promptKey]
     const cost = estimateFeatureCredits(featureKey)
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, cost, {
+    const creditGuard = await authAndReserveCreditsForRequest(req, cost, {
       featureKey,
       source: "api:article-generation",
       description: getFeaturePrice(featureKey).label,
