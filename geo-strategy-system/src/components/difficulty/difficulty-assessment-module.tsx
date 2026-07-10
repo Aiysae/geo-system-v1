@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
   BarChart3,
@@ -13,6 +13,7 @@ import {
   History,
   Loader2,
   Play,
+  Square,
   Table2,
   Trash2,
 } from "lucide-react"
@@ -27,10 +28,14 @@ import type {
   DifficultyAssessmentEntry,
   DifficultyAssessmentMode,
   DifficultyAssessmentResult,
+  DifficultyJobRecord,
   DifficultyLevel,
+  DifficultyModelSelection,
+  ModelKey,
   ReportExportPreset,
   DifficultyStageKey,
 } from "@/types"
+import { MODEL_LABELS } from "@/lib/model-labels"
 
 interface Props {
   client: Client
@@ -53,6 +58,14 @@ const BRAND_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string
   { key: "review", title: "复核", desc: "置信度和资料缺口" },
   { key: "report", title: "路径报告", desc: "突破入口和动作" },
 ]
+
+const DIFFICULTY_MODELS: ModelKey[] = ["qwen", "deepseek", "doubao", "kimi", "ernie", "hunyuan"]
+
+type DifficultyModelOption = {
+  key: ModelKey
+  label: string
+  configured: boolean
+}
 
 const INDUSTRY_SCORE_STANDARDS = [
   {
@@ -450,19 +463,155 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
   const [city, setCity] = useState("全国")
   const [targetBrand, setTargetBrand] = useState(() => client.ourBrand || "")
   const [website, setWebsite] = useState(() => client.website || "")
-  const [loading, setLoading] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<DifficultyModelSelection>("auto")
+  const [modelOptions, setModelOptions] = useState<DifficultyModelOption[]>(
+    () => DIFFICULTY_MODELS.map(key => ({ key, label: MODEL_LABELS[key], configured: true })),
+  )
+  const [loading, setLoading] = useState(Boolean(client.difficultyJobId))
   const [error, setError] = useState<string | null>(null)
+  const [progressLabel, setProgressLabel] = useState("")
+  const [progressPercent, setProgressPercent] = useState(0)
   const [activeEntry, setActiveEntry] = useState<DifficultyAssessmentEntry | null>(
     () => client.difficultyAssessments?.[0] ?? null
   )
 
-  const history = client.difficultyAssessments ?? []
+  const history = useMemo(() => client.difficultyAssessments ?? [], [client.difficultyAssessments])
   const result = activeEntry?.result ?? sampleForMode(mode)
   const reportMode = activeEntry ? modeForEntry(activeEntry) : result.mode ?? mode
   const stages = stagesForMode(reportMode)
   const scoreStandards = scoreStandardsForMode(reportMode)
   const totalStandards = totalStandardsForMode(reportMode)
   const dimensions = useMemo(() => Object.values(result.dimensions), [result.dimensions])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    async function loadModels() {
+      try {
+        const response = await apiFetch("/api/difficulty-assessment/jobs", {
+          cache: "no-store",
+          signal: controller.signal,
+        })
+        const data = await readApiJson<{ models?: DifficultyModelOption[]; error?: string }>(
+          response,
+          "测评模型配置",
+        )
+        if (response.ok && data.models?.length) setModelOptions(data.models)
+      } catch {
+        // 创建任务时服务端还会再次校验，配置列表刷新失败不阻断页面。
+      }
+    }
+    void loadModels()
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const jobId = client.difficultyJobId
+    if (!jobId) return
+
+    const controller = new AbortController()
+    let stopped = false
+    let failedPolls = 0
+
+    async function poll() {
+      while (!stopped) {
+        try {
+          const response = await apiFetch(`/api/difficulty-assessment/jobs/${jobId}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          })
+          const job = await readApiJson<DifficultyJobRecord & { error?: string }>(
+            response,
+            "难度测评任务查询",
+          )
+          if (!response.ok) throw new Error(job.error || `任务查询失败 (${response.status})`)
+          if (stopped) return
+
+          failedPolls = 0
+          setLoading(job.status === "queued" || job.status === "running")
+          setProgressPercent(job.progressPercent || 0)
+          const stageTitle = job.currentStage
+            ? stagesForMode(job.mode).find(stage => stage.key === job.currentStage)?.title
+            : undefined
+          const modelLabel = job.currentModel ? MODEL_LABELS[job.currentModel] : ""
+          setProgressLabel(
+            job.status === "queued"
+              ? "后台任务排队中，切换客户或关闭页面都不会中断。"
+              : `${stageTitle ? `正在${stageTitle}` : "后台测评中"} · ${job.completedStages}/${job.totalStages}${modelLabel ? ` · ${modelLabel}` : ""}`,
+          )
+
+          if (job.status === "succeeded" && job.result) {
+            const entry: DifficultyAssessmentEntry = {
+              ...createEntry({
+                mode: job.mode,
+                industry: job.industry,
+                city: job.city,
+                targetBrand: job.targetBrand,
+                website: job.website,
+                source: job.result.providerLabel || "服务端模型",
+                result: job.result,
+              }),
+              id: `difficulty_${job.id}`,
+            }
+            const next = [entry, ...history.filter(item => item.id !== entry.id)].slice(0, 30)
+            onChangeClient({ difficultyAssessments: next, difficultyJobId: undefined })
+            setActiveEntry(entry)
+            setError(null)
+            setLoading(false)
+            setProgressLabel("")
+            setProgressPercent(100)
+            window.dispatchEvent(new Event("credits:refresh"))
+            return
+          }
+
+          if (job.status === "failed") {
+            if (!job.creditsRefunded) {
+              setError(`${job.error || "难度测评后台任务失败"}，积分正在自动退回，请勿重新发起。`)
+              setLoading(true)
+              setProgressLabel("任务已结束，正在确认积分退款...")
+              await new Promise(resolve => window.setTimeout(resolve, 3000))
+              continue
+            }
+            onChangeClient({ difficultyJobId: undefined })
+            setError(`${job.error || "难度测评后台任务失败"}，本次预扣积分已自动退回。`)
+            setLoading(false)
+            setProgressLabel("")
+            window.dispatchEvent(new Event("credits:refresh"))
+            return
+          }
+
+          if (job.status === "cancelled") {
+            if (!job.creditsRefunded) {
+              setError("测评已停止，积分正在自动退回，请稍候。")
+              setLoading(true)
+              setProgressLabel("正在确认积分退款...")
+              await new Promise(resolve => window.setTimeout(resolve, 3000))
+              continue
+            }
+            onChangeClient({ difficultyJobId: undefined })
+            setError("测评已停止，本次预扣积分已自动退回。")
+            setLoading(false)
+            setProgressLabel("")
+            window.dispatchEvent(new Event("credits:refresh"))
+            return
+          }
+        } catch {
+          if (stopped || controller.signal.aborted) return
+          failedPolls += 1
+          if (failedPolls >= 3) {
+            setError("后台测评仍在继续，刚才进度刷新失败；系统会自动重试，不需要重新发起任务。")
+          }
+        }
+
+        await new Promise(resolve => window.setTimeout(resolve, failedPolls >= 3 ? 6000 : 2000))
+      }
+    }
+
+    void poll()
+    return () => {
+      stopped = true
+      controller.abort()
+    }
+  }, [client.difficultyJobId, history, onChangeClient])
 
   function saveEntry(entry: DifficultyAssessmentEntry) {
     const next = [entry, ...history.filter(item => item.id !== entry.id)].slice(0, 30)
@@ -503,40 +652,70 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 
     setLoading(true)
     setError(null)
+    setProgressPercent(0)
+    setProgressLabel("正在创建后台测评任务...")
     try {
-      const res = await apiFetch("/api/difficulty-assessment", {
+      const res = await apiFetch("/api/difficulty-assessment/jobs", {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          clientId: client.id,
           mode,
           industry: targetIndustry,
           city: targetCity,
           targetBrand: mode === "brand" ? brandName : undefined,
           website: mode === "brand" ? brandWebsite : undefined,
+          model: selectedModel,
         }),
       })
-      const data = await readApiJson<DifficultyAssessmentResult & { error?: string }>(
+      const job = await readApiJson<DifficultyJobRecord & { error?: string }>(
         res,
-        "GEO 难度测评"
+        "GEO 难度测评任务创建"
       )
-      if (!res.ok) throw new Error(data.error || "评估失败")
-      const entry = createEntry({
-        mode,
-        industry: targetIndustry,
-        city: targetCity,
-        targetBrand: mode === "brand" ? brandName : undefined,
-        website: mode === "brand" ? brandWebsite : undefined,
-        source: data.providerLabel || "服务端模型",
-        result: data,
-      })
-      saveEntry(entry)
+      if (!res.ok) throw new Error(job.error || "评估任务创建失败")
+      if (!job.id) throw new Error("评估任务创建失败：未返回任务 ID")
+      onChangeClient({ difficultyJobId: job.id })
+      setProgressLabel("后台任务已创建，正在排队...")
+      window.dispatchEvent(new Event("credits:refresh"))
       if (!client.industry && targetIndustry) onChangeClient({ industry: targetIndustry })
       if (!client.ourBrand && mode === "brand" && brandName) onChangeClient({ ourBrand: brandName })
     } catch (err) {
       setError(err instanceof Error ? err.message : "未知错误")
-    } finally {
       setLoading(false)
+      setProgressLabel("")
+    }
+  }
+
+  async function stopAssessment() {
+    const jobId = client.difficultyJobId
+    if (!jobId) return
+    setProgressLabel("正在停止后台测评...")
+    try {
+      const response = await apiFetch(`/api/difficulty-assessment/jobs/${jobId}`, {
+        method: "PATCH",
+        cache: "no-store",
+      })
+      const job = await readApiJson<DifficultyJobRecord & { error?: string }>(
+        response,
+        "停止难度测评",
+      )
+      if (!response.ok) throw new Error(job.error || "停止测评失败")
+      if (job.status === "succeeded" && job.result) {
+        setError(null)
+        setProgressLabel("报告已生成，正在保存到当前客户...")
+        return
+      }
+      if (!job.creditsRefunded) throw new Error("测评已停止，积分退款仍在确认中")
+      onChangeClient({ difficultyJobId: undefined })
+      setLoading(false)
+      setProgressLabel("")
+      setError("测评已停止，本次预扣积分已自动退回。")
+    } catch (err) {
+      setError(`${err instanceof Error ? err.message : "停止测评失败"}；任务号已保留，系统会继续查询状态。`)
+      setProgressLabel("后台任务状态仍在查询中...")
+    } finally {
+      window.dispatchEvent(new Event("credits:refresh"))
     }
   }
 
@@ -593,7 +772,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           </div>
         </div>
 
-        <div className={`grid gap-3 md:grid-cols-2 ${mode === "brand" ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
+        <div className={`grid gap-3 md:grid-cols-2 ${mode === "brand" ? "xl:grid-cols-5" : "xl:grid-cols-3"}`}>
             <div>
               <Label htmlFor="difficulty-industry">行业/赛道</Label>
               <Input
@@ -634,6 +813,23 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 placeholder="全国、上海、深圳"
               />
             </div>
+            <div>
+              <Label htmlFor="difficulty-model">首选模型</Label>
+              <select
+                id="difficulty-model"
+                value={selectedModel}
+                onChange={event => setSelectedModel(event.target.value as DifficultyModelSelection)}
+                disabled={loading}
+                className="flex h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="auto">自动推荐（失败自动切换）</option>
+                {modelOptions.map(option => (
+                  <option key={option.key} value={option.key} disabled={!option.configured}>
+                    {option.label}{option.configured ? "" : "（未配置）"}
+                  </option>
+                ))}
+              </select>
+            </div>
         </div>
 
         {error && (
@@ -646,16 +842,23 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
         <div className="mt-4 flex flex-col gap-3 border-t border-slate-200/70 pt-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <CreditCostBadge featureKey="difficultyAssessment" className="w-fit" />
-            <p className="mt-1 text-[11px] text-slate-500">真实评估由服务端模型完成，API Key 不会暴露到浏览器。</p>
+            <p className="mt-1 text-[11px] text-slate-500">任务在后台逐步保存，首选模型失败时会自动重试并切换可用模型。</p>
           </div>
           <div className="grid w-full grid-cols-2 gap-2 lg:w-auto lg:min-w-[300px]">
             <Button type="button" variant="outline" onClick={loadSample} disabled={loading}>
               示例
             </Button>
-            <Button type="button" onClick={runAssessment} disabled={loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {loading ? "评估中" : "开始评估"}
-            </Button>
+            {loading && client.difficultyJobId ? (
+              <Button type="button" variant="outline" onClick={stopAssessment} className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
+                <Square className="h-4 w-4 fill-current" />
+                停止评估
+              </Button>
+            ) : (
+              <Button type="button" onClick={runAssessment} disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                {loading ? "创建中" : "开始评估"}
+              </Button>
+            )}
           </div>
         </div>
       </section>
@@ -706,11 +909,18 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
       <div className="min-w-0 space-y-5">
         {loading && (
           <Card className="no-print border-blue-200 bg-blue-50/80">
-            <CardContent className="flex items-center gap-3 py-4 text-sm text-[#004B73]">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {mode === "brand"
-                ? "正在执行品牌五步评估，模型会依次完成行业调研、品牌识别、竞品评分、复核和路径报告。"
-                : "正在执行五步评估，模型会依次完成调研、对比、评分、复核和报告生成。"}
+            <CardContent className="space-y-3 py-4 text-sm text-[#004B73]">
+              <div className="flex items-center gap-3">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                <span>{progressLabel || "后台测评正在启动..."}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-blue-100" aria-label={`测评进度 ${progressPercent}%`}>
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-[#0077B6] to-[#00B4D8] transition-[width] duration-500"
+                  style={{ width: `${Math.max(2, Math.min(100, progressPercent))}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-slate-500">可以切换到其他客户继续工作，当前客户的任务不会被覆盖或中断。</p>
             </CardContent>
           </Card>
         )}
