@@ -52,7 +52,12 @@ export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "huny
 
 export type LlmMode = "consumer" | "judge"
 
-export type ArticlePromptKey = "thirdPartyObservation" | "pitfallGuide" | "shortVideoScript" | "rewrite"
+export type ArticlePromptKey =
+  | "thirdPartyObservation"
+  | "pitfallGuide"
+  | "competitorComparison"
+  | "shortVideoScript"
+  | "rewrite"
 
 export type ArticleModelProviderKey = ModelKey | "article"
 

@@ -76,6 +76,11 @@ export const FEATURE_PRICES = {
     credits: 5,
     unitLabel: "篇",
   },
+  articleCompetitorComparison: {
+    label: "文章生成 · 竞品对比推荐",
+    credits: 8,
+    unitLabel: "篇",
+  },
   articleShortVideoScript: {
     label: "文章生成 · 多模态视频文案",
     credits: 2,
@@ -102,6 +107,7 @@ export function estimateFeatureCredits(key: FeaturePriceKey, units = 1): number 
 export const ARTICLE_PROMPT_PRICE_KEYS = {
   thirdPartyObservation: "articleThirdPartyObservation",
   pitfallGuide: "articlePitfallGuide",
+  competitorComparison: "articleCompetitorComparison",
   shortVideoScript: "articleShortVideoScript",
   rewrite: "articleRewrite",
 } as const

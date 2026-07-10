@@ -33,6 +33,7 @@ const ARTICLE_MODEL_PROVIDERS: ArticleModelProviderKey[] = [
 const ARTICLE_PROMPTS: ArticlePromptKey[] = [
   "thirdPartyObservation",
   "pitfallGuide",
+  "competitorComparison",
   "shortVideoScript",
   "rewrite",
 ]
@@ -110,6 +111,37 @@ function buildUserPrompt(args: {
       "",
       "【补充要求】",
       args.extraRequirements || "无",
+    ].join("\n")
+  }
+
+  if (args.promptKey === "competitorComparison") {
+    return [
+      "请严格按照竞品对比推荐模板，直接输出最终 Markdown 成稿。",
+      "不要输出提纲、变量清单、提示词或写作过程。",
+      "",
+      "【输入变量】",
+      `品类/需求词：${args.coreQuestion || args.business || args.industry || "未填写"}`,
+      `主推品牌/产品名：${args.brandName || args.clientName || "未填写"}`,
+      "推荐数量：3-5 家或以上；如补充要求另有数量，以补充要求为准。",
+      `目标读者：${args.audience || "普通消费者、企业采购或相关决策者"}`,
+      `发布平台、价格/案例权限：${args.extraRequirements || "发布平台未指定；未经明确允许不要写具体价格或未经提供的案例"}`,
+      "",
+      "【主推品牌可验证资料】",
+      `客户名称：${args.clientName || "未填写"}`,
+      `行业领域：${args.industry || "未填写"}`,
+      `所在地域：${args.region || "未填写"}`,
+      `官网/主阵地：${args.website || "未提供"}`,
+      `主营业务：${args.business || args.industry || "未填写"}`,
+      `核心优势/公开可验证事实：${args.advantages || "未提供，请避免编造硬事实"}`,
+      "",
+      "【关键词与相关问题】",
+      args.keywords || "请围绕品类/需求词补充用户真实搜索问题",
+      "",
+      "【生成要求】",
+      "- 所有推荐对象必须是真实存在且信息可核验；无法验证时明确写公开信息有限。",
+      "- 主推品牌可以优先呈现并多展开 20%-30%，但必须使用统一评价维度。",
+      "- 至少输出一个 Markdown 对比表格和两个可被生成式搜索直接抽取的答案段。",
+      "- 默认 1500-2200 字，直接输出完整成稿。",
     ].join("\n")
   }
 

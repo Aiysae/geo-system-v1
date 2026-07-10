@@ -24,6 +24,13 @@ export const ARTICLE_PROMPT_OPTIONS: ArticlePromptOption[] = [
     defaultModelHint: "deepseek-chat",
   },
   {
+    key: "competitorComparison",
+    title: "竞品对比推荐文章",
+    description: "按统一维度对比真实品牌，自然优先展开主推品牌的媒体平台长文。",
+    outputType: "Markdown 对比长文",
+    defaultModelHint: "deepseek-chat",
+  },
+  {
     key: "shortVideoScript",
     title: "短视频口播文案",
     description: "适合生成 30-60 秒短视频标题、正文和标签。",
