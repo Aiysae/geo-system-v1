@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react"
 import dynamic from "next/dynamic"
 import {
+  Check,
+  ExternalLink,
   FileText,
+  Globe2,
   KeyRound,
   Link,
   Loader2,
@@ -19,8 +22,15 @@ import { ARTICLE_PROMPT_OPTIONS, type ArticlePromptOption } from "@/lib/article-
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { ARTICLE_PROMPT_PRICE_KEYS } from "@/lib/pricing"
+import { buildArticleSourceModelGroups } from "@/lib/article-source-options"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
-import type { ArticleGenerationState, ArticleModelProviderKey, ArticlePromptKey, Client } from "@/types"
+import type {
+  ArticleGenerationState,
+  ArticleModelProviderKey,
+  ArticlePromptKey,
+  Client,
+  ModelKey,
+} from "@/types"
 import type { QuestionItem } from "@/types/geo-strategy"
 
 interface Props {
@@ -92,6 +102,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const [providers, setProviders] = useState<AiProviderPublicSetting[]>([])
   const [prompts, setPrompts] = useState<ArticlePromptOption[]>(ARTICLE_PROMPT_OPTIONS)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [preferredSourceModel, setPreferredSourceModel] = useState<ModelKey | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -139,6 +150,13 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   )
   const keywordQuestions = client.keywordStrategy?.questions || []
   const keywordAdvantages = useMemo(() => collectKeywordAdvantages(client), [client])
+  const penetrationSourceGroups = useMemo(
+    () => buildArticleSourceModelGroups(client.penetration),
+    [client.penetration],
+  )
+  const activeSourceGroup = penetrationSourceGroups.find(
+    group => group.model === preferredSourceModel,
+  ) || penetrationSourceGroups[0]
   const quickQuestions = keywordQuestions.slice(0, 24)
   const quickAdvantages = keywordAdvantages.slice(0, 24)
   const hasKeywordQuickFill = keywordQuestions.length > 0 || keywordAdvantages.length > 0
@@ -261,14 +279,23 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     })
   }
 
-  async function runExtractArticle() {
-    const sourceUrl = article.sourceUrl?.trim() || ""
+  async function runExtractArticle(sourceUrlOverride?: string) {
+    const selectedSourceUrl = sourceUrlOverride?.trim() || ""
+    const sourceUrl = selectedSourceUrl || article.sourceUrl?.trim() || ""
     if (!sourceUrl) {
       persist({ ...article, extractStatus: "error", extractError: "请先填写文章链接" })
       return
     }
+    const extractionBase: ArticleGenerationState = selectedSourceUrl
+      ? {
+          ...article,
+          sourceUrl: selectedSourceUrl,
+          sourceTitle: "",
+          sourceMarkdown: "",
+        }
+      : article
     const extracting: ArticleGenerationState = {
-      ...article,
+      ...extractionBase,
       extractStatus: "generating",
       extractError: undefined,
       error: undefined,
@@ -512,6 +539,113 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             <div className="grid gap-3">
               {isRewrite ? (
                 <>
+                  <div className="border-y border-slate-100 py-3">
+                    <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-700">渗透率检测信源</div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          {penetrationSourceGroups.length > 0
+                            ? `${penetrationSourceGroups.reduce((total, group) => total + group.sourceCount, 0)} 条可用文章链接`
+                            : "当前客户暂无可用信源"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {penetrationSourceGroups.length > 0 && activeSourceGroup ? (
+                      <>
+                        <div
+                          className="mb-3 flex max-w-full gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1"
+                          role="tablist"
+                          aria-label="按检测模型选择信源"
+                        >
+                          {penetrationSourceGroups.map(group => {
+                            const active = group.model === activeSourceGroup.model
+                            return (
+                              <button
+                                key={group.model}
+                                type="button"
+                                role="tab"
+                                aria-selected={active}
+                                onClick={() => setPreferredSourceModel(group.model)}
+                                className={`shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition ${
+                                  active
+                                    ? "bg-white text-[#006AA3] shadow-sm"
+                                    : "text-slate-500 hover:text-slate-800"
+                                }`}
+                              >
+                                {group.label} · {group.sourceCount}
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        <div className="max-h-72 overflow-y-auto border-t border-slate-100 pr-1">
+                          {activeSourceGroup.domains.map(domainGroup => (
+                            <div key={domainGroup.domain} className="border-b border-slate-100 py-2 last:border-b-0">
+                              <div className="mb-1 flex items-center justify-between gap-2 px-1 text-[11px]">
+                                <span className="flex min-w-0 items-center gap-1.5 font-medium text-slate-600">
+                                  <Globe2 className="h-3.5 w-3.5 shrink-0 text-cyan-600" />
+                                  <span className="truncate">{domainGroup.domain}</span>
+                                </span>
+                                <span className="shrink-0 text-slate-400">{domainGroup.sources.length} 条</span>
+                              </div>
+                              <div className="divide-y divide-slate-100">
+                                {domainGroup.sources.map(source => {
+                                  const selected = article.sourceUrl === source.url
+                                  return (
+                                    <div key={source.url} className="flex items-stretch gap-1">
+                                      <button
+                                        type="button"
+                                        disabled={isExtracting}
+                                        onClick={() => void runExtractArticle(source.url)}
+                                        className={`min-w-0 flex-1 px-1 py-2 text-left transition disabled:cursor-wait disabled:opacity-60 ${
+                                          selected ? "text-[#006AA3]" : "text-slate-600 hover:text-[#006AA3]"
+                                        }`}
+                                        title="选用该信源并读取原文"
+                                      >
+                                        <span className="flex items-start gap-2">
+                                          <span className="min-w-0 flex-1">
+                                            <span className="block break-words text-[11px] font-medium leading-4">
+                                              {source.title || source.domain}
+                                            </span>
+                                            {source.questions[0] && (
+                                              <span className="mt-0.5 block truncate text-[10px] text-slate-400">
+                                                来自：{source.questions[0]}
+                                                {source.questions.length > 1 ? ` 等 ${source.questions.length} 个问题` : ""}
+                                              </span>
+                                            )}
+                                          </span>
+                                          <span className="flex shrink-0 items-center gap-1 text-[10px] font-medium">
+                                            {selected ? <Check className="h-3.5 w-3.5" /> : null}
+                                            {selected ? "已选" : "选用并读取"}
+                                          </span>
+                                        </span>
+                                      </button>
+                                      <a
+                                        href={source.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex w-8 shrink-0 items-center justify-center text-slate-400 transition hover:text-[#0077B6]"
+                                        title="在新窗口查看信源"
+                                        aria-label={`查看信源：${source.title || source.domain}`}
+                                      >
+                                        <ExternalLink className="h-3.5 w-3.5" />
+                                      </a>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-[11px] leading-5 text-slate-400">
+                        完成当前客户的疑问句检测后，可在这里按模型选择原始回复引用的文章链接。
+                      </div>
+                    )}
+                  </div>
+
                   <Label className="text-xs">
                     <span className="mb-1.5 block font-medium text-slate-500">原文链接</span>
                     <div className="flex gap-2">
@@ -524,7 +658,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={runExtractArticle}
+                        onClick={() => void runExtractArticle()}
                         disabled={isExtracting || !article.sourceUrl?.trim()}
                         className="h-10 shrink-0 gap-1.5 rounded-lg"
                       >
