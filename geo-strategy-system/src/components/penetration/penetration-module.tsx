@@ -1,8 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Target, ChevronDown, MessageSquare, BarChart3, Globe2, ExternalLink } from "lucide-react"
+import { Target, ChevronDown, MessageSquare, BarChart3, Globe2, ExternalLink, CheckCircle2, X } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
 import PenetrationDonut from "./penetration-donut"
 import IndustryShareChart from "./industry-share-chart"
@@ -46,7 +47,14 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   const [skipped, setSkipped] = useState<string[]>([])
   const [modelErrors, setModelErrors] = useState<Partial<Record<ModelKey, string>>>({})
   const [progressLabel, setProgressLabel] = useState("")
+  const [completionNotice, setCompletionNotice] = useState("")
   const publishedResultAtRef = useRef(client.penetration?.generatedAt || "")
+
+  useEffect(() => {
+    if (!completionNotice) return
+    const timer = window.setTimeout(() => setCompletionNotice(""), 8_000)
+    return () => window.clearTimeout(timer)
+  }, [completionNotice])
 
   useEffect(() => {
     const jobId = client.penetrationJobId
@@ -87,12 +95,24 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           }
 
           if (job.status === "succeeded") {
+            const completedQuestions = new Set(
+              Object.values(job.result?.byModel || {}).flatMap(items =>
+                (items || []).map(item => item.question.trim()).filter(Boolean),
+              ),
+            ).size
+            const completedModels = Object.values(job.result?.byModel || {})
+              .filter(items => Boolean(items?.length)).length
             onChangeClient({
               ...(job.result ? { penetration: job.result } : {}),
               penetrationJobId: undefined,
             })
             setLoading(false)
             setProgressLabel("")
+            setCompletionNotice(
+              completedQuestions && completedModels
+                ? `疑问句检测已完成：${completedQuestions} 条疑问句、${completedModels} 个模型的结果已更新。`
+                : `疑问句检测已完成：${job.completedSlots} 项结果已更新。`,
+            )
             return
           }
           if (job.status === "failed") {
@@ -347,6 +367,29 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
             )}
         </div>
       </CardContent>
+
+      {completionNotice ? createPortal(
+        <div
+          className="no-print fixed bottom-6 right-6 z-[110] max-w-sm rounded-lg border border-emerald-300/70 bg-emerald-600 px-4 py-3 text-sm leading-relaxed text-white shadow-2xl shadow-emerald-300/40 animate-fade-in-up"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start gap-2.5">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="flex-1">{completionNotice}</div>
+            <button
+              type="button"
+              onClick={() => setCompletionNotice("")}
+              className="-mr-1 shrink-0 rounded p-0.5 text-white/80 transition hover:bg-white/10 hover:text-white"
+              aria-label="关闭完成提示"
+              title="关闭"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </Card>
   )
 }
