@@ -6,6 +6,8 @@ export type RechargePaymentInfo = {
   bankName?: string
   bankCode?: string
   contact?: string
+  serviceWechatId?: string
+  serviceWechatQrImageUrl?: string
   qrCodes: Array<{
     method: "wechat" | "alipay"
     label: string
@@ -30,6 +32,11 @@ export const RECHARGE_PAYMENT_INFO: RechargePaymentInfo = {
   bankName: clean(process.env.NEXT_PUBLIC_RECHARGE_BANK_NAME) || "杭州银行股份有限公司环北支行",
   bankCode: clean(process.env.NEXT_PUBLIC_RECHARGE_BANK_CODE) || "313331000284",
   contact: clean(process.env.NEXT_PUBLIC_RECHARGE_CONTACT),
+  serviceWechatId:
+    clean(process.env.NEXT_PUBLIC_RECHARGE_SERVICE_WECHAT_ID) || "shituGEO",
+  serviceWechatQrImageUrl:
+    clean(process.env.NEXT_PUBLIC_RECHARGE_SERVICE_WECHAT_QR_IMAGE_URL)
+    || "/recharge/service-wechat.png",
   qrCodes: [
     {
       method: "wechat" as const,
