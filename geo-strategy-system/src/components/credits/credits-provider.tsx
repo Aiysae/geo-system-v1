@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { usePathname } from "next/navigation"
 import { Sparkles, X } from "lucide-react"
 import { registerCreditsHandlers, unregisterCreditsHandlers } from "@/lib/api-fetch"
 import { BillingLink } from "@/components/billing/billing-link"
@@ -22,6 +23,11 @@ export function useCredits() {
 type ModalState = { required?: number; balance?: number } | null
 
 export function CreditsProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
+  const creditsEnabled = pathname === "/workspace"
+    || pathname.startsWith("/workspace/")
+    || pathname === "/billing"
+    || pathname.startsWith("/admin")
   const [balance, setBalance] = useState<number | null>(null)
   const [unlimited, setUnlimited] = useState(false)
   const [modal, setModal] = useState<ModalState>(null)
@@ -29,6 +35,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
   const refreshingRef = useRef(false)
 
   const refresh = useCallback(async () => {
+    if (!creditsEnabled) return
     if (refreshingRef.current) return
     refreshingRef.current = true
     try {
@@ -46,9 +53,10 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
     } finally {
       refreshingRef.current = false
     }
-  }, [])
+  }, [creditsEnabled])
 
   useEffect(() => {
+    if (!creditsEnabled) return
     const initialRefresh = window.setTimeout(() => void refresh(), 0)
     const timer = window.setInterval(() => void refresh(), 30_000)
     const onFocus = () => void refresh()
@@ -66,7 +74,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("credits:refresh", onCreditsRefresh)
       document.removeEventListener("visibilitychange", onVisibility)
     }
-  }, [refresh])
+  }, [creditsEnabled, refresh])
 
   // 注册 fetch 桥接回调
   useEffect(() => {

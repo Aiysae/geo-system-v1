@@ -81,11 +81,11 @@ export default async function BillingPage() {
             </div>
           </div>
           <Link
-            href="/"
+            href="/workspace"
             className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            返回系统
+            返回工作台
           </Link>
         </div>
       </header>

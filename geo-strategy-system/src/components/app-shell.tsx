@@ -3,6 +3,7 @@
 // Browser-local customer workspace mounted behind the authenticated server page.
 import { useEffect, useState, useCallback } from "react"
 import Image from "next/image"
+import Link from "next/link"
 import ClientSidebar from "@/components/sidebar/client-sidebar"
 import PenetrationModule from "@/components/penetration/penetration-module"
 import ResearchModule from "@/components/research/research-module"
@@ -167,15 +168,21 @@ function StickyHeader({
           >
             <Menu className="h-5 w-5 text-white" />
           </button>
-          <Image
-            src="/logo.jpg"
-            alt=""
-            width={935}
-            height={1136}
-            sizes="32px"
-            priority
-            className="h-8 w-auto rounded-md ring-1 ring-white/20 shrink-0"
-          />
+          <Link
+            href="/"
+            title="返回势途 GEO 品牌主页"
+            className="shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+          >
+            <Image
+              src="/brand/shitu-lockup.jpg"
+              alt="势途"
+              width={840}
+              height={960}
+              sizes="32px"
+              priority
+              className="h-8 w-auto rounded-md ring-1 ring-white/20"
+            />
+          </Link>
           <div className="min-w-0">
             <div className="geo-brand-title max-w-[150px] truncate text-base text-white sm:max-w-none">
               势途 GEO · 市场情报大盘

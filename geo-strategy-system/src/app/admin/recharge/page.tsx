@@ -75,10 +75,10 @@ export default async function AdminRechargePage() {
               用户管理
             </Link>
             <Link
-              href="/"
+              href="/workspace"
               className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
             >
-              返回主页
+              返回工作台
             </Link>
           </div>
         </div>

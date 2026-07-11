@@ -27,7 +27,7 @@ export function AuthenticatedAppShell() {
           return
         }
         if (res.status === 401) {
-          window.location.replace("/sign-in?redirect_url=/")
+          window.location.replace("/sign-in?redirect_url=/workspace")
           return
         }
         setMessage(`登录状态确认失败（HTTP ${res.status}），请刷新后重试。`)

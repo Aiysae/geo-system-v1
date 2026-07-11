@@ -3,8 +3,8 @@ import { CreditsProvider } from "@/components/credits/credits-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "势途 GEO — 生成式引擎优化提效终端",
-  description: "势途 GEO — 面向国内大模型的生成式引擎优化策略工具",
+  title: "势途 GEO | AI 可见度与生成式搜索增长平台",
+  description: "势途 GEO 面向主流大模型，提供品牌可见度检测、竞品情报、GEO 策略与内容生成。",
 };
 
 export default function RootLayout({
