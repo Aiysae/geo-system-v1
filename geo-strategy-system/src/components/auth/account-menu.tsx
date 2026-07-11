@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { LogOut, ReceiptText, ShieldCheck, UserRound } from "lucide-react"
+import { House, LogOut, ReceiptText, ShieldCheck, UserRound } from "lucide-react"
 import { BillingLink } from "@/components/billing/billing-link"
 
 type MeResponse = {
@@ -35,7 +35,7 @@ export function AccountMenu() {
 
   async function signOut() {
     await fetch("/api/auth/sign-out", { method: "POST" }).catch(() => null)
-    window.location.assign("/sign-in")
+    window.location.assign("/")
   }
 
   return (
@@ -68,6 +68,15 @@ export function AccountMenu() {
               管理后台
             </Link>
           )}
+
+          <Link
+            href="/"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
+            onClick={() => setOpen(false)}
+          >
+            <House className="h-4 w-4 text-[#087F9C]" />
+            品牌主页
+          </Link>
 
           <BillingLink
             className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"

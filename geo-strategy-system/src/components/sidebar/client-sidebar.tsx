@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Image from "next/image"
+import Link from "next/link"
 import { Plus, Trash2, Users, Database, X } from "lucide-react"
 import type { Client } from "@/types"
 
@@ -47,15 +48,21 @@ export default function ClientSidebar({
     >
       <div className="relative px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <Image
-            src="/logo.jpg"
-            alt=""
-            width={935}
-            height={1136}
-            sizes="36px"
-            priority
-            className="h-9 w-auto rounded-md ring-1 ring-white/20"
-          />
+          <Link
+            href="/"
+            title="返回势途 GEO 品牌主页"
+            className="shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+          >
+            <Image
+              src="/brand/shitu-lockup.jpg"
+              alt="势途"
+              width={840}
+              height={960}
+              sizes="36px"
+              priority
+              className="h-9 w-auto rounded-md ring-1 ring-white/20"
+            />
+          </Link>
           <div className="min-w-0">
             <div className="geo-brand-title text-lg text-white">势途 GEO</div>
             <div className="text-[11px] text-white/60 mt-0.5">生成式引擎增长终端</div>

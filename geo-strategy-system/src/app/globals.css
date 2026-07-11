@@ -250,6 +250,55 @@ select {
   background-image: linear-gradient(90deg, rgba(0, 166, 251, 0.07), rgba(255, 255, 255, 0));
 }
 
+.brand-entry-watermark img {
+  filter: invert(1) grayscale(1) contrast(1.45) brightness(0.92);
+  mix-blend-mode: screen;
+  opacity: 0.11;
+}
+
+@media (min-width: 768px) {
+  .brand-entry-watermark img {
+    opacity: 0.17;
+  }
+}
+
+@keyframes brand-entry-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes brand-mark-arrive {
+  from {
+    opacity: 0;
+    transform: translateX(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.brand-entry-reveal {
+  animation: brand-entry-rise 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.brand-entry-watermark {
+  animation: brand-mark-arrive 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-entry-reveal,
+  .brand-entry-watermark {
+    animation: none;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

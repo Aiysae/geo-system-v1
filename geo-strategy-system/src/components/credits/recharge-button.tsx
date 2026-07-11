@@ -239,7 +239,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                   {state.error}
                   {state.code === "UNAUTHENTICATED" ? (
                     <Link
-                      href="/sign-in?redirect_url=/"
+                      href="/sign-in?redirect_url=/workspace"
                       className="ml-1 font-semibold underline underline-offset-2"
                     >
                       重新登录
