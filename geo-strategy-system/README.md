@@ -16,6 +16,18 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Workspace persistence
+
+Customer workspaces use the server as the source of truth so the same account can continue on another device. Local development falls back to `.data/workspaces.json`; production should set `WORKSPACE_STORE=postgres` and `DATABASE_URL` as shown in `.env.production.example`.
+
+Initialize or update the PostgreSQL tables before starting a production release:
+
+```bash
+npm run db:migrate:workspace
+```
+
+The browser cache is namespaced by user and legacy `geo:clients` data is only imported after the signed-in user confirms ownership.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

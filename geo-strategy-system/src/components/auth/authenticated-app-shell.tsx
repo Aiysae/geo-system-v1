@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react"
 import AppShell from "@/components/app-shell"
 import { useCredits } from "@/components/credits/credits-provider"
+import type { PublicUser } from "@/lib/auth"
 
 type AuthState = "checking" | "authenticated" | "error"
 
 export function AuthenticatedAppShell() {
   const [state, setState] = useState<AuthState>("checking")
   const [message, setMessage] = useState("")
+  const [user, setUser] = useState<PublicUser | null>(null)
   const { refresh } = useCredits()
 
   useEffect(() => {
@@ -22,6 +24,9 @@ export function AuthenticatedAppShell() {
         })
         if (cancelled) return
         if (res.ok) {
+          const body = await res.json() as { user?: PublicUser }
+          if (!body.user?.id) throw new Error("登录账号信息不完整")
+          setUser(body.user)
           setState("authenticated")
           void refresh()
           return
@@ -45,7 +50,7 @@ export function AuthenticatedAppShell() {
     }
   }, [refresh])
 
-  if (state === "authenticated") return <AppShell />
+  if (state === "authenticated" && user) return <AppShell userId={user.id} />
 
   return (
     <div className="flex min-h-screen items-center justify-center geo-saturated-bg px-4">

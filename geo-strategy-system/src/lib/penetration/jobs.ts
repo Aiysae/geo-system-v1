@@ -6,6 +6,7 @@ import { createInternalApiHeaders } from "@/lib/internal-api"
 import { aggregatePenetration } from "@/lib/score-utils"
 import { estimateFeatureCredits } from "@/lib/pricing"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
+import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
 import type {
   ModelKey,
   PenetrationByModel,
@@ -234,6 +235,28 @@ async function settleJobCreditsQuietly(id: string, usedSlots: number): Promise<v
   }
 }
 
+async function persistJobResultToWorkspace(job: StoredPenetrationJob): Promise<void> {
+  if (!job.result) return
+  try {
+    const saved = await mutateWorkspaceClientLatest({
+      userId: job.ownerUserId,
+      clientId: job.clientId,
+      mutate: current => {
+        if (current.penetrationJobId && current.penetrationJobId !== job.id) return null
+        return {
+          patch: { penetration: job.result },
+          unsetFields: current.penetrationJobId === job.id ? ["penetrationJobId"] : [],
+        }
+      },
+    })
+    if (!saved) {
+      console.warn("[penetration-jobs] workspace client not found", job.id, job.clientId)
+    }
+  } catch (error) {
+    console.error("[penetration-jobs] workspace result persistence failed", job.id, error)
+  }
+}
+
 async function readBatchResponse(response: Response): Promise<PenetrationBatchResponse> {
   const text = await response.text()
   if (!text.trim()) return {}
@@ -343,6 +366,7 @@ async function runJob(jobId: string): Promise<void> {
       }) || job
     }
 
+    await persistJobResultToWorkspace(job)
     const usedSlots = successfulSlotCount(job.result?.byModel)
     await settleJobCreditsQuietly(job.id, usedSlots)
     await patchJob(job.id, {
