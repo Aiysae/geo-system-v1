@@ -9,6 +9,10 @@ const PUBLIC_PATHS = [
   "/terms",
   "/privacy",
   "/recharge-rules",
+  "/robots.txt",
+  "/sitemap.xml",
+  "/llms.txt",
+  "/llma.txt",
 ]
 
 function noStore(response: NextResponse): NextResponse {
