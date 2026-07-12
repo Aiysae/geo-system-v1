@@ -133,20 +133,18 @@ export default function BrandHome({ user }: BrandHomeProps) {
         </header>
 
         <div className="brand-hero-stage relative z-10 mx-auto flex max-w-7xl items-center px-4 py-8 md:px-8 md:py-12">
-          <div className="brand-entry-reveal max-w-[720px]">
+          <div className="brand-entry-reveal max-w-[900px]">
             <div className="mb-5 flex items-center gap-3 text-[11px] font-semibold uppercase text-[#8BE9FF]/88 sm:mb-6">
               <Diamond className="h-4 w-4 fill-[#00CFFF]/18 text-[#8BE9FF]" />
               SHITU GEO Intelligence
               <span className="h-px w-10 bg-gradient-to-r from-[#00CFFF] to-transparent sm:w-16" />
             </div>
-            <h1 className="text-5xl font-semibold leading-[1.04] text-white sm:text-6xl lg:text-7xl">
-              势途 GEO
+            <h1 className="max-w-[900px] text-4xl font-semibold leading-[1.08] text-white drop-shadow-[0_12px_36px_rgba(0,207,255,0.28)] sm:text-6xl lg:text-7xl">
+              <span className="text-[#8BE9FF]">GEO</span>
+              <span> 全链路操作工具</span>
             </h1>
-            <p className="mt-4 text-2xl font-semibold leading-snug text-[#DDF7FF] sm:mt-5 sm:text-3xl lg:text-4xl">
+            <p className="mt-5 text-xl font-semibold leading-snug text-[#DDF7FF] sm:mt-6 sm:text-2xl lg:text-3xl">
               让品牌成为 AI 的答案
-            </p>
-            <p className="mt-4 text-sm font-semibold text-[#8BE9FF] sm:text-base">
-              GEO 全链路操作工具
             </p>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-[#C8DFFF]/76 sm:text-base">
               面向主流大模型的品牌可见度与生成式搜索增长平台。用真实联网回答看清市场，把判断转化为可执行的 GEO 路径。
