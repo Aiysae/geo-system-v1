@@ -294,16 +294,57 @@ select {
   background-image: linear-gradient(90deg, rgba(22, 119, 255, 0.09), rgba(255, 255, 255, 0));
 }
 
-.brand-entry-watermark img {
-  filter: invert(1) grayscale(1) contrast(1.45) brightness(0.92);
-  mix-blend-mode: screen;
-  opacity: 0.11;
+.brand-diamond-shade {
+  background:
+    linear-gradient(90deg, rgba(2, 11, 45, 0.94) 0%, rgba(3, 20, 72, 0.78) 38%, rgba(4, 48, 132, 0.22) 70%, rgba(0, 20, 72, 0.08) 100%),
+    linear-gradient(180deg, rgba(2, 11, 45, 0.22) 0%, rgba(2, 11, 45, 0.04) 52%, rgba(2, 11, 45, 0.5) 100%);
 }
 
-@media (min-width: 768px) {
-  .brand-entry-watermark img {
-    opacity: 0.17;
-  }
+.brand-hero-stage {
+  min-height: max(430px, calc(100svh - 240px));
+}
+
+.brand-symbol-image {
+  left: -25%;
+  top: -25%;
+  width: 150%;
+  height: auto;
+  filter: brightness(0) invert(1);
+  opacity: 0.96;
+}
+
+.brand-diamond-action {
+  position: relative;
+  background: linear-gradient(112deg, #0637a6 0%, #1677ff 50%, #00cfff 100%);
+  box-shadow: 0 18px 42px -22px rgba(0, 207, 255, 0.92), inset 0 0 0 1px rgba(221, 247, 255, 0.24);
+  transition: filter 180ms ease, box-shadow 180ms ease;
+}
+
+.brand-diamond-action::before {
+  content: "";
+  position: absolute;
+  inset: -90% auto -90% -34%;
+  width: 22%;
+  transform: rotate(18deg) translateX(-250%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  transition: transform 680ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.brand-diamond-action:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 20px 48px -22px rgba(0, 207, 255, 1), inset 0 0 0 1px rgba(221, 247, 255, 0.34);
+}
+
+.brand-diamond-action:hover::before {
+  transform: rotate(18deg) translateX(720%);
+}
+
+.brand-signal-band {
+  background: linear-gradient(104deg, #052b66 0%, #0637a6 36%, #1677ff 72%, #00aee8 100%);
+}
+
+.brand-final-cta {
+  background: linear-gradient(112deg, #031e62 0%, #0637a6 44%, #1677ff 76%, #00aee8 100%);
 }
 
 @keyframes brand-entry-rise {
@@ -317,29 +358,25 @@ select {
   }
 }
 
-@keyframes brand-mark-arrive {
-  from {
-    opacity: 0;
-    transform: translateX(18px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-
 .brand-entry-reveal {
   animation: brand-entry-rise 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.brand-entry-watermark {
-  animation: brand-mark-arrive 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+@media (prefers-reduced-motion: reduce) {
+  .brand-entry-reveal {
+    animation: none;
+  }
+
+  .brand-diamond-action::before {
+    display: none;
+  }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .brand-entry-reveal,
-  .brand-entry-watermark {
-    animation: none;
+@media (max-width: 767px) {
+  .brand-diamond-shade {
+    background:
+      linear-gradient(90deg, rgba(2, 11, 45, 0.94) 0%, rgba(3, 20, 72, 0.82) 58%, rgba(3, 41, 112, 0.42) 100%),
+      linear-gradient(180deg, rgba(2, 11, 45, 0.18) 0%, rgba(2, 11, 45, 0.16) 58%, rgba(2, 11, 45, 0.62) 100%);
   }
 }
 
