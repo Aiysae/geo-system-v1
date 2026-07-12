@@ -145,7 +145,10 @@ export default function BrandHome({ user }: BrandHomeProps) {
             <p className="mt-4 text-2xl font-semibold leading-snug text-[#DDF7FF] sm:mt-5 sm:text-3xl lg:text-4xl">
               让品牌成为 AI 的答案
             </p>
-            <p className="mt-5 max-w-2xl text-sm leading-7 text-[#C8DFFF]/76 sm:mt-6 sm:text-base">
+            <p className="mt-4 text-sm font-semibold text-[#8BE9FF] sm:text-base">
+              GEO 全链路操作工具
+            </p>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#C8DFFF]/76 sm:text-base">
               面向主流大模型的品牌可见度与生成式搜索增长平台。用真实联网回答看清市场，把判断转化为可执行的 GEO 路径。
             </p>
 
