@@ -25,12 +25,12 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5 }: Props) 
     <div className="geo-dark-panel rounded-lg overflow-hidden">
       <div className="px-5 py-4 flex items-center justify-between border-b border-white/10 bg-white/[0.03]">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#00A6FB] to-[#7C3AED]">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00C8FF]">
             <AudioLines className="h-4 w-4 text-white" />
           </span>
           <div className="text-sm font-semibold text-white">品牌声量表</div>
           {targetRank && (
-            <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-400/18 text-amber-200 ring-1 ring-amber-300/35">
+            <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-cyan-400/15 text-cyan-100 ring-1 ring-cyan-300/35">
               我方排名 #{targetRank}
             </span>
           )}
@@ -124,28 +124,28 @@ function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: nu
 
   const rankTone = item.rank === 1
       ? {
-          row: "bg-[#C79A3B]/10",
-          rank: "bg-[#C79A3B] text-white",
-          bar: "bg-[#C79A3B]",
+          row: "bg-[#1677FF]/12",
+          rank: "bg-[#1677FF] text-white",
+          bar: "bg-gradient-to-r from-[#1677FF] to-[#00C8FF]",
         }
       : item.rank === 2
         ? {
-            row: "bg-slate-300/[0.07]",
-            rank: "bg-[#87959B] text-white",
-            bar: "bg-[#87959B]",
+            row: "bg-[#13C2C2]/10",
+            rank: "bg-[#13C2C2] text-white",
+            bar: "bg-[#13C2C2]",
           }
         : item.rank === 3
           ? {
-              row: "bg-[#A96E43]/10",
-              rank: "bg-[#A96E43] text-white",
-              bar: "bg-[#A96E43]",
+              row: "bg-[#2F54EB]/12",
+              rank: "bg-[#2F54EB] text-white",
+              bar: "bg-[#2F54EB]",
             }
           : {
               row: "hover:bg-white/[0.04]",
               rank: "bg-slate-800 text-slate-400 ring-1 ring-slate-700",
-              bar: "bg-[#3F7F8D]",
+              bar: "bg-[#6E94C5]",
             }
-  const targetTone = item.isTarget ? "ring-1 ring-inset ring-[#E1B85C]/55" : ""
+  const targetTone = item.isTarget ? "ring-1 ring-inset ring-[#00C8FF]/55" : ""
 
   return (
     <div
@@ -160,7 +160,7 @@ function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: nu
       <div className="min-w-0">
         <div
           className={`text-sm truncate ${
-            item.isTarget ? "text-amber-200 font-semibold" : "text-slate-100 font-medium"
+            item.isTarget ? "text-cyan-100 font-semibold" : "text-slate-100 font-medium"
           }`}
           title={item.brand}
         >
@@ -187,21 +187,21 @@ function BrandRow({ item, maxMentions }: { item: BrandVoiceItem; maxMentions: nu
 
       <div
         className={`text-sm tabular-nums text-right ${
-          item.isTarget ? "text-amber-200" : "text-slate-300"
+          item.isTarget ? "text-cyan-100" : "text-slate-300"
         }`}
       >
         {penetrationPct}%
       </div>
       <div
         className={`text-sm tabular-nums text-right ${
-          item.isTarget ? "text-amber-200" : "text-slate-300"
+          item.isTarget ? "text-cyan-100" : "text-slate-300"
         }`}
       >
         {ratioPct}%
       </div>
       <div
         className={`text-sm tabular-nums text-right ${
-          item.isTarget ? "text-amber-200 font-semibold" : "text-slate-200"
+          item.isTarget ? "text-cyan-100 font-semibold" : "text-slate-200"
         }`}
       >
         {item.mentions}

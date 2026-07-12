@@ -17,43 +17,56 @@
 }
 
 :root {
-  --background: #081c24;
-  --foreground: #0f172a;
+  --background: #f5f9ff;
+  --foreground: #102a43;
   --card: #ffffff;
-  --card-foreground: #0f172a;
-  --primary: #087f9c;
-  --primary-foreground: #f0f9ff;
-  --secondary: #e9f4f2;
-  --secondary-foreground: #0b665f;
-  --muted: #eef3f3;
-  --muted-foreground: #5c7075;
-  --accent: #f5efe2;
-  --accent-foreground: #825f22;
-  --destructive: #d14d64;
+  --card-foreground: #102a43;
+  --primary: #1677ff;
+  --primary-foreground: #ffffff;
+  --secondary: #e6f4ff;
+  --secondary-foreground: #0958d9;
+  --muted: #f0f6ff;
+  --muted-foreground: #5b708b;
+  --accent: #eef3ff;
+  --accent-foreground: #2f54eb;
+  --destructive: #ff5b6e;
   --destructive-foreground: #fafafa;
-  --border: #d7e1e1;
-  --input: #cbd8d8;
-  --ring: #087f9c;
+  --border: #d6e7ff;
+  --input: #bdd8ff;
+  --ring: #4096ff;
   --radius: 0.5rem;
 
-  --geo-ink: #081c24;
-  --geo-ink-2: #10343d;
-  --geo-blue: #087f9c;
-  --geo-cyan: #22a8b5;
-  --geo-violet: #6656a8;
-  --geo-fuchsia: #9b527e;
-  --geo-rose: #d14d64;
-  --geo-amber: #c79a3b;
-  --geo-green: #0d9879;
-  --geo-panel: rgba(255, 255, 255, 0.96);
+  --geo-blue-50: #f5f9ff;
+  --geo-blue-100: #e6f4ff;
+  --geo-blue-200: #bae0ff;
+  --geo-blue-300: #91caff;
+  --geo-blue-400: #4096ff;
+  --geo-blue-500: #1677ff;
+  --geo-blue-600: #0958d9;
+  --geo-blue-700: #003eb3;
+  --geo-blue-900: #001d66;
+  --geo-ink: #102a43;
+  --geo-ink-2: #173b66;
+  --geo-blue: #1677ff;
+  --geo-sky: #4096ff;
+  --geo-ocean: #0958d9;
+  --geo-cyan: #00c8ff;
+  --geo-geek: #2f54eb;
+  --geo-violet: #6c5ce7;
+  --geo-fuchsia: #f759ab;
+  --geo-rose: #ff5b6e;
+  --geo-amber: #ffb020;
+  --geo-green: #16c79a;
+  --geo-panel: rgba(255, 255, 255, 0.97);
   --geo-panel-strong: #ffffff;
-  --geo-border: rgba(8, 28, 36, 0.12);
-  --geo-shadow: 0 14px 34px -24px rgba(8, 28, 36, 0.42);
+  --geo-border: rgba(22, 119, 255, 0.15);
+  --geo-shadow: 0 16px 38px -28px rgba(9, 88, 217, 0.34);
 
-  --gradient-hero: linear-gradient(110deg, #0b3038 0%, #0d6770 55%, #15505e 100%);
-  --gradient-accent: linear-gradient(135deg, #087f9c 0%, #0d9879 100%);
-  --gradient-success: linear-gradient(135deg, #0d9879 0%, #22a8b5 100%);
-  --gradient-warm: linear-gradient(135deg, #c79a3b 0%, #d14d64 100%);
+  --gradient-hero: linear-gradient(112deg, #001d66 0%, #003eb3 42%, #0958d9 72%, #1677ff 100%);
+  --gradient-accent: linear-gradient(135deg, #1677ff 0%, #00c8ff 100%);
+  --gradient-diamond: linear-gradient(115deg, #2f54eb 0%, #1677ff 52%, #00c8ff 100%);
+  --gradient-success: linear-gradient(135deg, #16c79a 0%, #13c2c2 100%);
+  --gradient-warm: linear-gradient(135deg, #ffb020 0%, #ff5b6e 100%);
 
   --font-ui: "Geo Sans SC", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --font-display: "Kaiti SC", "STKaiti", "KaiTi", "楷体", "Geo Sans SC", serif;
@@ -86,7 +99,7 @@
 }
 
 body {
-  background: linear-gradient(180deg, #081c24 0, #10343d 14rem, #edf3f2 14rem, #f7f9f8 100%);
+  background: linear-gradient(180deg, #dcecff 0, #eef6ff 14rem, #f5f9ff 14rem, #f9fbff 100%);
   color: var(--foreground);
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
@@ -143,18 +156,49 @@ select {
   justify-content: center;
   border-radius: 0.5rem;
   color: white;
-  box-shadow: 0 8px 20px -14px rgba(8, 28, 36, 0.78);
+  box-shadow: 0 10px 22px -14px rgba(9, 88, 217, 0.72);
 }
 
 .geo-section-panel {
-  border: 1px solid #dce5e4;
+  border: 1px solid #d6e7ff;
   border-radius: 0.5rem;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 10px 28px -24px rgba(8, 28, 36, 0.48);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 12px 30px -25px rgba(9, 88, 217, 0.28);
 }
 
 .geo-client-banner {
   background: var(--gradient-hero);
+}
+
+.geo-utility-header {
+  border-color: rgba(186, 224, 255, 0.16) !important;
+  background: rgba(0, 29, 102, 0.96) !important;
+  color: #ffffff;
+  box-shadow: 0 12px 30px -24px rgba(0, 29, 102, 0.88) !important;
+}
+
+.geo-utility-header-icon {
+  background: var(--gradient-accent) !important;
+  box-shadow: 0 10px 22px -14px rgba(0, 200, 255, 0.8) !important;
+}
+
+.geo-utility-header-title {
+  color: #ffffff !important;
+}
+
+.geo-utility-header-subtitle {
+  color: rgba(186, 224, 255, 0.76) !important;
+}
+
+.geo-utility-header-action {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #f5f9ff !important;
+  box-shadow: 0 0 0 1px rgba(186, 224, 255, 0.22) !important;
+}
+
+.geo-utility-header-action:hover {
+  background: rgba(255, 255, 255, 0.17) !important;
+  color: #ffffff !important;
 }
 
 @keyframes float-slow {
@@ -174,9 +218,9 @@ select {
 }
 
 @keyframes pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgba(0, 119, 182, 0.45); }
-  70% { box-shadow: 0 0 0 14px rgba(0, 119, 182, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(0, 119, 182, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(22, 119, 255, 0.38); }
+  70% { box-shadow: 0 0 0 14px rgba(22, 119, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(22, 119, 255, 0); }
 }
 
 .animate-float-slow { animation: float-slow 14s ease-in-out infinite; }
@@ -197,7 +241,7 @@ select {
 .animate-slide-in-right { animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
 .shimmer-text {
-  background: linear-gradient(90deg, #00A6FB 0%, #7C3AED 44%, #F43F5E 78%, #00A6FB 100%);
+  background: linear-gradient(90deg, #00c8ff 0%, #1677ff 34%, #6c5ce7 67%, #00c8ff 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -214,11 +258,11 @@ select {
 }
 
 .geo-saturated-bg {
-  background: linear-gradient(180deg, #081c24 0, #10343d 15rem, #edf3f2 15rem, #f7f9f8 100%);
+  background: linear-gradient(180deg, #001d66 0, #003eb3 15rem, #eaf3ff 15rem, #f8fbff 100%);
 }
 
 .geo-workspace-bg {
-  background: linear-gradient(180deg, #081c24 0, #10343d 13.5rem, #edf3f2 13.5rem, #f7f9f8 100%);
+  background: linear-gradient(180deg, #e3efff 0, #eef6ff 13.5rem, #f5f9ff 13.5rem, #f9fbff 100%);
 }
 
 .geo-data-panel {
@@ -228,13 +272,13 @@ select {
 }
 
 .geo-dark-panel {
-  background: #0a222a;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  box-shadow: 0 16px 36px -28px rgba(0, 0, 0, 0.78);
+  background: linear-gradient(145deg, #001b4d 0%, #002c70 58%, #003b8f 100%);
+  border: 1px solid rgba(145, 202, 255, 0.2);
+  box-shadow: 0 18px 40px -28px rgba(0, 29, 102, 0.74);
 }
 
 .geo-section-kicker {
-  color: #4b6477;
+  color: #4c6685;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -242,12 +286,12 @@ select {
 }
 
 .geo-table-head {
-  background: #edf4f3;
-  color: #40576b;
+  background: #eaf3ff;
+  color: #3f5f86;
 }
 
 .geo-heat-row {
-  background-image: linear-gradient(90deg, rgba(0, 166, 251, 0.07), rgba(255, 255, 255, 0));
+  background-image: linear-gradient(90deg, rgba(22, 119, 255, 0.09), rgba(255, 255, 255, 0));
 }
 
 .brand-entry-watermark img {
@@ -305,11 +349,11 @@ select {
 }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 166, 251, 0.32);
+  background: rgba(22, 119, 255, 0.34);
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(124, 58, 237, 0.42);
+  background: rgba(0, 200, 255, 0.58);
 }
 
 @media print {
@@ -347,7 +391,7 @@ select {
     background: #ffffff !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
-    border-bottom: 1.5pt solid #004B73 !important;
+    border-bottom: 1.5pt solid #003EB3 !important;
     box-shadow: none !important;
     break-after: avoid-page;
   }
@@ -425,7 +469,7 @@ select {
   .print-container [class*="rounded-xl"],
   .print-container [class*="rounded-2xl"] {
     border-radius: 8px !important;
-    border-color: #d7e3eb !important;
+    border-color: #d6e7ff !important;
   }
 
   .print-container [class*="bg-white"],
@@ -493,8 +537,8 @@ select {
 
   .shimmer-text,
   .bg-clip-text {
-    -webkit-text-fill-color: #004B73 !important;
-    color: #004B73 !important;
+    -webkit-text-fill-color: #003EB3 !important;
+    color: #003EB3 !important;
     background: none !important;
   }
 

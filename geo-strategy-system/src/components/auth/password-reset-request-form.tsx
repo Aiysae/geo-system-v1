@@ -38,7 +38,7 @@ export function PasswordResetRequestForm() {
   return (
     <div className="w-full max-w-md rounded-lg bg-white px-7 py-8 shadow-[0_24px_64px_-34px_rgba(0,0,0,0.7)] ring-1 ring-white/30">
       <div className="mb-7">
-        <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[#087F9C] shadow-sm">
+        <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[#1677FF] shadow-sm">
           <Mail className="h-5 w-5 text-white" />
         </div>
         <h1 className="geo-display-title mt-4 text-3xl text-slate-950">找回密码</h1>
@@ -58,7 +58,7 @@ export function PasswordResetRequestForm() {
               type="email"
               required
               autoComplete="email"
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#087F9C] focus:ring-2 focus:ring-[#087F9C]/15"
+              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15"
               placeholder="name@example.com"
             />
           </span>
@@ -78,7 +78,7 @@ export function PasswordResetRequestForm() {
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#087F9C] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#1677FF] text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {pending && <Loader2 className="h-4 w-4 animate-spin" />}
           提交重置申请
@@ -86,7 +86,7 @@ export function PasswordResetRequestForm() {
       </form>
 
       <div className="mt-6 text-center text-sm text-slate-500">
-        <Link href="/sign-in" className="inline-flex items-center gap-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+        <Link href="/sign-in" className="inline-flex items-center gap-1 font-medium text-[#0958D9] hover:text-[#003EB3]">
           <ArrowLeft className="h-3.5 w-3.5" />
           返回登录
         </Link>

@@ -488,15 +488,15 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[#d8e2e1] bg-white/96 shadow-[0_12px_32px_-26px_rgba(8,28,36,0.5)]">
-      <div className="border-b border-[#d8e2e1] bg-white/95 backdrop-blur">
+    <div className="overflow-hidden rounded-lg border border-[#d6e7ff] bg-white/96 shadow-[0_12px_32px_-26px_rgba(8,28,36,0.5)]">
+      <div className="border-b border-[#d6e7ff] bg-white/95 backdrop-blur">
         <div className="flex flex-col gap-3 px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="geo-module-icon h-9 w-9 bg-[#9B527E]">
+            <div className="geo-module-icon h-9 w-9 bg-gradient-to-br from-[#6C5CE7] to-[#2F54EB]">
               <FileText className="h-4 w-4 text-white" />
             </div>
             <div className="min-w-0">
-              <div className="geo-display-title text-lg text-[#573047]">
+              <div className="geo-display-title text-lg text-[#2F54EB]">
                 文章生成 · GEO 内容写作台
               </div>
               <div className="truncate text-[11px] text-slate-500">
@@ -527,7 +527,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         <div className="space-y-4">
           <section className="geo-section-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-700">
-              <WandSparkles className="h-3.5 w-3.5 text-[#0077B6]" />
+              <WandSparkles className="h-3.5 w-3.5 text-[#1677FF]" />
               生成设置
             </div>
             <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
@@ -536,7 +536,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 onClick={() => updateMode("generate")}
                 className={`h-9 rounded-lg text-xs font-semibold transition ${
                   !isRewrite
-                    ? "bg-white text-[#004B73] shadow-sm"
+                    ? "bg-white text-[#003EB3] shadow-sm"
                     : "text-slate-500 hover:bg-white/70"
                 }`}
               >
@@ -547,7 +547,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 onClick={() => updateMode("rewrite")}
                 className={`h-9 rounded-lg text-xs font-semibold transition ${
                   isRewrite
-                    ? "bg-white text-[#004B73] shadow-sm"
+                    ? "bg-white text-[#003EB3] shadow-sm"
                     : "text-slate-500 hover:bg-white/70"
                 }`}
               >
@@ -560,7 +560,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 <select
                   value={article.modelProvider}
                   onChange={event => updateProvider(event.target.value as ArticleModelProviderKey)}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
                 >
                   {providers.length === 0 && <option value="article">文章生成</option>}
                   {providers.map(provider => (
@@ -601,7 +601,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                     onClick={() => updatePrompt(prompt.key)}
                     className={`rounded-xl border px-3 py-3 text-left transition ${
                       active
-                        ? "border-[#0077B6] bg-blue-50 text-slate-900 shadow-sm"
+                        ? "border-[#1677FF] bg-blue-50 text-slate-900 shadow-sm"
                         : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-slate-50"
                     }`}
                   >
@@ -654,7 +654,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                                 onClick={() => setPreferredSourceModel(group.model)}
                                 className={`shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition ${
                                   active
-                                    ? "bg-white text-[#006AA3] shadow-sm"
+                                    ? "bg-white text-[#0958D9] shadow-sm"
                                     : "text-slate-500 hover:text-slate-800"
                                 }`}
                               >
@@ -684,7 +684,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                                         disabled={isExtracting}
                                         onClick={() => void runExtractArticle(source.url)}
                                         className={`min-w-0 flex-1 px-1 py-2 text-left transition disabled:cursor-wait disabled:opacity-60 ${
-                                          selected ? "text-[#006AA3]" : "text-slate-600 hover:text-[#006AA3]"
+                                          selected ? "text-[#0958D9]" : "text-slate-600 hover:text-[#0958D9]"
                                         }`}
                                         title="选用该信源并读取原文"
                                       >
@@ -710,7 +710,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                                         href={source.url}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="flex w-8 shrink-0 items-center justify-center text-slate-400 transition hover:text-[#0077B6]"
+                                        className="flex w-8 shrink-0 items-center justify-center text-slate-400 transition hover:text-[#1677FF]"
                                         title="在新窗口查看信源"
                                         aria-label={`查看信源：${source.title || source.domain}`}
                                       >
@@ -834,7 +834,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                       <button
                         type="button"
                         onClick={fillKeywordQuestionsAndAdvantages}
-                        className="rounded-lg bg-[#004B73] px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#006AA3]"
+                        className="rounded-lg bg-[#003EB3] px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#0958D9]"
                       >
                         一键填入问句+优势
                       </button>
@@ -972,7 +972,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             <Button
               onClick={runGenerate}
               disabled={!canGenerate}
-              className="h-11 min-w-0 flex-1 gap-2 rounded-xl bg-[#087F9C] text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-blue-300/40"
+              className="h-11 min-w-0 flex-1 gap-2 rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-blue-300/40"
             >
               {isGenerating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

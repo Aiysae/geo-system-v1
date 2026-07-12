@@ -12,8 +12,8 @@ export const PrintContent = forwardRef<HTMLDivElement, PrintContentProps>(
     return (
       <div ref={ref} className="p-8 bg-white" style={{ fontFamily: "Arial, sans-serif" }}>
         {/* Header */}
-        <div className="border-b-2 border-[#004B73] pb-4 mb-6">
-          <h1 className="text-2xl font-bold text-[#004B73]">势途 GEO 策略方案</h1>
+        <div className="border-b-2 border-[#003EB3] pb-4 mb-6">
+          <h1 className="text-2xl font-bold text-[#003EB3]">势途 GEO 策略方案</h1>
           <p className="text-sm text-slate-400 mt-1">
             生成时间: {new Date().toLocaleDateString("zh-CN")}
           </p>
@@ -34,7 +34,7 @@ export const PrintContent = forwardRef<HTMLDivElement, PrintContentProps>(
               <tbody>
                 {strategy.domainStrategy.map((item, i) => (
                   <tr key={i}>
-                    <td className="border border-slate-300 px-3 py-2 font-mono text-[#004B73]">{item.domain}</td>
+                    <td className="border border-slate-300 px-3 py-2 font-mono text-[#003EB3]">{item.domain}</td>
                     <td className="border border-slate-300 px-3 py-2">{item.purpose}</td>
                     <td className="border border-slate-300 px-3 py-2">{item.contentStrategy}</td>
                   </tr>
@@ -93,7 +93,7 @@ export const PrintContent = forwardRef<HTMLDivElement, PrintContentProps>(
             <h2 className="text-lg font-semibold text-slate-900 mb-3">国内大模型分发策略</h2>
             {strategy.domesticMediaDistribution.map((item, i) => (
               <div key={i} className="border border-slate-300 rounded p-3 mb-3">
-                <h3 className="font-bold text-[#004B73] mb-2">{item.ecosystem}</h3>
+                <h3 className="font-bold text-[#003EB3] mb-2">{item.ecosystem}</h3>
                 <p className="text-sm mb-1"><span className="font-medium">推荐平台：</span>{item.platforms}</p>
                 <p className="text-sm mb-1"><span className="font-medium">内容运营建议：</span>{item.contentAdvice}</p>
                 <p className="text-sm"><span className="font-medium">身份伪装建议：</span>{item.personaAdvice}</p>

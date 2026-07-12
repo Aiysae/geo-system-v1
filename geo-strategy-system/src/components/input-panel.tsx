@@ -82,8 +82,7 @@ export default function InputPanel({ input, onChange, onGenerate, isGenerating }
 
   return (
     <div className="space-y-6">
-      <Card className="border-0 shadow-xl shadow-slate-200/50 bg-white/90 backdrop-blur overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-[#004B73] to-blue-400" />
+      <Card className="border border-blue-100 bg-white/95 shadow-xl shadow-blue-900/8 backdrop-blur overflow-hidden">
         <CardContent className="pt-6 space-y-5">
           {fields.map((field) => {
             const Icon = field.icon
@@ -93,7 +92,7 @@ export default function InputPanel({ input, onChange, onGenerate, isGenerating }
                   htmlFor={field.key}
                   className="flex items-center gap-1.5 text-sm font-medium text-slate-700"
                 >
-                  <Icon className="h-3.5 w-3.5 text-[#004B73]/60" />
+                  <Icon className="h-3.5 w-3.5 text-[#003EB3]/60" />
                   {field.label}
                   {field.required && (
                     <span className="text-red-400">*</span>
@@ -103,7 +102,7 @@ export default function InputPanel({ input, onChange, onGenerate, isGenerating }
                   <Textarea
                     id={field.key}
                     placeholder={field.placeholder}
-                    className="min-h-[90px] resize-none border-slate-200 bg-slate-50/50 focus:bg-white focus:border-[#004B73]/40 focus:ring-[#004B73]/10 transition-colors"
+                    className="min-h-[90px] resize-none border-slate-200 bg-slate-50/50 focus:bg-white focus:border-[#003EB3]/40 focus:ring-[#003EB3]/10 transition-colors"
                     value={input[field.key]}
                     onChange={(e) => handleChange(field.key, e.target.value)}
                   />
@@ -111,7 +110,7 @@ export default function InputPanel({ input, onChange, onGenerate, isGenerating }
                   <Input
                     id={field.key}
                     placeholder={field.placeholder}
-                    className="border-slate-200 bg-slate-50/50 focus:bg-white focus:border-[#004B73]/40 focus:ring-[#004B73]/10 transition-colors"
+                    className="border-slate-200 bg-slate-50/50 focus:bg-white focus:border-[#003EB3]/40 focus:ring-[#003EB3]/10 transition-colors"
                     value={input[field.key]}
                     onChange={(e) => handleChange(field.key, e.target.value)}
                   />
@@ -123,7 +122,7 @@ export default function InputPanel({ input, onChange, onGenerate, isGenerating }
           <CreditCostBadge featureKey="legacyGeoGenerate" className="w-fit" />
 
           <Button
-            className="w-full h-11 text-sm font-semibold tracking-wide bg-gradient-to-r from-[#004B73] to-[#006699] hover:from-[#003554] hover:to-[#004B73] shadow-lg shadow-[#004B73]/20 transition-all duration-300"
+            className="w-full h-11 text-sm font-semibold tracking-wide bg-gradient-to-r from-[#1677FF] to-[#00C8FF] hover:from-[#0958D9] hover:to-[#1677FF] shadow-lg shadow-[#1677FF]/20 transition-all duration-300"
             onClick={onGenerate}
             disabled={isGenerating || !input.brandName.trim()}
           >

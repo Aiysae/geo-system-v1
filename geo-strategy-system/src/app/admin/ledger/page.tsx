@@ -78,36 +78,36 @@ export default async function AdminLedgerPage() {
 
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-md">
+      <header className="geo-utility-header sticky top-0 z-30 border-b backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#087F9C] shadow-sm">
+            <span className="geo-utility-header-icon flex h-10 w-10 items-center justify-center rounded-xl shadow-sm">
               <ReceiptText className="h-5 w-5 text-white" />
             </span>
             <div>
-              <div className="geo-brand-title text-lg text-[#12343C]">
+              <div className="geo-utility-header-title geo-brand-title text-lg">
                 势途 GEO · 积分流水审计
               </div>
-              <div className="mt-0.5 text-[11px] text-slate-500">最近 500 条积分变动</div>
+              <div className="geo-utility-header-subtitle mt-0.5 text-[11px]">最近 500 条积分变动</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Link
               href="/admin/metrics"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
             >
               运营监控
             </Link>
             <Link
               href="/admin/ledger/export"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
             >
               <Download className="h-3.5 w-3.5" />
               导出流水
             </Link>
             <Link
               href="/admin/recharge"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               返回后台
@@ -164,7 +164,7 @@ export default async function AdminLedgerPage() {
                       <tr key={entry.id} className="border-t border-slate-100 text-sm">
                         <td className="whitespace-nowrap px-5 py-3 text-xs text-slate-500">{formatTime(entry.createdAt)}</td>
                         <td className="px-5 py-3">
-                          <Link href={`/admin/users/${entry.userId}`} className="font-medium text-slate-900 hover:text-[#0077B6]">
+                          <Link href={`/admin/users/${entry.userId}`} className="font-medium text-slate-900 hover:text-[#1677FF]">
                             {user?.name || user?.email || entry.userId}
                           </Link>
                           <div className="mt-0.5 text-[11px] text-slate-400">{user?.email || entry.userId}</div>

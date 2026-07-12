@@ -65,37 +65,37 @@ export default async function AdminMetricsPage() {
 
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="sticky top-0 z-30 border-b border-slate-200/60 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-md">
+      <header className="geo-utility-header sticky top-0 z-30 border-b backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#087F9C] shadow-sm">
+            <span className="geo-utility-header-icon flex h-10 w-10 items-center justify-center rounded-xl shadow-sm">
               <BarChart3 className="h-5 w-5 text-white" />
             </span>
             <div>
-              <div className="geo-brand-title text-lg text-[#12343C]">
+              <div className="geo-utility-header-title geo-brand-title text-lg">
                 势途 GEO · 运营监控
               </div>
-              <div className="mt-0.5 text-[11px] text-slate-500">积分消耗、充值到账与模块使用排行</div>
+              <div className="geo-utility-header-subtitle mt-0.5 text-[11px]">积分消耗、充值到账与模块使用排行</div>
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Link
               href="/admin/recharge"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
             >
               <CreditCard className="h-3.5 w-3.5" />
               充值审批
             </Link>
             <Link
               href="/admin/ledger"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
             >
               <ReceiptText className="h-3.5 w-3.5" />
               积分流水
             </Link>
             <Link
               href="/admin"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               用户管理
@@ -265,7 +265,7 @@ export default async function AdminMetricsPage() {
                     {metrics.users.map(user => (
                       <tr key={user.userId} className="border-t border-slate-100 text-sm">
                         <td className="px-5 py-3">
-                          <Link href={`/admin/users/${user.userId}`} className="font-medium text-slate-900 hover:text-[#0077B6]">
+                          <Link href={`/admin/users/${user.userId}`} className="font-medium text-slate-900 hover:text-[#1677FF]">
                             {user.name}
                           </Link>
                           <div className="mt-0.5 text-[11px] text-slate-400">{user.email}</div>
@@ -367,10 +367,10 @@ function MetricCard({
 }) {
   const toneClass = {
     orange: "from-[#F97316] to-[#F43F5E]",
-    blue: "from-[#0077B6] to-[#00A6FB]",
-    emerald: "from-[#10B981] to-[#00D4FF]",
+    blue: "from-[#1677FF] to-[#00C8FF]",
+    emerald: "from-[#10B981] to-[#00C8FF]",
     amber: "from-[#F59E0B] to-[#F97316]",
-    slate: "from-[#061826] to-[#334155]",
+    slate: "from-[#001D66] to-[#334155]",
   }[tone]
 
   return (

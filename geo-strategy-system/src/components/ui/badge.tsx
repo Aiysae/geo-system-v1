@@ -9,10 +9,10 @@ function Badge({ className, variant = "default", ...props }: BadgeProps) {
   return (
     <div
       className={cn(
-        "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[#00A6FB]/35 focus:ring-offset-2",
-        variant === "default" && "border-transparent bg-gradient-to-r from-[#0077B6] to-[#7C3AED] text-white shadow",
-        variant === "secondary" && "border-transparent bg-cyan-50 text-[#006AA3] ring-1 ring-cyan-100",
-        variant === "outline" && "border-slate-200 bg-white/70 text-slate-700",
+        "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[#4096FF]/35 focus:ring-offset-2",
+        variant === "default" && "border-transparent bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-white shadow",
+        variant === "secondary" && "border-transparent bg-[#E6F4FF] text-[#0958D9] ring-1 ring-[#BAE0FF]",
+        variant === "outline" && "border-[#D6E7FF] bg-white/80 text-slate-700",
         className
       )}
       {...props}

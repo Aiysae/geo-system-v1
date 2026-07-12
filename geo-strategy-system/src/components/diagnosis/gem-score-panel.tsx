@@ -7,7 +7,7 @@ interface Props {
 export default function GemScorePanel({ score }: Props) {
   const tier =
     score >= 80 ? { label: "优秀", color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200" }
-    : score >= 60 ? { label: "良好", color: "text-[#004B73]", bg: "bg-[#004B73]/5", border: "border-[#004B73]/20" }
+    : score >= 60 ? { label: "良好", color: "text-[#003EB3]", bg: "bg-[#003EB3]/5", border: "border-[#003EB3]/20" }
     : score >= 40 ? { label: "及格", color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200" }
     : { label: "待提升", color: "text-red-600", bg: "bg-red-50", border: "border-red-200" }
 

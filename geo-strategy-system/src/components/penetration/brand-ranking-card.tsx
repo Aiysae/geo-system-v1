@@ -30,7 +30,7 @@ export default function BrandRankingCard({
   const inIndustry = ranking != null
   return (
     <div className="space-y-4">
-      <div className="rounded-lg bg-gradient-to-br from-[#061826] via-[#0b2a3c] to-[#004B73] px-4 py-4 text-center text-white">
+      <div className="rounded-lg bg-gradient-to-br from-[#001D66] via-[#002c70] to-[#003EB3] px-4 py-4 text-center text-white">
         {inIndustry ? (
           <>
             <div className="flex items-center justify-center gap-2 text-xs text-cyan-100/70 mb-1">
@@ -66,7 +66,7 @@ export default function BrandRankingCard({
                 </span>
                 <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden ring-1 ring-slate-200/70">
                   <div
-                    className={`h-full rounded-full ${MODEL_BAR[p.model] || "bg-gradient-to-r from-[#0077B6] to-[#00D4FF]"}`}
+                    className={`h-full rounded-full ${MODEL_BAR[p.model] || "bg-gradient-to-r from-[#1677FF] to-[#00C8FF]"}`}
                     style={{ width: `${hasValidAnswer ? Math.min(pct, 100) : 0}%` }}
                   />
                 </div>

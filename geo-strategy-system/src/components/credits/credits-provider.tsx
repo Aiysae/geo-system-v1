@@ -134,7 +134,7 @@ function InsufficientCreditsModal({
 
         <div className="px-7 pt-7 pb-6">
           <div className="flex items-center gap-3 mb-4">
-            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#C79A3B] shadow-sm">
+            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#FFB020] shadow-sm">
               <Sparkles className="h-5 w-5 text-white" />
             </span>
             <h2 className="text-lg font-bold tracking-tight text-slate-900">
@@ -172,7 +172,7 @@ function InsufficientCreditsModal({
             </button>
             <BillingLink
               onNavigate={onClose}
-              className="flex-1 rounded-lg bg-[#087F9C] py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-[#066B83]"
+              className="flex-1 rounded-lg bg-[#1677FF] py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-[#0958D9]"
             >
               去充值
             </BillingLink>

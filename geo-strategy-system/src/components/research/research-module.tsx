@@ -243,10 +243,10 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
     <Card>
       <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
-          <span className="geo-module-icon bg-[#0D9879]">
+          <span className="geo-module-icon bg-gradient-to-br from-[#13C2C2] to-[#1677FF]">
             <Brain className="h-5 w-5 text-white" />
           </span>
-          <span className="geo-display-title min-w-0 text-lg leading-snug text-[#173B36]">
+          <span className="geo-display-title min-w-0 text-lg leading-snug text-[#0958D9]">
             独立调研 · 豆包深度品牌画像与竞品对比
           </span>
         </CardTitle>
@@ -311,7 +311,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               <Button
                 onClick={() => runResearch("ai")}
                 disabled={researchLoading || !researchReady}
-                className="gap-1.5 border-[#0D9879] bg-[#0D9879] hover:border-[#0B7F66] hover:bg-[#0B7F66]"
+                className="gap-1.5 border-[#13C2C2] bg-gradient-to-r from-[#13C2C2] to-[#1677FF] hover:border-[#08979C] hover:from-[#08979C] hover:to-[#0958D9]"
                 size="sm"
               >
                 {researchLoading && mode === "ai" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
@@ -368,7 +368,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                   onClick={runCompare}
                   disabled={compareLoading || !compareReady}
                   size="sm"
-                  className="gap-1.5 border-[#D14D64] bg-[#D14D64] hover:border-[#B83F55] hover:bg-[#B83F55]"
+                  className="gap-1.5 border-[#FF5B6E] bg-[#FF5B6E] hover:border-[#E5485A] hover:bg-[#E5485A]"
                 >
                   {compareLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : compare ? <RefreshCw className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
                   {compareLoading ? "对比中..." : compare ? "重新对比" : "生成对比"}

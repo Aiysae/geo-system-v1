@@ -23,16 +23,16 @@ export default function PenetrationDonut({ rate, mentions, totalSlots }: Props) 
         <PieChart>
           <defs>
             <linearGradient id="donutMentioned" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#087F9C" />
-              <stop offset="100%" stopColor="#0D9879" />
+              <stop offset="0%" stopColor="#1677FF" />
+              <stop offset="100%" stopColor="#00C8FF" />
             </linearGradient>
             <linearGradient id="donutMissed" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#dce5e4" />
-              <stop offset="100%" stopColor="#eef3f2" />
+              <stop offset="0%" stopColor="#d6e7ff" />
+              <stop offset="100%" stopColor="#f0f6ff" />
             </linearGradient>
             <radialGradient id="donutGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#0D9879" stopOpacity={0.18} />
-              <stop offset="100%" stopColor="#081C24" stopOpacity={0} />
+              <stop offset="0%" stopColor="#1677FF" stopOpacity={0.18} />
+              <stop offset="100%" stopColor="#001D66" stopOpacity={0} />
             </radialGradient>
             <filter id="donutShadow" x="-20%" y="-20%" width="140%" height="140%">
               <feGaussianBlur stdDeviation="3" />
@@ -58,7 +58,7 @@ export default function PenetrationDonut({ rate, mentions, totalSlots }: Props) 
             dataKey="value"
             stroke="none"
             isAnimationActive={false}
-            fill="rgba(8, 127, 156, 0.08)"
+            fill="rgba(22, 119, 255, 0.08)"
           />
 
           {/* 主环 */}
@@ -79,7 +79,7 @@ export default function PenetrationDonut({ rate, mentions, totalSlots }: Props) 
             {safeData.map((entry, index) => (
               <Cell
                 key={entry.name}
-                fill={totalSlots === 0 || index === 1 ? "#DCE5E4" : "#087F9C"}
+                fill={totalSlots === 0 || index === 1 ? "url(#donutMissed)" : "url(#donutMentioned)"}
               />
             ))}
           </Pie>
@@ -87,11 +87,11 @@ export default function PenetrationDonut({ rate, mentions, totalSlots }: Props) 
       </ResponsiveContainer>
 
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <div className="geo-data-number text-4xl font-bold text-[#0B5967]">
+          <div className="geo-data-number text-4xl font-bold text-[#003EB3]">
           {pct}%
         </div>
         <div className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#C79A3B]"></span>
+          <span className="h-1.5 w-1.5 rounded-full bg-[#00C8FF]"></span>
           <span className="tabular-nums font-medium text-slate-700">{mentions}</span>
           <span className="text-slate-400">/ {totalSlots} 次提及</span>
         </div>

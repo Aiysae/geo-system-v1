@@ -1310,15 +1310,15 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       : strategyJobState.connectionNotice
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[#d8e2e1] bg-white/96 shadow-[0_12px_32px_-26px_rgba(8,28,36,0.5)]">
-      <div className="border-b border-[#d8e2e1] bg-white/95 backdrop-blur">
+    <div className="overflow-hidden rounded-lg border border-[#d6e7ff] bg-white/96 shadow-[0_12px_32px_-26px_rgba(8,28,36,0.5)]">
+      <div className="border-b border-[#d6e7ff] bg-white/95 backdrop-blur">
         <div className="px-3 sm:px-5 lg:px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="geo-module-icon h-9 w-9 bg-[#B7852E]">
+            <div className="geo-module-icon h-9 w-9 bg-gradient-to-br from-[#4096FF] to-[#00C8FF]">
               <Sparkles className="h-4 w-4 text-white" />
             </div>
             <div className="min-w-0">
-              <div className="geo-display-title text-lg text-[#523E1C]">
+              <div className="geo-display-title text-lg text-[#0958D9]">
                 关键词策略 · GEO 策略生成工具
               </div>
               <div className="text-[11px] text-slate-500 truncate">
@@ -1326,7 +1326,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               </div>
             </div>
           </div>
-          <div className="inline-flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-[#d8e2e1] bg-[#f5f7f6] px-3 py-2 text-xs text-slate-600 sm:w-auto">
+          <div className="inline-flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-[#d6e7ff] bg-[#f5f7f6] px-3 py-2 text-xs text-slate-600 sm:w-auto">
             <span className={`h-2 w-2 rounded-full ${keywordModelConfigured ? "bg-emerald-500" : "bg-amber-500"}`} />
             <span className="font-medium text-slate-700">{keywordModelName}</span>
             <span className="text-slate-400">后台托管</span>
@@ -1482,7 +1482,7 @@ function StepProgress({ current }: { current: ToolStep }) {
       {steps.map((s, i) => (
         <div key={s.key} className="flex items-center gap-1 flex-1">
           <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full transition-all
-            ${i < idx ? "bg-emerald-100 text-emerald-700" : i === idx ? "bg-[#004B73] text-white shadow-md" : "bg-slate-100 text-slate-400"}`}>
+            ${i < idx ? "bg-emerald-100 text-emerald-700" : i === idx ? "bg-[#003EB3] text-white shadow-md" : "bg-slate-100 text-slate-400"}`}>
             {i < idx ? <Check className="h-3 w-3" /> : <span className="w-3 h-3 rounded-full bg-current flex items-center justify-center text-[8px] font-bold">{i + 1}</span>}
             {s.label}
           </div>
@@ -1719,7 +1719,7 @@ function InputStep({
           <button
             onClick={onExtract}
             disabled={extracting || !modelConfigured}
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold rounded-xl bg-[#087F9C] text-white hover:shadow-lg hover:shadow-blue-300/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0 transition-all"
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-white hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none transition-all"
           >
             {extracting ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> AI 正在抽取资料...</>
@@ -1910,7 +1910,7 @@ function ExtractionStep({
             重新抽取
           </button>
           <button onClick={onGenerate} disabled={generating}
-            className="text-sm inline-flex w-full items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#087F9C] text-white font-semibold hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 transition-all sm:w-auto">
+            className="text-sm inline-flex w-full items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-white font-semibold hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 transition-all sm:w-auto">
             {generating ? <><Loader2 className="h-4 w-4 animate-spin" /> 生成中...</> : <><Sparkles className="h-4 w-4" /> 确认并生成策略</>}
           </button>
         </div>
@@ -2606,7 +2606,7 @@ function QuestionSettingsPanel({
       <button
         type="button"
         onClick={() => setCountMode(section, mode)}
-        className={`text-[11px] px-2.5 py-1 rounded-md transition ${currentMode === mode ? "bg-[#004B73] text-white" : "text-slate-500 hover:bg-slate-50"}`}
+        className={`text-[11px] px-2.5 py-1 rounded-md transition ${currentMode === mode ? "bg-[#003EB3] text-white" : "text-slate-500 hover:bg-slate-50"}`}
       >
         {label}
       </button>
@@ -2622,7 +2622,7 @@ function QuestionSettingsPanel({
     <button
       type="button"
       onClick={onClick}
-      className={`text-[11px] px-2.5 py-1 rounded-md transition ${current === source ? "bg-[#004B73] text-white" : "text-slate-500 hover:bg-slate-50"}`}
+      className={`text-[11px] px-2.5 py-1 rounded-md transition ${current === source ? "bg-[#003EB3] text-white" : "text-slate-500 hover:bg-slate-50"}`}
     >
       {label}
     </button>
@@ -2646,7 +2646,7 @@ function QuestionSettingsPanel({
                   key={provider}
                   type="button"
                   onClick={() => onQuestionModelProviderChange(provider)}
-                  className={`text-[11px] px-3 py-1.5 rounded-md transition ${questionModelProvider === provider ? "bg-[#004B73] text-white shadow-sm" : "text-slate-500 hover:bg-white"}`}
+                  className={`text-[11px] px-3 py-1.5 rounded-md transition ${questionModelProvider === provider ? "bg-[#003EB3] text-white shadow-sm" : "text-slate-500 hover:bg-white"}`}
                 >
                   {QUESTION_MODEL_PROVIDER_LABELS[provider]}
                 </button>
@@ -3261,7 +3261,7 @@ function generateWordHtml(
   const parts: string[] = [
     `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>`,
     `<head><meta charset="utf-8"><title>${h(plan.project_name)}</title>`,
-    `<style>body{font-family:'微软雅黑',sans-serif;font-size:12pt;color:#1e293b;line-height:1.6;margin:2cm}h1{font-size:22pt;color:#004B73;border-bottom:2px solid #004B73;padding-bottom:8px}h2{font-size:16pt;color:#004B73;margin-top:24px}h3{font-size:13pt;color:#475569;margin-top:16px}table{border-collapse:collapse;width:100%;margin:12px 0;font-size:10pt}td,th{border:1px solid #cbd5e1;padding:6px 10px;text-align:left}th{background:#f1f5f9;color:#475569;font-weight:600}tr:nth-child(even){background:#f8fafc}.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:9pt;margin:2px}ul{list-style:none;padding:0}li{padding:4px 0}</style></head><body>`,
+    `<style>body{font-family:'微软雅黑',sans-serif;font-size:12pt;color:#1e293b;line-height:1.6;margin:2cm}h1{font-size:22pt;color:#003EB3;border-bottom:2px solid #003EB3;padding-bottom:8px}h2{font-size:16pt;color:#003EB3;margin-top:24px}h3{font-size:13pt;color:#475569;margin-top:16px}table{border-collapse:collapse;width:100%;margin:12px 0;font-size:10pt}td,th{border:1px solid #cbd5e1;padding:6px 10px;text-align:left}th{background:#f1f5f9;color:#475569;font-weight:600}tr:nth-child(even){background:#f8fafc}.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:9pt;margin:2px}ul{list-style:none;padding:0}li{padding:4px 0}</style></head><body>`,
     `<h1>${h(plan.project_name || "GEO 优化策略方案")}</h1>`,
   ]
 

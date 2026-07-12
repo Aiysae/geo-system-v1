@@ -47,21 +47,21 @@ Font.registerHyphenationCallback(word => {
 })
 
 const COLORS = {
-  ink: "#081C24",
-  blue: "#087F9C",
-  violet: "#6656A8",
-  amber: "#C79A3B",
-  silver: "#87959B",
-  bronze: "#A96E43",
-  green: "#0D9879",
-  paper: "#F3F6F5",
-  line: "#D8E2E1",
-  text: "#263B3F",
-  muted: "#687B7F",
+  ink: "#001D66",
+  blue: "#1677FF",
+  violet: "#2F54EB",
+  amber: "#FFB020",
+  silver: "#13C2C2",
+  bronze: "#2F54EB",
+  green: "#16C79A",
+  paper: "#F5F9FF",
+  line: "#D6E7FF",
+  text: "#102A43",
+  muted: "#5B6B85",
   white: "#FFFFFF",
-  red: "#D14D64",
-  cyan: "#22A8B5",
-  slate: "#6E888E",
+  red: "#FF5B6E",
+  cyan: "#00C8FF",
+  slate: "#6E94C5",
 }
 
 const MODEL_LABELS: Record<ModelKey, string> = {
@@ -105,16 +105,16 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   coverTitle: { marginTop: 18, fontSize: 28, fontWeight: 700, lineHeight: 1.3 },
-  coverSubtitle: { marginTop: 10, fontSize: 12, color: "#B9D6E7" },
+  coverSubtitle: { marginTop: 10, fontSize: 12, color: "#BAE0FF" },
   coverMeta: {
     marginTop: 36,
     paddingTop: 18,
     borderTopWidth: 1,
-    borderTopColor: "#21445B",
+    borderTopColor: "#1677FF",
     gap: 8,
   },
   coverMetaRow: { flexDirection: "row" },
-  coverMetaLabel: { width: 76, color: "#78B9D7", fontSize: 9 },
+  coverMetaLabel: { width: 76, color: "#91CAFF", fontSize: 9 },
   coverMetaValue: { flex: 1, color: COLORS.white, fontSize: 10 },
   coverFooter: {
     position: "absolute",
@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    color: "#7896A7",
+    color: "#6E94C5",
     fontSize: 8,
   },
   header: {
@@ -205,13 +205,13 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: COLORS.ink,
   },
-  signalLabel: { color: "#B9D6E7", fontSize: 7 },
+  signalLabel: { color: "#BAE0FF", fontSize: 7 },
   signalValue: { marginTop: 3, color: COLORS.white, fontSize: 12, fontWeight: 700 },
   barRow: { marginBottom: 8 },
   barHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 3 },
   barLabel: { color: COLORS.text, fontSize: 8 },
   barValue: { color: COLORS.ink, fontSize: 8, fontWeight: 700 },
-  barTrack: { height: 7, borderRadius: 3, backgroundColor: "#E7EEF3", overflow: "hidden" },
+  barTrack: { height: 7, borderRadius: 3, backgroundColor: "#EAF3FF", overflow: "hidden" },
   barFill: { height: 7, borderRadius: 3 },
   listItem: { flexDirection: "row", alignItems: "flex-start", marginBottom: 7 },
   listIndex: {
@@ -240,11 +240,11 @@ const styles = StyleSheet.create({
     marginBottom: 7,
     paddingBottom: 7,
     borderBottomWidth: 1,
-    borderBottomColor: "#EDF2F5",
+    borderBottomColor: "#F0F6FF",
   },
   sourceTitle: { maxWidth: "100%", color: COLORS.ink, fontSize: 8.5, fontWeight: 700 },
   sourceMeta: { maxWidth: "100%", marginTop: 2, color: COLORS.muted, fontSize: 7, lineHeight: 1.4 },
-  sourceLink: { maxWidth: "100%", marginTop: 2, color: "#0077B6", fontSize: 7, lineHeight: 1.35, textDecoration: "none" },
+  sourceLink: { maxWidth: "100%", marginTop: 2, color: "#1677FF", fontSize: 7, lineHeight: 1.35, textDecoration: "none" },
   appendixItem: {
     marginBottom: 10,
     padding: 9,
@@ -604,7 +604,7 @@ function DonutChart({ value, display, label, color = COLORS.blue }: {
   return (
     <View style={styles.ringBox} wrap={false}>
       <Svg width={112} height={112} viewBox="0 0 112 112">
-        <Circle cx={56} cy={56} r={radius} fill="none" stroke="#DDE8EF" strokeWidth={12} />
+        <Circle cx={56} cy={56} r={radius} fill="none" stroke="#D6E7FF" strokeWidth={12} />
         {normalized > 0 ? (
           <Circle
             cx={56}

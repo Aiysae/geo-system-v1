@@ -64,7 +64,7 @@ export function AccountMenu() {
               className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
               onClick={() => setOpen(false)}
             >
-              <ShieldCheck className="h-4 w-4 text-[#0077B6]" />
+              <ShieldCheck className="h-4 w-4 text-[#1677FF]" />
               管理后台
             </Link>
           )}
@@ -74,7 +74,7 @@ export function AccountMenu() {
             className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
             onClick={() => setOpen(false)}
           >
-            <House className="h-4 w-4 text-[#087F9C]" />
+            <House className="h-4 w-4 text-[#1677FF]" />
             品牌主页
           </Link>
 

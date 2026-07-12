@@ -415,7 +415,7 @@ export default function ArticleMarkdownWorkspace({
             <select
               value={themeKey}
               onChange={event => setThemeKey(event.target.value as ThemeKey)}
-              className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+              className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
             >
               {Object.entries(MARKDOWN_THEMES).map(([key, item]) => (
                 <option key={key} value={key}>
@@ -561,7 +561,7 @@ function stripNode<T extends { node?: unknown }>(props: T): Omit<T, "node"> {
 
 function tabClass(active: boolean): string {
   return active
-    ? "inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-white text-[#004B73] shadow-sm"
+    ? "inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-white text-[#003EB3] shadow-sm"
     : "inline-flex h-8 items-center justify-center gap-1 rounded-lg text-slate-500 transition hover:bg-white/70"
 }
 
