@@ -61,6 +61,45 @@ export type ArticlePromptKey =
 
 export type ArticleModelProviderKey = ModelKey | "article"
 
+export type ArticleRewriteBrandRole = "primary" | "featured" | "listed" | "background"
+
+export interface ArticleRewriteBrandCandidate {
+  name: string
+  aliases: string[]
+  role: ArticleRewriteBrandRole
+  mentionCount: number
+  descriptionChars: number
+  blockCount: number
+  headingCount: number
+  tableRowCount: number
+  detailSignals: string[]
+  firstBlockIndex: number
+  score: number
+  evidence: string[]
+}
+
+export interface ArticleRewriteAnalysis {
+  sourceFingerprint: string
+  brands: ArticleRewriteBrandCandidate[]
+  analyzedAt: string
+  provider: ArticleModelProviderKey
+  model: string
+}
+
+export interface ArticleRewriteBrandMapping {
+  sourceBrand: string
+  sourceAliases: string[]
+  targetBrand: string
+  materials: string
+}
+
+export interface ArticleRewriteAudit {
+  mappedPairs: Array<{ sourceBrand: string; targetBrand: string }>
+  protectedBrands: string[]
+  repaired: boolean
+  checkedAt: string
+}
+
 export type BackgroundJobKind =
   | "articleGeneration"
   | "queryGeneration"
@@ -106,6 +145,9 @@ export interface ArticleGenerationState {
   sourceMarkdown?: string
   rewriteBrand?: string
   rewriteMaterials?: string
+  rewriteAnalysis?: ArticleRewriteAnalysis
+  rewriteMappings?: ArticleRewriteBrandMapping[]
+  rewriteAudit?: ArticleRewriteAudit
   extractStatus?: GenerationStatus
   extractError?: string
   coreQuestion: string

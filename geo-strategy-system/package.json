@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:article-rewrite": "tsx scripts/test-article-rewrite.mts",
     "kv:migrate:file-to-redis": "node scripts/migrate-file-kv-to-redis.mjs"
   },
   "dependencies": {
