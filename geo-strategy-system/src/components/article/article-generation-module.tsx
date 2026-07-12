@@ -18,7 +18,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import ArticleRewriteBrandMapper from "@/components/article/article-rewrite-brand-mapper"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import {
+  fingerprintRewriteSource,
+  normalizeBrandKey,
+  normalizeRewriteMappings,
+  validateRewriteMappings,
+} from "@/lib/article-rewrite"
 import { ARTICLE_PROMPT_OPTIONS, type ArticlePromptOption } from "@/lib/article-prompt-meta"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
@@ -31,6 +38,9 @@ import type {
   ArticleGenerationState,
   ArticleModelProviderKey,
   ArticlePromptKey,
+  ArticleRewriteAnalysis,
+  ArticleRewriteAudit,
+  ArticleRewriteBrandMapping,
   BackgroundJobRef,
   Client,
   ModelKey,
@@ -54,6 +64,7 @@ interface ArticleGenerationResponse {
   modelProvider?: ArticleModelProviderKey
   model?: string
   generatedAt?: string
+  rewriteAudit?: ArticleRewriteAudit
   error?: string
 }
 
@@ -62,6 +73,11 @@ interface ArticleExtractResponse {
   title?: string
   markdown?: string
   contentLength?: number
+  error?: string
+}
+
+interface ArticleBrandAnalysisResponse {
+  analysis?: ArticleRewriteAnalysis
   error?: string
 }
 
@@ -81,7 +97,7 @@ function createInitialArticle(client: Client): ArticleGenerationState {
   const saved = client.articleGeneration
   const interruptedLegacyRequest = saved?.status === "generating"
     && !client.backgroundJobs?.articleGeneration
-  return {
+  const initial: ArticleGenerationState = {
     promptKey: "thirdPartyObservation",
     modelProvider: "article",
     model: "",
@@ -108,6 +124,16 @@ function createInitialArticle(client: Client): ArticleGenerationState {
         }
       : {}),
   }
+  const savedMappings = normalizeRewriteMappings(initial.rewriteMappings)
+  initial.rewriteMappings = savedMappings.length > 0
+    ? savedMappings
+    : [{
+        sourceBrand: "",
+        sourceAliases: [],
+        targetBrand: initial.rewriteBrand || client.ourBrand || client.name || "",
+        materials: initial.rewriteMaterials || "",
+      }]
+  return initial
 }
 
 function buildArticleJobPayload(client: Client, article: ArticleGenerationState) {
@@ -124,6 +150,8 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
     sourceMarkdown: article.sourceMarkdown,
     rewriteBrand: article.rewriteBrand,
     rewriteMaterials: article.rewriteMaterials,
+    rewriteAnalysis: article.rewriteAnalysis,
+    rewriteMappings: article.rewriteMappings,
     coreQuestion: article.coreQuestion,
     keywords: article.keywords,
     region: article.region,
@@ -141,6 +169,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [preferredSourceModel, setPreferredSourceModel] = useState<ModelKey | null>(null)
   const [stoppingJob, setStoppingJob] = useState(false)
+  const [analyzingBrands, setAnalyzingBrands] = useState(false)
+  const [brandAnalysisError, setBrandAnalysisError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -202,8 +232,28 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const isRewrite = article.promptKey === "rewrite"
   const isGenerating = article.status === "generating"
   const isExtracting = article.extractStatus === "generating"
+  const rewriteMappings = useMemo(
+    () => normalizeRewriteMappings(article.rewriteMappings),
+    [article.rewriteMappings],
+  )
+  const currentSourceFingerprint = useMemo(
+    () => fingerprintRewriteSource(article.sourceMarkdown || ""),
+    [article.sourceMarkdown],
+  )
+  const currentRewriteAnalysis = article.rewriteAnalysis?.sourceFingerprint === currentSourceFingerprint
+    ? article.rewriteAnalysis
+    : undefined
+  const rewriteMappingIssues = useMemo(
+    () => validateRewriteMappings(rewriteMappings),
+    [rewriteMappings],
+  )
   const canGenerate = isRewrite
-    ? Boolean(article.sourceMarkdown?.trim() && article.rewriteBrand?.trim() && article.rewriteMaterials?.trim()) && !isGenerating && !isExtracting
+    ? Boolean(
+        article.sourceMarkdown?.trim()
+        && currentRewriteAnalysis
+        && rewriteMappings.length > 0
+        && rewriteMappingIssues.length === 0,
+      ) && !isGenerating && !isExtracting && !analyzingBrands
     : Boolean(article.coreQuestion.trim()) && !isGenerating
   const hasOutput = Boolean(article.output.trim())
   const articleFeatureKey = ARTICLE_PROMPT_PRICE_KEYS[article.promptKey || "thirdPartyObservation"]
@@ -262,6 +312,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         modelProvider: data.modelProvider || article.modelProvider,
         model: data.model || article.model,
         output: data.article,
+        rewriteAudit: data.rewriteAudit || article.rewriteAudit,
         generatedAt: data.generatedAt || new Date().toISOString(),
         status: "done",
         error: undefined,
@@ -288,6 +339,24 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     key: K,
     value: ArticleGenerationState[K]
   ) {
+    if (key === "sourceMarkdown") {
+      const resetMappings = normalizeRewriteMappings(article.rewriteMappings).map(mapping => ({
+        ...mapping,
+        sourceBrand: "",
+        sourceAliases: [],
+      }))
+      setBrandAnalysisError(null)
+      persist({
+        ...article,
+        sourceMarkdown: value as ArticleGenerationState["sourceMarkdown"],
+        rewriteAnalysis: undefined,
+        rewriteAudit: undefined,
+        rewriteMappings: resetMappings,
+        error: undefined,
+        status: article.status === "error" ? "idle" : article.status,
+      })
+      return
+    }
     persist({
       ...article,
       [key]: value,
@@ -311,11 +380,39 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       : article.promptKey === "rewrite"
         ? "thirdPartyObservation"
         : article.promptKey
+    const mappings = normalizeRewriteMappings(article.rewriteMappings)
     persist({
       ...article,
       promptKey: nextPrompt,
       rewriteBrand: article.rewriteBrand || client.ourBrand || client.name || "",
       rewriteMaterials: article.rewriteMaterials || article.advantages || "",
+      rewriteMappings: mappings.length > 0
+        ? mappings
+        : [{
+            sourceBrand: "",
+            sourceAliases: [],
+            targetBrand: article.rewriteBrand || client.ourBrand || client.name || "",
+            materials: article.rewriteMaterials || article.advantages || "",
+          }],
+      status: article.status === "error" ? "idle" : article.status,
+      error: undefined,
+    })
+  }
+
+  function updateRewriteMappings(mappings: ArticleRewriteBrandMapping[]) {
+    const normalized = normalizeRewriteMappings(mappings)
+    const nextMappings = normalized.length > 0
+      ? normalized
+      : [{ sourceBrand: "", sourceAliases: [], targetBrand: "", materials: "" }]
+    persist({
+      ...article,
+      rewriteMappings: nextMappings,
+      rewriteBrand: nextMappings.map(mapping => mapping.targetBrand).filter(Boolean).join("\n"),
+      rewriteMaterials: nextMappings
+        .filter(mapping => mapping.targetBrand || mapping.materials)
+        .map(mapping => `${mapping.targetBrand || "未命名品牌"}\n${mapping.materials}`.trim())
+        .join("\n\n"),
+      rewriteAudit: undefined,
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
     })
@@ -392,12 +489,20 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       persist({ ...article, extractStatus: "error", extractError: "请先填写文章链接" })
       return
     }
+    const resetMappings = normalizeRewriteMappings(article.rewriteMappings).map(mapping => ({
+      ...mapping,
+      sourceBrand: "",
+      sourceAliases: [],
+    }))
     const extractionBase: ArticleGenerationState = selectedSourceUrl
       ? {
           ...article,
           sourceUrl: selectedSourceUrl,
           sourceTitle: "",
           sourceMarkdown: "",
+          rewriteAnalysis: undefined,
+          rewriteAudit: undefined,
+          rewriteMappings: resetMappings,
         }
       : article
     const extracting: ArticleGenerationState = {
@@ -426,6 +531,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         sourceUrl: data.finalUrl || sourceUrl,
         sourceTitle: data.title || "",
         sourceMarkdown: data.markdown || "",
+        rewriteAnalysis: undefined,
+        rewriteAudit: undefined,
+        rewriteMappings: resetMappings,
         extractStatus: "done",
         extractError: undefined,
       })
@@ -438,17 +546,79 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     }
   }
 
+  async function runAnalyzeBrands() {
+    const sourceMarkdown = article.sourceMarkdown?.trim() || ""
+    if (sourceMarkdown.length < 80) {
+      setBrandAnalysisError("原文内容过短，请先读取或粘贴完整文章。")
+      return
+    }
+
+    setAnalyzingBrands(true)
+    setBrandAnalysisError(null)
+    try {
+      const res = await apiFetch("/api/article-generation/analyze-brands", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceMarkdown,
+          modelProvider: article.modelProvider,
+          model: article.model,
+        }),
+      })
+      const data = await readApiJson<ArticleBrandAnalysisResponse>(res, "原文品牌分析")
+      if (!res.ok || !data.analysis) {
+        throw new Error(data.error || "未返回有效的品牌分析结果")
+      }
+
+      const currentMappings = normalizeRewriteMappings(article.rewriteMappings)
+      const baseMappings = currentMappings.length > 0
+        ? currentMappings
+        : [{
+            sourceBrand: "",
+            sourceAliases: [],
+            targetBrand: article.rewriteBrand || client.ourBrand || client.name || "",
+            materials: article.rewriteMaterials || "",
+          }]
+      const mapped = baseMappings.map((mapping, index) => {
+        const sourceKey = normalizeBrandKey(mapping.sourceBrand)
+        const matched = sourceKey
+          ? data.analysis?.brands.find(candidate => [candidate.name, ...candidate.aliases]
+              .some(name => normalizeBrandKey(name) === sourceKey))
+          : undefined
+        const candidate = matched || data.analysis?.brands[index]
+        return {
+          ...mapping,
+          sourceBrand: candidate?.name || mapping.sourceBrand,
+          sourceAliases: candidate?.aliases || mapping.sourceAliases,
+        }
+      })
+
+      persist({
+        ...article,
+        rewriteAnalysis: data.analysis,
+        rewriteMappings: mapped,
+        rewriteAudit: undefined,
+        status: article.status === "error" ? "idle" : article.status,
+        error: undefined,
+      })
+    } catch (error) {
+      setBrandAnalysisError(error instanceof Error ? error.message : "品牌分析失败")
+    } finally {
+      setAnalyzingBrands(false)
+    }
+  }
+
   function runGenerate() {
     if (isRewrite && !article.sourceMarkdown?.trim()) {
       persist({ ...article, status: "error", error: "请先读取或粘贴原文内容" })
       return
     }
-    if (isRewrite && !article.rewriteBrand?.trim()) {
-      persist({ ...article, status: "error", error: "请先填写推荐品牌" })
+    if (isRewrite && !currentRewriteAnalysis) {
+      persist({ ...article, status: "error", error: "请先点击“分析主要品牌”；原文变化后需要重新分析。" })
       return
     }
-    if (isRewrite && !article.rewriteMaterials?.trim()) {
-      persist({ ...article, status: "error", error: "请先填写相关资料" })
+    if (isRewrite && rewriteMappingIssues.length > 0) {
+      persist({ ...article, status: "error", error: rewriteMappingIssues[0] })
       return
     }
     if (!isRewrite && !article.coreQuestion.trim()) {
@@ -458,6 +628,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
     const generating: ArticleGenerationState = {
       ...article,
+      rewriteAnalysis: currentRewriteAnalysis,
+      rewriteMappings,
       status: "generating",
       error: undefined,
     }
@@ -775,24 +947,18 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                       className="min-h-[220px] rounded-lg bg-white font-mono text-xs leading-5"
                     />
                   </Label>
-                  <Label className="text-xs">
-                    <span className="mb-1.5 block font-medium text-slate-500">推荐品牌</span>
-                    <Textarea
-                      value={article.rewriteBrand || ""}
-                      onChange={event => updateField("rewriteBrand", event.target.value)}
-                      placeholder={"填写要推荐的品牌名称、产品名称、核心卖点\n例如：杭州势途数字科技有限公司 / 势途 GEO / GEO 内容优化服务"}
-                      className="min-h-[90px] rounded-lg bg-white"
-                    />
-                  </Label>
-                  <Label className="text-xs">
-                    <span className="mb-1.5 block font-medium text-slate-500">相关资料</span>
-                    <Textarea
-                      value={article.rewriteMaterials || ""}
-                      onChange={event => updateField("rewriteMaterials", event.target.value)}
-                      placeholder={"填写品牌介绍、产品优势、应用场景、参数、案例、用户痛点、行业背景等\n系统会禁止模型编造未提供的数据、资质、价格或案例。"}
-                      className="min-h-[150px] rounded-lg bg-white"
-                    />
-                  </Label>
+                  <ArticleRewriteBrandMapper
+                    sourceReady={Boolean(article.sourceMarkdown?.trim())}
+                    analysis={currentRewriteAnalysis}
+                    mappings={rewriteMappings.length > 0
+                      ? rewriteMappings
+                      : [{ sourceBrand: "", sourceAliases: [], targetBrand: "", materials: "" }]}
+                    audit={article.rewriteAudit}
+                    analyzing={analyzingBrands}
+                    analysisError={brandAnalysisError || undefined}
+                    onAnalyze={() => void runAnalyzeBrands()}
+                    onChangeMappings={updateRewriteMappings}
+                  />
                   <Label className="text-xs">
                     <span className="mb-1.5 block font-medium text-slate-500">补充要求</span>
                     <Textarea
