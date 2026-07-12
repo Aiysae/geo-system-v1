@@ -217,10 +217,10 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
           className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-white/20 sm:max-h-[92dvh]"
           onClick={event => event.stopPropagation()}
         >
-          <div className="shrink-0 bg-[#081C24] px-5 py-4 text-white sm:px-7 sm:py-5">
+          <div className="shrink-0 bg-[#001D66] px-5 py-4 text-white sm:px-7 sm:py-5">
             <div className="flex items-start justify-between gap-4">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#087F9C] shadow-sm">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#1677FF] shadow-sm">
                   <FileDown className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
@@ -263,11 +263,11 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                           onClick={() => setKind(option.kind)}
                           disabled={generating}
                           className={`flex min-h-[86px] items-start gap-3 rounded-lg border p-3 text-left transition ${selected
-                            ? "border-[#087F9C] bg-[#edf5f3] ring-2 ring-[#087F9C]/10"
+                            ? "border-[#1677FF] bg-[#EEF6FF] ring-2 ring-[#1677FF]/10"
                             : "border-slate-200 bg-white hover:border-sky-200 hover:bg-slate-50"
                           }`}
                         >
-                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-[#087F9C] text-white" : "bg-slate-100 text-slate-500"}`}>
+                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-[#1677FF] text-white" : "bg-slate-100 text-slate-500"}`}>
                             <Icon className="h-4 w-4" />
                           </span>
                           <span>
@@ -288,7 +288,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                       value={difficultyEntryId}
                       onChange={event => setDifficultyEntryId(event.target.value)}
                       disabled={generating}
-                      className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-[#00A6FB] focus:ring-2 focus:ring-sky-100"
+                      className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-[#00C8FF] focus:ring-2 focus:ring-sky-100"
                     >
                       {client.difficultyAssessments?.map(entry => (
                         <option key={entry.id} value={entry.id}>
@@ -306,7 +306,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                       type="button"
                       onClick={() => setDetail("concise")}
                       disabled={generating}
-                      className={`rounded-md px-3 py-2.5 text-xs font-semibold transition ${detail === "concise" ? "bg-white text-[#006AA3] shadow-sm" : "text-slate-500"}`}
+                      className={`rounded-md px-3 py-2.5 text-xs font-semibold transition ${detail === "concise" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500"}`}
                     >
                       精简决策版
                     </button>
@@ -314,7 +314,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                       type="button"
                       onClick={() => setDetail("full")}
                       disabled={generating}
-                      className={`rounded-md px-3 py-2.5 text-xs font-semibold transition ${detail === "full" ? "bg-white text-[#006AA3] shadow-sm" : "text-slate-500"}`}
+                      className={`rounded-md px-3 py-2.5 text-xs font-semibold transition ${detail === "full" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500"}`}
                     >
                       审计附录版
                     </button>
@@ -332,14 +332,14 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                 {(job || generating) && (
                   <div className="mt-5 rounded-lg border border-sky-100 bg-sky-50/70 px-4 py-3">
                     <div className="flex items-center justify-between gap-3 text-xs">
-                      <span className="flex items-center gap-2 font-semibold text-[#005B8A]">
+                      <span className="flex items-center gap-2 font-semibold text-[#003EB3]">
                         {job?.status === "succeeded" ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Loader2 className="h-4 w-4 animate-spin" />}
                         {job?.stage || "正在提交报告任务"}
                       </span>
-                      <span className="font-mono font-bold text-[#005B8A]">{job?.progress || 0}%</span>
+                      <span className="font-mono font-bold text-[#003EB3]">{job?.progress || 0}%</span>
                     </div>
                     <div className="mt-2 h-2 overflow-hidden rounded-full bg-white ring-1 ring-sky-100">
-                      <div className="h-full rounded-full bg-[#0D9879] transition-all duration-500" style={{ width: `${job?.progress || 4}%` }} />
+                      <div className="h-full rounded-full bg-[#16C79A] transition-all duration-500" style={{ width: `${job?.progress || 4}%` }} />
                     </div>
                   </div>
                 )}
@@ -365,7 +365,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                 type="button"
                 onClick={generateReport}
                 disabled={!canGenerate || generating}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#087F9C] bg-[#087F9C] px-6 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#066B83] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#1677FF] bg-[#1677FF] px-6 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#0958D9] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 {generating ? "正在生成" : "生成并下载 PDF"}

@@ -17,7 +17,7 @@ export function RechargeButton() {
       <button
         onClick={() => setOpen(true)}
         title="申请充值积分"
-        className="inline-flex items-center gap-1 rounded-lg border border-[#087F9C] bg-[#087F9C] px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-[#066B83]"
+        className="inline-flex items-center gap-1 rounded-lg border border-[#1677FF] bg-gradient-to-r from-[#1677FF] to-[#00C8FF] px-2.5 py-1.5 text-[11px] font-medium text-white shadow-sm shadow-blue-500/20 transition hover:brightness-105"
       >
         <Plus className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">申请充值</span>
@@ -76,17 +76,17 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
         >
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 z-10 p-1.5 rounded-lg hover:bg-slate-100 transition"
+            className="absolute top-4 right-4 z-10 p-1.5 rounded-lg text-white/70 hover:bg-white/10 hover:text-white transition"
             aria-label="关闭"
           >
-            <X className="h-4 w-4 text-slate-500" />
+            <X className="h-4 w-4" />
           </button>
 
-          <div className="shrink-0 flex items-center gap-3 border-b border-slate-100 px-5 py-4 sm:px-7">
-            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#C79A3B] shadow-sm">
+          <div className="shrink-0 flex items-center gap-3 border-b border-white/10 bg-[#001D66] px-5 py-4 text-white sm:px-7">
+            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00C8FF] shadow-sm">
               <Sparkles className="h-5 w-5 text-white" />
             </span>
-            <h2 className="geo-display-title pr-9 text-xl text-slate-900">
+            <h2 className="geo-display-title pr-9 text-xl text-white">
               申请积分充值
             </h2>
           </div>
@@ -110,7 +110,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 )}
                 <button
                   onClick={onClose}
-                  className="mt-6 w-full rounded-lg bg-[#087F9C] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#066B83]"
+                  className="mt-6 w-full rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00C8FF] py-2.5 text-sm font-medium text-white transition hover:brightness-105"
                 >
                   好的
                 </button>
@@ -121,15 +121,15 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 选择套餐并完成付款后提交申请。管理员核对到账后审批，审批通过后积分立即到账。
               </p>
 
-              <div className="mt-4 rounded-lg bg-[#edf5f3] px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-[#cfe3df]">
+              <div className="mt-4 rounded-lg bg-[#EEF6FF] px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-[#BAE0FF]">
                 <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-900">
-                  <CreditCard className="h-3.5 w-3.5 text-[#0077B6]" />
+                  <CreditCard className="h-3.5 w-3.5 text-[#1677FF]" />
                   付款说明
                 </div>
                 <p>{RECHARGE_PAYMENT_INFO.notice}</p>
                 <p className="mt-2 text-[11px] text-slate-500">
                   建议付款备注填写注册邮箱和套餐名称，便于管理员核对。提交充值申请即表示你理解积分仅用于平台服务消耗，并同意
-                  <Link href="/recharge-rules" target="_blank" className="mx-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+                  <Link href="/recharge-rules" target="_blank" className="mx-1 font-medium text-[#0958D9] hover:text-[#003EB3]">
                     充值与退款规则
                   </Link>
                   。首购体验包每个账号仅限提交一次。
@@ -149,7 +149,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                       onClick={() => setPackageKey(pkg.key)}
                       className={`w-full rounded-xl border px-4 py-3 text-left transition ${
                         selected
-                          ? "border-[#087F9C] bg-[#edf5f3] ring-2 ring-[#087F9C]/10"
+                          ? "border-[#1677FF] bg-[#EEF6FF] ring-2 ring-[#1677FF]/10"
                           : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
                       }`}
                     >
@@ -167,7 +167,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                         </span>
                         <span className="shrink-0 text-right">
                           <span className="block text-sm font-bold text-slate-900">{formatYuan(pkg.priceCents)}</span>
-                          <span className="block font-mono text-xs text-[#006AA3]">+{pkg.credits} 积分</span>
+                          <span className="block font-mono text-xs text-[#0958D9]">+{pkg.credits} 积分</span>
                         </span>
                       </span>
                     </button>
@@ -181,7 +181,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               <select
                 value={paymentMethod}
                 onChange={e => setPaymentMethod(e.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#087F9C] focus:ring-2 focus:ring-[#087F9C]/15"
+                className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15"
               >
                 <option value="manual_transfer">人工转账 / 对公付款</option>
                 <option value="wechat">微信支付</option>
@@ -202,7 +202,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               </label>
               <input
                 name="payerName"
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
                 placeholder="例如：公司名称、微信昵称、支付宝实名"
               />
 
@@ -211,7 +211,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               </label>
               <input
                 name="paymentReference"
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
                 placeholder="例如：转账单号、交易号、付款截图链接"
               />
 
@@ -220,7 +220,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               </label>
               <input
                 name="contact"
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
                 placeholder="例如：手机号、微信号、邮箱"
               />
 
@@ -230,7 +230,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               <textarea
                 name="note"
                 rows={2}
-                className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-[#0077B6]/20"
+                className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
                 placeholder="例如：已对公付款 / 微信昵称 / 转账时间"
               />
 
@@ -259,7 +259,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 <button
                   type="submit"
                   disabled={pending}
-                  className="flex-1 py-2.5 rounded-xl bg-[#087F9C] text-white text-sm font-medium hover:shadow-lg hover:shadow-blue-300/40 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 transition-all"
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-white text-sm font-medium hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   {pending ? "提交中..." : "提交申请"}
                 </button>
@@ -358,7 +358,7 @@ function PaymentMethodInfo({
     return (
       <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-slate-200">
         <div className="mb-2 flex items-center gap-1.5 font-semibold text-slate-900">
-          <QrCode className="h-3.5 w-3.5 text-[#0077B6]" />
+          <QrCode className="h-3.5 w-3.5 text-[#1677FF]" />
           {paymentMethod === "wechat" ? "微信收款码" : "支付宝收款码"}
         </div>
         {selectedQrCode ? (

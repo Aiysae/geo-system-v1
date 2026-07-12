@@ -82,10 +82,10 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
       <CardHeader className="pb-4">
         <CardTitle className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:text-base">
           <div className="flex items-center gap-3">
-            <span className="geo-module-icon bg-[#6656A8]">
+            <span className="geo-module-icon bg-gradient-to-br from-[#2F54EB] to-[#597EF7]">
               <Radar className="h-5 w-5 text-white" />
             </span>
-            <span className="geo-display-title min-w-0 text-lg leading-snug text-[#38305F]">
+            <span className="geo-display-title min-w-0 text-lg leading-snug text-[#1D39C4]">
               多维 AI 诊断面板
             </span>
           </div>
@@ -96,7 +96,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
               onClick={run}
               disabled={loading || !client.ourBrand.trim()}
               variant={diag ? "outline" : "default"}
-              className={diag ? "w-full gap-1.5 sm:w-auto" : "w-full gap-1.5 border-[#6656A8] bg-[#6656A8] hover:border-[#56478F] hover:bg-[#56478F] sm:w-auto"}
+              className={diag ? "w-full gap-1.5 sm:w-auto" : "w-full gap-1.5 border-[#2F54EB] bg-[#2F54EB] hover:border-[#1D39C4] hover:bg-[#1D39C4] sm:w-auto"}
             >
               {loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

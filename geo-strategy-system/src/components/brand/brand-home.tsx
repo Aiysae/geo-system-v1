@@ -49,9 +49,9 @@ export default function BrandHome({ user }: BrandHomeProps) {
   const primaryLabel = user ? "进入 GEO 工作台" : "登录使用"
 
   return (
-    <div className="min-h-screen bg-[#F3F8F7] text-[#081C24]">
-      <section className="relative min-h-[calc(100svh-72px)] overflow-hidden bg-[#061A22] text-white">
-        <div className="absolute inset-y-0 right-0 w-[12%] bg-[#0A899E]" aria-hidden="true" />
+    <div className="min-h-screen bg-[#F5F9FF] text-[#102A43]">
+      <section className="relative min-h-[calc(100svh-72px)] overflow-hidden bg-[#001D66] text-white">
+        <div className="absolute inset-y-0 right-0 w-[12%] bg-gradient-to-b from-[#00C8FF] via-[#1677FF] to-[#2F54EB]" aria-hidden="true" />
         <div className="absolute inset-y-0 right-[12%] w-px bg-white/16" aria-hidden="true" />
         <div className="brand-entry-watermark absolute -right-[28%] top-[12%] h-[46%] w-[76%] md:-right-[5%] md:top-[4%] md:h-[82%] md:w-[62%]" aria-hidden="true">
           <Image
@@ -97,7 +97,7 @@ export default function BrandHome({ user }: BrandHomeProps) {
                   ) : null}
                   <Link
                     href="/workspace"
-                    className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-3.5 text-sm font-semibold text-[#07313D] transition-colors hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                    className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-3.5 text-sm font-semibold text-[#062B57] transition-colors hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
                   >
                     <span className="hidden sm:inline">进入工作台</span>
                     <span className="sm:hidden">进入</span>
@@ -114,7 +114,7 @@ export default function BrandHome({ user }: BrandHomeProps) {
                   </Link>
                   <Link
                     href="/sign-up?redirect_url=/"
-                    className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-3.5 text-sm font-semibold text-[#07313D] transition-colors hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                    className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-3.5 text-sm font-semibold text-[#062B57] transition-colors hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
                   >
                     注册账号
                     <ArrowRight className="hidden h-4 w-4 sm:block" />
@@ -128,7 +128,7 @@ export default function BrandHome({ user }: BrandHomeProps) {
         <div className="relative z-10 mx-auto flex min-h-[calc(100svh-148px)] max-w-7xl items-center px-4 pb-24 pt-12 md:px-8 md:pb-36 md:pt-16">
           <div className="brand-entry-reveal max-w-4xl">
             <div className="mb-7 flex items-center gap-3 text-[11px] font-semibold uppercase text-cyan-200/85">
-              <span className="h-px w-12 bg-[#C79A3B]" />
+              <span className="h-px w-12 bg-[#00C8FF]" />
               SHITU GEO Intelligence
             </div>
             <h1 className="geo-display-title text-5xl leading-[1.08] text-white sm:text-6xl md:text-8xl">
@@ -144,7 +144,7 @@ export default function BrandHome({ user }: BrandHomeProps) {
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Link
                 href={primaryHref}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#0DA5BC] px-5 text-sm font-semibold text-white shadow-[0_14px_30px_-20px_rgba(13,165,188,0.9)] transition-colors hover:bg-[#0B91A6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00C8FF] px-5 text-sm font-semibold text-white shadow-[0_16px_34px_-20px_rgba(0,200,255,0.72)] transition-[filter,box-shadow] hover:brightness-105 hover:shadow-[0_18px_38px_-20px_rgba(22,119,255,0.78)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
               >
                 {user ? <Sparkles className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}
                 {primaryLabel}
@@ -168,27 +168,25 @@ export default function BrandHome({ user }: BrandHomeProps) {
           </div>
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 z-20 border-t border-white/12 bg-[#071F28]/96">
-          <div className="overflow-x-auto overscroll-x-contain">
-            <div className="mx-auto grid min-w-[720px] max-w-7xl grid-cols-6 px-4 md:min-w-0 md:px-8">
+        <div className="absolute inset-x-0 bottom-0 z-20 border-t border-white/12 bg-[#001A4F]/96">
+          <div className="mx-auto grid max-w-7xl grid-cols-3 px-4 md:grid-cols-6 md:px-8">
               {CAPABILITIES.map(({ label, meta, Icon }, index) => (
                 <div
                   key={label}
-                  className={`flex min-h-[72px] items-center gap-2.5 px-3 py-3 sm:px-4 ${index > 0 ? "border-l border-white/10" : ""}`}
+                  className={`flex min-h-[52px] items-center gap-2 px-2 py-2 sm:min-h-[72px] sm:gap-2.5 sm:px-4 sm:py-3 ${index % 3 > 0 ? "border-l border-white/10" : ""} ${index >= 3 ? "border-t border-white/10 md:border-t-0" : ""} ${index > 0 && index % 3 === 0 ? "md:border-l md:border-white/10" : ""}`}
                 >
-                  <Icon className="h-4 w-4 shrink-0 text-cyan-300" />
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-cyan-300 sm:h-4 sm:w-4" />
                   <span className="min-w-0">
-                    <span className="block truncate text-xs font-semibold text-white sm:text-sm">{label}</span>
+                    <span className="block truncate text-[11px] font-semibold text-white sm:text-sm">{label}</span>
                     <span className="mt-0.5 hidden truncate text-[10px] text-white/42 lg:block">{meta}</span>
                   </span>
                 </div>
               ))}
-            </div>
           </div>
         </div>
       </section>
 
-      <section className="bg-[#0A899E] text-white">
+      <section className="bg-gradient-to-r from-[#003EB3] via-[#1677FF] to-[#00C8FF] text-white">
         <div className="mx-auto flex min-h-[72px] max-w-7xl items-center justify-between gap-4 px-4 py-4 md:px-8">
           <p className="text-sm font-medium sm:text-base">
             从 AI 原始回答出发，看见品牌在生成式搜索中的真实位置。
@@ -197,11 +195,11 @@ export default function BrandHome({ user }: BrandHomeProps) {
         </div>
       </section>
 
-      <section className="bg-[#F3F8F7] py-16 md:py-24" aria-labelledby="workspace-preview-title">
+      <section className="bg-[#F5F9FF] py-16 md:py-24" aria-labelledby="workspace-preview-title">
         <div className="mx-auto max-w-7xl px-4 md:px-8">
           <div className="max-w-3xl">
-            <div className="text-[11px] font-semibold uppercase text-[#087F9C]">Real workspace</div>
-            <h2 id="workspace-preview-title" className="geo-display-title mt-3 text-3xl leading-tight text-[#081C24] sm:text-4xl md:text-5xl">
+            <div className="text-[11px] font-semibold uppercase text-[#1677FF]">Real workspace</div>
+            <h2 id="workspace-preview-title" className="geo-display-title mt-3 text-3xl leading-tight text-[#102A43] sm:text-4xl md:text-5xl">
               从疑问句，到可执行的增长判断
             </h2>
             <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
@@ -209,31 +207,32 @@ export default function BrandHome({ user }: BrandHomeProps) {
             </p>
           </div>
 
-          <div className="mt-10 overflow-hidden rounded-lg border border-[#C9DAD8] bg-white shadow-[0_30px_70px_-50px_rgba(8,28,36,0.7)]">
-            <div className="flex h-10 items-center gap-2 border-b border-slate-200 bg-[#081C24] px-4">
-              <span className="h-2 w-2 rounded-full bg-[#D7B35A]" />
-              <span className="h-2 w-2 rounded-full bg-[#0DA5BC]" />
-              <span className="h-2 w-2 rounded-full bg-[#54B79C]" />
+          <div className="mt-10 overflow-hidden rounded-lg border border-[#C9DEFF] bg-white shadow-[0_30px_70px_-50px_rgba(9,88,217,0.48)]">
+            <div className="flex h-10 items-center gap-2 border-b border-[#1D4FA3] bg-[#001D66] px-4">
+              <span className="h-2 w-2 rounded-full bg-[#FF5B6E]" />
+              <span className="h-2 w-2 rounded-full bg-[#00C8FF]" />
+              <span className="h-2 w-2 rounded-full bg-[#16C79A]" />
               <span className="ml-2 text-[10px] font-medium text-white/45">shitugeo.top / workspace · 演示数据</span>
             </div>
-            <div className="relative aspect-[16/9] bg-[#EAF1F0]">
+            <div className="relative aspect-[16/9] bg-[#EAF3FF]">
               <Image
                 src="/brand/workspace-preview.png"
                 alt="势途 GEO 真实工作台界面"
                 fill
+                loading="eager"
                 sizes="(max-width: 768px) 100vw, 1200px"
                 className="object-cover object-top"
               />
             </div>
           </div>
 
-          <div className="mt-12 grid border-y border-[#C9DAD8] md:grid-cols-3">
+          <div className="mt-12 grid border-y border-[#C9DEFF] md:grid-cols-3">
             {OUTCOMES.map((outcome, index) => (
               <div
                 key={outcome.title}
-                className={`py-7 md:px-7 ${index > 0 ? "border-t border-[#C9DAD8] md:border-l md:border-t-0" : ""}`}
+                className={`py-7 md:px-7 ${index > 0 ? "border-t border-[#C9DEFF] md:border-l md:border-t-0" : ""}`}
               >
-                <div className="geo-display-title text-2xl text-[#0B5967]">{outcome.title}</div>
+                <div className="geo-display-title text-2xl text-[#003EB3]">{outcome.title}</div>
                 <p className="mt-3 text-sm leading-6 text-slate-600">{outcome.description}</p>
               </div>
             ))}
@@ -241,7 +240,7 @@ export default function BrandHome({ user }: BrandHomeProps) {
         </div>
       </section>
 
-      <section className="bg-[#0A899E] text-white">
+      <section className="bg-gradient-to-r from-[#2F54EB] via-[#1677FF] to-[#00C8FF] text-white">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-6 px-4 py-12 sm:flex-row sm:items-center md:px-8 md:py-14">
           <div>
             <div className="text-[11px] font-semibold uppercase text-cyan-100/75">AI visibility is market visibility</div>
@@ -251,7 +250,7 @@ export default function BrandHome({ user }: BrandHomeProps) {
           </div>
           <Link
             href={primaryHref}
-            className="inline-flex h-12 shrink-0 items-center gap-2 rounded-md bg-white px-5 text-sm font-semibold text-[#07313D] transition-colors hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="inline-flex h-12 shrink-0 items-center gap-2 rounded-md bg-white px-5 text-sm font-semibold text-[#062B57] transition-colors hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
           >
             {primaryLabel}
             <ArrowRight className="h-4 w-4" />

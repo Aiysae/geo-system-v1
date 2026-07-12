@@ -56,8 +56,8 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
         title: "蓝海机会",
         panel: "from-cyan-500/25 via-blue-500/12 to-transparent",
         barFrom: "#10B981",
-        barMid: "#00A6FB",
-        barTo: "#00D4FF",
+        barMid: "#00C8FF",
+        barTo: "#00C8FF",
         active: "bg-gradient-to-r from-emerald-500 to-cyan-500 text-white shadow shadow-cyan-500/20",
       }
 

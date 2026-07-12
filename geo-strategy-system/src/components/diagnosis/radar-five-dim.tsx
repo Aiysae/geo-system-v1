@@ -40,17 +40,17 @@ export default function RadarFiveDim({ dimensions }: Props) {
         <RadarChart data={data} margin={{ top: 16, right: 36, bottom: 16, left: 36 }}>
           <defs>
             <linearGradient id="radarMainFill" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#22A8B5" stopOpacity={0.52} />
-              <stop offset="60%" stopColor="#087F9C" stopOpacity={0.44} />
-              <stop offset="100%" stopColor="#0D9879" stopOpacity={0.38} />
+              <stop offset="0%" stopColor="#00C8FF" stopOpacity={0.52} />
+              <stop offset="60%" stopColor="#1677FF" stopOpacity={0.44} />
+              <stop offset="100%" stopColor="#6C5CE7" stopOpacity={0.38} />
             </linearGradient>
             <linearGradient id="radarMainStroke" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#087F9C" />
-              <stop offset="100%" stopColor="#0D9879" />
+              <stop offset="0%" stopColor="#1677FF" />
+              <stop offset="100%" stopColor="#2F54EB" />
             </linearGradient>
             <radialGradient id="radarBgGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#0D9879" stopOpacity={0.1} />
-              <stop offset="100%" stopColor="#087F9C" stopOpacity={0} />
+              <stop offset="0%" stopColor="#1677FF" stopOpacity={0.1} />
+              <stop offset="100%" stopColor="#1677FF" stopOpacity={0} />
             </radialGradient>
           </defs>
 
@@ -90,8 +90,8 @@ export default function RadarFiveDim({ dimensions }: Props) {
             strokeWidth={2.5}
             fill="url(#radarMainFill)"
             fillOpacity={0.6}
-            dot={{ fill: "#fbbf24", stroke: "#fff", strokeWidth: 2, r: 4 }}
-            activeDot={{ r: 6, fill: "#f59e0b", stroke: "#fff", strokeWidth: 2 }}
+            dot={{ fill: "#00C8FF", stroke: "#fff", strokeWidth: 2, r: 4 }}
+            activeDot={{ r: 6, fill: "#1677FF", stroke: "#fff", strokeWidth: 2 }}
             isAnimationActive
             animationDuration={900}
           />
@@ -102,7 +102,7 @@ export default function RadarFiveDim({ dimensions }: Props) {
               borderRadius: 10,
               fontSize: 12,
               padding: "8px 12px",
-              boxShadow: "0 8px 24px -8px rgba(0,75,115,0.18)",
+              boxShadow: "0 8px 24px -8px rgba(22,119,255,0.22)",
             }}
             formatter={(value, name) => [`${value} 分`, name]}
           />

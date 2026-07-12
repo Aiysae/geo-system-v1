@@ -12,7 +12,7 @@ export function AiSettingsManager({ settings }: { settings: AiProviderPublicSett
     <section className="mt-8 rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm overflow-hidden">
       <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-4 sm:px-5">
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#006AA3] ring-1 ring-blue-100">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#0958D9] ring-1 ring-blue-100">
             <KeyRound className="h-4 w-4" />
           </span>
           <div>
@@ -78,7 +78,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
                   type="button"
                   title={preset.description}
                   onClick={() => applyPreset(preset)}
-                  className="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-[#006AA3] transition hover:border-[#0077B6] hover:bg-blue-100"
+                  className="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-[#0958D9] transition hover:border-[#1677FF] hover:bg-blue-100"
                 >
                   {preset.label}
                 </button>
@@ -94,7 +94,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
               type="password"
               autoComplete="off"
               placeholder={setting.hasApiKey ? "留空保留当前 Key" : "粘贴 API Key"}
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
             />
           </label>
 
@@ -105,7 +105,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
               value={model}
               onChange={event => setModel(event.target.value)}
               placeholder="模型名或 endpoint id"
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
             />
           </label>
 
@@ -116,7 +116,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
               value={baseUrl}
               onChange={event => setBaseUrl(event.target.value)}
               placeholder="https://api.example.com"
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
             />
           </label>
 
@@ -127,7 +127,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
               value={chatPath}
               onChange={event => setChatPath(event.target.value)}
               placeholder="/v1/chat/completions"
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
             />
           </label>
 
@@ -141,7 +141,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
               step={30}
               value={timeout}
               onChange={event => setTimeoutValue(Number(event.target.value))}
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
             />
           </label>
 
@@ -155,7 +155,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
                     type="checkbox"
                     checked={extra[field.key] === true}
                     onChange={event => setExtra(prev => ({ ...prev, [field.key]: event.target.checked }))}
-                    className="accent-[#0077B6]"
+                    className="accent-[#1677FF]"
                   />
                 </span>
               ) : (
@@ -164,7 +164,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
                   value={typeof extra[field.key] === "string" ? String(extra[field.key]) : ""}
                   onChange={event => setExtra(prev => ({ ...prev, [field.key]: event.target.value }))}
                   placeholder={field.placeholder}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
                 />
               )}
             </label>
@@ -179,7 +179,7 @@ function AiSettingForm({ setting }: { setting: AiProviderPublicSetting }) {
             <button
               type="submit"
               disabled={pending}
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#087F9C] px-4 text-xs font-medium text-white transition hover:shadow-md hover:shadow-blue-200/60 disabled:opacity-60"
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#1677FF] px-4 text-xs font-medium text-white transition hover:shadow-md hover:shadow-blue-200/60 disabled:opacity-60"
             >
               <Save className="h-3.5 w-3.5" />
               {pending ? "保存中..." : "保存配置"}

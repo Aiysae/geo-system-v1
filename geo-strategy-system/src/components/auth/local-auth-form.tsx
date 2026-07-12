@@ -67,7 +67,7 @@ export function LocalAuthForm({
   return (
     <div className="w-full max-w-md rounded-lg bg-white px-7 py-8 shadow-[0_24px_64px_-34px_rgba(0,0,0,0.7)] ring-1 ring-white/30">
       <div className="mb-7">
-        <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[#087F9C] shadow-sm">
+        <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00C8FF] shadow-md shadow-blue-500/20">
           <LockKeyhole className="h-5 w-5 text-white" />
         </div>
         <h1 className="geo-display-title mt-4 text-3xl text-slate-950">
@@ -87,7 +87,7 @@ export function LocalAuthForm({
               <input
                 name="name"
                 autoComplete="name"
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#087F9C] focus:ring-2 focus:ring-[#087F9C]/15"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15"
                 placeholder="例如：王总"
               />
             </span>
@@ -103,7 +103,7 @@ export function LocalAuthForm({
                 name="inviteCode"
                 required
                 autoComplete="off"
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#087F9C] focus:ring-2 focus:ring-[#087F9C]/15"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15"
                 placeholder="请输入管理员提供的邀请码"
               />
             </span>
@@ -119,7 +119,7 @@ export function LocalAuthForm({
               type="email"
               required
               autoComplete="email"
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#087F9C] focus:ring-2 focus:ring-[#087F9C]/15"
+              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15"
               placeholder="name@example.com"
             />
           </span>
@@ -129,7 +129,7 @@ export function LocalAuthForm({
           <span className="mb-1.5 flex items-center justify-between gap-2 text-xs font-medium text-slate-600">
             <span>密码</span>
             {!isSignUp && (
-              <Link href="/forgot-password" className="font-medium text-[#006AA3] hover:text-[#004B73]">
+              <Link href="/forgot-password" className="font-medium text-[#0958D9] hover:text-[#003EB3]">
                 忘记密码？
               </Link>
             )}
@@ -142,7 +142,7 @@ export function LocalAuthForm({
               required
               minLength={8}
               autoComplete={isSignUp ? "new-password" : "current-password"}
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#087F9C] focus:ring-2 focus:ring-[#087F9C]/15"
+              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15"
               placeholder={isSignUp ? "至少 8 位，含字母和数字" : "请输入密码"}
             />
           </span>
@@ -154,18 +154,18 @@ export function LocalAuthForm({
               name="termsAccepted"
               type="checkbox"
               required
-              className="mt-1 h-3.5 w-3.5 rounded border-slate-300 text-[#006AA3] focus:ring-[#0077B6]"
+              className="mt-1 h-3.5 w-3.5 rounded border-slate-300 text-[#0958D9] focus:ring-[#1677FF]"
             />
             <span>
               我已阅读并同意
-              <Link href="/terms" target="_blank" className="mx-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+              <Link href="/terms" target="_blank" className="mx-1 font-medium text-[#0958D9] hover:text-[#003EB3]">
                 服务协议
               </Link>
-              <Link href="/privacy" target="_blank" className="mr-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+              <Link href="/privacy" target="_blank" className="mr-1 font-medium text-[#0958D9] hover:text-[#003EB3]">
                 隐私政策
               </Link>
               和
-              <Link href="/recharge-rules" target="_blank" className="ml-1 font-medium text-[#006AA3] hover:text-[#004B73]">
+              <Link href="/recharge-rules" target="_blank" className="ml-1 font-medium text-[#0958D9] hover:text-[#003EB3]">
                 充值规则
               </Link>
             </span>
@@ -181,7 +181,7 @@ export function LocalAuthForm({
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#087F9C] text-sm font-semibold text-white transition-colors hover:bg-[#066B83] disabled:cursor-not-allowed disabled:opacity-70"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-sm font-semibold text-white shadow-md shadow-blue-500/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
           {isSignUp ? "注册并进入系统" : "登录"}
@@ -192,7 +192,7 @@ export function LocalAuthForm({
         {isSignUp ? "已有账号？" : "还没有账号？"}
         <Link
           href={`${isSignUp ? "/sign-in" : "/sign-up"}?redirect_url=${encodeURIComponent(nextUrl)}`}
-          className="ml-1 font-medium text-[#006AA3] hover:text-[#004B73]"
+          className="ml-1 font-medium text-[#0958D9] hover:text-[#003EB3]"
         >
           {isSignUp ? "去登录" : "去注册"}
         </Link>

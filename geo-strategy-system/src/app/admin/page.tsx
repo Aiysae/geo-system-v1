@@ -49,43 +49,43 @@ export default async function AdminPage() {
 
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-sm shadow-slate-200/40">
+      <header className="geo-utility-header sticky top-0 z-30 border-b backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="w-10 h-10 rounded-xl bg-[#087F9C] flex items-center justify-center shadow-sm">
+            <span className="geo-utility-header-icon w-10 h-10 rounded-xl flex items-center justify-center shadow-sm">
               <ShieldCheck className="h-5 w-5 text-white" />
             </span>
             <div>
-              <div className="geo-brand-title text-lg text-[#12343C]">
+              <div className="geo-utility-header-title geo-brand-title text-lg">
                 势途 GEO · 管理后台
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">用户与积分管理</div>
+              <div className="geo-utility-header-subtitle text-[11px] mt-0.5">用户与积分管理</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Link
               href="/admin/metrics"
-              className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
             >
               运营监控
             </Link>
             <Link
               href="/admin/recharge"
-              className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
             >
               充值审批 / 模型配置
             </Link>
             <Link
               href="/admin/ledger"
-              className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
             >
               积分流水
             </Link>
             <Link
               href="/admin/password-resets"
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+              className="geo-utility-header-action inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition"
             >
-              <KeyRound className="h-3.5 w-3.5 text-[#0077B6]" />
+              <KeyRound className="h-3.5 w-3.5 text-[#1677FF]" />
               密码重置
               {pendingPasswordResetCount > 0 && (
                 <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-700">
@@ -95,7 +95,7 @@ export default async function AdminPage() {
             </Link>
             <Link
               href="/workspace"
-              className="text-xs font-medium px-3 py-2 rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 transition"
+              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
             >
               返回工作台
             </Link>
@@ -166,7 +166,7 @@ export default async function AdminPage() {
                   <tr key={user.id} className="border-t border-slate-100 align-top">
                     <td className="px-4 py-4">
                       <div className="flex items-start gap-3">
-                        <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-[#006AA3] ring-1 ring-blue-100">
+                        <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-[#0958D9] ring-1 ring-blue-100">
                           <UsersRound className="h-4 w-4" />
                         </span>
                         <div className="min-w-0">
@@ -203,7 +203,7 @@ export default async function AdminPage() {
                     <td className="px-4 py-4">
                       <Link
                         href={`/admin/users/${user.id}`}
-                        className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-[#0077B6]"
+                        className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-[#1677FF]"
                       >
                         <ReceiptText className="h-3.5 w-3.5" />
                         查看

@@ -25,7 +25,7 @@ export default function ModelTabs({ data }: Props) {
           <TabsTrigger
             key={t.key}
             value={t.key}
-            className="gap-1.5 text-xs sm:text-sm data-[state=active]:bg-[#004B73] data-[state=active]:text-white rounded-lg"
+            className="gap-1.5 text-xs sm:text-sm data-[state=active]:bg-[#003EB3] data-[state=active]:text-white rounded-lg"
           >
             <ModelAvatar model={t.key} size="xs" />
             {t.label}

@@ -62,7 +62,7 @@ export function CreditsAdjustForm({
         onChange={event => setAmount(event.target.value)}
         disabled={disabled || pending}
         placeholder="积分"
-        className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-[#0077B6] focus:ring-2 focus:ring-blue-100"
+        className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
       />
       <button
         type="button"

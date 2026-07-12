@@ -20,7 +20,7 @@ interface Props {
   overallRate: number
 }
 
-const COLORS = ["#087F9C", "#0D9879", "#6656A8", "#7E8D94", "#C79A3B", "#D14D64"]
+const COLORS = ["#1677FF", "#13C2C2", "#2F54EB", "#6C5CE7", "#16C79A", "#FF5B6E"]
 
 export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
   const validRates = perModelRate.filter(item => item.total > 0)
@@ -70,13 +70,13 @@ export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
             domain={[0, (dataMax: number) => Math.max(20, Math.ceil(dataMax / 10) * 10 + 10)]}
           />
           <Tooltip
-            cursor={{ fill: "rgba(0,119,182,0.05)" }}
+            cursor={{ fill: "rgba(22,119,255,0.06)" }}
             contentStyle={{
               border: "1px solid #e2e8f0",
               borderRadius: 10,
               fontSize: 12,
               padding: "8px 12px",
-              boxShadow: "0 8px 24px -8px rgba(0,75,115,0.18)",
+              boxShadow: "0 8px 24px -8px rgba(22,119,255,0.22)",
             }}
             formatter={(value, name, item) => {
               const payload = (item as { payload?: { mentions?: number; total?: number } } | undefined)?.payload

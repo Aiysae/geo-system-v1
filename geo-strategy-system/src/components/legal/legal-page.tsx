@@ -19,7 +19,7 @@ export function LegalPage({
 }) {
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="border-b border-cyan-300/15 bg-[#061826]/94 text-white backdrop-blur">
+      <header className="border-b border-cyan-300/15 bg-[#001D66]/94 text-white backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-4 md:px-8">
           <Link href="/" className="text-sm font-bold text-cyan-100">
             势途 GEO

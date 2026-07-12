@@ -234,10 +234,10 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
-          <span className="geo-module-icon bg-[#087F9C]">
+          <span className="geo-module-icon bg-gradient-to-br from-[#1677FF] to-[#00C8FF]">
             <Target className="h-5 w-5 text-white" />
           </span>
-          <span className="geo-display-title min-w-0 text-lg leading-snug text-[#12343C]">
+          <span className="geo-display-title min-w-0 text-lg leading-snug text-[#102A43]">
             关键词渗透率与竞品情报
           </span>
         </CardTitle>
@@ -249,7 +249,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               <div className="text-sm font-semibold text-slate-900">检测配置</div>
               <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围后，结果将在下方按完整页面宽度生成</div>
             </div>
-            <div className="rounded-md bg-[#0A222A] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
+            <div className="rounded-md bg-[#001D66] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
               官方联网 · 纯净盲测
             </div>
           </div>
@@ -470,8 +470,8 @@ function RawAnswersPanel({
                 onClick={() => setActive(m)}
                 className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${
                   currentModel === m
-                    ? "bg-[#087F9C] text-white shadow"
-                    : "bg-white text-slate-600 border border-slate-200 hover:border-[#0077B6]"
+                    ? "bg-[#1677FF] text-white shadow"
+                    : "bg-white text-slate-600 border border-slate-200 hover:border-[#1677FF]"
                 }`}
               >
                 <span className="inline-flex items-center gap-1.5">
@@ -768,16 +768,16 @@ function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
                 href={source.url}
                 target="_blank"
                 rel="noreferrer"
-                className="group flex items-start gap-1.5 rounded border border-white/70 bg-white/75 px-2 py-1.5 text-[10px] text-slate-500 hover:border-cyan-100 hover:text-[#0077B6] min-w-0"
+                className="group flex items-start gap-1.5 rounded border border-white/70 bg-white/75 px-2 py-1.5 text-[10px] text-slate-500 hover:border-cyan-100 hover:text-[#1677FF] min-w-0"
                 title={source.title}
               >
                 <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
                 <span className="shrink-0 font-mono text-slate-400">#{index + 1}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-slate-600 group-hover:text-[#0077B6]">
+                  <span className="block font-medium text-slate-600 group-hover:text-[#1677FF]">
                     {source.title || source.domain}
                   </span>
-                  <span className="block break-all font-mono text-slate-400 group-hover:text-[#0077B6]">
+                  <span className="block break-all font-mono text-slate-400 group-hover:text-[#1677FF]">
                     {source.url}
                   </span>
                 </span>
@@ -811,7 +811,7 @@ function AnswerItem({
       {isLong && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="mt-1.5 text-[11px] font-medium text-[#0077B6] hover:text-[#004B73] transition-colors"
+          className="mt-1.5 text-[11px] font-medium text-[#1677FF] hover:text-[#003EB3] transition-colors"
         >
           {expanded ? "收起完整联网回答" : "展开完整联网回答"}
         </button>

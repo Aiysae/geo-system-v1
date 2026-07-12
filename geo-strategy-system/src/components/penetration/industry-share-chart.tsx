@@ -20,9 +20,9 @@ interface Props {
 }
 
 const TOP_RANK_GRADIENTS = [
-  { from: "#B98725", to: "#E1B85C" },
-  { from: "#7E8D94", to: "#B8C3C7" },
-  { from: "#9C633F", to: "#D49A68" },
+  { from: "#1677FF", to: "#00C8FF" },
+  { from: "#13C2C2", to: "#69E3E0" },
+  { from: "#2F54EB", to: "#7B8CFF" },
 ]
 
 export default function IndustryShareChart({ items, ourBrand, totalSlots }: Props) {
@@ -57,8 +57,8 @@ export default function IndustryShareChart({ items, ourBrand, totalSlots }: Prop
               </linearGradient>
             ))}
             <linearGradient id="barRest" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#2F7180" stopOpacity={0.88} />
-              <stop offset="100%" stopColor="#5C949C" stopOpacity={0.72} />
+              <stop offset="0%" stopColor="#6E94C5" stopOpacity={0.88} />
+              <stop offset="100%" stopColor="#A9C3E5" stopOpacity={0.72} />
             </linearGradient>
           </defs>
           <XAxis type="number" hide />
@@ -72,13 +72,13 @@ export default function IndustryShareChart({ items, ourBrand, totalSlots }: Prop
             tickLine={false}
           />
           <Tooltip
-            cursor={{ fill: "rgba(0,119,182,0.05)" }}
+            cursor={{ fill: "rgba(22,119,255,0.06)" }}
             contentStyle={{
               border: "1px solid #e2e8f0",
               borderRadius: 10,
               fontSize: 12,
               padding: "8px 12px",
-              boxShadow: "0 8px 24px -8px rgba(0,75,115,0.18)",
+              boxShadow: "0 8px 24px -8px rgba(22,119,255,0.22)",
             }}
             formatter={(value, _name, item) => {
               const payload = (

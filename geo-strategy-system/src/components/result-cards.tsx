@@ -14,8 +14,8 @@ export function DomainStrategyCard({ items }: { items: DomainStrategy[] }) {
     <Card className="border-0 shadow-xl shadow-slate-200/50 bg-white/90 backdrop-blur">
       <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-2.5 text-lg">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#004B73]/10 to-blue-100/50 flex items-center justify-center">
-            <Globe className="h-4 w-4 text-[#004B73]" />
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#003EB3]/10 to-blue-100/50 flex items-center justify-center">
+            <Globe className="h-4 w-4 text-[#003EB3]" />
           </div>
           域名策略矩阵
         </CardTitle>
@@ -29,7 +29,7 @@ export function DomainStrategyCard({ items }: { items: DomainStrategy[] }) {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <span className="font-mono text-sm font-semibold text-[#004B73] tracking-tight">
+                  <span className="font-mono text-sm font-semibold text-[#003EB3] tracking-tight">
                     {item.domain}
                   </span>
                   <p className="text-sm text-slate-600 mt-2 leading-relaxed">
@@ -50,7 +50,7 @@ export function DomainStrategyCard({ items }: { items: DomainStrategy[] }) {
             href={DNSPOD_LINK}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-[#004B73] hover:text-[#006699] font-medium transition-colors"
+            className="inline-flex items-center gap-1.5 text-sm text-[#003EB3] hover:text-[#0958D9] font-medium transition-colors"
           >
             <ExternalLink className="h-3.5 w-3.5" />
             前往腾讯云查询域名是否可注册
@@ -162,8 +162,8 @@ export function MediaDistributionCard({ items }: { items: MediaDistribution[] })
     <Card className="border-0 shadow-xl shadow-slate-200/50 bg-white/90 backdrop-blur">
       <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-2.5 text-lg">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#004B73]/10 to-blue-100/50 flex items-center justify-center">
-            <Radio className="h-4 w-4 text-[#004B73]" />
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#003EB3]/10 to-blue-100/50 flex items-center justify-center">
+            <Radio className="h-4 w-4 text-[#003EB3]" />
           </div>
           国内大模型派系分发策略
         </CardTitle>

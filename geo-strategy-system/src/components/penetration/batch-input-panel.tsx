@@ -226,8 +226,8 @@ export default function BatchInputPanel({
             onClick={() => setInputMode("manual")}
             className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition font-medium ${
               inputMode === "manual"
-                ? "bg-[#087F9C] text-white shadow"
-                : "bg-transparent text-slate-600 hover:text-[#0077B6]"
+                ? "bg-[#1677FF] text-white shadow"
+                : "bg-transparent text-slate-600 hover:text-[#1677FF]"
             }`}
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -336,7 +336,7 @@ export default function BatchInputPanel({
                 key={m}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition text-sm ${
                   checked
-                    ? "border-[#004B73] bg-[#004B73]/5 text-[#004B73]"
+                    ? "border-[#003EB3] bg-[#003EB3]/5 text-[#003EB3]"
                     : "border-slate-200 hover:border-slate-300 text-slate-600"
                 }`}
               >
@@ -344,7 +344,7 @@ export default function BatchInputPanel({
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggleModel(m)}
-                  className="accent-[#004B73]"
+                  className="accent-[#003EB3]"
                 />
                 <ModelAvatar model={m} size="xs" />
                 <span className="font-medium">{MODEL_LABELS[m]}</span>
@@ -414,7 +414,7 @@ export default function BatchInputPanel({
           <Button
             onClick={handleRun}
             disabled={!canRun}
-            className="w-full gap-2 border-0 bg-gradient-to-r from-[#004B73] via-[#0077B6] to-[#00B4D8] px-6 py-5 text-sm font-medium transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 lg:w-auto lg:min-w-[300px]"
+            className="w-full gap-2 border-0 bg-gradient-to-r from-[#003EB3] via-[#1677FF] to-[#00C8FF] px-6 py-5 text-sm font-medium transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 lg:w-auto lg:min-w-[300px]"
           >
             <Play className="h-4 w-4" />
             开始多模型检测 ({client.selectedModels.length} × {questionCount})

@@ -18,15 +18,15 @@ export default function SiteFooter({ className = "" }: SiteFooterProps) {
           <span className="hidden text-slate-300 sm:inline">|</span>
           <span>域名：shitugeo.top</span>
           <span className="hidden text-slate-300 sm:inline">|</span>
-          <Link href="/terms" className="font-medium text-slate-600 transition hover:text-[#004B73]">
+          <Link href="/terms" className="font-medium text-slate-600 transition hover:text-[#003EB3]">
             服务协议
           </Link>
           <span className="hidden text-slate-300 sm:inline">|</span>
-          <Link href="/privacy" className="font-medium text-slate-600 transition hover:text-[#004B73]">
+          <Link href="/privacy" className="font-medium text-slate-600 transition hover:text-[#003EB3]">
             隐私政策
           </Link>
           <span className="hidden text-slate-300 sm:inline">|</span>
-          <Link href="/recharge-rules" className="font-medium text-slate-600 transition hover:text-[#004B73]">
+          <Link href="/recharge-rules" className="font-medium text-slate-600 transition hover:text-[#003EB3]">
             充值规则
           </Link>
           <span className="hidden text-slate-300 sm:inline">|</span>
@@ -34,7 +34,7 @@ export default function SiteFooter({ className = "" }: SiteFooterProps) {
             href="https://beian.miit.gov.cn/"
             target="_blank"
             rel="noreferrer"
-            className="font-medium text-slate-600 transition hover:text-[#004B73]"
+            className="font-medium text-slate-600 transition hover:text-[#003EB3]"
           >
             {ICP_RECORD}
           </a>

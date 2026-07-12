@@ -75,7 +75,7 @@ export function PasswordResetRow({ request }: { request: PasswordResetRequest })
           <button
             type="submit"
             disabled={pending || !canGenerateLink}
-            className="inline-flex w-fit items-center rounded-lg bg-[#006AA3] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#004B73] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex w-fit items-center rounded-lg bg-[#0958D9] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#003EB3] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {pending ? "生成中..." : canGenerateLink ? "生成重置链接" : "不能生成链接"}
           </button>

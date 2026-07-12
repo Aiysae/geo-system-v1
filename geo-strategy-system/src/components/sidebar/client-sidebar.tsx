@@ -44,7 +44,7 @@ export default function ClientSidebar({
 
   return (
     <aside
-      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-64 shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-[#071A20] text-white h-screen flex flex-col overflow-hidden shadow-[10px_0_36px_-28px_rgba(0,0,0,0.9)]`}
+      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-64 shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-gradient-to-b from-[#001743] via-[#002C70] to-[#003B8F] text-white h-screen flex flex-col overflow-hidden shadow-[10px_0_36px_-28px_rgba(0,29,102,0.9)]`}
     >
       <div className="relative px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
@@ -134,12 +134,12 @@ export default function ClientSidebar({
             onClick={() => onSelect(c.id)}
             className={`group flex items-center justify-between rounded-lg px-3 py-2.5 cursor-pointer text-sm transition ${
               activeId === c.id
-                ? "bg-[#087F9C] text-white shadow-sm"
+                ? "bg-gradient-to-r from-[#1677FF] to-[#00AEEA] text-white shadow-sm"
                 : "text-white/72 hover:bg-white/10 hover:text-white"
             }`}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <span className={`h-2 w-2 shrink-0 rounded-full ${activeId === c.id ? "bg-[#E1B85C]" : "bg-cyan-300/45"}`} />
+              <span className={`h-2 w-2 shrink-0 rounded-full ${activeId === c.id ? "bg-white" : "bg-cyan-300/45"}`} />
               <span className="truncate">{c.name}</span>
             </span>
             <button
