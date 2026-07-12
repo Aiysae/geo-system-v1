@@ -158,7 +158,7 @@ export default function ClientSidebar({
 
       <div className="relative px-4 py-3 border-t border-white/10 text-[11px] text-white/45 flex items-center gap-1.5 shrink-0">
         <Database className="h-3 w-3" />
-        本地存储 · 刷新不丢
+        云端同步 · 多设备可用
       </div>
     </aside>
   )

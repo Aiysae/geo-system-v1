@@ -1,7 +1,6 @@
 "use client"
 
-// Browser-local customer workspace mounted behind the authenticated server page.
-import { useEffect, useState, useCallback } from "react"
+import { useState, useCallback } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import ClientSidebar from "@/components/sidebar/client-sidebar"
@@ -13,81 +12,65 @@ import ArticleGenerationModule from "@/components/article/article-generation-mod
 import DifficultyAssessmentModule from "@/components/difficulty/difficulty-assessment-module"
 import ReportExportDialog from "@/components/reports/report-export-dialog"
 import SiteFooter from "@/components/site-footer"
-import { Brain, FileDown, FileText, Gauge, ListOrdered, Menu, Radar, Sparkles, Target } from "lucide-react"
+import {
+  AlertTriangle,
+  Brain,
+  CheckCircle2,
+  Cloud,
+  CloudOff,
+  FileDown,
+  FileText,
+  Gauge,
+  ListOrdered,
+  LoaderCircle,
+  Menu,
+  Radar,
+  RefreshCw,
+  Sparkles,
+  Target,
+} from "lucide-react"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { AccountMenu } from "@/components/auth/account-menu"
-import {
-  listClients,
-  getActiveId,
-  setActiveId as persistActiveId,
-  upsertClient,
-  deleteClient as removeClient,
-  createClient,
-} from "@/lib/storage"
+import { useWorkspaceSync, type WorkspaceSyncState } from "@/hooks/use-workspace-sync"
 import type { Client, ReportExportPreset } from "@/types"
 
-export default function Home() {
-  const [clients, setClients] = useState<Client[]>([])
-  const [activeId, setActive] = useState<string | null>(null)
-  const [hydrated, setHydrated] = useState(false)
+export default function Home({ userId }: { userId: string }) {
+  const {
+    clients,
+    activeId,
+    hydrated,
+    syncState,
+    conflict,
+    showMigration,
+    legacyClientCount,
+    handleSelect: selectClient,
+    handleCreate: createWorkspaceClient,
+    handleDelete,
+    handleChangeClient,
+    retry,
+    importLegacy,
+    dismissMigration,
+    loadCloudConflictVersion,
+    overwriteCloudConflictVersion,
+  } = useWorkspaceSync(userId)
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [reportExportPreset, setReportExportPreset] = useState<ReportExportPreset | null>(null)
 
-  useEffect(() => {
-    const list = listClients()
-    const aid = getActiveId()
-    const resolved = aid && list.some(c => c.id === aid) ? aid : list[0]?.id ?? null
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- LocalStorage hydration on mount
-    setClients(list)
-    setActive(resolved)
-    setHydrated(true)
-  }, [])
-
   const active = clients.find(c => c.id === activeId) ?? null
 
   const handleSelect = useCallback((id: string) => {
-    setActive(id)
-    persistActiveId(id)
+    selectClient(id)
     // 移动端：选中客户后自动收起抽屉，直接进入详情面板
     setSidebarOpen(false)
     setReportExportPreset(null)
-  }, [])
+  }, [selectClient])
 
   const handleCreate = useCallback((name: string) => {
-    const c = createClient(name)
-    const saved = upsertClient(c)
-    setClients(prev => [saved, ...prev])
-    setActive(saved.id)
-    persistActiveId(saved.id)
+    createWorkspaceClient(name)
     setSidebarOpen(false)
-  }, [])
-
-  const handleDelete = useCallback((id: string) => {
-    removeClient(id)
-    setClients(prev => {
-      const next = prev.filter(c => c.id !== id)
-      if (activeId === id) {
-        const newId = next[0]?.id ?? null
-        setActive(newId)
-        persistActiveId(newId)
-      }
-      return next
-    })
-  }, [activeId])
-
-  const handleChangeClient = useCallback((patch: Partial<Client>) => {
-    setClients(prev => {
-      const idx = prev.findIndex(c => c.id === activeId)
-      if (idx < 0) return prev
-      const merged: Client = { ...prev[idx], ...patch }
-      const saved = upsertClient(merged)
-      const next = [...prev]
-      next[idx] = saved
-      return next
-    })
-  }, [activeId])
+  }, [createWorkspaceClient])
 
   return (
     <div className="flex h-screen w-screen overflow-hidden geo-workspace-bg print-root">
@@ -116,7 +99,15 @@ export default function Home() {
           client={active}
           onOpenSidebar={() => setSidebarOpen(true)}
           onExportReport={() => setReportExportPreset({})}
+          syncState={syncState}
+          onRetrySync={retry}
         />
+        {conflict ? (
+          <WorkspaceConflictNotice
+            onLoadCloud={loadCloudConflictVersion}
+            onOverwriteCloud={overwriteCloudConflictVersion}
+          />
+        ) : null}
         {!hydrated ? (
           <div className="h-screen flex items-center justify-center text-slate-400 text-sm">
             加载中...
@@ -143,6 +134,13 @@ export default function Home() {
           onClose={() => setReportExportPreset(null)}
         />
       )}
+      {showMigration ? (
+        <LegacyMigrationDialog
+          count={legacyClientCount}
+          onImport={() => void importLegacy()}
+          onDismiss={dismissMigration}
+        />
+      ) : null}
     </div>
   )
 }
@@ -151,10 +149,14 @@ function StickyHeader({
   client,
   onOpenSidebar,
   onExportReport,
+  syncState,
+  onRetrySync,
 }: {
   client: Client | null
   onOpenSidebar: () => void
   onExportReport: () => void
+  syncState: WorkspaceSyncState
+  onRetrySync: () => void
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-white/10 bg-[#001D66]/96 text-white shadow-[0_12px_30px_-24px_rgba(0,29,102,0.88)] backdrop-blur-md sticky-header">
@@ -212,12 +214,158 @@ function StickyHeader({
           )}
         </div>
         <div className="no-print ml-auto shrink-0 flex items-center gap-1.5 sm:gap-2">
+          <WorkspaceSyncIndicator state={syncState} onRetry={onRetrySync} />
           <CreditsPill />
           <RechargeButton />
           <AccountMenu />
         </div>
       </div>
     </header>
+  )
+}
+
+function WorkspaceSyncIndicator({
+  state,
+  onRetry,
+}: {
+  state: WorkspaceSyncState
+  onRetry: () => void
+}) {
+  const isBusy = state.phase === "loading" || state.phase === "saving"
+  const isError = state.phase === "error" || state.phase === "conflict"
+  const Icon = isBusy
+    ? LoaderCircle
+    : isError
+      ? CloudOff
+      : state.phase === "saved"
+        ? CheckCircle2
+        : Cloud
+  const label = state.phase === "loading"
+    ? "云端读取中"
+    : state.phase === "saving"
+      ? "云端保存中"
+      : state.phase === "error"
+        ? "同步失败"
+        : state.phase === "conflict"
+          ? "需要处理冲突"
+          : "云端已同步"
+
+  if (state.phase === "error") {
+    return (
+      <button
+        type="button"
+        onClick={onRetry}
+        title={`${state.message}，点击重试`}
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-rose-400/15 px-2 text-[11px] font-medium text-rose-100 ring-1 ring-rose-300/30 transition-colors hover:bg-rose-400/25"
+      >
+        <RefreshCw className="h-3.5 w-3.5" />
+        <span className="hidden lg:inline">{label}</span>
+      </button>
+    )
+  }
+
+  return (
+    <div
+      title={state.message}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium ring-1 ${
+        isError
+          ? "bg-amber-300/15 text-amber-100 ring-amber-200/30"
+          : "bg-cyan-300/12 text-cyan-50 ring-cyan-200/25"
+      }`}
+    >
+      <Icon className={`h-3.5 w-3.5 ${isBusy ? "animate-spin" : ""}`} />
+      <span className="hidden lg:inline">{label}</span>
+    </div>
+  )
+}
+
+function WorkspaceConflictNotice({
+  onLoadCloud,
+  onOverwriteCloud,
+}: {
+  onLoadCloud: () => void
+  onOverwriteCloud: () => void
+}) {
+  return (
+    <div className="no-print border-b border-amber-200 bg-amber-50 text-amber-950">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between md:px-8">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <p className="text-xs leading-5">
+            另一台设备已更新当前模块，本机内容尚未覆盖云端。
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onLoadCloud}
+            className="h-8 rounded-md border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+          >
+            加载云端版本
+          </button>
+          <button
+            type="button"
+            onClick={onOverwriteCloud}
+            className="h-8 rounded-md bg-amber-600 px-3 text-xs font-semibold text-white hover:bg-amber-700"
+          >
+            保留本机版本
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LegacyMigrationDialog({
+  count,
+  onImport,
+  onDismiss,
+}: {
+  count: number
+  onImport: () => void
+  onDismiss: () => void
+}) {
+  return (
+    <div className="no-print fixed inset-0 z-[80] flex items-center justify-center bg-[#00133F]/58 p-4 backdrop-blur-sm">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="legacy-migration-title"
+        className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-[0_30px_90px_-28px_rgba(0,29,102,0.72)] ring-1 ring-[#8AC8FF]"
+      >
+        <div className="bg-gradient-to-r from-[#075BDB] via-[#1677FF] to-[#00AEEA] px-5 py-4 text-white">
+          <div className="flex items-center gap-2 text-xs font-semibold text-cyan-100">
+            <Cloud className="h-4 w-4" />
+            云端工作区
+          </div>
+          <h2 id="legacy-migration-title" className="mt-2 text-lg font-semibold">
+            发现 {count} 个本机历史客户
+          </h2>
+        </div>
+        <div className="px-5 py-5">
+          <p className="text-sm leading-7 text-slate-600">
+            确认后会将这些数据归入当前登录账号。同名或冲突数据会保留副本，不会覆盖云端内容。
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="h-10 rounded-lg px-4 text-sm font-medium text-slate-500 hover:bg-slate-100"
+            >
+              稍后处理
+            </button>
+            <button
+              type="button"
+              onClick={onImport}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-gradient-to-r from-[#126BEB] to-[#00AEEA] px-4 text-sm font-semibold text-white shadow-[0_14px_28px_-18px_rgba(0,119,255,0.9)] hover:brightness-105"
+            >
+              <Cloud className="h-4 w-4" />
+              同步到当前账号
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -248,7 +396,7 @@ function EmptyState({ onCreate }: { onCreate: (name: string) => void }) {
         欢迎使用势途 GEO 市场情报终端
       </h2>
       <p className="text-sm text-slate-500 mt-3 max-w-md text-center leading-relaxed">
-        每个客户的调研数据、诊断结果与生成策略会自动保存在浏览器本地，刷新不丢失。
+        每个客户的调研数据、诊断结果与生成策略会自动保存到当前账号，换设备也能继续使用。
       </p>
       <div className="mt-8 flex gap-2 w-full max-w-sm">
         <input

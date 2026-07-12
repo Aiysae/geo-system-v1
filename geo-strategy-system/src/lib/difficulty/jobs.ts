@@ -17,7 +17,9 @@ import {
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
+import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
 import type {
+  DifficultyAssessmentEntry,
   DifficultyJobRecord,
   DifficultyModelSelection,
   DifficultyStageKey,
@@ -167,6 +169,57 @@ async function refundJob(id: string): Promise<void> {
   }
 }
 
+function difficultyEntry(job: StoredDifficultyJob): DifficultyAssessmentEntry | null {
+  if (!job.result) return null
+  const generatedAt = job.result.generatedAt || nowIso()
+  return {
+    id: `difficulty_${job.id}`,
+    mode: job.mode,
+    industry: job.industry,
+    city: job.city,
+    targetBrand: job.targetBrand,
+    website: job.website,
+    source: job.result.providerLabel || "服务端模型",
+    createdAt: generatedAt,
+    result: {
+      ...job.result,
+      mode: job.result.mode ?? job.mode,
+      targetBrand: job.result.targetBrand ?? job.targetBrand,
+      website: job.result.website ?? job.website,
+      generatedAt,
+    },
+  }
+}
+
+async function persistJobResultToWorkspace(job: StoredDifficultyJob): Promise<void> {
+  const entry = difficultyEntry(job)
+  if (!entry) return
+  try {
+    const saved = await mutateWorkspaceClientLatest({
+      userId: job.ownerUserId,
+      clientId: job.clientId,
+      mutate: current => {
+        if (current.difficultyJobId && current.difficultyJobId !== job.id) return null
+        const history = current.difficultyAssessments || []
+        return {
+          patch: {
+            difficultyAssessments: [
+              entry,
+              ...history.filter(item => item.id !== entry.id),
+            ].slice(0, 30),
+          },
+          unsetFields: current.difficultyJobId === job.id ? ["difficultyJobId"] : [],
+        }
+      },
+    })
+    if (!saved) {
+      console.warn("[difficulty-jobs] workspace client not found", job.id, job.clientId)
+    }
+  } catch (error) {
+    console.error("[difficulty-jobs] workspace result persistence failed", job.id, safeError(error))
+  }
+}
+
 async function runStageWithFallback(
   jobId: string,
   stageKey: DifficultyStageKey,
@@ -277,6 +330,8 @@ async function runJob(jobId: string): Promise<void> {
       currentStage: undefined,
       currentModel: undefined,
     })
+    job = await getStoredJob(job.id) || { ...job, result }
+    await persistJobResultToWorkspace(job)
     await settleSuccessfulJob(job.id)
     await patchJob(job.id, {
       status: "succeeded",

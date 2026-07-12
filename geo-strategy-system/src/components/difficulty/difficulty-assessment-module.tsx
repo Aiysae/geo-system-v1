@@ -552,6 +552,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 result: job.result,
               }),
               id: `difficulty_${job.id}`,
+              createdAt: job.result.generatedAt || job.finishedAt || new Date().toISOString(),
             }
             const next = [entry, ...history.filter(item => item.id !== entry.id)].slice(0, 30)
             onChangeClient({ difficultyAssessments: next, difficultyJobId: undefined })
