@@ -16,6 +16,7 @@ const INITIAL_CREDITS = readPositiveIntEnv("CREDITS_INITIAL", 50)
 
 const key = (userId: string) => `user_credits:${userId}`
 const adminAdjustmentKey = (operationId: string) => `credit_admin_adjustment:${operationId}`
+const paymentSettlementKey = (orderId: string) => `payment_credit_settlement:${orderId}`
 
 const ADMIN_ADJUSTMENT_TTL_SECONDS = 60 * 60 * 24 * 30
 
@@ -78,6 +79,36 @@ redis.call("SET", KEYS[1], next_balance)
 return {1, next_balance}
 `
 
+const PAYMENT_SETTLEMENT_SCRIPT = `
+-- payment_settlement_v1
+local completed = redis.call("GET", KEYS[2])
+if completed then
+  return {2, completed}
+end
+
+local current = redis.call("GET", KEYS[1])
+local initial = tonumber(ARGV[1])
+local amount = tonumber(ARGV[2])
+
+if not current then
+  current = initial
+else
+  current = tonumber(current) or 0
+end
+
+if not amount or amount <= 0 then
+  return {0, current}
+end
+
+local next_balance = current + amount
+local result = cjson.decode(ARGV[3])
+result.balance = next_balance
+local encoded = cjson.encode(result)
+redis.call("SET", KEYS[1], next_balance)
+redis.call("SET", KEYS[2], encoded)
+return {1, encoded}
+`
+
 function normalizeAmount(value: number, fallback = 1): number {
   return Math.max(1, Math.floor(Number.isFinite(value) ? value : fallback))
 }
@@ -113,6 +144,19 @@ export type AdminCreditAdjustmentResult = {
   ledgerEntryId: string
 }
 
+export type PaymentCreditSettlementResult = {
+  orderId: string
+  userId: string
+  credits: number
+  balance: number
+  ledgerEntryId: string
+  operatorUserId?: string
+  createdAt: string
+  alreadySettled: boolean
+}
+
+type StoredPaymentCreditSettlement = Omit<PaymentCreditSettlementResult, "alreadySettled">
+
 type StoredAdminCreditAdjustment = AdminCreditAdjustmentResult & {
   operatorUserId: string
   createdAt: string
@@ -128,6 +172,93 @@ function parseStoredAdminAdjustment(value: unknown): StoredAdminCreditAdjustment
   }
   if (value && typeof value === "object") return value as StoredAdminCreditAdjustment
   return null
+}
+
+function parseStoredPaymentSettlement(value: unknown): StoredPaymentCreditSettlement | null {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as StoredPaymentCreditSettlement
+    } catch {
+      return null
+    }
+  }
+  if (value && typeof value === "object") return value as StoredPaymentCreditSettlement
+  return null
+}
+
+async function ensurePaymentSettlementLedger(
+  result: StoredPaymentCreditSettlement,
+  context?: CreditLedgerContext,
+): Promise<void> {
+  await writeCreditLedgerEntry({
+    id: result.ledgerEntryId,
+    userId: result.userId,
+    delta: result.credits,
+    balanceAfter: result.balance,
+    context: {
+      ...context,
+      type: "recharge_approved",
+      source: context?.source || "payment_order",
+      sourceId: result.orderId,
+      operatorUserId: result.operatorUserId || context?.operatorUserId,
+    },
+  })
+}
+
+/**
+ * 支付订单到账专用：余额增加和永久结算标记在 Redis 中原子完成。
+ * 回调重试、服务重启或写流水中断都不会导致同一订单重复加积分。
+ */
+export async function settlePaymentCreditsOnce(input: {
+  orderId: string
+  userId: string
+  credits: number
+  operatorUserId?: string
+  context?: CreditLedgerContext
+}): Promise<PaymentCreditSettlementResult> {
+  const orderId = input.orderId.trim()
+  const userId = input.userId.trim()
+  const credits = Math.trunc(input.credits)
+  if (!/^[a-zA-Z0-9_-]{8,180}$/.test(orderId)) throw new Error("支付订单号无效")
+  if (!userId) throw new Error("支付订单用户缺失")
+  if (!Number.isFinite(credits) || credits <= 0) throw new Error("支付到账积分必须为正整数")
+
+  const existing = parseStoredPaymentSettlement(
+    await kv.get<StoredPaymentCreditSettlement>(paymentSettlementKey(orderId)),
+  )
+  if (existing) {
+    if (existing.userId !== userId || existing.credits !== credits) {
+      throw new Error("支付订单结算信息冲突")
+    }
+    await ensurePaymentSettlementLedger(existing, input.context)
+    return { ...existing, alreadySettled: true }
+  }
+
+  await ensureInitialized(userId)
+  const pending: StoredPaymentCreditSettlement = {
+    orderId,
+    userId,
+    credits,
+    balance: 0,
+    ledgerEntryId: `ledger_payment_${orderId}`,
+    operatorUserId: input.operatorUserId,
+    createdAt: new Date().toISOString(),
+  }
+  const tuple = await kv.eval<[number, string | number], unknown>(
+    PAYMENT_SETTLEMENT_SCRIPT,
+    [key(userId), paymentSettlementKey(orderId)],
+    [INITIAL_CREDITS, credits, JSON.stringify(pending)],
+  )
+  const status = Number(tuple?.[0])
+  if (status !== 1 && status !== 2) throw new Error("支付订单积分结算失败")
+
+  const result = parseStoredPaymentSettlement(tuple?.[1])
+  if (!result) throw new Error("支付订单积分结算结果无效")
+  if (result.userId !== userId || result.credits !== credits) {
+    throw new Error("支付订单结算信息冲突")
+  }
+  await ensurePaymentSettlementLedger(result, input.context)
+  return { ...result, alreadySettled: status === 2 }
 }
 
 async function ensureAdminAdjustmentLedger(

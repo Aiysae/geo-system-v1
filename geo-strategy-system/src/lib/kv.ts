@@ -126,6 +126,9 @@ class LocalFileKv implements KvClient {
     keys: string[],
     args: TData[],
   ): Promise<TResult> {
+    if (script.includes("payment_settlement_v1")) {
+      return this.evalPaymentSettlement(keys, args) as TResult
+    }
     if (script.includes("admin_adjustment_v1")) {
       return this.evalAdminAdjustment(keys, args) as TResult
     }
@@ -226,6 +229,35 @@ class LocalFileKv implements KvClient {
     }
     this.persist()
     return [1, encoded]
+  }
+
+  private evalPaymentSettlement<TData>(keys: string[], args: TData[]): [number, number | string] {
+    const [creditsKey, settlementKey] = keys
+    const completed = this.getEntry(settlementKey)
+    if (completed?.type === "value") {
+      return [2, typeof completed.value === "string" ? completed.value : JSON.stringify(completed.value)]
+    }
+
+    const initial = Number(args[0] ?? 0)
+    const amount = Math.trunc(Number(args[1] ?? 0))
+    const pendingResult = String(args[2] ?? "")
+    const current = this.getEntry(creditsKey)
+    const currentValue = current?.type === "value" ? Number(current.value) : initial
+    const balance = Number.isFinite(currentValue) ? currentValue : 0
+    if (!Number.isFinite(amount) || amount <= 0) return [0, balance]
+
+    let result: Record<string, unknown>
+    try {
+      result = JSON.parse(pendingResult) as Record<string, unknown>
+    } catch {
+      return [0, balance]
+    }
+    const next = balance + amount
+    result.balance = next
+    this.state[creditsKey] = { type: "value", value: next, expiresAt: current?.expiresAt }
+    this.state[settlementKey] = { type: "value", value: result }
+    this.persist()
+    return [1, JSON.stringify(result)]
   }
 
   private load(): LocalState {
