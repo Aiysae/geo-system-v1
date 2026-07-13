@@ -5,7 +5,9 @@ import {
   AlertTriangle,
   BarChart3,
   Building2,
+  Calculator,
   CheckCircle2,
+  CircleDollarSign,
   Clock3,
   FileText,
   Gauge,
@@ -29,6 +31,7 @@ import type {
   DifficultyAssessmentEntry,
   DifficultyAssessmentMode,
   DifficultyAssessmentResult,
+  DifficultyGeographicScope,
   DifficultyJobRecord,
   DifficultyLevel,
   DifficultyModelSelection,
@@ -47,7 +50,7 @@ interface Props {
 const INDUSTRY_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string }> = [
   { key: "research", title: "调研取样", desc: "问题样本与信源分布" },
   { key: "comparison", title: "品牌/渠道对比", desc: "推荐池和渠道集中度" },
-  { key: "scoring", title: "规则评分", desc: "六维标准折算" },
+  { key: "scoring", title: "指标审计", desc: "品牌合并与原始指标复核" },
   { key: "review", title: "一致性复核", desc: "证据与分数校验" },
   { key: "report", title: "生成报告", desc: "结论和策略建议" },
 ]
@@ -55,7 +58,7 @@ const INDUSTRY_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: str
 const BRAND_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string }> = [
   { key: "research", title: "行业调研", desc: "行业问题与头部占位" },
   { key: "comparison", title: "品牌现状", desc: "可见度和信任资产" },
-  { key: "scoring", title: "竞品评分", desc: "差距和进入门槛" },
+  { key: "scoring", title: "竞品指标审计", desc: "差距和商业指标复核" },
   { key: "review", title: "复核", desc: "置信度和资料缺口" },
   { key: "report", title: "路径报告", desc: "突破入口和动作" },
 ]
@@ -70,71 +73,79 @@ type DifficultyModelOption = {
 
 const INDUSTRY_SCORE_STANDARDS = [
   {
-    name: "头部品牌曝光集中度",
-    max: 25,
-    easy: "0-6 没有明显头部",
-    medium: "7-12 有头部但仍有缝隙",
-    hard: "13-19 头部占据主要曝光位",
-    super: "20-25 头部霸屏",
-  },
-  {
-    name: "推荐品牌多样性",
-    max: 20,
-    easy: "0-5 推荐池很宽",
-    medium: "6-10 推荐池约20-30个",
-    hard: "11-15 推荐池约10-15个",
-    super: "16-20 推荐池不足10个",
-  },
-  {
-    name: "本地化信息垄断程度",
-    max: 20,
-    easy: "0-5 本地商家容易出现",
-    medium: "6-10 全国品牌和本地混合",
-    hard: "11-15 全国品牌压过本地",
-    super: "16-20 本地真实商家几乎不可见",
-  },
-  {
-    name: "内容真实性与投毒程度",
+    name: "头部品牌锁定强度",
     max: 15,
-    easy: "0-4 真实信息较多",
-    medium: "5-8 软文和真实内容混杂",
-    hard: "9-12 批量内容影响判断",
-    super: "13-15 虚假榜单主导",
+    easy: "0-3 无固定头部答案",
+    medium: "4-7 头部仍可替换",
+    hard: "8-11 主要答案被占据",
+    super: "12-15 大厂长期锁定",
   },
   {
-    name: "GEO准入门槛与马太效应",
-    max: 10,
-    easy: "0-3 小品牌可快速进入",
-    medium: "4-6 需要基础信任源",
-    hard: "7-8 头部信任资产占优",
-    super: "9-10 强马太效应",
+    name: "有效竞品密度",
+    max: 15,
+    easy: "0-3 不超过3个有效竞品",
+    medium: "4-6 约4-7个有效竞品",
+    hard: "7-10 约8-15个有效竞品",
+    super: "11-15 16个以上有效竞品",
   },
   {
-    name: "信息来源单一性",
+    name: "地域覆盖复杂度",
+    max: 15,
+    easy: "2-5 单城市/区县",
+    medium: "6-9 单省",
+    hard: "10-12 跨省区域",
+    super: "13-15 全国",
+  },
+  {
+    name: "商业价值与预算竞争",
+    max: 20,
+    easy: "0-5 低客单低毛利",
+    medium: "6-10 商业竞争正常",
+    hard: "11-15 高价值或强投放",
+    super: "16-20 高价值且大厂密集",
+  },
+  {
+    name: "内容供给饱和度",
+    max: 15,
+    easy: "0-3 选题空间大",
+    medium: "4-7 内容供给正常",
+    hard: "8-11 重复竞争明显",
+    super: "12-15 内容高度饱和",
+  },
+  {
+    name: "权威信任门槛",
     max: 10,
-    easy: "0-3 来源分散",
-    medium: "4-6 部分渠道权重高",
-    hard: "7-8 少数渠道控制主要答案",
-    super: "9-10 高度依赖单一来源",
+    easy: "0-2 基础案例即可",
+    medium: "3-5 需要资质验证",
+    hard: "6-7 依赖强背书",
+    super: "8-10 专业资质是硬门槛",
+  },
+  {
+    name: "信源与 AI 入口壁垒",
+    max: 10,
+    easy: "0-2 入口开放",
+    medium: "3-5 部分渠道权重高",
+    hard: "6-7 少数信源控制答案",
+    super: "8-10 信源与答案固化",
   },
 ]
 
 const BRAND_SCORE_STANDARDS = [
   {
-    name: "行业头部封锁强度",
-    max: 20,
-    easy: "0-5 头部未固定答案",
-    medium: "6-10 有头部但长尾有机会",
-    hard: "11-15 头部占主要推荐位",
-    super: "16-20 头部长期霸屏",
+    name: "行业竞争与头部封锁",
+    max: 15,
+    easy: "0-3 头部未固定答案",
+    medium: "4-7 长尾仍有机会",
+    hard: "8-11 头部占主要推荐位",
+    super: "12-15 大厂长期锁定",
   },
   {
-    name: "品牌当前可见度差距",
-    max: 20,
-    easy: "0-5 品牌已有稳定公开提及",
-    medium: "6-10 有基础信息但不稳定",
-    hard: "11-15 AI 缺少可引用材料",
-    super: "16-20 几乎没有公开信号",
+    name: "目标品牌可见度差距",
+    max: 15,
+    easy: "0-3 已有稳定公开提及",
+    medium: "4-7 有信息但不稳定",
+    hard: "8-11 缺少可引用材料",
+    super: "12-15 几乎无公开信号",
   },
   {
     name: "信任资产差距",
@@ -153,20 +164,28 @@ const BRAND_SCORE_STANDARDS = [
     super: "13-15 几乎无结构化内容",
   },
   {
-    name: "本地/场景切入难度",
+    name: "地域覆盖与本地资源差距",
     max: 15,
-    easy: "0-4 本地或场景有空位",
-    medium: "5-8 部分场景可切入",
-    hard: "9-12 长尾也被压制",
-    super: "13-15 缺少突破口",
+    easy: "0-4 小范围且本地资源完整",
+    medium: "5-8 需补区域案例",
+    hard: "9-12 跨区域资源差距明显",
+    super: "13-15 全国覆盖资源不足",
   },
   {
-    name: "AI答案进入门槛",
+    name: "商业预算竞争压力",
     max: 15,
-    easy: "0-4 少量证据即可进入",
-    medium: "5-8 需要稳定内容和提及",
-    hard: "9-12 需要多渠道长期建设",
-    super: "13-15 需要系统性战役",
+    easy: "0-4 预算竞争较弱",
+    medium: "5-8 需要稳定预算",
+    hard: "9-12 高价值赛道竞争明显",
+    super: "13-15 大厂预算密集",
+  },
+  {
+    name: "AI 答案进入门槛",
+    max: 10,
+    easy: "0-2 少量证据即可进入",
+    medium: "3-5 需要稳定内容和提及",
+    hard: "6-7 需要多渠道建设",
+    super: "8-10 需要系统性战役",
   },
 ]
 
@@ -184,55 +203,83 @@ const BRAND_TOTAL_STANDARDS = [
   { range: "75-100", level: "超难", desc: "需要系统性 GEO 战役和持续信源建设" },
 ]
 
+const SAMPLE_COST_ESTIMATE = {
+  currency: "CNY" as const,
+  confidence: "中" as const,
+  validation30Days: { min: 32000, max: 68000 },
+  stabilization90Days: { min: 78000, max: 168000 },
+  scale180Days: { min: 148000, max: 318000 },
+  oneTimeFoundation: { min: 18000, max: 38000 },
+  monthlyContent: { min: 12000, max: 28000 },
+  authorityAssets: { min: 15000, max: 48000 },
+  regionalCoverage: { min: 8000, max: 22000 },
+  monthlyMonitoring: { min: 3000, max: 8000 },
+  workload: { articlesPerMonth: 32, authorityAssets: 6, channelCount: 9, regionalPages: 38 },
+  assumptions: [
+    "按全国范围和当前竞争强度估算。",
+    "预算用于内容、信源、区域页面和持续监测，不含付费广告及网站重开发。",
+  ],
+}
+
 const SAMPLE_RESULT: DifficultyAssessmentResult = {
+  scoreVersion: "v2",
   mode: "industry",
+  scope: "national",
+  region: "全国",
   totalScore: 72,
   level: "困难",
-  stableMentionPeriod: "约25-30天",
+  stableMentionPeriod: "约60-90天",
   summary:
     "除甲醛行业真实竞争分散，但 AI 搜索呈现层已经被少数连锁品牌、榜单软文和问答平台内容压缩。新品牌并非没有机会，但需要避开全国大词，优先用本地真实案例、检测流程和细分人群场景建立可引用信源。",
   dimensions: {
     dimension1: {
-      name: "头部品牌曝光集中度",
-      score: 20,
-      max: 25,
+      name: "头部品牌锁定强度",
+      score: 12,
+      max: 15,
       level: "超难",
       analysis: "AI 回答更容易复用已有榜单和连锁品牌，头部品牌重复率较高，新品牌直接抢占全国大词难度较大。",
     },
     dimension2: {
-      name: "推荐品牌多样性",
-      score: 14,
-      max: 20,
+      name: "有效竞品密度",
+      score: 9,
+      max: 15,
       level: "困难",
-      analysis: "推荐池约 12-15 个品牌，仍有进入空间，但需要持续积累第三方内容和口碑信号。",
+      analysis: "合并同一品牌的中英文名和简称后，仍存在约 12-15 个有效竞争主体，竞争主体越多，进入难度越高。",
     },
     dimension3: {
-      name: "本地化信息垄断程度",
-      score: 16,
-      max: 20,
-      level: "超难",
-      analysis: "本地真实服务商容易被全国连锁和外地内容稀释，城市服务词需要补足地图、案例和本地媒体信源。",
-    },
-    dimension4: {
-      name: "内容真实性与投毒程度",
-      score: 12,
+      name: "地域覆盖复杂度",
+      score: 14,
       max: 15,
       level: "超难",
-      analysis: "软文榜单、AI 批量内容和低质量评测较多，用户真实经验和权威检测资料不足。",
+      analysis: "全国覆盖需要同时建设城市页面、区域案例和本地信源，固定地域区间高于单省和单城市。",
+    },
+    dimension4: {
+      name: "商业价值与预算竞争",
+      score: 13,
+      max: 20,
+      level: "困难",
+      analysis: "客单价、毛利、市场规模与竞品投放预算共同抬高竞争成本，不能只按内容数量判断难度。",
     },
     dimension5: {
-      name: "GEO准入门槛与马太效应",
-      score: 6,
-      max: 10,
+      name: "内容供给饱和度",
+      score: 10,
+      max: 15,
       level: "困难",
-      analysis: "准入门槛主要来自信任资产和第三方渠道，不是完全封闭，但需要持续运营。",
+      analysis: "软文榜单、AI 批量内容和低质量评测较多，新增内容需要真实案例和差异化证据。",
     },
     dimension6: {
-      name: "信息来源单一性",
-      score: 4,
+      name: "权威信任门槛",
+      score: 7,
       max: 10,
-      level: "中等",
-      analysis: "来源包括新闻、知乎、小红书、行业站和本地生活平台，仍有多渠道突围机会。",
+      level: "困难",
+      analysis: "检测资质、真实案例和第三方验证直接影响 AI 是否采用相关内容。",
+    },
+    dimension7: {
+      name: "信源与 AI 入口壁垒",
+      score: 7,
+      max: 10,
+      level: "困难",
+      analysis: "主要答案依赖新闻、问答、行业站和本地平台，需要多渠道建立可交叉验证的信源。",
     },
   },
   insights: [
@@ -256,13 +303,13 @@ const SAMPLE_RESULT: DifficultyAssessmentResult = {
       title: "品牌/渠道对比",
       summary: "头部品牌在多类问题中重复出现，本地服务商被外地品牌和内容平台稀释。",
       evidence: ["TOP 品牌重复率高", "推荐池约 12-15 个品牌", "新闻、博客、问答平台贡献主要引用"],
-      tags: ["TOP3集中", "推荐池偏窄", "渠道集中"],
+      tags: ["TOP3集中", "有效竞品", "渠道集中"],
     },
     scoring: {
-      title: "规则评分",
-      summary: "头部集中、本地垄断、内容投毒三个维度显著拉高总分，最终落在困难区间。",
-      evidence: ["头部集中 20/25", "本地垄断 16/20", "内容投毒 12/15"],
-      tags: ["72分", "困难", "六维加权"],
+      title: "指标审计",
+      summary: "别名合并、地域层级和商业压力完成审计，再由后端固定公式计算总分。",
+      evidence: ["别名合并后统计竞品", "全国采用固定高分区间", "商业压力进入总分"],
+      tags: ["72分", "困难", "V2七维"],
     },
     review: {
       title: "一致性复核",
@@ -277,31 +324,35 @@ const SAMPLE_RESULT: DifficultyAssessmentResult = {
       tags: ["策略生成", "历史可追溯", "可打印"],
     },
   },
+  costEstimate: SAMPLE_COST_ESTIMATE,
   generatedAt: new Date().toISOString(),
   providerLabel: "示例",
 }
 
 const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
+  scoreVersion: "v2",
   mode: "brand",
+  scope: "national",
+  region: "全国",
   targetBrand: "净居家",
   website: "https://example.com",
   totalScore: 66,
   level: "困难",
-  stableMentionPeriod: "约25-30天",
+  stableMentionPeriod: "约60-90天",
   summary:
     "净居家在除甲醛赛道具备本地服务切入机会，但公开信任资产、第三方提及和结构化案例不足。做 GEO 的核心难点不是行业完全封闭，而是要先让 AI 能验证品牌真实存在、服务可靠、案例可引用，再逐步进入城市词和母婴/新房等细分答案。",
   dimensions: {
     dimension1: {
-      name: "行业头部封锁强度",
-      score: 14,
-      max: 20,
+      name: "行业竞争与头部封锁",
+      score: 11,
+      max: 15,
       level: "困难",
       analysis: "除甲醛大词已有连锁品牌、榜单和问答平台长期占位，目标品牌直接抢全国推荐位难度较高。",
     },
     dimension2: {
-      name: "品牌当前可见度差距",
-      score: 15,
-      max: 20,
+      name: "目标品牌可见度差距",
+      score: 11,
+      max: 15,
       level: "困难",
       analysis: "品牌公开提及和可搜索材料偏少，AI 缺少足够稳定的引用信号，容易被更高频出现的竞品覆盖。",
     },
@@ -314,22 +365,29 @@ const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
     },
     dimension4: {
       name: "内容矩阵缺口",
-      score: 11,
+      score: 10,
       max: 15,
       level: "困难",
       analysis: "官网内容、问答内容、案例内容和竞品对比内容还不够系统，无法覆盖 AI 会复用的多类问题。",
     },
     dimension5: {
-      name: "本地/场景切入难度",
-      score: 7,
+      name: "地域覆盖与本地资源差距",
+      score: 8,
       max: 15,
       level: "中等",
-      analysis: "城市词、新房入住、母婴房、办公室治理等场景仍有切入空间，是优先突破点。",
+      analysis: "全国覆盖需要补齐城市服务页、本地案例、地图和区域媒体信号，地域范围越大建设成本越高。",
     },
     dimension6: {
-      name: "AI答案进入门槛",
+      name: "商业预算竞争压力",
       score: 9,
       max: 15,
+      level: "困难",
+      analysis: "行业商业价值和竞品投放预算要求目标品牌保持持续内容与信源投入。",
+    },
+    dimension7: {
+      name: "AI 答案进入门槛",
+      score: 7,
+      max: 10,
       level: "困难",
       analysis: "需要连续建设官网、案例、问答、第三方提及和本地生活信号，才能让 AI 有理由稳定引用。",
     },
@@ -358,9 +416,9 @@ const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
       tags: ["品牌现状", "资料缺口", "可信信号"],
     },
     scoring: {
-      title: "竞品信源对比与评分",
+      title: "竞品指标审计",
       summary: "头部封锁、品牌可见度差距和内容矩阵缺口拉高了品牌 GEO 难度。",
-      evidence: ["行业头部封锁 14/20", "品牌可见度差距 15/20", "内容矩阵缺口 11/15"],
+      evidence: ["行业头部封锁 11/15", "品牌可见度差距 11/15", "内容矩阵缺口 10/15"],
       tags: ["66分", "困难", "品牌评分"],
     },
     review: {
@@ -376,6 +434,7 @@ const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
       tags: ["品牌路径", "GEO动作", "复测"],
     },
   },
+  costEstimate: SAMPLE_COST_ESTIMATE,
   generatedAt: new Date().toISOString(),
   providerLabel: "示例",
 }
@@ -396,6 +455,38 @@ function formatDate(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
+}
+
+const SCOPE_OPTIONS: Array<{ value: DifficultyGeographicScope; label: string }> = [
+  { value: "city", label: "单城市/区县" },
+  { value: "province", label: "单省" },
+  { value: "region", label: "跨省区域" },
+  { value: "national", label: "全国" },
+]
+
+function optionalNumber(value: string): number | undefined {
+  if (!value.trim()) return undefined
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? number : undefined
+}
+
+function formatMoney(value: number): string {
+  if (value >= 10_000) {
+    const amount = value / 10_000
+    return `${Number.isInteger(amount) ? amount : amount.toFixed(1)}万`
+  }
+  return new Intl.NumberFormat("zh-CN").format(value)
+}
+
+function formatMoneyRange(range: { min: number; max: number }): string {
+  if (range.max >= 10_000) {
+    const inWan = (value: number) => {
+      const amount = value / 10_000
+      return `${Number.isInteger(amount) ? amount : amount.toFixed(1)}万`
+    }
+    return `\u00a5${inWan(range.min)}-${inWan(range.max)}`
+  }
+  return `\u00a5${formatMoney(range.min)}-${formatMoney(range.max)}`
 }
 
 function stagesForMode(mode: DifficultyAssessmentMode) {
@@ -429,6 +520,7 @@ function createEntry(args: {
   mode: DifficultyAssessmentMode
   industry: string
   city: string
+  scope?: DifficultyGeographicScope
   targetBrand?: string
   website?: string
   source: string
@@ -444,6 +536,7 @@ function createEntry(args: {
     mode: args.mode,
     industry: args.industry,
     city: args.city,
+    scope: args.scope ?? args.result.scope,
     targetBrand: args.targetBrand,
     website: args.website,
     source: args.source,
@@ -451,6 +544,8 @@ function createEntry(args: {
     result: {
       ...args.result,
       mode: args.result.mode ?? args.mode,
+      scope: args.result.scope ?? args.scope,
+      region: args.result.region ?? args.city,
       targetBrand: args.result.targetBrand ?? args.targetBrand,
       website: args.result.website ?? args.website,
       generatedAt: args.result.generatedAt || now,
@@ -461,7 +556,11 @@ function createEntry(args: {
 export default function DifficultyAssessmentModule({ client, onChangeClient, onExportReport }: Props) {
   const [mode, setMode] = useState<DifficultyAssessmentMode>("industry")
   const [industry, setIndustry] = useState(() => client.industry || "")
+  const [scope, setScope] = useState<DifficultyGeographicScope>("national")
   const [city, setCity] = useState("全国")
+  const [averageOrderValue, setAverageOrderValue] = useState("")
+  const [grossMarginRate, setGrossMarginRate] = useState("")
+  const [annualRepeatPurchases, setAnnualRepeatPurchases] = useState("")
   const [targetBrand, setTargetBrand] = useState(() => client.ourBrand || "")
   const [website, setWebsite] = useState(() => client.website || "")
   const [selectedModel, setSelectedModel] = useState<DifficultyModelSelection>("auto")
@@ -483,6 +582,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
   const scoreStandards = scoreStandardsForMode(reportMode)
   const totalStandards = totalStandardsForMode(reportMode)
   const dimensions = useMemo(() => Object.values(result.dimensions), [result.dimensions])
+  const costEstimate = result.costEstimate
 
   useEffect(() => {
     const controller = new AbortController()
@@ -546,6 +646,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 mode: job.mode,
                 industry: job.industry,
                 city: job.city,
+                scope: job.scope ?? job.result.scope,
                 targetBrand: job.targetBrand,
                 website: job.website,
                 source: job.result.providerLabel || "服务端模型",
@@ -628,7 +729,8 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
     const entry = createEntry({
       mode,
       industry: targetIndustry,
-      city: city.trim() || "全国",
+      city: scope === "national" ? "全国" : city.trim() || "未指定地区",
+      scope,
       targetBrand: mode === "brand" ? brandName : undefined,
       website: mode === "brand" ? website.trim() || sample.website : undefined,
       source: "示例",
@@ -640,11 +742,15 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 
   async function runAssessment() {
     const targetIndustry = industry.trim() || client.industry.trim()
-    const targetCity = city.trim() || "全国"
+    const targetCity = scope === "national" ? "全国" : city.trim()
     const brandName = targetBrand.trim()
     const brandWebsite = website.trim()
     if (!targetIndustry) {
       setError("请先填写行业/赛道名称。")
+      return
+    }
+    if (!targetCity) {
+      setError("请选择地域层级后，填写对应的城市、省份或跨省区域。")
       return
     }
     if (mode === "brand" && !brandName) {
@@ -666,6 +772,12 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           mode,
           industry: targetIndustry,
           city: targetCity,
+          scope,
+          commercial: {
+            averageOrderValue: optionalNumber(averageOrderValue),
+            grossMarginRate: optionalNumber(grossMarginRate),
+            annualRepeatPurchases: optionalNumber(annualRepeatPurchases),
+          },
           targetBrand: mode === "brand" ? brandName : undefined,
           website: mode === "brand" ? brandWebsite : undefined,
           model: selectedModel,
@@ -733,6 +845,12 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
     setError(null)
   }
 
+  function changeScope(nextScope: DifficultyGeographicScope) {
+    setScope(nextScope)
+    if (nextScope === "national") setCity("全国")
+    else if (city === "全国") setCity("")
+  }
+
   return (
     <div className="min-w-0 space-y-5">
       <section className="geo-section-panel no-print p-4 sm:p-5">
@@ -774,7 +892,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           </div>
         </div>
 
-        <div className={`grid gap-3 md:grid-cols-2 ${mode === "brand" ? "xl:grid-cols-5" : "xl:grid-cols-3"}`}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div>
               <Label htmlFor="difficulty-industry">行业/赛道</Label>
               <Input
@@ -807,12 +925,29 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               </>
             )}
             <div>
-              <Label htmlFor="difficulty-city">城市/地区</Label>
+              <Label htmlFor="difficulty-scope">覆盖范围</Label>
+              <select
+                id="difficulty-scope"
+                value={scope}
+                onChange={event => changeScope(event.target.value as DifficultyGeographicScope)}
+                disabled={loading}
+                className="flex h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {SCOPE_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="difficulty-city">
+                {scope === "city" ? "城市/区县" : scope === "province" ? "省份" : scope === "region" ? "跨省区域" : "地区"}
+              </Label>
               <Input
                 id="difficulty-city"
                 value={city}
                 onChange={event => setCity(event.target.value)}
-                placeholder="全国、上海、深圳"
+                disabled={scope === "national" || loading}
+                placeholder={scope === "city" ? "如：杭州" : scope === "province" ? "如：浙江省" : scope === "region" ? "如：长三角" : "全国"}
               />
             </div>
             <div>
@@ -832,6 +967,54 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 ))}
               </select>
             </div>
+        </div>
+
+        <div className="mt-4 border-t border-slate-200/70 pt-4">
+          <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-700">
+            <Calculator className="h-4 w-4 text-[#1677FF]" />
+            商业参数（可选，留空由系统联网估算）
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="difficulty-aov">平均客单价（元）</Label>
+              <Input
+                id="difficulty-aov"
+                type="number"
+                min="0"
+                value={averageOrderValue}
+                onChange={event => setAverageOrderValue(event.target.value)}
+                placeholder="如：5000"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <Label htmlFor="difficulty-margin">毛利率（%）</Label>
+              <Input
+                id="difficulty-margin"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                value={grossMarginRate}
+                onChange={event => setGrossMarginRate(event.target.value)}
+                placeholder="如：45"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <Label htmlFor="difficulty-repeat">年均复购次数</Label>
+              <Input
+                id="difficulty-repeat"
+                type="number"
+                min="0"
+                step="0.1"
+                value={annualRepeatPurchases}
+                onChange={event => setAnnualRepeatPurchases(event.target.value)}
+                placeholder="如：2"
+                disabled={loading}
+              />
+            </div>
+          </div>
         </div>
 
         {error && (
@@ -938,6 +1121,9 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                   <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">
                     {reportMode === "brand" ? "品牌报告" : "行业报告"}
                   </span>
+                  <span className="rounded-full border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-[11px] font-medium text-cyan-700">
+                    {result.scoreVersion === "v2" ? "V2 固定公式" : "V1 历史报告"}
+                  </span>
                   <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${levelClasses(result.level)}`}>
                     {result.level}
                   </span>
@@ -974,15 +1160,55 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <Metric label={reportMode === "brand" ? "品牌稳定提及周期" : "被 AI 稳定提及周期"} value={result.stableMentionPeriod} />
-              <Metric label="六维合计" value={`${dimensions.reduce((sum, item) => sum + item.score, 0)}/100`} />
+              <Metric label={`${dimensions.length}维合计`} value={`${dimensions.reduce((sum, item) => sum + item.score, 0)}/100`} />
               <Metric label="报告时间" value={formatDate(result.generatedAt)} />
             </div>
           </CardHeader>
           <CardContent className="space-y-6 pt-5">
+            <section className="border-b border-slate-200 pb-6">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <CircleDollarSign className="h-4 w-4 text-[#1677FF]" />
+                  GEO 执行成本测算
+                </div>
+                {costEstimate ? (
+                  <span className="text-[11px] text-slate-500">测算置信度：{costEstimate.confidence}</span>
+                ) : null}
+              </div>
+              {costEstimate ? (
+                <div className="space-y-4">
+                  <div className="grid overflow-hidden rounded-lg border border-blue-100 bg-blue-50/60 md:grid-cols-3 md:divide-x md:divide-blue-100">
+                    <CostPhase label="30天验证期" value={formatMoneyRange(costEstimate.validation30Days)} />
+                    <CostPhase label="90天稳定期" value={formatMoneyRange(costEstimate.stabilization90Days)} />
+                    <CostPhase label="180天规模期" value={formatMoneyRange(costEstimate.scale180Days)} />
+                  </div>
+                  <div className="grid gap-x-4 gap-y-3 border-y border-slate-200 py-3 sm:grid-cols-2 xl:grid-cols-5">
+                    <CostLine label="一次性基础建设" value={formatMoneyRange(costEstimate.oneTimeFoundation)} />
+                    <CostLine label="每月内容生产" value={formatMoneyRange(costEstimate.monthlyContent)} />
+                    <CostLine label="权威信源资产" value={formatMoneyRange(costEstimate.authorityAssets)} />
+                    <CostLine label="地域覆盖建设" value={formatMoneyRange(costEstimate.regionalCoverage)} />
+                    <CostLine label="每月监测复盘" value={formatMoneyRange(costEstimate.monthlyMonitoring)} />
+                  </div>
+                  <div className="grid gap-3 text-xs text-slate-600 md:grid-cols-[1fr_1.4fr]">
+                    <div className="leading-5">
+                      建议工作量：每月约 {costEstimate.workload.articlesPerMonth} 篇内容、{costEstimate.workload.authorityAssets} 项权威资产、{costEstimate.workload.channelCount} 个渠道、{costEstimate.workload.regionalPages} 个区域页面。
+                    </div>
+                    <div className="space-y-1 leading-5 text-slate-500">
+                      {costEstimate.assumptions.slice(0, 2).map((item, index) => (
+                        <p key={`${index}-${item}`}>{item}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs leading-5 text-slate-500">这是 V1 历史报告，未包含成本测算。重新评估后会生成 30、90、180 天预算区间。</p>
+              )}
+            </section>
+
             <section>
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
                 <BarChart3 className="h-4 w-4 text-[#1677FF]" />
-                六维评分
+                {dimensions.length}维评分
               </div>
               <div className="space-y-3">
                 {dimensions.map(item => {
@@ -1114,6 +1340,24 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           </CardContent>
         </Card>
       </div>
+    </div>
+  )
+}
+
+function CostPhase({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="px-4 py-3">
+      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+      <div className="geo-data-number mt-1 text-xl font-bold text-[#0958D9]">{value}</div>
+    </div>
+  )
+}
+
+function CostLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] text-slate-400">{label}</div>
+      <div className="mt-0.5 truncate text-sm font-semibold text-slate-800" title={value}>{value}</div>
     </div>
   )
 }

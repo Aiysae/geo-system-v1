@@ -14,6 +14,7 @@ import {
 } from "@/lib/job-request-idempotency"
 import { ADAPTERS, MODEL_LABELS } from "@/lib/llm"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import { listWorkspaceClients } from "@/lib/workspace-store"
 import {
   refundReservedCreditsQuietly,
   requireUserId,
@@ -60,6 +61,25 @@ export async function POST(req: NextRequest) {
     const requestId = normalizeJobRequestId(body.requestId)
     const jobId = jobIdFromRequest("djob", userGuard.userId, requestId)
     const request = normalizeDifficultyInput(body)
+    try {
+      const workspaceClient = (await listWorkspaceClients(userGuard.userId))
+        .find(item => item.client.id === clientId)?.client
+      const penetration = workspaceClient?.penetration
+      if (penetration) {
+        request.penetrationEvidence = {
+          generatedAt: penetration.generatedAt,
+          totalSlots: penetration.aggregated.totalSlots,
+          topCompetitors: penetration.aggregated.topCompetitors.slice(0, 30),
+          industryShare: penetration.aggregated.industryShare.slice(0, 30).map(item => ({
+            brand: item.brand,
+            count: item.count,
+            ratio: item.ratio,
+          })),
+        }
+      }
+    } catch (error) {
+      console.warn("[difficulty-assessment] penetration evidence unavailable", error instanceof Error ? error.message : "unknown")
+    }
     const selected = requestedModel(body.model)
     if (selected !== "auto" && !await ADAPTERS[selected].configured()) {
       return NextResponse.json(

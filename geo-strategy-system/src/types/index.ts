@@ -167,6 +167,41 @@ export type DifficultyLevel = "容易" | "中等" | "困难" | "超难"
 
 export type DifficultyAssessmentMode = "industry" | "brand"
 
+export type DifficultyGeographicScope = "city" | "province" | "region" | "national"
+
+export interface DifficultyCommercialInput {
+  averageOrderValue?: number
+  grossMarginRate?: number
+  annualRepeatPurchases?: number
+}
+
+export interface DifficultyCostRange {
+  min: number
+  max: number
+}
+
+export interface DifficultyCostWorkload {
+  articlesPerMonth: number
+  authorityAssets: number
+  channelCount: number
+  regionalPages: number
+}
+
+export interface DifficultyCostEstimate {
+  currency: "CNY"
+  confidence: "高" | "中" | "低"
+  validation30Days: DifficultyCostRange
+  stabilization90Days: DifficultyCostRange
+  scale180Days: DifficultyCostRange
+  oneTimeFoundation: DifficultyCostRange
+  monthlyContent: DifficultyCostRange
+  authorityAssets: DifficultyCostRange
+  regionalCoverage: DifficultyCostRange
+  monthlyMonitoring: DifficultyCostRange
+  workload: DifficultyCostWorkload
+  assumptions: string[]
+}
+
 export type DifficultyStageKey =
   | "research"
   | "comparison"
@@ -192,7 +227,10 @@ export interface DifficultyDimensionResult {
 }
 
 export interface DifficultyAssessmentResult {
+  scoreVersion?: "v1" | "v2"
   mode?: DifficultyAssessmentMode
+  scope?: DifficultyGeographicScope
+  region?: string
   targetBrand?: string
   website?: string
   totalScore: number
@@ -203,6 +241,7 @@ export interface DifficultyAssessmentResult {
   insights: string[]
   suggestions: string[]
   process: DifficultyProcess
+  costEstimate?: DifficultyCostEstimate
   generatedAt: string
   providerLabel?: string
 }
@@ -212,6 +251,7 @@ export interface DifficultyAssessmentEntry {
   mode?: DifficultyAssessmentMode
   industry: string
   city: string
+  scope?: DifficultyGeographicScope
   targetBrand?: string
   website?: string
   source: string
@@ -230,6 +270,7 @@ export interface DifficultyJobRecord {
   mode: DifficultyAssessmentMode
   industry: string
   city: string
+  scope?: DifficultyGeographicScope
   targetBrand?: string
   website?: string
   requestedModel: DifficultyModelSelection
