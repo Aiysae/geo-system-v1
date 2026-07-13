@@ -14,10 +14,6 @@ function requiredEnv(name: string): string {
   return value
 }
 
-function multilineEnv(name: string): string {
-  return requiredEnv(name).replace(/\\n/g, "\n")
-}
-
 function secretEnvOrFile(envName: string, fileEnvName: string, multiline = false): string {
   const inline = String(process.env[envName] || "").trim()
   if (inline) return multiline ? inline.replace(/\\n/g, "\n") : inline
@@ -84,8 +80,8 @@ export function alipayPaymentConfig(): AlipayPaymentConfig {
   const baseUrl = publicAppUrl()
   return {
     appId: requiredEnv("ALIPAY_APP_ID"),
-    privateKey: multilineEnv("ALIPAY_PRIVATE_KEY"),
-    alipayPublicKey: multilineEnv("ALIPAY_PUBLIC_KEY"),
+    privateKey: secretEnvOrFile("ALIPAY_PRIVATE_KEY", "ALIPAY_PRIVATE_KEY_FILE", true),
+    alipayPublicKey: secretEnvOrFile("ALIPAY_PUBLIC_KEY", "ALIPAY_PUBLIC_KEY_FILE", true),
     keyType,
     gateway: String(process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do").trim(),
     sellerId: String(process.env.ALIPAY_SELLER_ID || "").trim() || undefined,
