@@ -392,6 +392,14 @@ export interface PenetrationJobRecord {
 export type CommercialReportKind = "combined" | "penetration" | "difficulty"
 export type CommercialReportDetail = "concise" | "full"
 export type CommercialReportJobStatus = "queued" | "running" | "succeeded" | "failed"
+export type ReportBrandingMode = "shitu" | "custom"
+
+export interface ReportBrandingSettings {
+  mode: ReportBrandingMode
+  companyName: string
+  website: string
+  logoDataUrl?: string
+}
 
 export interface ReportExportPreset {
   kind?: CommercialReportKind
@@ -401,6 +409,7 @@ export interface ReportExportPreset {
 export interface CommercialReportInput {
   kind: CommercialReportKind
   detail: CommercialReportDetail
+  branding?: ReportBrandingSettings
   client: {
     id: string
     name: string

@@ -1,19 +1,26 @@
 "use client"
 
+import NextImage from "next/image"
 import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   BarChart3,
+  Building2,
   CheckCircle2,
   Download,
   FileDown,
   Gauge,
+  ImagePlus,
   Layers3,
+  Link2,
   Loader2,
+  RotateCcw,
   ShieldCheck,
+  Trash2,
   X,
 } from "lucide-react"
 import { readApiJson } from "@/lib/api-fetch"
+import { DEFAULT_REPORT_BRANDING, resolveReportBranding } from "@/lib/report-branding"
 import type {
   Client,
   CommercialReportDetail,
@@ -22,6 +29,7 @@ import type {
   CommercialReportKind,
   PenetrationItem,
   PenetrationResult,
+  ReportBrandingSettings,
   ReportExportPreset,
 } from "@/types"
 
@@ -41,6 +49,92 @@ const KIND_OPTIONS: Array<{
   { kind: "penetration", title: "渗透率情报", description: "品牌声量、模型表现与联网信源", icon: BarChart3 },
   { kind: "difficulty", title: "难度测评", description: "六维评分、关键洞察与执行路径", icon: Gauge },
 ]
+
+const MAX_SOURCE_LOGO_BYTES = 8 * 1024 * 1024
+const MAX_REPORT_LOGO_BYTES = 600 * 1024
+
+function dataUrlBytes(value: string): number {
+  const encoded = value.split(",", 2)[1] || ""
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0
+  return Math.max(0, Math.floor(encoded.length * 3 / 4) - padding)
+}
+
+function loadBrowserImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const image = document.createElement("img")
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error("Logo 图片无法读取，请换一张图片"))
+    }
+    image.src = objectUrl
+  })
+}
+
+function renderLogoDataUrl(args: {
+  image: HTMLImageElement
+  maxSide: number
+  mimeType: "image/png" | "image/jpeg"
+  quality?: number
+  whiteBackground?: boolean
+}): string {
+  const { image, maxSide, mimeType, quality, whiteBackground } = args
+  const sourceWidth = image.naturalWidth || image.width
+  const sourceHeight = image.naturalHeight || image.height
+  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight))
+  const width = Math.max(1, Math.round(sourceWidth * scale))
+  const height = Math.max(1, Math.round(sourceHeight * scale))
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext("2d")
+  if (!context) throw new Error("当前浏览器无法处理 Logo")
+  if (whiteBackground) {
+    context.fillStyle = "#FFFFFF"
+    context.fillRect(0, 0, width, height)
+  }
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = "high"
+  context.drawImage(image, 0, 0, width, height)
+  return canvas.toDataURL(mimeType, quality)
+}
+
+async function optimizeLogo(file: File): Promise<string> {
+  if (file.type !== "image/png" && file.type !== "image/jpeg") {
+    throw new Error("Logo 仅支持 PNG 或 JPG 图片")
+  }
+  if (file.size > MAX_SOURCE_LOGO_BYTES) throw new Error("Logo 原图不能超过 8MB")
+  const image = await loadBrowserImage(file)
+  const width = image.naturalWidth || image.width
+  const height = image.naturalHeight || image.height
+  if (width < 16 || height < 16) throw new Error("Logo 尺寸过小，请上传更清晰的图片")
+
+  const attempts = file.type === "image/png"
+    ? [720, 560, 420, 320].map(maxSide => ({ maxSide, mimeType: "image/png" as const }))
+    : [900, 720, 560, 420].map((maxSide, index) => ({
+        maxSide,
+        mimeType: "image/jpeg" as const,
+        quality: [0.9, 0.87, 0.84, 0.8][index],
+      }))
+  for (const attempt of attempts) {
+    const dataUrl = renderLogoDataUrl({ image, ...attempt })
+    if (dataUrlBytes(dataUrl) <= MAX_REPORT_LOGO_BYTES) return dataUrl
+  }
+
+  const fallback = renderLogoDataUrl({
+    image,
+    maxSide: 420,
+    mimeType: "image/jpeg",
+    quality: 0.84,
+    whiteBackground: true,
+  })
+  if (dataUrlBytes(fallback) <= MAX_REPORT_LOGO_BYTES) return fallback
+  throw new Error("Logo 压缩后仍过大，请上传构图更简洁的图片")
+}
 
 function availableKinds(client: Client): CommercialReportKind[] {
   const hasPenetration = Boolean(client.penetration)
@@ -122,12 +216,23 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
   const [generating, setGenerating] = useState(false)
   const [job, setJob] = useState<CommercialReportJobRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [branding, setBranding] = useState<ReportBrandingSettings>({ ...DEFAULT_REPORT_BRANDING })
+  const [brandingLoading, setBrandingLoading] = useState(true)
+  const [brandingSaving, setBrandingSaving] = useState(false)
+  const [logoProcessing, setLogoProcessing] = useState(false)
+  const [rememberBranding, setRememberBranding] = useState(true)
+  const [brandingError, setBrandingError] = useState<string | null>(null)
+  const [brandingNotice, setBrandingNotice] = useState<string | null>(null)
 
   const difficulty = client.difficultyAssessments?.find(entry => entry.id === difficultyEntryId)
     || client.difficultyAssessments?.[0]
   const canGenerate = kinds.length > 0
     && (kind !== "penetration" || Boolean(client.penetration))
     && (kind !== "difficulty" || Boolean(difficulty))
+    && !brandingLoading
+    && !brandingSaving
+    && !logoProcessing
+    && (branding.mode !== "custom" || Boolean(branding.companyName.trim()))
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -145,12 +250,34 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [generating, onClose])
 
+  useEffect(() => {
+    let active = true
+    async function loadBranding() {
+      try {
+        const response = await reportFetch("/api/reports/branding")
+        const data = await readApiJson<{ branding?: ReportBrandingSettings; error?: string }>(response, "报告出品方")
+        if (!response.ok) throw new Error(data.error || "读取报告出品方失败")
+        if (active) setBranding(resolveReportBranding(data.branding))
+      } catch {
+        if (active) {
+          setBranding({ ...DEFAULT_REPORT_BRANDING })
+          setBrandingNotice("未能读取已保存的出品方，本次已使用势途默认信息。")
+        }
+      } finally {
+        if (active) setBrandingLoading(false)
+      }
+    }
+    void loadBranding()
+    return () => { active = false }
+  }, [])
+
   function buildInput(): CommercialReportInput {
     const includePenetration = kind === "combined" || kind === "penetration"
     const includeDifficulty = kind === "combined" || kind === "difficulty"
     return {
       kind,
       detail,
+      branding: resolveReportBranding(branding),
       client: {
         id: client.id,
         name: client.name,
@@ -161,6 +288,47 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
       },
       penetration: includePenetration ? compactPenetration(client.penetration, detail) : undefined,
       difficulty: includeDifficulty ? difficulty : undefined,
+    }
+  }
+
+  function changeBrandingMode(mode: ReportBrandingSettings["mode"]) {
+    setBrandingError(null)
+    setBrandingNotice(null)
+    setBranding(mode === "shitu"
+      ? { ...DEFAULT_REPORT_BRANDING }
+      : { mode: "custom", companyName: "", website: "", logoDataUrl: undefined })
+  }
+
+  async function handleLogoFile(file: File | undefined) {
+    if (!file) return
+    setLogoProcessing(true)
+    setBrandingError(null)
+    setBrandingNotice(null)
+    try {
+      const logoDataUrl = await optimizeLogo(file)
+      setBranding(current => ({ ...current, logoDataUrl }))
+    } catch (caught) {
+      setBrandingError(caught instanceof Error ? caught.message : "Logo 处理失败")
+    } finally {
+      setLogoProcessing(false)
+    }
+  }
+
+  async function persistBranding(): Promise<ReportBrandingSettings> {
+    setBrandingSaving(true)
+    try {
+      const response = await reportFetch("/api/reports/branding", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branding }),
+      })
+      const data = await readApiJson<{ branding?: ReportBrandingSettings; error?: string }>(response, "保存报告出品方")
+      if (!response.ok || !data.branding) throw new Error(data.error || "保存报告出品方失败")
+      const saved = resolveReportBranding(data.branding)
+      setBranding(saved)
+      return saved
+    } finally {
+      setBrandingSaving(false)
     }
   }
 
@@ -175,10 +343,16 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
 
   async function generateReport() {
     if (!canGenerate || generating) return
+    if (branding.mode === "custom" && !branding.companyName.trim()) {
+      setBrandingError("请填写报告出品方的公司名称。")
+      return
+    }
     setGenerating(true)
     setError(null)
+    setBrandingError(null)
     setJob(null)
     try {
+      if (rememberBranding) await persistBranding()
       const response = await reportFetch("/api/reports/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -324,6 +498,146 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                   </p>
                 </section>
 
+                <section className="mt-5 border-t border-slate-200/80 pt-5">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-700">报告出品方</div>
+                      <div className="mt-1 text-[11px] text-slate-500">自定义后，PDF 中不会混入势途名称或 Logo。</div>
+                    </div>
+                    {brandingLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#1677FF]" /> : null}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
+                    <button
+                      type="button"
+                      onClick={() => changeBrandingMode("shitu")}
+                      disabled={generating || brandingLoading}
+                      className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-xs font-semibold transition ${branding.mode === "shitu" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500"}`}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      势途默认
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => changeBrandingMode("custom")}
+                      disabled={generating || brandingLoading}
+                      className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-xs font-semibold transition ${branding.mode === "custom" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500"}`}
+                    >
+                      <Building2 className="h-3.5 w-3.5" />
+                      我的公司
+                    </button>
+                  </div>
+
+                  {branding.mode === "shitu" ? (
+                    <div className="mt-3 flex items-center gap-3 border-l-2 border-[#1677FF] bg-[#F2F8FF] px-3 py-3">
+                      <span className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white ring-1 ring-sky-100">
+                        <NextImage src="/logo.jpg" alt="势途 Logo" width={48} height={48} className="h-10 w-10 object-contain" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-semibold text-slate-800">杭州势途数字科技有限公司</span>
+                        <span className="mt-1 block truncate text-[11px] text-[#1677FF]">https://shitugeo.top</span>
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="mt-3 grid gap-4 md:grid-cols-[1fr_220px]">
+                      <div className="space-y-3">
+                        <label className="block">
+                          <span className="text-[11px] font-semibold text-slate-600">公司名称</span>
+                          <input
+                            type="text"
+                            value={branding.companyName}
+                            onChange={event => setBranding(current => ({ ...current, companyName: event.target.value }))}
+                            maxLength={120}
+                            disabled={generating}
+                            placeholder="如：某某数字科技有限公司"
+                            className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-semibold text-slate-600">公司官网（可选）</span>
+                          <span className="relative mt-1.5 block">
+                            <Link2 className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                            <input
+                              type="text"
+                              value={branding.website}
+                              onChange={event => setBranding(current => ({ ...current, website: event.target.value }))}
+                              maxLength={2_000}
+                              disabled={generating}
+                              placeholder="https://example.com"
+                              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
+                            />
+                          </span>
+                        </label>
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] font-semibold text-slate-600">Logo（可选）</div>
+                        <div className="mt-1.5 flex h-[108px] items-center justify-center overflow-hidden rounded-lg border border-dashed border-sky-200 bg-[#F7FBFF] p-3">
+                          {branding.logoDataUrl ? (
+                            <NextImage
+                              src={branding.logoDataUrl}
+                              alt="自定义报告 Logo"
+                              width={180}
+                              height={80}
+                              unoptimized
+                              className="h-auto max-h-20 w-auto max-w-full object-contain"
+                            />
+                          ) : (
+                            <Building2 className="h-8 w-8 text-sky-200" />
+                          )}
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <label className="inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-[#1677FF] bg-white px-2 text-[11px] font-semibold text-[#0958D9] transition hover:bg-blue-50">
+                            {logoProcessing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                            {branding.logoDataUrl ? "替换" : "上传"}
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                              className="sr-only"
+                              disabled={generating || logoProcessing}
+                              onChange={event => {
+                                void handleLogoFile(event.target.files?.[0])
+                                event.currentTarget.value = ""
+                              }}
+                            />
+                          </label>
+                          {branding.logoDataUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => setBranding(current => ({ ...current, logoDataUrl: undefined }))}
+                              disabled={generating || logoProcessing}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                              title="移除 Logo"
+                              aria-label="移除 Logo"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
+                        <p className="mt-1.5 text-[10px] leading-4 text-slate-400">PNG/JPG，自动压缩至报告适用尺寸。</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={rememberBranding}
+                      onChange={event => setRememberBranding(event.target.checked)}
+                      disabled={generating || brandingLoading}
+                      className="mt-1 h-3.5 w-3.5 accent-[#1677FF]"
+                    />
+                    保存为我的默认报告出品方，下次和其他设备自动使用
+                  </label>
+
+                  {brandingNotice ? (
+                    <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">{brandingNotice}</div>
+                  ) : null}
+                  {brandingError ? (
+                    <div className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-[11px] leading-5 text-rose-700">{brandingError}</div>
+                  ) : null}
+                </section>
+
                 <div className="mt-5 flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-3 text-xs leading-5 text-emerald-900">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                   报告仅使用当前客户已保存的数据生成，不额外调用 AI，也不会把其他客户的数据混入本报告。
@@ -368,7 +682,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#1677FF] bg-[#1677FF] px-6 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#0958D9] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                {generating ? "正在生成" : "生成并下载 PDF"}
+                {brandingSaving ? "正在保存出品方" : generating ? "正在生成" : "生成并下载 PDF"}
               </button>
             </div>
           </div>

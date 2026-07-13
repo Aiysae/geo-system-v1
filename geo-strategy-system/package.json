@@ -14,6 +14,7 @@
     "test:wechat-payment": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-wechat-payment.mts",
     "test:workspace-sync": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-workspace-sync.mts",
     "test:difficulty-scoring": "tsx scripts/test-difficulty-scoring.mts",
+    "test:report-branding": "tsx scripts/test-report-branding.mts",
     "kv:migrate:file-to-redis": "node scripts/migrate-file-kv-to-redis.mjs"
   },
   "dependencies": {
