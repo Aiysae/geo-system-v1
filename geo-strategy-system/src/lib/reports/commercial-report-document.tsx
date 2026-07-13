@@ -350,7 +350,9 @@ function metricValueStyle(value: string): { fontSize: number; lineHeight: number
 
 function concisePeriod(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim()
-  if (/暂无|尚未|未形成|0\s*(?:天|日)/.test(normalized)) return "尚未形成稳定提及周期"
+  if (/暂无|尚未|未形成/.test(normalized) || /(?:^|[^\d])0\s*(?:天|日)/.test(normalized)) {
+    return "尚未形成稳定提及周期"
+  }
   const match = normalized.match(/(?:约)?\s*\d+\s*(?:[-~至到]\s*\d+)?\s*(?:天|日|周|个月|月)/)
   if (match) return match[0].replace(/\s+/g, "")
   return normalized || "未提供周期判断"
@@ -453,6 +455,25 @@ function formatDateToMinute(value: string | undefined): string {
   return formatDate(value).replace(/:\d{2}$/, "")
 }
 
+function formatMoney(value: number): string {
+  if (value >= 10_000) {
+    const amount = value / 10_000
+    return `\u00a5${Number.isInteger(amount) ? amount : amount.toFixed(1)}万`
+  }
+  return `\u00a5${Math.round(value).toLocaleString("zh-CN")}`
+}
+
+function formatMoneyRange(range: { min: number; max: number }): string {
+  if (range.max >= 10_000) {
+    const inWan = (value: number) => {
+      const amount = value / 10_000
+      return `${Number.isInteger(amount) ? amount : amount.toFixed(1)}万`
+    }
+    return `\u00a5${inWan(range.min)}-${inWan(range.max)}`
+  }
+  return `${formatMoney(range.min)}-${formatMoney(range.max).replace(/^\u00a5/, "")}`
+}
+
 function reportId(input: CommercialReportInput): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)
   return `STGEO-${input.client.id.slice(0, 8).toUpperCase()}-${stamp}`
@@ -517,8 +538,9 @@ function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer
     )
   }
   if (input.difficulty) {
+    const cost = input.difficulty.result.costEstimate
     sections.push(
-      `难度测评总分为 ${input.difficulty.result.totalScore} 分，等级为“${input.difficulty.result.level}”，稳定提及周期判断为 ${concisePeriod(input.difficulty.result.stableMentionPeriod)}。`,
+      `难度测评总分为 ${input.difficulty.result.totalScore} 分，等级为“${input.difficulty.result.level}”，稳定提及周期判断为 ${concisePeriod(input.difficulty.result.stableMentionPeriod)}。${cost ? `90 天稳定期预算估算为 ${formatMoneyRange(cost.stabilization90Days)}。` : ""}`,
     )
   }
   if (answers.length > 0) {
@@ -978,13 +1000,13 @@ function DifficultyPage({ input }: { input: CommercialReportInput }) {
           <HeroMetric label="报告时间" value={formatDateToMinute(result.generatedAt)} />
         </View>
       </View>
-      <DetailMetric label="稳定提及周期" value={concisePeriod(result.stableMentionPeriod)} />
+      <DetailMetric label={`${result.scoreVersion === "v2" ? "V2 固定公式" : "V1 历史逻辑"} · 稳定提及周期`} value={concisePeriod(result.stableMentionPeriod)} />
       <View style={styles.insightBox}>
         <Text style={styles.insightTitle}>测评结论</Text>
         <Text style={styles.insightText} orphans={2} widows={2}>{result.summary}</Text>
       </View>
       <View style={styles.section} wrap={false}>
-        <Text style={styles.sectionTitle}>六维评分</Text>
+        <Text style={styles.sectionTitle}>{dimensions.length}维评分</Text>
         {dimensions.map((item, index) => (
           <HorizontalBar key={`${item.name}-${index}`} label={`${item.name} · ${item.level}`} value={item.score / Math.max(1, item.max)} display={`${item.score}/${item.max}`} color={[COLORS.blue, COLORS.violet, COLORS.green, COLORS.amber, COLORS.cyan, COLORS.slate][index % 6]} />
         ))}
@@ -998,7 +1020,7 @@ function DifficultyDetailsPage({ input }: { input: CommercialReportInput }) {
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="SCORE EXPLANATION" title="六维评分详解" intro="完整保留各维度分值、等级与判断依据，避免图表只显示分数而缺少解释。" />
+      <ChapterTitle kicker="SCORE EXPLANATION" title={`${dimensions.length}维评分详解`} intro="完整保留各维度分值、等级与判断依据；V2 报告由后端固定公式计算，大模型只负责联网取证与分析。" />
       <View style={styles.table}>
         <View style={[styles.tableRow, styles.tableHeader]}>
           <TableCell width="22%" header>维度</TableCell>
@@ -1013,6 +1035,70 @@ function DifficultyDetailsPage({ input }: { input: CommercialReportInput }) {
             <TableCell width="12%">{item.level}</TableCell>
             <TableCell width="55%">{item.analysis}</TableCell>
           </View>
+        ))}
+      </View>
+    </Page>
+  )
+}
+
+function DifficultyCostPage({ input }: { input: CommercialReportInput }) {
+  const estimate = input.difficulty!.result.costEstimate!
+  const lineItems = [
+    ["一次性基础建设", estimate.oneTimeFoundation, "信息架构、基础页面、测评基线与内容规划"],
+    ["每月内容生产", estimate.monthlyContent, "文章、问答、案例、对比和场景内容"],
+    ["权威信源资产", estimate.authorityAssets, "资质、案例、媒体与第三方验证资产"],
+    ["地域覆盖建设", estimate.regionalCoverage, "区域页面、本地案例、地图与地方信源"],
+    ["每月监测复盘", estimate.monthlyMonitoring, "模型轮询、品牌提及、信源与策略复盘"],
+  ] as const
+  return (
+    <Page size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="BUDGET ESTIMATE"
+        title="GEO 执行成本测算"
+        intro={`按${input.difficulty!.city || "全国"}覆盖范围、竞争强度、商业价值和资产缺口测算；置信度为${estimate.confidence}。金额为决策区间，不是报价或效果承诺。`}
+      />
+      <View style={styles.signalStrip} wrap={false}>
+        <View style={styles.signalItem}>
+          <Text style={styles.signalLabel}>30 天验证期</Text>
+          <Text style={styles.signalValue}>{formatMoneyRange(estimate.validation30Days)}</Text>
+        </View>
+        <View style={styles.signalItem}>
+          <Text style={styles.signalLabel}>90 天稳定期</Text>
+          <Text style={styles.signalValue}>{formatMoneyRange(estimate.stabilization90Days)}</Text>
+        </View>
+        <View style={styles.signalItem}>
+          <Text style={styles.signalLabel}>180 天规模期</Text>
+          <Text style={styles.signalValue}>{formatMoneyRange(estimate.scale180Days)}</Text>
+        </View>
+      </View>
+      <View style={[styles.table, { marginTop: 16 }]}>
+        <View style={[styles.tableRow, styles.tableHeader]}>
+          <TableCell width="24%" header>预算项目</TableCell>
+          <TableCell width="22%" header>估算区间</TableCell>
+          <TableCell width="54%" header>包含内容</TableCell>
+        </View>
+        {lineItems.map(([label, range, note], index) => (
+          <View key={label} style={[styles.tableRow, index === lineItems.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+            <TableCell width="24%" strong>{label}</TableCell>
+            <TableCell width="22%" strong>{formatMoneyRange(range)}</TableCell>
+            <TableCell width="54%">{note}</TableCell>
+          </View>
+        ))}
+      </View>
+      <View style={[styles.section, { marginTop: 16 }]} wrap={false}>
+        <Text style={styles.sectionTitle}>建议工作量</Text>
+        <View style={styles.metricsGrid}>
+          <MetricCard label="每月内容" value={`${estimate.workload.articlesPerMonth} 篇`} />
+          <MetricCard label="权威资产" value={`${estimate.workload.authorityAssets} 项`} />
+          <MetricCard label="渠道覆盖" value={`${estimate.workload.channelCount} 个`} />
+          <MetricCard label="区域页面" value={`${estimate.workload.regionalPages} 个`} />
+        </View>
+      </View>
+      <View style={styles.insightBox} wrap={false}>
+        <Text style={styles.insightTitle}>测算前提</Text>
+        {estimate.assumptions.map((item, index) => (
+          <Text key={`${index}-${item}`} style={styles.insightText}>{index + 1}. {item}</Text>
         ))}
       </View>
     </Page>
@@ -1137,6 +1223,7 @@ export function CommercialReportDocument({ input }: { input: CommercialReportInp
       {input.penetration ? <SourceIndexPages input={input} sources={sources} /> : null}
       {input.difficulty ? <DifficultyPage input={input} /> : null}
       {input.difficulty ? <DifficultyDetailsPage input={input} /> : null}
+      {input.difficulty?.result.costEstimate ? <DifficultyCostPage input={input} /> : null}
       {input.difficulty ? <DifficultyInsightsPages input={input} /> : null}
       <ActionPage input={input} />
       <ProcessEvidencePage input={input} />
