@@ -1,57 +1,23 @@
 import "server-only"
 
 import { randomUUID } from "crypto"
-import { kv } from "@/lib/kv"
-import { addCreditsBy } from "@/lib/credits"
+import { settlePaymentCreditsOnce } from "@/lib/credits"
+import {
+  getPaymentOrderRecord,
+  getPaymentOrderRecordByOutTradeNo,
+  listAllPaymentOrderRecords,
+  listPaymentOrderRecordsForUser,
+  savePaymentOrderRecord,
+} from "@/lib/payment-store"
 import type { RechargePackageKey } from "@/lib/pricing"
-import type { RechargePaymentMethod } from "@/lib/recharge"
+import type { PaymentOrder, PaymentProvider } from "@/lib/payment-types"
 
-export type PaymentOrderStatus =
-  | "pending"
-  | "credited"
-  | "canceled"
-  | "failed"
-
-export type PaymentProvider = RechargePaymentMethod
-
-export type PaymentOrder = {
-  id: string
-  outTradeNo: string
-  userId: string
-  username: string
-  email: string
-  rechargeRequestId?: string
-  packageKey?: RechargePackageKey
-  packageName: string
-  priceCents: number
-  credits: number
-  provider: PaymentProvider
-  status: PaymentOrderStatus
-  payerName?: string
-  paymentReference?: string
-  contact?: string
-  note?: string
-  providerTradeId?: string
-  paidCents?: number
-  failureReason?: string
-  createdAt: number
-  updatedAt: number
-  paidAt?: number
-  creditedAt?: number
-  canceledAt?: number
-  creditedBy?: string
-}
+export type { PaymentOrder, PaymentOrderStatus, PaymentProvider } from "@/lib/payment-types"
 
 export type CreditPaymentOrderResult =
   | { ok: true; credited: true; order: PaymentOrder; balance: number }
   | { ok: true; credited: false; order: PaymentOrder; reason: "already_credited" }
   | { ok: false; reason: string }
-
-const KEY_ORDER = (id: string) => `payment_orders:${id}`
-const KEY_OUT_TRADE_NO = (outTradeNo: string) => `payment_orders:out_trade_no:${outTradeNo}`
-const KEY_USER_INDEX = (userId: string) => `payment_orders:user:${userId}`
-const KEY_ALL = "payment_orders:all"
-const KEY_CREDIT_LOCK = (id: string) => `payment_orders:credit_lock:${id}`
 
 function now(): number {
   return Date.now()
@@ -69,13 +35,6 @@ function cleanOptionalText(value: unknown, maxLength: number): string | undefine
   const text = String(value || "").trim()
   if (!text) return undefined
   return text.slice(0, maxLength)
-}
-
-async function savePaymentOrder(order: PaymentOrder): Promise<void> {
-  await kv.set(KEY_ORDER(order.id), order)
-  await kv.set(KEY_OUT_TRADE_NO(order.outTradeNo), order.id)
-  await kv.sadd(KEY_USER_INDEX(order.userId), order.id)
-  await kv.sadd(KEY_ALL, order.id)
 }
 
 export async function createPaymentOrder(input: {
@@ -115,42 +74,29 @@ export async function createPaymentOrder(input: {
     updatedAt: createdAt,
   }
 
-  await savePaymentOrder(order)
+  await savePaymentOrderRecord(order)
   return order
 }
 
 export async function getPaymentOrder(id: string): Promise<PaymentOrder | null> {
   if (!id) return null
-  return await kv.get<PaymentOrder>(KEY_ORDER(id))
+  return await getPaymentOrderRecord(id)
 }
 
 export async function getPaymentOrderByOutTradeNo(outTradeNo: string): Promise<PaymentOrder | null> {
   if (!outTradeNo) return null
-  const id = await kv.get<string>(KEY_OUT_TRADE_NO(outTradeNo))
-  return id ? await getPaymentOrder(id) : null
+  return await getPaymentOrderRecordByOutTradeNo(outTradeNo)
 }
 
 export async function listPaymentOrdersForUser(
   userId: string,
   limit = 100,
 ): Promise<PaymentOrder[]> {
-  const ids = await kv.smembers<string[]>(KEY_USER_INDEX(userId))
-  if (!ids || ids.length === 0) return []
-  const orders = await Promise.all(ids.map(id => getPaymentOrder(id)))
-  return orders
-    .filter((order): order is PaymentOrder => Boolean(order))
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, Math.max(1, Math.floor(limit)))
+  return await listPaymentOrderRecordsForUser(userId, limit)
 }
 
 export async function listAllPaymentOrders(limit = 500): Promise<PaymentOrder[]> {
-  const ids = await kv.smembers<string[]>(KEY_ALL)
-  if (!ids || ids.length === 0) return []
-  const orders = await Promise.all(ids.map(id => getPaymentOrder(id)))
-  return orders
-    .filter((order): order is PaymentOrder => Boolean(order))
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, Math.max(1, Math.floor(limit)))
+  return await listAllPaymentOrderRecords(limit)
 }
 
 export async function cancelPaymentOrder(
@@ -159,7 +105,7 @@ export async function cancelPaymentOrder(
 ): Promise<PaymentOrder | null> {
   const order = await getPaymentOrder(orderId)
   if (!order) return null
-  if (order.status === "credited") return order
+  if (["paid", "credited", "refunding", "refunded"].includes(order.status)) return order
   const updated: PaymentOrder = {
     ...order,
     status: "canceled",
@@ -167,7 +113,24 @@ export async function cancelPaymentOrder(
     canceledAt: now(),
     updatedAt: now(),
   }
-  await savePaymentOrder(updated)
+  await savePaymentOrderRecord(updated)
+  return updated
+}
+
+export async function failPaymentOrder(
+  orderId: string,
+  reason: string,
+): Promise<PaymentOrder | null> {
+  const order = await getPaymentOrder(orderId)
+  if (!order) return null
+  if (["paid", "credited", "refunding", "refunded"].includes(order.status)) return order
+  const updated: PaymentOrder = {
+    ...order,
+    status: "failed",
+    failureReason: cleanOptionalText(reason, 300) || "支付订单处理失败",
+    updatedAt: now(),
+  }
+  await savePaymentOrderRecord(updated)
   return updated
 }
 
@@ -185,6 +148,9 @@ export async function creditPaymentOrder(input: {
     return { ok: true, credited: false, order, reason: "already_credited" }
   }
   if (order.status === "canceled") return { ok: false, reason: "支付订单已取消，不能到账" }
+  if (order.status === "refunding" || order.status === "refunded") {
+    return { ok: false, reason: "支付订单正在退款或已退款，不能到账" }
+  }
 
   const paidCents = typeof input.paidCents === "number" ? Math.floor(input.paidCents) : order.priceCents
   if (paidCents !== order.priceCents) {
@@ -195,17 +161,8 @@ export async function creditPaymentOrder(input: {
       failureReason: `支付金额不匹配：应付 ${order.priceCents} 分，实付 ${paidCents} 分`,
       updatedAt: now(),
     }
-    await savePaymentOrder(failed)
+    await savePaymentOrderRecord(failed)
     return { ok: false, reason: failed.failureReason || "支付金额不匹配" }
-  }
-
-  const locked = await kv.set(KEY_CREDIT_LOCK(order.id), "1", { nx: true, ex: 3600 })
-  if (!locked) {
-    const latest = await getPaymentOrder(order.id)
-    if (latest?.status === "credited" && latest.creditedAt) {
-      return { ok: true, credited: false, order: latest, reason: "already_credited" }
-    }
-    return { ok: false, reason: "该支付订单正在结算，请稍后刷新" }
   }
 
   const latest = await getPaymentOrder(order.id)
@@ -214,35 +171,51 @@ export async function creditPaymentOrder(input: {
     return { ok: true, credited: false, order: latest, reason: "already_credited" }
   }
 
-  const balance = await addCreditsBy(latest.userId, latest.credits, {
-    type: "recharge_approved",
-    source: "payment_order",
-    sourceId: latest.id,
-    description: `充值到账：${latest.packageName}`,
-    operatorUserId: input.operatorUserId,
-    metadata: {
-      paymentOrderId: latest.id,
-      outTradeNo: latest.outTradeNo,
-      rechargeRequestId: latest.rechargeRequestId,
-      packageKey: latest.packageKey,
-      packageName: latest.packageName,
-      priceCents: latest.priceCents,
-      paymentMethod: latest.provider,
-      providerTradeId: input.providerTradeId,
-      settlementSource: input.source || "manual_approval",
-    },
-  })
   const settledAt = now()
-  const updated: PaymentOrder = {
+  const paidOrder: PaymentOrder = {
     ...latest,
-    status: "credited",
+    status: "paid",
     providerTradeId: input.providerTradeId || latest.providerTradeId,
     paidCents,
     paidAt: input.paidAt || latest.paidAt || settledAt,
-    creditedAt: settledAt,
-    creditedBy: input.operatorUserId || latest.creditedBy,
+    failureReason: undefined,
     updatedAt: settledAt,
   }
-  await savePaymentOrder(updated)
-  return { ok: true, credited: true, order: updated, balance }
+  await savePaymentOrderRecord(paidOrder)
+
+  const settlement = await settlePaymentCreditsOnce({
+    orderId: paidOrder.id,
+    userId: paidOrder.userId,
+    credits: paidOrder.credits,
+    operatorUserId: input.operatorUserId,
+    context: {
+      type: "recharge_approved",
+      source: "payment_order",
+      sourceId: paidOrder.id,
+      description: `充值到账：${paidOrder.packageName}`,
+      operatorUserId: input.operatorUserId,
+      metadata: {
+        paymentOrderId: paidOrder.id,
+        outTradeNo: paidOrder.outTradeNo,
+        rechargeRequestId: paidOrder.rechargeRequestId,
+        packageKey: paidOrder.packageKey,
+        packageName: paidOrder.packageName,
+        priceCents: paidOrder.priceCents,
+        paymentMethod: paidOrder.provider,
+        providerTradeId: paidOrder.providerTradeId,
+        settlementSource: input.source || "manual_approval",
+      },
+    },
+  })
+  const updated: PaymentOrder = {
+    ...paidOrder,
+    status: "credited",
+    creditedAt: settledAt,
+    creditedBy: input.operatorUserId || paidOrder.creditedBy,
+    updatedAt: settledAt,
+  }
+  await savePaymentOrderRecord(updated)
+  return settlement.alreadySettled
+    ? { ok: true, credited: false, order: updated, reason: "already_credited" }
+    : { ok: true, credited: true, order: updated, balance: settlement.balance }
 }

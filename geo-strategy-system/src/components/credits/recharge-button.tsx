@@ -2,7 +2,7 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { useActionState, useState, useEffect } from "react"
+import { useActionState, useCallback, useState, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { Building2, CreditCard, MessageCircle, QrCode, Sparkles, X, Plus } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
@@ -10,8 +10,62 @@ import { useCredits } from "./credits-provider"
 import { formatYuan, RECHARGE_PACKAGES, type RechargePackageKey } from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
 
+type PaymentOptions = {
+  alipay: boolean
+  wechat: {
+    enabled: boolean
+    native: boolean
+    h5: boolean
+  }
+  manualTransfer: boolean
+}
+
+type WechatCheckout = {
+  orderId: string
+  outTradeNo: string
+  qrCodeDataUrl: string
+  expiresAt: number
+  status: "waiting" | "credited" | "expired"
+}
+
 export function RechargeButton() {
+  const { refresh } = useCredits()
   const [open, setOpen] = useState(false)
+  const [paymentReturn, setPaymentReturn] = useState<"idle" | "syncing" | "credited" | "pending" | "failed">("idle")
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const orderId = url.searchParams.get("order_id")
+    const provider = url.searchParams.get("payment_return")
+    if ((provider !== "alipay" && provider !== "wechat") || !orderId) return
+
+    queueMicrotask(() => setPaymentReturn("syncing"))
+    fetch(`/api/recharge/payments/${provider}/${encodeURIComponent(orderId)}/sync`, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(async response => ({
+        ok: response.ok,
+        payload: await response.json() as { status?: string },
+      }))
+      .then(({ ok, payload }) => {
+        if (!ok) throw new Error("支付状态查询失败")
+        if (payload.status === "credited") {
+          setPaymentReturn("credited")
+          refresh()
+        } else {
+          setPaymentReturn("pending")
+        }
+      })
+      .catch(() => setPaymentReturn("failed"))
+      .finally(() => {
+        url.searchParams.delete("payment_return")
+        url.searchParams.delete("order_id")
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+      })
+  }, [refresh])
+
   return (
     <>
       <button
@@ -23,6 +77,23 @@ export function RechargeButton() {
         <span className="hidden sm:inline">申请充值</span>
       </button>
       {open && <RechargeDialog onClose={() => setOpen(false)} />}
+      {paymentReturn !== "idle" && (
+        <div
+          role="status"
+          className={`fixed right-4 bottom-4 z-[10000] max-w-sm rounded-lg px-4 py-3 text-sm font-medium text-white shadow-xl ${
+            paymentReturn === "credited"
+              ? "bg-emerald-600"
+              : paymentReturn === "failed"
+                ? "bg-rose-600"
+                : "bg-[#0958D9]"
+          }`}
+        >
+          {paymentReturn === "syncing" && "正在确认支付到账状态..."}
+          {paymentReturn === "credited" && "支付成功，积分已自动到账。"}
+          {paymentReturn === "pending" && "支付结果仍在确认中，请稍后刷新积分。"}
+          {paymentReturn === "failed" && "暂未确认到账，请稍后在账单中刷新支付状态。"}
+        </div>
+      )}
     </>
   )
 }
@@ -31,6 +102,14 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
   const { refresh } = useCredits()
   const [packageKey, setPackageKey] = useState<RechargePackageKey>("standard_99")
   const [paymentMethod, setPaymentMethod] = useState("manual_transfer")
+  const [paymentOptions, setPaymentOptions] = useState<PaymentOptions>({
+    alipay: false,
+    wechat: { enabled: false, native: false, h5: false },
+    manualTransfer: true,
+  })
+  const [checkoutPending, setCheckoutPending] = useState(false)
+  const [checkoutError, setCheckoutError] = useState("")
+  const [wechatCheckout, setWechatCheckout] = useState<WechatCheckout | null>(null)
   const [state, formAction, pending] = useActionState<RequestRechargeResult | null, FormData>(
     async (_prev, fd) => requestRechargeAction(fd),
     null
@@ -42,6 +121,25 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
     return () => {
       document.body.style.overflow = previousOverflow
     }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch("/api/recharge/payment-options", {
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller.signal,
+    })
+      .then(response => response.ok ? response.json() as Promise<PaymentOptions> : null)
+      .then(options => {
+        if (options) setPaymentOptions(options)
+      })
+      .catch(error => {
+        if (error instanceof Error && error.name !== "AbortError") {
+          console.warn("Failed to load payment options", error)
+        }
+      })
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {
@@ -61,6 +159,138 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
     || RECHARGE_PAYMENT_INFO.contact
   )
   const selectedQrCode = RECHARGE_PAYMENT_INFO.qrCodes.find(code => code.method === paymentMethod)
+  const officialAlipay = paymentMethod === "alipay" && paymentOptions.alipay
+  const officialWechat = paymentMethod === "wechat" && paymentOptions.wechat.enabled
+  const officialPayment = officialAlipay || officialWechat
+
+  async function startAlipayCheckout() {
+    setCheckoutPending(true)
+    setCheckoutError("")
+    try {
+      const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+      const response = await fetch("/api/recharge/payments/alipay", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageKey, channel: mobile ? "wap" : "page" }),
+      })
+      const payload = await response.json() as { paymentUrl?: string; error?: string }
+      if (!response.ok || !payload.paymentUrl) {
+        throw new Error(payload.error || "支付宝下单失败")
+      }
+      window.location.assign(payload.paymentUrl)
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : "支付宝下单失败，请稍后重试")
+      setCheckoutPending(false)
+    }
+  }
+
+  const syncWechatCheckout = useCallback(async (orderId: string, silent = false) => {
+    try {
+      const response = await fetch(`/api/recharge/payments/wechat/${encodeURIComponent(orderId)}/sync`, {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+      })
+      const payload = await response.json() as { status?: string; error?: string }
+      if (!response.ok) throw new Error(payload.error || "微信支付状态查询失败")
+      if (payload.status === "credited") {
+        setWechatCheckout(current => current?.orderId === orderId
+          ? { ...current, status: "credited" }
+          : current)
+        await refresh()
+      }
+    } catch (error) {
+      if (!silent) {
+        setCheckoutError(error instanceof Error ? error.message : "微信支付状态查询失败")
+      }
+    }
+  }, [refresh])
+
+  useEffect(() => {
+    if (!wechatCheckout || wechatCheckout.status !== "waiting") return
+    let stopped = false
+    let timer = 0
+    const poll = async () => {
+      if (Date.now() >= wechatCheckout.expiresAt) {
+        setWechatCheckout(current => current?.orderId === wechatCheckout.orderId
+          ? { ...current, status: "expired" }
+          : current)
+        return
+      }
+      await syncWechatCheckout(wechatCheckout.orderId, true)
+      if (!stopped) timer = window.setTimeout(poll, 3_000)
+    }
+    timer = window.setTimeout(poll, 2_500)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+    }
+  }, [wechatCheckout, syncWechatCheckout])
+
+  useEffect(() => {
+    if (!wechatCheckout) return
+    const frame = window.requestAnimationFrame(() => {
+      const container = document.getElementById("recharge-dialog-scroll")
+      const target = document.getElementById("wechat-official-checkout")
+      if (!container || !target) return
+      const top = target.getBoundingClientRect().top
+        - container.getBoundingClientRect().top
+        + container.scrollTop
+        - 12
+      container.scrollTo({ top, behavior: "auto" })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [wechatCheckout])
+
+  async function startWechatCheckout() {
+    setCheckoutPending(true)
+    setCheckoutError("")
+    setWechatCheckout(null)
+    try {
+      const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+      const channel = mobile && paymentOptions.wechat.h5
+        ? "h5"
+        : paymentOptions.wechat.native
+          ? "native"
+          : "h5"
+      const response = await fetch("/api/recharge/payments/wechat", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageKey, channel }),
+      })
+      const payload = await response.json() as {
+        orderId?: string
+        outTradeNo?: string
+        qrCodeDataUrl?: string
+        paymentUrl?: string
+        expiresAt?: number
+        error?: string
+      }
+      if (!response.ok || !payload.orderId || !payload.expiresAt) {
+        throw new Error(payload.error || "微信支付下单失败")
+      }
+      if (payload.paymentUrl) {
+        window.location.assign(payload.paymentUrl)
+        return
+      }
+      if (!payload.qrCodeDataUrl || !payload.outTradeNo) {
+        throw new Error("微信支付下单结果不完整")
+      }
+      setWechatCheckout({
+        orderId: payload.orderId,
+        outTradeNo: payload.outTradeNo,
+        qrCodeDataUrl: payload.qrCodeDataUrl,
+        expiresAt: payload.expiresAt,
+        status: "waiting",
+      })
+      setCheckoutPending(false)
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : "微信支付下单失败，请稍后重试")
+      setCheckoutPending(false)
+    }
+  }
 
   const dialog = (
     <div
@@ -91,7 +321,10 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
             </h2>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-7">
+          <div
+            id="recharge-dialog-scroll"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-7"
+          >
             {submitted ? (
               <>
                 <p className="text-sm text-slate-600 leading-relaxed">
@@ -118,7 +351,9 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
             ) : (
             <form action={formAction} className="min-h-0">
               <p className="text-sm text-slate-600 leading-relaxed">
-                选择套餐并完成付款后提交申请。管理员核对到账后审批，审批通过后积分立即到账。
+                {officialPayment
+                  ? "选择套餐后使用官方支付通道，付款成功并核验通过后积分自动到账。"
+                  : "选择套餐并完成付款后提交申请。管理员核对到账后审批，审批通过后积分立即到账。"}
               </p>
 
               <div className="mt-4 rounded-lg bg-[#EEF6FF] px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-[#BAE0FF]">
@@ -140,18 +375,21 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               <input type="hidden" name="paymentMethod" value={paymentMethod} />
 
               <div className="mt-5 space-y-2">
-                {RECHARGE_PACKAGES.map(pkg => {
+                {RECHARGE_PACKAGES
+                  .filter(pkg => !wechatCheckout || pkg.key === packageKey)
+                  .map(pkg => {
                   const selected = packageKey === pkg.key
                   return (
                     <button
                       key={pkg.key}
                       type="button"
                       onClick={() => setPackageKey(pkg.key)}
+                      disabled={Boolean(wechatCheckout)}
                       className={`w-full rounded-xl border px-4 py-3 text-left transition ${
                         selected
                           ? "border-[#1677FF] bg-[#EEF6FF] ring-2 ring-[#1677FF]/10"
                           : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
-                      }`}
+                      } disabled:cursor-default`}
                     >
                       <span className="flex items-center justify-between gap-3">
                         <span className="min-w-0">
@@ -181,7 +419,8 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               <select
                 value={paymentMethod}
                 onChange={e => setPaymentMethod(e.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15"
+                disabled={Boolean(wechatCheckout)}
+                className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15 disabled:cursor-default disabled:bg-slate-50"
               >
                 <option value="manual_transfer">人工转账 / 对公付款</option>
                 <option value="wechat">微信支付</option>
@@ -192,12 +431,18 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               <PaymentMethodInfo
                 hasAccountInfo={hasAccountInfo}
                 paymentMethod={paymentMethod}
+                officialAlipay={officialAlipay}
+                officialWechat={officialWechat}
+                wechatCheckout={wechatCheckout}
+                onWechatSync={() => {
+                  if (wechatCheckout) void syncWechatCheckout(wechatCheckout.orderId)
+                }}
                 selectedQrCode={selectedQrCode}
               />
 
               <CustomerServiceInfo />
 
-              <label className="mt-4 block text-xs font-medium text-slate-700">
+              {!officialPayment && <><label className="mt-4 block text-xs font-medium text-slate-700">
                 付款人 / 付款账户名（推荐）
               </label>
               <input
@@ -233,6 +478,7 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
                 placeholder="例如：已对公付款 / 微信昵称 / 转账时间"
               />
+              </>}
 
               {state && !state.ok && (
                 <div className="mt-3 text-xs text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded-lg px-3 py-2">
@@ -248,6 +494,12 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                 </div>
               )}
 
+              {checkoutError && (
+                <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 ring-1 ring-rose-200">
+                  {checkoutError}
+                </div>
+              )}
+
               <div className="sticky bottom-0 -mx-5 mt-6 flex gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
                 <button
                   type="button"
@@ -257,11 +509,26 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                   取消
                 </button>
                 <button
-                  type="submit"
-                  disabled={pending}
+                  type={officialPayment ? "button" : "submit"}
+                  onClick={officialAlipay
+                    ? startAlipayCheckout
+                    : officialWechat
+                      ? (wechatCheckout ? () => void syncWechatCheckout(wechatCheckout.orderId) : startWechatCheckout)
+                      : undefined}
+                  disabled={pending || checkoutPending || wechatCheckout?.status === "credited"}
                   className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-white text-sm font-medium hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
-                  {pending ? "提交中..." : "提交申请"}
+                  {officialAlipay
+                    ? (checkoutPending ? "正在创建订单..." : "前往支付宝付款")
+                    : officialWechat
+                      ? (checkoutPending
+                          ? "正在创建订单..."
+                          : wechatCheckout?.status === "credited"
+                            ? "支付成功"
+                            : wechatCheckout
+                              ? "刷新支付状态"
+                              : "微信官方支付")
+                    : (pending ? "提交中..." : "提交申请")}
                 </button>
               </div>
             </form>
@@ -317,10 +584,18 @@ function CustomerServiceInfo() {
 function PaymentMethodInfo({
   hasAccountInfo,
   paymentMethod,
+  officialAlipay,
+  officialWechat,
+  wechatCheckout,
+  onWechatSync,
   selectedQrCode,
 }: {
   hasAccountInfo: boolean
   paymentMethod: string
+  officialAlipay: boolean
+  officialWechat: boolean
+  wechatCheckout: WechatCheckout | null
+  onWechatSync: () => void
   selectedQrCode?: (typeof RECHARGE_PAYMENT_INFO.qrCodes)[number]
 }) {
   if (paymentMethod === "manual_transfer") {
@@ -350,6 +625,76 @@ function PaymentMethodInfo({
         <p className="mt-2 text-[11px] text-slate-500">
           转账备注建议填写注册邮箱和充值套餐，提交申请时同步填写付款人或流水号。
         </p>
+      </div>
+    )
+  }
+
+  if (officialWechat) {
+    return (
+      <div
+        id="wechat-official-checkout"
+        className="mt-3 scroll-mt-4 scroll-mb-24 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-emerald-200"
+      >
+        <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-900">
+          <QrCode className="h-3.5 w-3.5 text-emerald-700" />
+          微信官方支付
+        </div>
+        {!wechatCheckout ? (
+          <>
+            <p>点击下方按钮生成本次订单的微信官方付款码。系统会验证微信签名和实付金额，无需上传付款截图。</p>
+            <p className="mt-1 text-[11px] text-slate-500">手机端在 H5 通道审核通过后会自动进入微信收银台。</p>
+          </>
+        ) : (
+          <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-emerald-200">
+            <Image
+              src={wechatCheckout.qrCodeDataUrl}
+              alt="微信官方支付码"
+              width={420}
+              height={420}
+              unoptimized
+              className="mx-auto h-auto w-full max-w-[260px] rounded-lg object-contain"
+            />
+            <div className="mt-2 text-center">
+              {wechatCheckout.status === "waiting" && (
+                <>
+                  <p className="font-semibold text-emerald-800">请使用微信扫码付款</p>
+                  <p className="mt-1 text-[11px] text-slate-500">支付后积分会自动到账，本页将自动刷新状态。</p>
+                </>
+              )}
+              {wechatCheckout.status === "credited" && (
+                <p className="font-semibold text-emerald-700">支付成功，积分已自动到账。</p>
+              )}
+              {wechatCheckout.status === "expired" && (
+                <p className="font-semibold text-amber-700">付款码已过期，请关闭窗口后重新发起。</p>
+              )}
+              <p className="mt-2 break-all font-mono text-[10px] text-slate-400">
+                订单号：{wechatCheckout.outTradeNo}
+              </p>
+              {wechatCheckout.status === "waiting" && (
+                <button
+                  type="button"
+                  onClick={onWechatSync}
+                  className="mt-2 text-[11px] font-semibold text-[#0958D9] hover:text-[#003EB3]"
+                >
+                  我已付款，立即刷新
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (officialAlipay) {
+    return (
+      <div className="mt-3 rounded-xl bg-[#EEF6FF] px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-[#BAE0FF]">
+        <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-900">
+          <CreditCard className="h-3.5 w-3.5 text-[#1677FF]" />
+          支付宝官方在线支付
+        </div>
+        <p>点击下方按钮进入支付宝官方收银台。系统以支付平台签名回调和订单主动查询双重确认到账，不需要上传付款截图。</p>
+        <p className="mt-1 text-[11px] text-slate-500">支付成功后请返回本系统，积分通常会在数秒内自动到账。</p>
       </div>
     )
   }
