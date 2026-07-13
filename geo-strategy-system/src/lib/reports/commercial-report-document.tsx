@@ -18,10 +18,13 @@ import type {
   ModelKey,
   PenetrationItem,
   PenetrationSource,
+  ReportBrandingSettings,
 } from "@/types"
+import { reportPublisherLabel, resolveReportBranding } from "@/lib/report-branding"
 
 const FONT_DIR = path.join(process.cwd(), "public", "fonts")
-const LOGO_PATH = path.join(process.cwd(), "public", "logo.jpg")
+const SHITU_LOGO_PATH = path.join(process.cwd(), "public", "logo.jpg")
+const COVER_BACKGROUND_PATH = path.join(process.cwd(), "public", "brand", "blue-diamond-hero-v2.png")
 
 Font.register({
   family: "NotoSansSC",
@@ -78,44 +81,83 @@ const styles = StyleSheet.create({
     paddingTop: 42,
     paddingBottom: 42,
     paddingHorizontal: 38,
-    backgroundColor: COLORS.white,
+    backgroundColor: "#FBFDFF",
     color: COLORS.text,
     fontFamily: "NotoSansSC",
     fontSize: 9,
   },
   cover: {
-    padding: 48,
+    position: "relative",
+    width: 595.28,
+    height: 841.89,
+    minHeight: 841.89,
+    maxHeight: 841.89,
+    overflow: "hidden",
+    padding: 0,
     backgroundColor: COLORS.ink,
     color: COLORS.white,
     fontFamily: "NotoSansSC",
   },
+  coverBackground: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    objectPosition: "48% 50%",
+  },
+  coverShade: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: "rgba(1, 10, 45, 0.38)",
+  },
+  coverContent: {
+    position: "relative",
+    paddingTop: 48,
+    paddingHorizontal: 48,
+  },
+  coverBrandRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   coverLogoBox: {
-    width: 58,
+    width: 82,
     height: 58,
     padding: 6,
     borderRadius: 8,
-    backgroundColor: COLORS.white,
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
   },
-  coverLogo: { width: 46, height: 46, objectFit: "contain" },
+  coverLogo: { width: 70, height: 46, objectFit: "contain" },
+  coverBrandRule: { width: 4, height: 48, borderRadius: 2, backgroundColor: COLORS.cyan },
+  coverBrandText: { flex: 1, minWidth: 0, marginLeft: 13 },
+  coverBrandName: { color: COLORS.white, fontSize: 14, fontWeight: 700, lineHeight: 1.3 },
+  coverBrandMeta: { marginTop: 4, color: "#A8E8FF", fontSize: 7.5, lineHeight: 1.4 },
   coverSignal: {
-    marginTop: 52,
+    marginTop: 104,
     width: 86,
     height: 5,
-    backgroundColor: COLORS.blue,
+    backgroundColor: COLORS.cyan,
     borderRadius: 2,
   },
-  coverTitle: { marginTop: 18, fontSize: 28, fontWeight: 700, lineHeight: 1.3 },
-  coverSubtitle: { marginTop: 10, fontSize: 12, color: "#BAE0FF" },
+  coverKicker: { marginTop: 18, color: "#8BE9FF", fontSize: 8, fontWeight: 700 },
+  coverTitle: { marginTop: 8, maxWidth: 410, fontSize: 29, fontWeight: 700, lineHeight: 1.25 },
+  coverSubtitle: { marginTop: 11, fontSize: 11, color: "#DDF7FF", lineHeight: 1.5 },
   coverMeta: {
-    marginTop: 36,
-    paddingTop: 18,
+    marginTop: 31,
+    width: 360,
+    paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: "#1677FF",
+    borderTopColor: "rgba(139, 233, 255, 0.56)",
     gap: 8,
   },
   coverMetaRow: { flexDirection: "row" },
-  coverMetaLabel: { width: 76, color: "#91CAFF", fontSize: 9 },
-  coverMetaValue: { flex: 1, color: COLORS.white, fontSize: 10 },
+  coverMetaLabel: { width: 72, color: "#8BE9FF", fontSize: 8.5 },
+  coverMetaValue: { flex: 1, minWidth: 0, color: COLORS.white, fontSize: 9.5, lineHeight: 1.35 },
   coverFooter: {
     position: "absolute",
     left: 48,
@@ -124,9 +166,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    color: "#6E94C5",
+    color: "#A8C8FF",
     fontSize: 8,
   },
+  coverFooterLeft: { maxWidth: 330, lineHeight: 1.4 },
+  coverFooterLink: { marginTop: 3, color: "#8BE9FF", fontSize: 7.5, textDecoration: "none" },
   header: {
     position: "absolute",
     top: 18,
@@ -135,11 +179,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.line,
+    alignItems: "center",
+    borderBottomColor: "#A8D8FF",
     paddingBottom: 6,
     color: COLORS.muted,
     fontSize: 7,
   },
+  headerBrand: { maxWidth: 310, flexDirection: "row", alignItems: "center" },
+  headerLogo: { width: 18, height: 14, marginRight: 6, objectFit: "contain" },
+  headerBrandText: { maxWidth: 285, color: COLORS.ink, fontSize: 7, fontWeight: 700 },
+  headerClient: { maxWidth: 185, textAlign: "right" },
   footer: {
     position: "absolute",
     bottom: 16,
@@ -147,10 +196,12 @@ const styles = StyleSheet.create({
     right: 38,
     flexDirection: "row",
     justifyContent: "space-between",
-    color: COLORS.muted,
+    color: "#6684A8",
     fontSize: 7,
   },
-  chapterKicker: { fontSize: 8, fontWeight: 700, color: COLORS.blue },
+  footerPublisher: { maxWidth: 390, flexDirection: "row", alignItems: "center" },
+  footerLink: { marginLeft: 6, color: "#1677FF", fontSize: 7, textDecoration: "none" },
+  chapterKicker: { fontSize: 8, fontWeight: 700, color: "#0958D9" },
   chapterTitle: { marginTop: 5, fontSize: 21, fontWeight: 700, lineHeight: 1.3, color: COLORS.ink },
   chapterIntro: { marginTop: 7, marginBottom: 16, color: COLORS.muted, fontSize: 9.5, lineHeight: 1.45 },
   section: { marginBottom: 18 },
@@ -171,9 +222,11 @@ const styles = StyleSheet.create({
     minHeight: 64,
     padding: 10,
     borderRadius: 6,
-    backgroundColor: COLORS.paper,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.line,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.blue,
     overflow: "hidden",
   },
   metricLabel: { color: COLORS.muted, fontSize: 7.5 },
@@ -191,7 +244,7 @@ const styles = StyleSheet.create({
   insightBox: {
     padding: 12,
     borderRadius: 6,
-    backgroundColor: "#EAF7FF",
+    backgroundColor: "#E8F7FF",
     borderLeftWidth: 4,
     borderLeftColor: COLORS.blue,
     marginBottom: 12,
@@ -203,7 +256,7 @@ const styles = StyleSheet.create({
     width: "31.9%",
     padding: 8,
     borderRadius: 5,
-    backgroundColor: COLORS.ink,
+    backgroundColor: "#0637A6",
   },
   signalLabel: { color: "#BAE0FF", fontSize: 7 },
   signalValue: { marginTop: 3, color: COLORS.white, fontSize: 12, fontWeight: 700 },
@@ -260,8 +313,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 8,
-    backgroundColor: COLORS.paper,
-    color: COLORS.muted,
+    backgroundColor: "#EAF5FF",
+    color: "#315B87",
     fontSize: 6.5,
   },
   methodology: {
@@ -279,7 +332,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     padding: 14,
     borderRadius: 8,
-    backgroundColor: COLORS.paper,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.line,
   },
@@ -308,7 +361,7 @@ const styles = StyleSheet.create({
   table: { borderWidth: 1, borderColor: COLORS.line, borderRadius: 5, overflow: "hidden" },
   tableRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: COLORS.line, minHeight: 25 },
   tableLastRow: { borderBottomWidth: 0 },
-  tableHeader: { backgroundColor: COLORS.ink },
+  tableHeader: { backgroundColor: "#0637A6" },
   tableHeaderText: { color: COLORS.white, fontSize: 7, fontWeight: 700 },
   tableCell: { paddingHorizontal: 6, paddingVertical: 6, justifyContent: "center", minWidth: 0 },
   tableText: { color: COLORS.text, fontSize: 7.2, lineHeight: 1.35 },
@@ -325,6 +378,18 @@ const styles = StyleSheet.create({
   },
   tableNote: { marginTop: 6, color: COLORS.muted, fontSize: 6.8, lineHeight: 1.4 },
   continuationLabel: { marginBottom: 8, color: COLORS.muted, fontSize: 7.2 },
+  closingContent: {
+    position: "relative",
+    height: "100%",
+    paddingHorizontal: 48,
+    paddingTop: 68,
+    paddingBottom: 46,
+    justifyContent: "space-between",
+  },
+  closingTitle: { marginTop: 210, maxWidth: 390, color: COLORS.white, fontSize: 25, fontWeight: 700, lineHeight: 1.3 },
+  closingText: { marginTop: 12, maxWidth: 360, color: "#C8DFFF", fontSize: 10, lineHeight: 1.6 },
+  closingWebsite: { marginTop: 15, color: "#8BE9FF", fontSize: 9, textDecoration: "none" },
+  closingFooter: { color: "#A8C8FF", fontSize: 8 },
 })
 
 type FlattenedAnswer = {
@@ -476,7 +541,36 @@ function formatMoneyRange(range: { min: number; max: number }): string {
 
 function reportId(input: CommercialReportInput): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)
-  return `STGEO-${input.client.id.slice(0, 8).toUpperCase()}-${stamp}`
+  return `GEO-${input.client.id.slice(0, 8).toUpperCase()}-${stamp}`
+}
+
+function brandingForInput(input: CommercialReportInput): ReportBrandingSettings {
+  return resolveReportBranding(input.branding)
+}
+
+function logoForBranding(branding: ReportBrandingSettings): string | null {
+  if (branding.mode === "shitu") return SHITU_LOGO_PATH
+  return branding.logoDataUrl || null
+}
+
+function displayWebsite(value: string): string {
+  return value.replace(/^https?:\/\//i, "").replace(/\/$/, "")
+}
+
+function publisherNameFontSize(value: string): number {
+  const length = Array.from(value).length
+  if (length <= 14) return 14
+  if (length <= 24) return 12
+  if (length <= 38) return 10
+  return 8.5
+}
+
+function inlinePublisherFontSize(value: string): number {
+  const length = Array.from(value).length
+  if (length <= 26) return 7
+  if (length <= 42) return 6
+  if (length <= 64) return 5.2
+  return 4.5
 }
 
 function flattenAnswers(input: CommercialReportInput): FlattenedAnswer[] {
@@ -568,14 +662,27 @@ function actionItems(input: CommercialReportInput): string[] {
 }
 
 function HeaderFooter({ input }: { input: CommercialReportInput }) {
+  const branding = brandingForInput(input)
+  const logo = logoForBranding(branding)
+  const publisher = reportPublisherLabel(branding)
   return (
     <>
       <View style={styles.header} fixed>
-        <Text>势途 GEO 商业洞察报告</Text>
-        <Text>{input.client.name} · {input.client.industry || "未填写行业"}</Text>
+        <View style={styles.headerBrand}>
+          {logo ? (
+            // react-pdf Image is not a DOM img and has no alt prop.
+            // eslint-disable-next-line jsx-a11y/alt-text
+            <Image src={logo} style={styles.headerLogo} />
+          ) : null}
+          <Text style={[styles.headerBrandText, { fontSize: inlinePublisherFontSize(publisher) }]}>{publisher} · GEO 商业洞察报告</Text>
+        </View>
+        <Text style={styles.headerClient}>{input.client.name} · {input.client.industry || "未填写行业"}</Text>
       </View>
       <View style={styles.footer} fixed>
-        <Text>杭州势途数字科技有限公司 · 内部与客户授权使用</Text>
+        <View style={styles.footerPublisher}>
+          <Text style={{ fontSize: inlinePublisherFontSize(branding.companyName), lineHeight: 1.2 }}>{branding.companyName} · 内部与客户授权使用</Text>
+          {branding.website ? <Link src={branding.website} style={styles.footerLink}>{displayWebsite(branding.website)}</Link> : null}
+        </View>
         <Text render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
       </View>
     </>
@@ -701,31 +808,61 @@ function NumberedList({ items, startIndex = 0 }: { items: string[]; startIndex?:
   )
 }
 
+function PublisherLockup({ branding }: { branding: ReportBrandingSettings }) {
+  const logo = logoForBranding(branding)
+  const publisher = reportPublisherLabel(branding)
+  const meta = branding.mode === "shitu"
+    ? branding.companyName
+    : branding.website ? displayWebsite(branding.website) : "CUSTOM REPORT PUBLISHER"
+  return (
+    <View style={styles.coverBrandRow}>
+      {logo ? (
+        <View style={styles.coverLogoBox}>
+          {/* react-pdf Image is not a DOM img and has no alt prop. */}
+          {/* eslint-disable-next-line jsx-a11y/alt-text */}
+          <Image src={logo} style={styles.coverLogo} />
+        </View>
+      ) : <View style={styles.coverBrandRule} />}
+      <View style={styles.coverBrandText}>
+        <Text style={[styles.coverBrandName, { fontSize: publisherNameFontSize(publisher) }]}>{publisher}</Text>
+        <Text style={styles.coverBrandMeta}>{meta}</Text>
+      </View>
+    </View>
+  )
+}
+
 function CoverPage({ input }: { input: CommercialReportInput }) {
+  const branding = brandingForInput(input)
   const kindLabel = input.kind === "combined"
     ? "GEO 综合商业洞察报告"
     : input.kind === "penetration"
       ? "GEO 渗透率情报报告"
       : "GEO 难度测评报告"
   return (
-    <Page size="A4" style={styles.cover}>
-      <View style={styles.coverLogoBox}>
-        {/* react-pdf Image is not a DOM img and has no alt prop. */}
-        {/* eslint-disable-next-line jsx-a11y/alt-text */}
-        <Image src={LOGO_PATH} style={styles.coverLogo} />
-      </View>
-      <View style={styles.coverSignal} />
-      <Text style={styles.coverTitle}>{kindLabel}</Text>
-      <Text style={styles.coverSubtitle}>AI 心智占位 · 品牌可见度 · 竞争难度 · 行动路径</Text>
-      <View style={styles.coverMeta}>
-        <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>客户</Text><Text style={styles.coverMetaValue}>{input.client.name}</Text></View>
-        <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>目标品牌</Text><Text style={styles.coverMetaValue}>{input.client.ourBrand || "未填写"}</Text></View>
-        <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>行业</Text><Text style={styles.coverMetaValue}>{input.client.industry || "未填写"}</Text></View>
-        <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>报告版本</Text><Text style={styles.coverMetaValue}>{input.detail === "full" ? "审计附录版" : "精简决策版"}</Text></View>
-        <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>生成时间</Text><Text style={styles.coverMetaValue}>{formatDate(new Date().toISOString())}</Text></View>
+    <Page size="A4" style={styles.cover} wrap={false}>
+      {/* react-pdf Image is not a DOM img and has no alt prop. */}
+      {/* eslint-disable-next-line jsx-a11y/alt-text */}
+      <Image src={COVER_BACKGROUND_PATH} style={styles.coverBackground} />
+      <View style={styles.coverShade} />
+      <View style={styles.coverContent}>
+        <PublisherLockup branding={branding} />
+        <View style={styles.coverSignal} />
+        <Text style={styles.coverKicker}>GEO INTELLIGENCE REPORT</Text>
+        <Text style={styles.coverTitle}>{kindLabel}</Text>
+        <Text style={styles.coverSubtitle}>AI 心智占位 · 品牌可见度 · 竞争难度 · 行动路径</Text>
+        <View style={styles.coverMeta}>
+          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>客户</Text><Text style={styles.coverMetaValue}>{input.client.name}</Text></View>
+          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>目标品牌</Text><Text style={styles.coverMetaValue}>{input.client.ourBrand || "未填写"}</Text></View>
+          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>行业</Text><Text style={styles.coverMetaValue}>{input.client.industry || "未填写"}</Text></View>
+          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>报告版本</Text><Text style={styles.coverMetaValue}>{input.detail === "full" ? "审计附录版" : "精简决策版"}</Text></View>
+          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>生成时间</Text><Text style={styles.coverMetaValue}>{formatDate(new Date().toISOString())}</Text></View>
+        </View>
       </View>
       <View style={styles.coverFooter}>
-        <Text>CONFIDENTIAL · 势途 GEO</Text>
+        <View style={styles.coverFooterLeft}>
+          <Text>CONFIDENTIAL · {branding.companyName}</Text>
+          {branding.website ? <Link src={branding.website} style={styles.coverFooterLink}>{displayWebsite(branding.website)}</Link> : null}
+        </View>
         <Text>{reportId(input)}</Text>
       </View>
     </Page>
@@ -1208,11 +1345,33 @@ function AppendixPages({ input, answers }: { input: CommercialReportInput; answe
   )
 }
 
+function ClosingPage({ input }: { input: CommercialReportInput }) {
+  const branding = brandingForInput(input)
+  return (
+    <Page size="A4" style={styles.cover} wrap={false}>
+      {/* react-pdf Image is not a DOM img and has no alt prop. */}
+      {/* eslint-disable-next-line jsx-a11y/alt-text */}
+      <Image src={COVER_BACKGROUND_PATH} style={styles.coverBackground} />
+      <View style={styles.coverShade} />
+      <View style={styles.closingContent}>
+        <PublisherLockup branding={branding} />
+        <View>
+          <Text style={styles.closingTitle}>以真实回答为起点，持续校准品牌在 AI 中的位置。</Text>
+          <Text style={styles.closingText}>本报告反映生成时点的模型回答、联网信源和评分证据。建议在关键内容、信源和品牌动作上线后定期复测。</Text>
+          {branding.website ? <Link src={branding.website} style={styles.closingWebsite}>{displayWebsite(branding.website)}</Link> : null}
+        </View>
+        <Text style={styles.closingFooter}>CONFIDENTIAL · {reportId(input)}</Text>
+      </View>
+    </Page>
+  )
+}
+
 export function CommercialReportDocument({ input }: { input: CommercialReportInput }) {
   const answers = flattenAnswers(input)
   const sources = uniqueSources(answers)
+  const branding = brandingForInput(input)
   return (
-    <Document title={`${input.client.name} GEO 商业报告`} author="杭州势途数字科技有限公司" subject="GEO 商业洞察报告" language="zh-CN">
+    <Document title={`${input.client.name} GEO 商业报告`} author={branding.companyName} subject="GEO 商业洞察报告" language="zh-CN">
       <CoverPage input={input} />
       <SummaryPage input={input} answers={answers} sources={sources} />
       {input.penetration ? <PenetrationPage input={input} answers={answers} /> : null}
@@ -1228,6 +1387,7 @@ export function CommercialReportDocument({ input }: { input: CommercialReportInp
       <ActionPage input={input} />
       <ProcessEvidencePage input={input} />
       <AppendixPages input={input} answers={answers} />
+      <ClosingPage input={input} />
     </Document>
   )
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createCommercialReportJob } from "@/lib/reports/report-jobs"
+import { validateReportBranding } from "@/lib/reports/report-branding-store"
 import { requireUserId } from "@/lib/with-credits"
 import type {
   CommercialReportDetail,
@@ -105,6 +106,7 @@ function parseInput(value: unknown): CommercialReportInput | null {
   return {
     kind,
     detail,
+    branding: validateReportBranding(value.branding),
     client,
     penetration: penetration as PenetrationResult | undefined,
     difficulty: difficulty as DifficultyAssessmentEntry | undefined,
