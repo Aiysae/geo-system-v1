@@ -4,7 +4,19 @@ import Image from "next/image"
 import Link from "next/link"
 import { useActionState, useCallback, useState, useEffect } from "react"
 import { createPortal } from "react-dom"
-import { Building2, CreditCard, MessageCircle, QrCode, Sparkles, X, Plus } from "lucide-react"
+import {
+  ArrowRight,
+  Building2,
+  Check,
+  ChevronLeft,
+  CreditCard,
+  Landmark,
+  MessageCircle,
+  Plus,
+  QrCode,
+  Sparkles,
+  X,
+} from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
 import { useCredits } from "./credits-provider"
 import { formatYuan, RECHARGE_PACKAGES, type RechargePackageKey } from "@/lib/pricing"
@@ -27,6 +39,9 @@ type WechatCheckout = {
   expiresAt: number
   status: "waiting" | "credited" | "expired"
 }
+
+type RechargeStep = "package" | "payment"
+type RechargePaymentMethod = "wechat" | "alipay" | "manual_transfer"
 
 export function RechargeButton() {
   const { refresh } = useCredits()
@@ -100,8 +115,9 @@ export function RechargeButton() {
 
 function RechargeDialog({ onClose }: { onClose: () => void }) {
   const { refresh } = useCredits()
+  const [step, setStep] = useState<RechargeStep>("package")
   const [packageKey, setPackageKey] = useState<RechargePackageKey>("standard_99")
-  const [paymentMethod, setPaymentMethod] = useState("manual_transfer")
+  const [paymentMethod, setPaymentMethod] = useState<RechargePaymentMethod>("wechat")
   const [paymentOptions, setPaymentOptions] = useState<PaymentOptions>({
     alipay: false,
     wechat: { enabled: false, native: false, h5: false },
@@ -159,9 +175,33 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
     || RECHARGE_PAYMENT_INFO.contact
   )
   const selectedQrCode = RECHARGE_PAYMENT_INFO.qrCodes.find(code => code.method === paymentMethod)
+  const selectedPackage = RECHARGE_PACKAGES.find(pkg => pkg.key === packageKey)!
+  const wechatAvailable = paymentOptions.wechat.enabled
+    || RECHARGE_PAYMENT_INFO.qrCodes.some(code => code.method === "wechat")
+  const alipayAvailable = paymentOptions.alipay
+    || RECHARGE_PAYMENT_INFO.qrCodes.some(code => code.method === "alipay")
+  const bankAvailable = paymentOptions.manualTransfer && hasAccountInfo
   const officialAlipay = paymentMethod === "alipay" && paymentOptions.alipay
   const officialWechat = paymentMethod === "wechat" && paymentOptions.wechat.enabled
   const officialPayment = officialAlipay || officialWechat
+
+  function goToPaymentStep() {
+    setCheckoutError("")
+    if (paymentMethod === "wechat" && !wechatAvailable) {
+      setPaymentMethod(alipayAvailable ? "alipay" : "manual_transfer")
+    } else if (paymentMethod === "alipay" && !alipayAvailable) {
+      setPaymentMethod(wechatAvailable ? "wechat" : "manual_transfer")
+    } else if (paymentMethod === "manual_transfer" && !bankAvailable) {
+      setPaymentMethod(wechatAvailable ? "wechat" : "alipay")
+    }
+    setStep("payment")
+  }
+
+  function selectPaymentMethod(method: RechargePaymentMethod) {
+    if (wechatCheckout) return
+    setCheckoutError("")
+    setPaymentMethod(method)
+  }
 
   async function startAlipayCheckout() {
     setCheckoutPending(true)
@@ -292,6 +332,33 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
+  const paymentMethods = [
+    {
+      id: "wechat" as const,
+      label: "微信支付",
+      description: paymentOptions.wechat.enabled ? "微信官方支付" : "扫码后提交",
+      enabled: wechatAvailable,
+      icon: MessageCircle,
+      iconClass: "bg-[#07C160] text-white shadow-emerald-500/20",
+    },
+    {
+      id: "alipay" as const,
+      label: "支付宝",
+      description: paymentOptions.alipay ? "支付宝官方收银台" : "扫码后提交",
+      enabled: alipayAvailable,
+      icon: CreditCard,
+      iconClass: "bg-[#1677FF] text-white shadow-blue-500/20",
+    },
+    {
+      id: "manual_transfer" as const,
+      label: "银行支付",
+      description: "企业对公转账",
+      enabled: bankAvailable,
+      icon: Landmark,
+      iconClass: "bg-[#006D75] text-white shadow-cyan-800/20",
+    },
+  ]
+
   const dialog = (
     <div
       className="fixed inset-0 z-[9999] overflow-hidden bg-black/50 px-3 py-3 backdrop-blur-sm animate-fade-in sm:px-6 sm:py-6"
@@ -316,9 +383,32 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
             <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00C8FF] shadow-sm">
               <Sparkles className="h-5 w-5 text-white" />
             </span>
-            <h2 className="geo-display-title pr-9 text-xl text-white">
-              申请积分充值
-            </h2>
+            <div className="min-w-0 pr-9">
+              <h2 className="geo-display-title text-xl text-white">申请积分充值</h2>
+              <p className="mt-0.5 text-xs text-blue-100">选择套餐，再选择付款方式</p>
+            </div>
+          </div>
+
+          <div className="shrink-0 border-b border-slate-100 bg-white px-5 py-3 sm:px-7">
+            <div className="mx-auto grid max-w-md grid-cols-[1fr_36px_1fr] items-center">
+              <div className={`flex items-center gap-2 ${step === "package" ? "text-[#0958D9]" : "text-emerald-700"}`}>
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  step === "package" ? "bg-[#1677FF] text-white" : "bg-emerald-100 text-emerald-700"
+                }`}>
+                  {step === "payment" ? <Check className="h-3.5 w-3.5" /> : "1"}
+                </span>
+                <span className="text-xs font-semibold sm:text-sm">选择套餐</span>
+              </div>
+              <span className={`h-px ${step === "payment" ? "bg-emerald-300" : "bg-slate-200"}`} />
+              <div className={`flex items-center justify-end gap-2 ${step === "payment" ? "text-[#0958D9]" : "text-slate-400"}`}>
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  step === "payment" ? "bg-[#1677FF] text-white" : "bg-slate-100 text-slate-500"
+                }`}>
+                  2
+                </span>
+                <span className="text-xs font-semibold sm:text-sm">付款方式</span>
+              </div>
+            </div>
           </div>
 
           <div
@@ -350,187 +440,261 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
               </>
             ) : (
             <form action={formAction} className="min-h-0">
-              <p className="text-sm text-slate-600 leading-relaxed">
-                {officialPayment
-                  ? "选择套餐后使用官方支付通道，付款成功并核验通过后积分自动到账。"
-                  : "选择套餐并完成付款后提交申请。管理员核对到账后审批，审批通过后积分立即到账。"}
-              </p>
-
-              <div className="mt-4 rounded-lg bg-[#EEF6FF] px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-[#BAE0FF]">
-                <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-900">
-                  <CreditCard className="h-3.5 w-3.5 text-[#1677FF]" />
-                  付款说明
-                </div>
-                <p>{RECHARGE_PAYMENT_INFO.notice}</p>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  建议付款备注填写注册邮箱和套餐名称，便于管理员核对。提交充值申请即表示你理解积分仅用于平台服务消耗，并同意
-                  <Link href="/recharge-rules" target="_blank" className="mx-1 font-medium text-[#0958D9] hover:text-[#003EB3]">
-                    充值与退款规则
-                  </Link>
-                  。首购体验包每个账号仅限提交一次。
-                </p>
-              </div>
-
               <input type="hidden" name="packageKey" value={packageKey} />
               <input type="hidden" name="paymentMethod" value={paymentMethod} />
 
-              <div className="mt-5 space-y-2">
-                {RECHARGE_PACKAGES
-                  .filter(pkg => !wechatCheckout || pkg.key === packageKey)
-                  .map(pkg => {
-                  const selected = packageKey === pkg.key
-                  return (
-                    <button
-                      key={pkg.key}
-                      type="button"
-                      onClick={() => setPackageKey(pkg.key)}
-                      disabled={Boolean(wechatCheckout)}
-                      className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                        selected
-                          ? "border-[#1677FF] bg-[#EEF6FF] ring-2 ring-[#1677FF]/10"
-                          : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
-                      } disabled:cursor-default`}
-                    >
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="min-w-0">
-                          <span className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-slate-900">{pkg.name}</span>
-                            {"badge" in pkg && pkg.badge && (
-                              <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+              {step === "package" ? (
+                <>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-950">选择充值套餐</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">确认所需积分额度，下一步再选择付款方式。</p>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {RECHARGE_PACKAGES.map(pkg => {
+                      const selected = packageKey === pkg.key
+                      return (
+                        <button
+                          key={pkg.key}
+                          type="button"
+                          onClick={() => setPackageKey(pkg.key)}
+                          aria-pressed={selected}
+                          className={`relative min-h-[112px] rounded-lg border px-4 py-3.5 text-left transition ${
+                            selected
+                              ? "border-[#1677FF] bg-[#EEF6FF] shadow-sm ring-2 ring-[#1677FF]/10"
+                              : "border-slate-200 bg-white hover:border-[#69B1FF] hover:bg-[#F7FBFF]"
+                          }`}
+                        >
+                          {selected ? (
+                            <span className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-[#1677FF] text-white">
+                              <Check className="h-3 w-3" />
+                            </span>
+                          ) : null}
+                          <span className="flex min-h-6 items-center gap-2 pr-7">
+                            <span className="text-sm font-semibold text-slate-950">{pkg.name}</span>
+                            {"badge" in pkg && pkg.badge ? (
+                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
                                 {pkg.badge}
                               </span>
-                            )}
+                            ) : null}
                           </span>
-                          <span className="mt-1 block text-xs text-slate-500">{pkg.description}</span>
-                        </span>
-                        <span className="shrink-0 text-right">
-                          <span className="block text-sm font-bold text-slate-900">{formatYuan(pkg.priceCents)}</span>
-                          <span className="block font-mono text-xs text-[#0958D9]">+{pkg.credits} 积分</span>
-                        </span>
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
+                          <span className="mt-2 flex items-end justify-between gap-3">
+                            <span className="text-xl font-bold text-slate-950">{formatYuan(pkg.priceCents)}</span>
+                            <span className="font-mono text-xs font-semibold text-[#0958D9]">+{pkg.credits} 积分</span>
+                          </span>
+                          <span className="mt-2 block text-[11px] leading-4 text-slate-500">{pkg.description}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
 
-              <label className="mt-5 block text-xs font-medium text-slate-700">
-                付款方式
-              </label>
-              <select
-                value={paymentMethod}
-                onChange={e => setPaymentMethod(e.target.value)}
-                disabled={Boolean(wechatCheckout)}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15 disabled:cursor-default disabled:bg-slate-50"
-              >
-                <option value="manual_transfer">人工转账 / 对公付款</option>
-                <option value="wechat">微信支付</option>
-                <option value="alipay">支付宝</option>
-                <option value="other">其他</option>
-              </select>
-
-              <PaymentMethodInfo
-                hasAccountInfo={hasAccountInfo}
-                paymentMethod={paymentMethod}
-                officialAlipay={officialAlipay}
-                officialWechat={officialWechat}
-                wechatCheckout={wechatCheckout}
-                onWechatSync={() => {
-                  if (wechatCheckout) void syncWechatCheckout(wechatCheckout.orderId)
-                }}
-                selectedQrCode={selectedQrCode}
-              />
-
-              <CustomerServiceInfo />
-
-              {!officialPayment && <><label className="mt-4 block text-xs font-medium text-slate-700">
-                付款人 / 付款账户名（推荐）
-              </label>
-              <input
-                name="payerName"
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
-                placeholder="例如：公司名称、微信昵称、支付宝实名"
-              />
-
-              <label className="mt-4 block text-xs font-medium text-slate-700">
-                付款凭证 / 流水号（推荐）
-              </label>
-              <input
-                name="paymentReference"
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
-                placeholder="例如：转账单号、交易号、付款截图链接"
-              />
-
-              <label className="mt-4 block text-xs font-medium text-slate-700">
-                联系方式（选填）
-              </label>
-              <input
-                name="contact"
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
-                placeholder="例如：手机号、微信号、邮箱"
-              />
-
-              <label className="mt-4 block text-xs font-medium text-slate-700">
-                付款备注（选填）
-              </label>
-              <textarea
-                name="note"
-                rows={2}
-                className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
-                placeholder="例如：已对公付款 / 微信昵称 / 转账时间"
-              />
-              </>}
-
-              {state && !state.ok && (
-                <div className="mt-3 text-xs text-rose-600 bg-rose-50 ring-1 ring-rose-200 rounded-lg px-3 py-2">
-                  {state.error}
-                  {state.code === "UNAUTHENTICATED" ? (
-                    <Link
-                      href="/sign-in?redirect_url=/workspace"
-                      className="ml-1 font-semibold underline underline-offset-2"
-                    >
-                      重新登录
+                  <p className="mt-4 text-[11px] leading-5 text-slate-500">
+                    首购体验包每个账号仅限购买一次。继续即表示你同意
+                    <Link href="/recharge-rules" target="_blank" className="mx-1 font-medium text-[#0958D9] hover:text-[#003EB3]">
+                      充值与退款规则
                     </Link>
+                    。
+                  </p>
+
+                  <div className="sticky bottom-0 -mx-5 mt-6 flex gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="flex-1 rounded-lg bg-white py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToPaymentStep}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEF] py-2.5 text-sm font-medium text-white transition hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40"
+                    >
+                      下一步
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-4 rounded-lg bg-[#EEF6FF] px-4 py-3 ring-1 ring-[#BAE0FF]">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium text-[#0958D9]">已选套餐</p>
+                      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span className="text-sm font-semibold text-slate-950">{selectedPackage.name}</span>
+                        <span className="text-lg font-bold text-slate-950">{formatYuan(selectedPackage.priceCents)}</span>
+                        <span className="font-mono text-xs font-semibold text-[#0958D9]">+{selectedPackage.credits} 积分</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setStep("package")}
+                      disabled={Boolean(wechatCheckout)}
+                      className="shrink-0 text-xs font-semibold text-[#0958D9] transition hover:text-[#003EB3] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      更换套餐
+                    </button>
+                  </div>
+
+                  <div className="mt-5">
+                    <h3 className="text-base font-semibold text-slate-950">选择付款方式</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">微信和支付宝支付成功后自动到账，银行支付需提交付款信息。</p>
+                  </div>
+
+                  <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
+                    {paymentMethods.map(method => {
+                      const selected = paymentMethod === method.id
+                      const Icon = method.icon
+                      return (
+                        <button
+                          key={method.id}
+                          type="button"
+                          onClick={() => selectPaymentMethod(method.id)}
+                          disabled={!method.enabled || Boolean(wechatCheckout)}
+                          aria-pressed={selected}
+                          className={`relative flex min-h-[92px] items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
+                            selected
+                              ? "border-[#1677FF] bg-[#F3F8FF] ring-2 ring-[#1677FF]/10"
+                              : "border-slate-200 bg-white hover:border-[#69B1FF] hover:bg-slate-50"
+                          } disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-55`}
+                        >
+                          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg shadow-md ${method.iconClass}`}>
+                            <Icon className="h-5 w-5" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-slate-950">{method.label}</span>
+                            <span className="mt-1 block text-[11px] leading-4 text-slate-500">
+                              {method.enabled ? method.description : "暂不可用"}
+                            </span>
+                          </span>
+                          {selected ? (
+                            <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-[#1677FF] text-white">
+                              <Check className="h-2.5 w-2.5" />
+                            </span>
+                          ) : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <PaymentMethodInfo
+                    hasAccountInfo={hasAccountInfo}
+                    paymentMethod={paymentMethod}
+                    officialAlipay={officialAlipay}
+                    officialWechat={officialWechat}
+                    wechatCheckout={wechatCheckout}
+                    onWechatSync={() => {
+                      if (wechatCheckout) void syncWechatCheckout(wechatCheckout.orderId)
+                    }}
+                    selectedQrCode={selectedQrCode}
+                  />
+
+                  {!officialPayment ? (
+                    <>
+                      <label className="mt-4 block text-xs font-medium text-slate-700">
+                        付款人 / 付款账户名（推荐）
+                      </label>
+                      <input
+                        name="payerName"
+                        className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
+                        placeholder="例如：公司名称、微信昵称、支付宝实名"
+                      />
+
+                      <label className="mt-4 block text-xs font-medium text-slate-700">
+                        付款凭证 / 流水号（推荐）
+                      </label>
+                      <input
+                        name="paymentReference"
+                        className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
+                        placeholder="例如：转账单号、交易号、付款截图链接"
+                      />
+
+                      <label className="mt-4 block text-xs font-medium text-slate-700">
+                        联系方式（选填）
+                      </label>
+                      <input
+                        name="contact"
+                        className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
+                        placeholder="例如：手机号、微信号、邮箱"
+                      />
+
+                      <label className="mt-4 block text-xs font-medium text-slate-700">
+                        付款备注（选填）
+                      </label>
+                      <textarea
+                        name="note"
+                        rows={2}
+                        className="mt-1.5 w-full resize-none rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20"
+                        placeholder="例如：已对公付款 / 微信昵称 / 转账时间"
+                      />
+                    </>
                   ) : null}
-                </div>
-              )}
 
-              {checkoutError && (
-                <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 ring-1 ring-rose-200">
-                  {checkoutError}
-                </div>
-              )}
+                  <div className="mt-4 flex gap-2.5 rounded-lg bg-slate-50 px-3.5 py-3 text-[11px] leading-5 text-slate-600 ring-1 ring-slate-200">
+                    <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-[#1677FF]" />
+                    <p>
+                      {officialPayment
+                        ? "官方支付通道会核验支付平台签名和实付金额，付款成功后积分自动到账。"
+                        : RECHARGE_PAYMENT_INFO.notice}
+                    </p>
+                  </div>
 
-              <div className="sticky bottom-0 -mx-5 mt-6 flex gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 py-2.5 rounded-xl bg-white ring-1 ring-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50 transition"
-                >
-                  取消
-                </button>
-                <button
-                  type={officialPayment ? "button" : "submit"}
-                  onClick={officialAlipay
-                    ? startAlipayCheckout
-                    : officialWechat
-                      ? (wechatCheckout ? () => void syncWechatCheckout(wechatCheckout.orderId) : startWechatCheckout)
-                      : undefined}
-                  disabled={pending || checkoutPending || wechatCheckout?.status === "credited"}
-                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-white text-sm font-medium hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                  {officialAlipay
-                    ? (checkoutPending ? "正在创建订单..." : "前往支付宝付款")
-                    : officialWechat
-                      ? (checkoutPending
-                          ? "正在创建订单..."
-                          : wechatCheckout?.status === "credited"
-                            ? "支付成功"
-                            : wechatCheckout
-                              ? "刷新支付状态"
-                              : "微信官方支付")
-                    : (pending ? "提交中..." : "提交申请")}
-                </button>
-              </div>
+                  <CustomerServiceInfo />
+
+                  {state && !state.ok ? (
+                    <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 ring-1 ring-rose-200">
+                      {state.error}
+                      {state.code === "UNAUTHENTICATED" ? (
+                        <Link
+                          href="/sign-in?redirect_url=/workspace"
+                          className="ml-1 font-semibold underline underline-offset-2"
+                        >
+                          重新登录
+                        </Link>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {checkoutError ? (
+                    <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 ring-1 ring-rose-200">
+                      {checkoutError}
+                    </div>
+                  ) : null}
+
+                  <div className="sticky bottom-0 -mx-5 mt-6 flex gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
+                    <button
+                      type="button"
+                      onClick={() => setStep("package")}
+                      disabled={Boolean(wechatCheckout)}
+                      className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-white py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      上一步
+                    </button>
+                    <button
+                      type={officialPayment ? "button" : "submit"}
+                      onClick={officialAlipay
+                        ? startAlipayCheckout
+                        : officialWechat
+                          ? (wechatCheckout ? () => void syncWechatCheckout(wechatCheckout.orderId) : startWechatCheckout)
+                          : undefined}
+                      disabled={pending || checkoutPending || wechatCheckout?.status === "credited"}
+                      className="flex flex-1 items-center justify-center rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEF] py-2.5 text-sm font-medium text-white transition-all hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {officialAlipay
+                        ? (checkoutPending ? "正在创建订单..." : "前往支付宝付款")
+                        : officialWechat
+                          ? (checkoutPending
+                              ? "正在创建订单..."
+                              : wechatCheckout?.status === "credited"
+                                ? "支付成功"
+                                : wechatCheckout
+                                  ? "刷新支付状态"
+                                  : "微信官方支付")
+                          : (pending ? "提交中..." : "提交付款申请")}
+                    </button>
+                  </div>
+                </>
+              )}
             </form>
             )}
           </div>
