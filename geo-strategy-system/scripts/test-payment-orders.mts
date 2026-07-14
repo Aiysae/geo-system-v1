@@ -17,6 +17,11 @@ const {
 const { getCredits } = await import("../src/lib/credits")
 const { listCreditLedgerForUser } = await import("../src/lib/credit-ledger")
 const { centsFromYuan, yuanFromCents } = await import("../src/lib/alipay-payment")
+const {
+  hasBlockingFirstPurchaseOrder,
+  ONLINE_PAYMENT_ORDER_TTL_MS,
+  paymentOrderBlocksFirstPurchase,
+} = await import("../src/lib/payment-lifecycle")
 
 try {
   assert.equal(yuanFromCents(990), "9.90")
@@ -35,6 +40,46 @@ try {
     credits: 100,
     provider: "alipay",
   })
+
+  const beforeExpiry = order.createdAt + ONLINE_PAYMENT_ORDER_TTL_MS - 1
+  const atExpiry = order.createdAt + ONLINE_PAYMENT_ORDER_TTL_MS
+  assert.equal(
+    hasBlockingFirstPurchaseOrder([order], "trial_990", beforeExpiry),
+    true,
+    "an active online checkout must reserve the first-purchase package",
+  )
+  assert.equal(
+    hasBlockingFirstPurchaseOrder([order], "trial_990", atExpiry),
+    false,
+    "an expired unpaid online checkout must release the first-purchase package",
+  )
+  assert.equal(
+    paymentOrderBlocksFirstPurchase(
+      { ...order, provider: "manual_transfer" },
+      "trial_990",
+      atExpiry,
+    ),
+    true,
+    "manual transfer requests keep their existing first-purchase reservation",
+  )
+  assert.equal(
+    paymentOrderBlocksFirstPurchase(
+      { ...order, status: "paid" },
+      "trial_990",
+      atExpiry,
+    ),
+    true,
+    "a paid order must keep the first-purchase package reserved",
+  )
+  assert.equal(
+    paymentOrderBlocksFirstPurchase(
+      { ...order, status: "failed" },
+      "trial_990",
+      beforeExpiry,
+    ),
+    false,
+    "a failed order must release the first-purchase package",
+  )
 
   const results = await Promise.all(
     Array.from({ length: 12 }, () => creditPaymentOrder({

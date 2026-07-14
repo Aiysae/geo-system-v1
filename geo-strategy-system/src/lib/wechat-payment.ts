@@ -8,6 +8,7 @@ import {
 } from "node:crypto"
 import { isIP } from "node:net"
 import { publicAppUrl, wechatPaymentConfig, type WechatPaymentConfig } from "@/lib/payment-config"
+import { ONLINE_PAYMENT_ORDER_TTL_MS } from "@/lib/payment-lifecycle"
 import type { PaymentOrder } from "@/lib/payment-types"
 
 const REQUEST_TIMEOUT_MS = 8_000
@@ -272,7 +273,7 @@ export async function createWechatNativeOrder(
   clientIp?: string,
 ): Promise<{ codeUrl: string; expiresAt: number }> {
   const config = wechatPaymentConfig()
-  const expiresAt = order.createdAt + 15 * 60 * 1000
+  const expiresAt = order.createdAt + ONLINE_PAYMENT_ORDER_TTL_MS
   const ip = clientIp ? normalizeWechatClientIp(clientIp) : null
   const payload = baseOrderPayload(order, expiresAt, config)
   const result = await wechatApiRequest<{ code_url?: string }>(
@@ -297,7 +298,7 @@ export async function createWechatH5Order(input: {
   const config = wechatPaymentConfig()
   const ip = normalizeWechatClientIp(input.clientIp)
   if (!ip) throw new Error("无法识别微信 H5 支付的用户 IP")
-  const expiresAt = input.order.createdAt + 15 * 60 * 1000
+  const expiresAt = input.order.createdAt + ONLINE_PAYMENT_ORDER_TTL_MS
   const result = await wechatApiRequest<{ h5_url?: string }>(
     "POST",
     "/v3/pay/transactions/h5",
