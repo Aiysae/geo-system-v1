@@ -14,12 +14,15 @@ import {
 } from "@react-pdf/renderer"
 import type {
   CommercialReportInput,
+  DifficultyContentCostEstimate,
   DifficultyDimensionResult,
+  DifficultyLegacyCostEstimate,
   ModelKey,
   PenetrationItem,
   PenetrationSource,
   ReportBrandingSettings,
 } from "@/types"
+import { isContentVolumeCostEstimate } from "@/lib/difficulty/content-cost-estimate"
 import { reportPublisherLabel, resolveReportBranding } from "@/lib/report-branding"
 
 const FONT_DIR = path.join(process.cwd(), "public", "fonts")
@@ -633,8 +636,16 @@ function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer
   }
   if (input.difficulty) {
     const cost = input.difficulty.result.costEstimate
+    const costSummary = cost
+      ? isContentVolumeCostEstimate(cost)
+        ? (() => {
+            const stable = cost.milestones.find(item => item.key === "stableMention")
+            return stable ? `稳定提及累计执行成本估算为 ${formatMoneyRange(stable.cumulativeCost)}。` : ""
+          })()
+        : `90 天稳定期预算估算为 ${formatMoneyRange(cost.stabilization90Days)}。`
+      : ""
     sections.push(
-      `难度测评总分为 ${input.difficulty.result.totalScore} 分，等级为“${input.difficulty.result.level}”，稳定提及周期判断为 ${concisePeriod(input.difficulty.result.stableMentionPeriod)}。${cost ? `90 天稳定期预算估算为 ${formatMoneyRange(cost.stabilization90Days)}。` : ""}`,
+      `难度测评总分为 ${input.difficulty.result.totalScore} 分，等级为“${input.difficulty.result.level}”，稳定提及周期判断为 ${concisePeriod(input.difficulty.result.stableMentionPeriod)}。${costSummary}`,
     )
   }
   if (answers.length > 0) {
@@ -1180,6 +1191,88 @@ function DifficultyDetailsPage({ input }: { input: CommercialReportInput }) {
 
 function DifficultyCostPage({ input }: { input: CommercialReportInput }) {
   const estimate = input.difficulty!.result.costEstimate!
+  return isContentVolumeCostEstimate(estimate)
+    ? <DifficultyContentCostPage input={input} estimate={estimate} />
+    : <DifficultyLegacyCostPage input={input} estimate={estimate} />
+}
+
+function DifficultyContentCostPage({
+  input,
+  estimate,
+}: {
+  input: CommercialReportInput
+  estimate: DifficultyContentCostEstimate
+}) {
+  return (
+    <Page size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="CONTENT COST MODEL"
+        title="GEO 执行成本测算"
+        intro={`难度总分已包含地域、竞品、商业价值和资产缺口；预算只按达到各阶段所需内容数量计算。置信度为${estimate.confidence}，三个阶段均为累计投入。`}
+      />
+      <View style={styles.signalStrip} wrap={false}>
+        {estimate.milestones.map(item => (
+          <View key={item.key} style={styles.signalItem}>
+            <Text style={styles.signalLabel}>{item.label}</Text>
+            <Text style={styles.signalValue}>{formatMoneyRange(item.cumulativeCost)}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={[styles.table, { marginTop: 16 }]}>
+        <View style={[styles.tableRow, styles.tableHeader]}>
+          <TableCell width="20%" header>目标阶段</TableCell>
+          <TableCell width="12%" header>周期</TableCell>
+          <TableCell width="14%" header>内容量</TableCell>
+          <TableCell width="13%" header>建议自媒体</TableCell>
+          <TableCell width="13%" header>建议权威</TableCell>
+          <TableCell width="12%" header>建议视频</TableCell>
+          <TableCell width="16%" header>累计成本</TableCell>
+        </View>
+        {estimate.milestones.map((item, index) => (
+          <View key={item.key} style={[styles.tableRow, index === estimate.milestones.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+            <TableCell width="20%" strong>{item.label}</TableCell>
+            <TableCell width="12%">{item.days.min}-{item.days.max}天</TableCell>
+            <TableCell width="14%">{item.contentCount.min}-{item.contentCount.max}条</TableCell>
+            <TableCell width="13%">{item.allocation.selfMediaArticles}篇</TableCell>
+            <TableCell width="13%">{item.allocation.authorityMediaArticles}篇</TableCell>
+            <TableCell width="12%">{item.allocation.douyinVideos}个</TableCell>
+            <TableCell width="16%" strong>{formatMoneyRange(item.cumulativeCost)}</TableCell>
+          </View>
+        ))}
+      </View>
+
+      <View style={[styles.section, { marginTop: 16 }]} wrap={false}>
+        <Text style={styles.sectionTitle}>固定测算基准</Text>
+        <View style={styles.metricsGrid}>
+          <MetricCard label="基础建设" value={formatMoney(estimate.foundationCost)} />
+          <MetricCard label="自媒体文章" value={`${Math.round(estimate.contentRatios.selfMediaArticles * 100)}% · ¥${estimate.unitCosts.selfMediaArticle}/篇`} />
+          <MetricCard label="权威媒体" value={`${Math.round(estimate.contentRatios.authorityMediaArticles * 100)}% · ¥${estimate.unitCosts.authorityMediaArticle}/篇`} />
+          <MetricCard label="抖音视频" value={`${Math.round(estimate.contentRatios.douyinVideos * 100)}% · ¥${estimate.unitCosts.douyinVideo}/个`} />
+        </View>
+      </View>
+
+      <View style={[styles.insightBox, { marginTop: 14 }]} wrap={false}>
+        <Text style={styles.insightTitle}>阶段验收与测算前提</Text>
+        {estimate.milestones.map((item, index) => (
+          <Text key={item.key} style={styles.insightText}>{index + 1}. {item.label}：{item.successDefinition}。</Text>
+        ))}
+        {estimate.assumptions.slice(0, 4).map((item, index) => (
+          <Text key={`${index}-${item}`} style={styles.insightText}>{index + 4}. {item}</Text>
+        ))}
+      </View>
+    </Page>
+  )
+}
+
+function DifficultyLegacyCostPage({
+  input,
+  estimate,
+}: {
+  input: CommercialReportInput
+  estimate: DifficultyLegacyCostEstimate
+}) {
   const lineItems = [
     ["一次性基础建设", estimate.oneTimeFoundation, "信息架构、基础页面、测评基线与内容规划"],
     ["每月内容生产", estimate.monthlyContent, "文章、问答、案例、对比和场景内容"],
@@ -1192,8 +1285,8 @@ function DifficultyCostPage({ input }: { input: CommercialReportInput }) {
       <HeaderFooter input={input} />
       <ChapterTitle
         kicker="BUDGET ESTIMATE"
-        title="GEO 执行成本测算"
-        intro={`按${input.difficulty!.city || "全国"}覆盖范围、竞争强度、商业价值和资产缺口测算；置信度为${estimate.confidence}。金额为决策区间，不是报价或效果承诺。`}
+        title="GEO 执行成本测算 · 历史版本"
+        intro={`该报告生成于旧版预算模型，按${input.difficulty!.city || "全国"}覆盖范围、竞争强度和多个预算池测算。重新测评后会切换为按内容数量和固定单价计算的新模型。`}
       />
       <View style={styles.signalStrip} wrap={false}>
         <View style={styles.signalItem}>

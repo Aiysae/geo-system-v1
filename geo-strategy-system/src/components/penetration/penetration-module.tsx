@@ -300,41 +300,56 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                   </div>
                 </div>
 
-                <div className="geo-data-panel min-w-0 overflow-hidden rounded-lg p-4">
-                  <div className="geo-section-kicker mb-3">
-                    全品牌渗透率 Top {topIndustryShare.length}
+                <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+                  <div className="geo-data-panel flex min-w-0 flex-col overflow-hidden rounded-lg p-4 xl:aspect-square">
+                    <div className="geo-section-kicker mb-3 shrink-0">
+                      全品牌渗透率 Top {topIndustryShare.length}
+                    </div>
+                    <div className="min-h-0 flex-1">
+                      <IndustryShareChart
+                        compact
+                        items={topIndustryShare}
+                        ourBrand={client.ourBrand}
+                        totalSlots={pen.aggregated.totalSlots}
+                      />
+                    </div>
                   </div>
-                  <IndustryShareChart
-                    items={topIndustryShare}
-                    ourBrand={client.ourBrand}
-                    totalSlots={pen.aggregated.totalSlots}
-                  />
-                </div>
 
-                {pen.aggregated.perModelRate.length > 0 && (
-                  <div className="geo-data-panel min-w-0 overflow-hidden rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="geo-section-kicker">
-                        各模型渗透率对比 · 趋势图
+                  {pen.aggregated.perModelRate.length > 0 && (
+                    <div className="geo-data-panel flex min-w-0 flex-col overflow-hidden rounded-lg p-4 xl:aspect-square">
+                      <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
+                        <div className="geo-section-kicker">
+                          各模型渗透率对比 · 趋势图
+                        </div>
+                        <div className="inline-flex shrink-0 items-center gap-1.5 text-[10px] text-amber-600">
+                          <span className="inline-block w-3 border-t-2 border-dashed border-amber-400"></span>
+                          整体均值
+                        </div>
                       </div>
-                      <div className="text-[10px] text-amber-600 inline-flex items-center gap-1.5">
-                        <span className="inline-block w-3 border-t-2 border-dashed border-amber-400"></span>
-                        整体均值
+                      <div className="min-h-0 flex-1">
+                        <ModelRateTrend
+                          compact
+                          perModelRate={pen.aggregated.perModelRate}
+                          overallRate={pen.aggregated.penetrationRate}
+                        />
                       </div>
                     </div>
-                    <ModelRateTrend
-                      perModelRate={pen.aggregated.perModelRate}
-                      overallRate={pen.aggregated.penetrationRate}
-                    />
-                  </div>
-                )}
+                  )}
+                </div>
+
+                <MonitoringDashboards
+                  penetration={pen}
+                  ourBrand={client.ourBrand}
+                  brandAliases={client.brandAliases ?? []}
+                  competitors={client.competitors}
+                />
 
                 {pen.aggregated.missedQuestions.length > 0 && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
-                    <div className="text-[11px] uppercase tracking-wider text-amber-700 mb-2">
+                    <div className="mb-2 text-[11px] uppercase tracking-wider text-amber-700">
                       未被任一模型提及的疑问句（{pen.aggregated.missedQuestions.length}）
                     </div>
-                    <ul className="space-y-1 text-xs text-amber-900 list-disc pl-4">
+                    <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
                       {pen.aggregated.missedQuestions.slice(0, 6).map((q, i) => (
                         <li key={i}>{q}</li>
                       ))}
@@ -346,13 +361,6 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                     </ul>
                   </div>
                 )}
-
-                <MonitoringDashboards
-                  penetration={pen}
-                  ourBrand={client.ourBrand}
-                  brandAliases={client.brandAliases ?? []}
-                  competitors={client.competitors}
-                />
 
                 <RawAnswersPanel
                   byModel={pen.byModel}
@@ -880,18 +888,18 @@ function MonitoringDashboards({
   }, [penetration.byModel, ourBrand, brandAliases, competitors, cacheKey])
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50/70 transition group"
+        className="group flex w-full items-center justify-between gap-4 bg-white px-4 py-3 text-left transition hover:bg-slate-50/80"
       >
-        <div className="flex items-center gap-2.5">
-          <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500 flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] via-[#2F54EB] to-[#00C8FF] shadow-sm transition-transform group-hover:scale-105">
             <BarChart3 className="h-3.5 w-3.5 text-white" />
           </span>
-          <div className="text-left">
+          <div className="min-w-0">
             <div className="text-sm font-medium text-slate-800">监控大盘 · 品牌声量 & 关键词竞争</div>
-            <div className="text-[11px] text-slate-500">
+            <div className="truncate text-[11px] text-slate-500">
               基于本次盲测结果服务端聚合，自动过滤拒答 / 0 参与模型的无效问题
             </div>
           </div>
@@ -902,17 +910,25 @@ function MonitoringDashboards({
       </button>
 
       {open && (
-        <div className="border-t border-slate-100 p-4 bg-slate-950/95 space-y-4">
+        <div className="grid min-w-0 gap-4 border-t border-slate-200 p-4 xl:grid-cols-2">
           {loading && !voice && !competition && (
-            <div className="text-center text-sm text-slate-400 py-10">聚合中…</div>
+            <div className="py-10 text-center text-sm text-slate-500 xl:col-span-2">聚合中…</div>
           )}
           {error && (
-            <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 xl:col-span-2">
               {error}
             </div>
           )}
-          {voice && <BrandShareOfVoice items={voice} />}
-          {competition && <KeywordCompetition items={competition} />}
+          {voice && (
+            <div className="min-w-0 overflow-hidden xl:aspect-square">
+              <BrandShareOfVoice compact items={voice} />
+            </div>
+          )}
+          {competition && (
+            <div className="min-w-0 overflow-hidden xl:aspect-square">
+              <KeywordCompetition compact items={competition} />
+            </div>
+          )}
         </div>
       )}
     </div>

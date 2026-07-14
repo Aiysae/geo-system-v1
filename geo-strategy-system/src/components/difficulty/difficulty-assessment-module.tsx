@@ -26,13 +26,19 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
+import {
+  estimateGeoContentCost,
+  isContentVolumeCostEstimate,
+} from "@/lib/difficulty/content-cost-estimate"
 import type {
   Client,
   DifficultyAssessmentEntry,
   DifficultyAssessmentMode,
   DifficultyAssessmentResult,
+  DifficultyContentCostEstimate,
   DifficultyGeographicScope,
   DifficultyJobRecord,
+  DifficultyLegacyCostEstimate,
   DifficultyLevel,
   DifficultyModelSelection,
   ModelKey,
@@ -203,23 +209,20 @@ const BRAND_TOTAL_STANDARDS = [
   { range: "75-100", level: "超难", desc: "需要系统性 GEO 战役和持续信源建设" },
 ]
 
-const SAMPLE_COST_ESTIMATE = {
-  currency: "CNY" as const,
-  confidence: "中" as const,
-  validation30Days: { min: 32000, max: 68000 },
-  stabilization90Days: { min: 78000, max: 168000 },
-  scale180Days: { min: 148000, max: 318000 },
-  oneTimeFoundation: { min: 18000, max: 38000 },
-  monthlyContent: { min: 12000, max: 28000 },
-  authorityAssets: { min: 15000, max: 48000 },
-  regionalCoverage: { min: 8000, max: 22000 },
-  monthlyMonitoring: { min: 3000, max: 8000 },
-  workload: { articlesPerMonth: 32, authorityAssets: 6, channelCount: 9, regionalPages: 38 },
-  assumptions: [
-    "按全国范围和当前竞争强度估算。",
-    "预算用于内容、信源、区域页面和持续监测，不含付费广告及网站重开发。",
-  ],
-}
+const SAMPLE_COST_ESTIMATE = estimateGeoContentCost({
+  totalScore: 72,
+  confidence: "中",
+  scopeLabel: "全国",
+  region: "全国",
+})
+const SAMPLE_STABLE_MILESTONE = SAMPLE_COST_ESTIMATE.milestones.find(item => item.key === "stableMention")!
+const BRAND_SAMPLE_COST_ESTIMATE = estimateGeoContentCost({
+  totalScore: 66,
+  confidence: "中",
+  scopeLabel: "全国",
+  region: "全国",
+})
+const BRAND_SAMPLE_STABLE_MILESTONE = BRAND_SAMPLE_COST_ESTIMATE.milestones.find(item => item.key === "stableMention")!
 
 const SAMPLE_RESULT: DifficultyAssessmentResult = {
   scoreVersion: "v2",
@@ -228,7 +231,7 @@ const SAMPLE_RESULT: DifficultyAssessmentResult = {
   region: "全国",
   totalScore: 72,
   level: "困难",
-  stableMentionPeriod: "约60-90天",
+  stableMentionPeriod: `约${SAMPLE_STABLE_MILESTONE.days.min}-${SAMPLE_STABLE_MILESTONE.days.max}天`,
   summary:
     "除甲醛行业真实竞争分散，但 AI 搜索呈现层已经被少数连锁品牌、榜单软文和问答平台内容压缩。新品牌并非没有机会，但需要避开全国大词，优先用本地真实案例、检测流程和细分人群场景建立可引用信源。",
   dimensions: {
@@ -338,7 +341,7 @@ const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
   website: "https://example.com",
   totalScore: 66,
   level: "困难",
-  stableMentionPeriod: "约60-90天",
+  stableMentionPeriod: `约${BRAND_SAMPLE_STABLE_MILESTONE.days.min}-${BRAND_SAMPLE_STABLE_MILESTONE.days.max}天`,
   summary:
     "净居家在除甲醛赛道具备本地服务切入机会，但公开信任资产、第三方提及和结构化案例不足。做 GEO 的核心难点不是行业完全封闭，而是要先让 AI 能验证品牌真实存在、服务可靠、案例可引用，再逐步进入城市词和母婴/新房等细分答案。",
   dimensions: {
@@ -434,7 +437,7 @@ const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
       tags: ["品牌路径", "GEO动作", "复测"],
     },
   },
-  costEstimate: SAMPLE_COST_ESTIMATE,
+  costEstimate: BRAND_SAMPLE_COST_ESTIMATE,
   generatedAt: new Date().toISOString(),
   providerLabel: "示例",
 }
@@ -1172,36 +1175,17 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                   GEO 执行成本测算
                 </div>
                 {costEstimate ? (
-                  <span className="text-[11px] text-slate-500">测算置信度：{costEstimate.confidence}</span>
+                  <span className="text-[11px] text-slate-500">
+                    {isContentVolumeCostEstimate(costEstimate) ? "内容量模型" : "旧版预算模型"} · 测算置信度：{costEstimate.confidence}
+                  </span>
                 ) : null}
               </div>
               {costEstimate ? (
-                <div className="space-y-4">
-                  <div className="grid overflow-hidden rounded-lg border border-blue-100 bg-blue-50/60 md:grid-cols-3 md:divide-x md:divide-blue-100">
-                    <CostPhase label="30天验证期" value={formatMoneyRange(costEstimate.validation30Days)} />
-                    <CostPhase label="90天稳定期" value={formatMoneyRange(costEstimate.stabilization90Days)} />
-                    <CostPhase label="180天规模期" value={formatMoneyRange(costEstimate.scale180Days)} />
-                  </div>
-                  <div className="grid gap-x-4 gap-y-3 border-y border-slate-200 py-3 sm:grid-cols-2 xl:grid-cols-5">
-                    <CostLine label="一次性基础建设" value={formatMoneyRange(costEstimate.oneTimeFoundation)} />
-                    <CostLine label="每月内容生产" value={formatMoneyRange(costEstimate.monthlyContent)} />
-                    <CostLine label="权威信源资产" value={formatMoneyRange(costEstimate.authorityAssets)} />
-                    <CostLine label="地域覆盖建设" value={formatMoneyRange(costEstimate.regionalCoverage)} />
-                    <CostLine label="每月监测复盘" value={formatMoneyRange(costEstimate.monthlyMonitoring)} />
-                  </div>
-                  <div className="grid gap-3 text-xs text-slate-600 md:grid-cols-[1fr_1.4fr]">
-                    <div className="leading-5">
-                      建议工作量：每月约 {costEstimate.workload.articlesPerMonth} 篇内容、{costEstimate.workload.authorityAssets} 项权威资产、{costEstimate.workload.channelCount} 个渠道、{costEstimate.workload.regionalPages} 个区域页面。
-                    </div>
-                    <div className="space-y-1 leading-5 text-slate-500">
-                      {costEstimate.assumptions.slice(0, 2).map((item, index) => (
-                        <p key={`${index}-${item}`}>{item}</p>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                isContentVolumeCostEstimate(costEstimate)
+                  ? <ContentVolumeCostPanel estimate={costEstimate} />
+                  : <LegacyCostPanel estimate={costEstimate} />
               ) : (
-                <p className="text-xs leading-5 text-slate-500">这是 V1 历史报告，未包含成本测算。重新评估后会生成 30、90、180 天预算区间。</p>
+                <p className="text-xs leading-5 text-slate-500">这是早期历史报告，未包含成本测算。重新评估后会生成三个提及阶段的内容量、周期和累计成本。</p>
               )}
             </section>
 
@@ -1340,6 +1324,115 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           </CardContent>
         </Card>
       </div>
+    </div>
+  )
+}
+
+function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostEstimate }) {
+  const stageTones = [
+    "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50/70",
+    "border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-blue-50/70",
+    "border-blue-200 bg-gradient-to-br from-blue-50 via-white to-indigo-50/70",
+  ]
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-3">
+        {estimate.milestones.map((milestone, index) => (
+          <article key={milestone.key} className={`min-w-0 overflow-hidden rounded-lg border p-4 ${stageTones[index]}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-[#1677FF]">阶段 {index + 1}</div>
+                <h4 className="mt-1 text-sm font-semibold text-slate-900">{milestone.label}</h4>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-[10px] text-slate-400">累计成本</div>
+                <div className="geo-data-number mt-0.5 text-lg font-bold text-[#0958D9]">
+                  {formatMoneyRange(milestone.cumulativeCost)}
+                </div>
+              </div>
+            </div>
+            <p className="mt-2 min-h-10 text-[11px] leading-5 text-slate-500">{milestone.successDefinition}</p>
+
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-y border-blue-100/80 py-3 text-xs">
+              <div>
+                <div className="text-[10px] text-slate-400">预计周期</div>
+                <div className="mt-0.5 font-semibold text-slate-800">{milestone.days.min}-{milestone.days.max} 天</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-400">内容总量</div>
+                <div className="mt-0.5 font-semibold text-slate-800">{milestone.contentCount.min}-{milestone.contentCount.max} 条</div>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between text-[10px] text-slate-400">
+                <span>建议中位数 {milestone.contentCount.recommended} 条</span>
+                <span>新增 {formatMoneyRange(milestone.incrementalCost)}</span>
+              </div>
+              <div className="grid grid-cols-3 divide-x divide-slate-200 rounded-md bg-white/80 py-2 text-center ring-1 ring-slate-200/80">
+                <CostCount label="自媒体" value={milestone.allocation.selfMediaArticles} />
+                <CostCount label="权威媒体" value={milestone.allocation.authorityMediaArticles} />
+                <CostCount label="抖音视频" value={milestone.allocation.douyinVideos} />
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="grid overflow-hidden border-y border-slate-200 bg-slate-50/70 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-slate-200">
+        <CostBasis label="基础建设" value={`¥${formatMoney(estimate.foundationCost)}`} detail="官网和第三方站，只计一次" />
+        <CostBasis label="自媒体文章" value={`${Math.round(estimate.contentRatios.selfMediaArticles * 100)}% · ¥${estimate.unitCosts.selfMediaArticle}/篇`} detail="内容矩阵主体" />
+        <CostBasis label="权威媒体文章" value={`${Math.round(estimate.contentRatios.authorityMediaArticles * 100)}% · ¥${estimate.unitCosts.authorityMediaArticle}/篇`} detail="权威信源支撑" />
+        <CostBasis label="抖音视频" value={`${Math.round(estimate.contentRatios.douyinVideos * 100)}% · ¥${estimate.unitCosts.douyinVideo}/个`} detail="视频内容补充" />
+      </div>
+
+      <div className="grid gap-1 text-[11px] leading-5 text-slate-500 md:grid-cols-2">
+        {estimate.assumptions.slice(0, 4).map((item, index) => (
+          <p key={`${index}-${item}`} className="pr-3">{item}</p>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function LegacyCostPanel({ estimate }: { estimate: DifficultyLegacyCostEstimate }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid overflow-hidden rounded-lg border border-slate-200 bg-slate-50/60 md:grid-cols-3 md:divide-x md:divide-slate-200">
+        <CostPhase label="30天验证期" value={formatMoneyRange(estimate.validation30Days)} />
+        <CostPhase label="90天稳定期" value={formatMoneyRange(estimate.stabilization90Days)} />
+        <CostPhase label="180天规模期" value={formatMoneyRange(estimate.scale180Days)} />
+      </div>
+      <div className="grid gap-x-4 gap-y-3 border-y border-slate-200 py-3 sm:grid-cols-2 xl:grid-cols-5">
+        <CostLine label="一次性基础建设" value={formatMoneyRange(estimate.oneTimeFoundation)} />
+        <CostLine label="每月内容生产" value={formatMoneyRange(estimate.monthlyContent)} />
+        <CostLine label="权威信源资产" value={formatMoneyRange(estimate.authorityAssets)} />
+        <CostLine label="地域覆盖建设" value={formatMoneyRange(estimate.regionalCoverage)} />
+        <CostLine label="每月监测复盘" value={formatMoneyRange(estimate.monthlyMonitoring)} />
+      </div>
+      <p className="text-xs leading-5 text-slate-500">
+        这是历史报告采用的旧版预算池测算。重新评估后会切换为按内容数量、渠道比例和固定单价计算的新模型。
+      </p>
+    </div>
+  )
+}
+
+function CostCount({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="px-1">
+      <div className="geo-data-number text-sm font-bold text-slate-800">{value}</div>
+      <div className="mt-0.5 text-[9px] text-slate-400">{label}</div>
+    </div>
+  )
+}
+
+function CostBasis({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="px-4 py-3">
+      <div className="text-[10px] text-slate-400">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold text-slate-800">{value}</div>
+      <div className="mt-0.5 text-[10px] text-slate-400">{detail}</div>
     </div>
   )
 }

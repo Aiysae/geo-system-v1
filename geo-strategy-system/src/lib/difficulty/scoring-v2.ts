@@ -1,9 +1,9 @@
 import { isUsableBrandName, normalizeBrandKey } from "@/lib/brand-canonicalization"
+import { estimateGeoContentCost } from "@/lib/difficulty/content-cost-estimate"
 import type {
   DifficultyAssessmentMode,
   DifficultyCommercialInput,
-  DifficultyCostEstimate,
-  DifficultyCostRange,
+  DifficultyContentCostEstimate,
   DifficultyDimensionResult,
   DifficultyGeographicScope,
   DifficultyLevel,
@@ -44,7 +44,7 @@ export interface DifficultyScoringV2Result {
   totalScore: number
   level: DifficultyLevel
   stableMentionPeriod: string
-  costEstimate: DifficultyCostEstimate
+  costEstimate: DifficultyContentCostEstimate
   canonicalCompetitors: string[]
   competitorCount: number
   commercialPressureIndex: number
@@ -62,13 +62,6 @@ const SCOPE_SCORE_RANGES: Record<DifficultyGeographicScope, [number, number]> = 
   province: [6, 9],
   region: [10, 12],
   national: [13, 15],
-}
-
-const SCOPE_COST_MULTIPLIERS: Record<DifficultyGeographicScope, number> = {
-  city: 0.82,
-  province: 1.15,
-  region: 1.55,
-  national: 2.15,
 }
 
 function clamp(value: unknown, min = 0, max = 100, fallback = 50): number {
@@ -105,14 +98,6 @@ function totalLevel(score: number): DifficultyLevel {
   if (score >= 50) return "困难"
   if (score >= 25) return "中等"
   return "容易"
-}
-
-function stablePeriod(score: number): string {
-  if (score >= 90) return "约120-180天"
-  if (score >= 75) return "约90-120天"
-  if (score >= 50) return "约60-90天"
-  if (score >= 25) return "约30-60天"
-  return "约14-30天"
 }
 
 function dimension(
@@ -265,106 +250,20 @@ function commercialPressure(
   }
 }
 
-function moneyRange(min: number, max: number): DifficultyCostRange {
-  const roundHundred = (value: number) => Math.max(0, Math.round(value / 100) * 100)
-  return {
-    min: roundHundred(min),
-    max: Math.max(roundHundred(min), roundHundred(max)),
-  }
-}
-
-function addRanges(...ranges: DifficultyCostRange[]): DifficultyCostRange {
-  return moneyRange(
-    ranges.reduce((sum, item) => sum + item.min, 0),
-    ranges.reduce((sum, item) => sum + item.max, 0),
-  )
-}
-
-function multiplyRange(range: DifficultyCostRange, multiplier: number): DifficultyCostRange {
-  return moneyRange(range.min * multiplier, range.max * multiplier)
-}
-
 function estimateCost(args: {
   input: DifficultyScoringV2Input
   totalScore: number
   commercial: ReturnType<typeof commercialPressure>
-  assetGapIndex: number
-}): DifficultyCostEstimate {
-  const { input, totalScore, commercial, assetGapIndex } = args
-  const scopeMultiplier = SCOPE_COST_MULTIPLIERS[input.scope]
-  const competitionMultiplier = 0.78 + totalScore / 100 * 1.22
-  const commercialMultiplier = 0.84 + commercial.index / 100 * 0.76
-  const assetMultiplier = input.mode === "brand" ? 0.82 + assetGapIndex / 100 * 0.58 : 1
-  const commonMultiplier = scopeMultiplier * competitionMultiplier * commercialMultiplier * assetMultiplier
-
-  const oneTimeFoundation = multiplyRange({ min: 7_000, max: 16_000 }, commonMultiplier)
-  const monthlyContent = multiplyRange({ min: 4_500, max: 12_000 }, commonMultiplier)
-  const authorityAssets = multiplyRange(
-    { min: 5_000, max: 18_000 },
-    commonMultiplier * (0.75 + clamp(input.signals.authorityBarrier, 0, 100, 50) / 200),
-  )
-  const regionalCoverage = multiplyRange(
-    { min: 2_000, max: 7_000 },
-    scopeMultiplier * competitionMultiplier,
-  )
-  const monthlyMonitoring = multiplyRange(
-    { min: 1_200, max: 3_500 },
-    scopeMultiplier * (0.85 + totalScore / 180),
-  )
-
-  const validation30Days = addRanges(
-    oneTimeFoundation,
-    monthlyContent,
-    monthlyMonitoring,
-    multiplyRange(authorityAssets, 0.3),
-    multiplyRange(regionalCoverage, 0.3),
-  )
-  const stabilization90Days = addRanges(
-    oneTimeFoundation,
-    multiplyRange(monthlyContent, 3),
-    multiplyRange(monthlyMonitoring, 3),
-    multiplyRange(authorityAssets, 0.65),
-    multiplyRange(regionalCoverage, 0.65),
-  )
-  const scale180Days = addRanges(
-    oneTimeFoundation,
-    multiplyRange(monthlyContent, 6),
-    multiplyRange(monthlyMonitoring, 6),
-    authorityAssets,
-    regionalCoverage,
-  )
-
-  const coverage = clamp(input.signals.evidenceCoverage, 0, 100, 35)
-  const confidence: DifficultyCostEstimate["confidence"] =
-    commercial.userSupplied && coverage >= 65 ? "高" : coverage >= 45 ? "中" : "低"
-  const workloadScope = SCOPE_COST_MULTIPLIERS[input.scope]
-
-  return {
-    currency: "CNY",
+}): DifficultyContentCostEstimate {
+  const coverage = clamp(args.input.signals.evidenceCoverage, 0, 100, 35)
+  const confidence: DifficultyContentCostEstimate["confidence"] =
+    args.commercial.userSupplied && coverage >= 65 ? "高" : coverage >= 45 ? "中" : "低"
+  return estimateGeoContentCost({
+    totalScore: args.totalScore,
     confidence,
-    validation30Days,
-    stabilization90Days,
-    scale180Days,
-    oneTimeFoundation,
-    monthlyContent,
-    authorityAssets,
-    regionalCoverage,
-    monthlyMonitoring,
-    workload: {
-      articlesPerMonth: Math.max(8, rounded((8 + totalScore / 4.5) * workloadScope)),
-      authorityAssets: Math.max(2, rounded((2 + totalScore / 18) * Math.sqrt(workloadScope))),
-      channelCount: Math.max(3, rounded(2 + workloadScope * 2.4 + totalScore / 28)),
-      regionalPages: Math.max(3, rounded(({ city: 3, province: 9, region: 18, national: 36 })[input.scope] * (0.8 + totalScore / 250))),
-    },
-    assumptions: [
-      `按${SCOPE_LABELS[input.scope]}范围（${input.region || "未指定具体地区"}）测算。`,
-      commercial.userSupplied
-        ? "商业价值采用用户填写的客单价、毛利率或复购参数，并与联网调研信号交叉计算。"
-        : "未完整填写商业参数，客单价、毛利率和预算竞争采用联网调研区间估算。",
-      "预算用于内容生产、信源建设、区域页面和持续监测，不含付费广告、明星代言、线下活动及网站重开发。",
-      "该结果是决策预算区间，不是报价或效果承诺；正式执行前应按渠道、城市和素材数量复核。",
-    ],
-  }
+    scopeLabel: SCOPE_LABELS[args.input.scope],
+    region: args.input.region,
+  })
 }
 
 function industryDimensions(args: {
@@ -502,20 +401,17 @@ export function scoreDifficultyV2(input: DifficultyScoringV2Input): DifficultySc
     ? brandDimensions({ input, competitorCount, commercial })
     : industryDimensions({ input, competitorCount, commercial })
   const totalScore = Object.values(dimensions).reduce((sum, item) => sum + item.score, 0)
-  const assetGapIndex = input.mode === "brand"
-    ? (
-        clamp(input.signals.targetVisibilityGap, 0, 100, 55)
-        + clamp(input.signals.trustAssetGap, 0, 100, 55)
-        + clamp(input.signals.contentAssetGap, 0, 100, 55)
-      ) / 3
-    : clamp(input.signals.contentSaturation, 0, 100, 50)
+  const costEstimate = estimateCost({ input, totalScore, commercial })
+  const stableMilestone = costEstimate.milestones.find(item => item.key === "stableMention")
 
   return {
     dimensions,
     totalScore,
     level: totalLevel(totalScore),
-    stableMentionPeriod: stablePeriod(totalScore),
-    costEstimate: estimateCost({ input, totalScore, commercial, assetGapIndex }),
+    stableMentionPeriod: stableMilestone
+      ? `约${stableMilestone.days.min}-${stableMilestone.days.max}天`
+      : "待测算",
+    costEstimate,
     canonicalCompetitors: canonical,
     competitorCount,
     commercialPressureIndex: commercial.index,

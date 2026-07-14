@@ -252,7 +252,8 @@ export interface DifficultyCostWorkload {
   regionalPages: number
 }
 
-export interface DifficultyCostEstimate {
+export interface DifficultyLegacyCostEstimate {
+  version?: "legacy-budget-v1"
   currency: "CNY"
   confidence: "高" | "中" | "低"
   validation30Days: DifficultyCostRange
@@ -266,6 +267,47 @@ export interface DifficultyCostEstimate {
   workload: DifficultyCostWorkload
   assumptions: string[]
 }
+
+export type DifficultyCostMilestoneKey = "firstMention" | "halfStable" | "stableMention"
+
+export interface DifficultyContentAllocation {
+  total: number
+  selfMediaArticles: number
+  authorityMediaArticles: number
+  douyinVideos: number
+}
+
+export interface DifficultyContentCostMilestone {
+  key: DifficultyCostMilestoneKey
+  label: string
+  successDefinition: string
+  days: DifficultyCostRange
+  contentCount: DifficultyCostRange & { recommended: number }
+  allocation: DifficultyContentAllocation
+  cumulativeCost: DifficultyCostRange
+  incrementalCost: DifficultyCostRange
+}
+
+export interface DifficultyContentCostEstimate {
+  version: "content-volume-v2"
+  currency: "CNY"
+  confidence: "高" | "中" | "低"
+  foundationCost: number
+  unitCosts: {
+    selfMediaArticle: number
+    authorityMediaArticle: number
+    douyinVideo: number
+  }
+  contentRatios: {
+    selfMediaArticles: number
+    authorityMediaArticles: number
+    douyinVideos: number
+  }
+  milestones: DifficultyContentCostMilestone[]
+  assumptions: string[]
+}
+
+export type DifficultyCostEstimate = DifficultyLegacyCostEstimate | DifficultyContentCostEstimate
 
 export type DifficultyStageKey =
   | "research"

@@ -23,6 +23,7 @@ interface Props {
   items: KeywordCompetitionItem[]
   /** 默认展示前 N 条；硬上限 10，传入更大值会被钳到 10 */
   maxItems?: number
+  compact?: boolean
 }
 
 const CHART_HARD_CAP = 10
@@ -41,7 +42,7 @@ function truncate(s: string, n: number): string {
   return `${s.slice(0, n - 1)}…`
 }
 
-export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }: Props) {
+export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, compact = false }: Props) {
   const [sortOrder, setSortOrder] = useState<SortOrder>("redOcean")
   const mode = sortOrder === "redOcean"
     ? {
@@ -73,18 +74,18 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
     const effectiveLimit = Math.min(maxItems, CHART_HARD_CAP, sorted.length)
     return sorted.slice(0, effectiveLimit).map(it => ({
       question: it.question,
-      questionShort: truncate(it.question, 14),
+      questionShort: truncate(it.question, compact ? 11 : 14),
       totalMentions: it.totalMentions,
       participatingModels: it.participatingModels,
       perModel: it.perModelMentions,
     }))
-  }, [items, sortOrder, maxItems])
+  }, [items, sortOrder, maxItems, compact])
 
   const chartHeight = Math.max(data.length * 34 + 60, 320)
 
   return (
-    <div className={`rounded-lg bg-slate-950 ring-1 ring-slate-800 overflow-hidden shadow-xl shadow-black/25`}>
-      <div className={`px-5 py-4 flex items-center justify-between border-b border-white/10 gap-3 flex-wrap bg-gradient-to-r ${mode.panel}`}>
+    <div className={`overflow-hidden rounded-lg bg-slate-950 ring-1 ring-slate-800 shadow-xl shadow-black/25 ${compact ? "flex h-full min-h-[420px] flex-col" : ""}`}>
+      <div className={`${compact ? "px-4 py-3" : "px-5 py-4"} flex items-center justify-between border-b border-white/10 gap-3 bg-gradient-to-r ${mode.panel}`}>
         <div className="flex items-center gap-2.5">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/12 ring-1 ring-white/15">
             <Activity className="h-4 w-4 text-white" />
@@ -93,9 +94,11 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
             <div className="text-sm font-semibold text-white">关键词竞争热度</div>
             <div className="mt-0.5 text-[10px] text-white/48">{mode.title}视角</div>
           </div>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 ring-1 ring-slate-700">
-            已过滤 0 参与模型的拒答题
-          </span>
+          {!compact ? (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 ring-1 ring-slate-700">
+              已过滤 0 参与模型的拒答题
+            </span>
+          ) : null}
         </div>
 
         <div className="inline-flex p-0.5 rounded-lg bg-slate-800/80 ring-1 ring-slate-700 text-[11px]">
@@ -108,7 +111,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
             }`}
           >
             <Flame className="h-3 w-3" />
-            红海（竞争由高到低）
+            {compact ? "红海" : "红海（竞争由高到低）"}
           </button>
           <button
             onClick={() => setSortOrder("blueOcean")}
@@ -119,7 +122,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
             }`}
           >
             <Gem className="h-3 w-3" />
-            蓝海（竞争由低到高）
+            {compact ? "蓝海" : "蓝海（竞争由低到高）"}
           </button>
         </div>
       </div>
@@ -129,9 +132,12 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
           暂无有效关键词数据（所有疑问句均被模型拒答 / 未参与）
         </div>
       ) : (
-        <div className="p-4">
-          <div style={{ width: "100%", height: chartHeight }}>
-            <ResponsiveContainer width="100%" height="100%">
+        <div className={`${compact ? "flex min-h-0 flex-1 flex-col p-3" : "p-4"}`}>
+          <div
+            className={compact ? "min-h-[300px] flex-1" : undefined}
+            style={{ width: "100%", height: compact ? undefined : chartHeight }}
+          >
+            <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 520, height: 320 }}>
               <ComposedChart
                 data={data}
                 layout="vertical"
@@ -182,7 +188,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
                 <YAxis
                   dataKey="questionShort"
                   type="category"
-                  width={150}
+                  width={compact ? 112 : 150}
                   interval={0}
                   tick={(props: TickProps) => (
                     <CustomYTick {...props} fullLabels={data.map(d => d.question)} />
@@ -216,7 +222,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP }:
             </ResponsiveContainer>
           </div>
 
-          <div className="mt-3 flex items-center gap-4 text-[11px] text-slate-400 px-2">
+          <div className={`${compact ? "mt-2 gap-3 text-[10px]" : "mt-3 gap-4 text-[11px]"} flex items-center text-slate-400 px-2`}>
             <span className="inline-flex items-center gap-1.5">
               <span
                 className="inline-block w-3 h-2 rounded-sm"

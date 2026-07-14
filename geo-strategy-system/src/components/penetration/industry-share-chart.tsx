@@ -17,6 +17,7 @@ interface Props {
   items: IndustryShareItem[]
   ourBrand: string
   totalSlots: number
+  compact?: boolean
 }
 
 const TOP_RANK_GRADIENTS = [
@@ -25,7 +26,7 @@ const TOP_RANK_GRADIENTS = [
   { from: "#2F54EB", to: "#7B8CFF" },
 ]
 
-export default function IndustryShareChart({ items, ourBrand, totalSlots }: Props) {
+export default function IndustryShareChart({ items, ourBrand, totalSlots, compact = false }: Props) {
   const data = items.map((it, index) => ({
     brand: it.brand,
     count: it.count,
@@ -46,9 +47,12 @@ export default function IndustryShareChart({ items, ourBrand, totalSlots }: Prop
     value.length > 9 ? `${value.slice(0, 8)}...` : value
 
   return (
-    <div className="w-full" style={{ height: Math.max(data.length * 36 + 32, 320) }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} layout="vertical" margin={{ top: 8, right: 56, left: 0, bottom: 8 }}>
+    <div
+      className={compact ? "h-full min-h-[320px] w-full" : "w-full"}
+      style={compact ? undefined : { height: Math.max(data.length * 36 + 32, 320) }}
+    >
+      <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 520, height: 420 }}>
+        <BarChart data={data} layout="vertical" margin={{ top: 8, right: compact ? 42 : 56, left: 0, bottom: 8 }}>
           <defs>
             {TOP_RANK_GRADIENTS.map((color, index) => (
               <linearGradient key={index} id={`barRank${index}`} x1="0%" y1="0%" x2="100%" y2="0%">
@@ -65,8 +69,8 @@ export default function IndustryShareChart({ items, ourBrand, totalSlots }: Prop
           <YAxis
             dataKey="brand"
             type="category"
-            width={110}
-            tick={{ fontSize: 12, fill: "#263d50", fontWeight: 600 }}
+            width={compact ? 92 : 110}
+            tick={{ fontSize: compact ? 11 : 12, fill: "#263d50", fontWeight: 600 }}
             tickFormatter={compactBrandLabel}
             axisLine={false}
             tickLine={false}
@@ -96,7 +100,7 @@ export default function IndustryShareChart({ items, ourBrand, totalSlots }: Prop
               return [`${value}% · ${count} 次提及 · 声量占比 ${ratio}%`, label]
             }}
           />
-          <Bar dataKey="penetrationRate" radius={[0, 8, 8, 0]} barSize={20}>
+          <Bar dataKey="penetrationRate" radius={[0, 8, 8, 0]} barSize={compact ? 17 : 20}>
             {data.map((d) => (
               <Cell
                 key={d.brand}

@@ -14,6 +14,7 @@ const require = createRequire(import.meta.url)
 const React = require("react") as typeof import("react")
 const { renderToBuffer } = require("@react-pdf/renderer") as typeof import("@react-pdf/renderer")
 const { CommercialReportDocument } = require("../src/lib/reports/commercial-report-document.tsx") as typeof import("../src/lib/reports/commercial-report-document")
+const { estimateGeoContentCost } = require("../src/lib/difficulty/content-cost-estimate.ts") as typeof import("../src/lib/difficulty/content-cost-estimate")
 const { DEFAULT_REPORT_BRANDING, resolveReportBranding } = require("../src/lib/report-branding.ts") as typeof import("../src/lib/report-branding")
 const { ReportBrandingValidationError, validateReportBranding } = require("../src/lib/report-branding-validation.ts") as typeof import("../src/lib/report-branding-validation")
 
@@ -122,7 +123,7 @@ function samplePenetration(): PenetrationResult {
   }
 }
 
-function sampleDifficulty(): DifficultyAssessmentEntry {
+function sampleDifficulty(costMode: "content" | "legacy" = "content"): DifficultyAssessmentEntry {
   const stage = (title: string, summary: string) => ({
     title,
     summary,
@@ -182,7 +183,12 @@ function sampleDifficulty(): DifficultyAssessmentEntry {
         review: stage("独立复核", "复核异常分数，确保全国和单区域的难度关系符合业务常识。"),
         report: stage("报告形成", "将分数、成本、证据与行动建议组成可交付报告。"),
       },
-      costEstimate: {
+      costEstimate: costMode === "content" ? estimateGeoContentCost({
+        totalScore: 78,
+        confidence: "中",
+        scopeLabel: "全国",
+        region: "全国",
+      }) : {
         currency: "CNY",
         confidence: "中",
         validation30Days: { min: 30_000, max: 50_000 },
@@ -202,7 +208,11 @@ function sampleDifficulty(): DifficultyAssessmentEntry {
   }
 }
 
-function reportInput(branding: ReportBrandingSettings, rich = false): CommercialReportInput {
+function reportInput(
+  branding: ReportBrandingSettings,
+  rich = false,
+  costMode: "content" | "legacy" = "content",
+): CommercialReportInput {
   return {
     kind: "combined",
     detail: rich ? "full" : "concise",
@@ -216,7 +226,7 @@ function reportInput(branding: ReportBrandingSettings, rich = false): Commercial
       website: "https://client.example.com",
     },
     penetration: rich ? samplePenetration() : undefined,
-    difficulty: rich ? sampleDifficulty() : undefined,
+    difficulty: rich ? sampleDifficulty(costMode) : undefined,
   }
 }
 
@@ -228,7 +238,7 @@ const customPdf = await renderToBuffer(React.createElement(CommercialReportDocum
     mode: "custom",
     companyName: "超长测试数字科技与企业管理顾问及品牌增长服务有限责任公司",
     website: "https://example.com",
-  }),
+  }, true, "legacy"),
 }) as Parameters<typeof renderToBuffer>[0])
 assert.ok(defaultPdf.length > 100_000, "势途默认报告应成功渲染")
 assert.ok(customPdf.length > 100_000, "自定义白标报告应成功渲染")
