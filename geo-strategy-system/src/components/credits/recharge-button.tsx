@@ -140,6 +140,13 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
   }, [])
 
   useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("recharge-dialog-scroll")?.scrollTo({ top: 0, behavior: "auto" })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [step])
+
+  useEffect(() => {
     const controller = new AbortController()
     fetch("/api/recharge/payment-options", {
       cache: "no-store",
