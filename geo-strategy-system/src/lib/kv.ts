@@ -425,4 +425,9 @@ function createKvClient(): KvClient {
   return new LocalFileKv()
 }
 
-export const kv: KvClient = createKvClient()
+const kvGlobal = globalThis as typeof globalThis & {
+  __geoSystemKvClient?: KvClient
+}
+
+export const kv: KvClient = kvGlobal.__geoSystemKvClient || createKvClient()
+kvGlobal.__geoSystemKvClient = kv

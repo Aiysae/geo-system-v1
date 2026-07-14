@@ -45,24 +45,45 @@ export type CreateBackgroundJobResult =
   | { ok: true; job: BackgroundJobRecord; reused: boolean }
   | { ok: false; response: Response }
 
+export type CreateBackgroundJobsBatchResult =
+  | { ok: true; jobs: BackgroundJobRecord[] }
+  | { ok: false; response: Response }
+
 const JOB_TTL_SECONDS = 60 * 60 * 24 * 7
 const IDEMPOTENCY_CLAIM_SECONDS = 120
 const MAX_PAYLOAD_BYTES = 22 * 1024 * 1024
 const JOB_TIMEOUT_MS = 15 * 60 * 1000
+const JOB_RUN_LEASE_SECONDS = Math.ceil(JOB_TIMEOUT_MS / 1000) + 120
 const MAX_ATTEMPTS = 2
-const MAX_CONCURRENT_JOBS = Math.max(
+const MAX_GENERAL_CONCURRENT_JOBS = Math.max(
   1,
   Math.min(4, Math.floor(Number(process.env.BACKGROUND_JOB_CONCURRENCY) || 2)),
+)
+const MAX_ARTICLE_CONCURRENT_JOBS = Math.max(
+  1,
+  Math.min(3, Math.floor(Number(process.env.ARTICLE_BACKGROUND_JOB_CONCURRENCY) || 2)),
+)
+const MAX_TOTAL_CONCURRENT_JOBS = Math.max(
+  2,
+  Math.min(
+    5,
+    Math.floor(Number(process.env.BACKGROUND_JOB_TOTAL_CONCURRENCY)
+      || Math.max(MAX_GENERAL_CONCURRENT_JOBS, MAX_ARTICLE_CONCURRENT_JOBS + 1)),
+  ),
 )
 
 const memoryJobs = new Map<string, StoredBackgroundJob>()
 const activeJobs = new Set<string>()
+const activeArticleJobs = new Set<string>()
+const activeGeneralJobs = new Set<string>()
 const scheduledJobs = new Set<string>()
-const pendingJobs: string[] = []
+const pendingArticleJobs: string[] = []
+const pendingGeneralJobs: string[] = []
 const activeControllers = new Map<string, AbortController>()
 const settlingJobs = new Set<string>()
 
 const jobKey = (id: string) => `geo:background-jobs:${id}`
+const jobLeaseKey = (id: string) => `geo:background-job-leases:${id}`
 const requestKey = (ownerUserId: string, kind: BackgroundJobKind, requestId: string) =>
   `geo:background-job-requests:${ownerUserId}:${kind}:${requestId}`
 
@@ -338,11 +359,21 @@ async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown
   throw lastError instanceof Error ? lastError : new Error("后台任务执行失败")
 }
 
-async function runJob(jobId: string): Promise<void> {
+async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
   if (activeJobs.has(jobId)) return
   activeJobs.add(jobId)
+  const activeKindJobs = kind === "articleGeneration" ? activeArticleJobs : activeGeneralJobs
+  activeKindJobs.add(jobId)
+  const leaseToken = `${process.pid}:${randomUUID()}`
+  let ownsLease = false
 
   try {
+    ownsLease = Boolean(await kv.set(jobLeaseKey(jobId), leaseToken, {
+      nx: true,
+      ex: JOB_RUN_LEASE_SECONDS,
+    }))
+    if (!ownsLease) return
+
     let job = await getStoredJob(jobId)
     if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) return
     job = await patchJob(jobId, {
@@ -389,25 +420,48 @@ async function runJob(jobId: string): Promise<void> {
     })
     await settleJobCredits(jobId, false)
   } finally {
+    if (ownsLease) {
+      try {
+        const currentLease = await kv.get<string>(jobLeaseKey(jobId))
+        if (currentLease === leaseToken) await kv.del(jobLeaseKey(jobId))
+      } catch (error) {
+        console.warn("[background-jobs] failed to release job lease", jobId, safeError(error))
+      }
+    }
     activeJobs.delete(jobId)
+    activeKindJobs.delete(jobId)
     activeControllers.delete(jobId)
     drainQueue()
   }
 }
 
 function drainQueue(): void {
-  while (activeJobs.size < MAX_CONCURRENT_JOBS && pendingJobs.length > 0) {
-    const jobId = pendingJobs.shift()
-    if (!jobId) continue
+  while (activeJobs.size < MAX_TOTAL_CONCURRENT_JOBS) {
+    let jobId: string | undefined
+    let kind: BackgroundJobKind | undefined
+
+    if (pendingGeneralJobs.length > 0 && activeGeneralJobs.size < MAX_GENERAL_CONCURRENT_JOBS) {
+      jobId = pendingGeneralJobs.shift()
+      kind = "research"
+    } else if (pendingArticleJobs.length > 0 && activeArticleJobs.size < MAX_ARTICLE_CONCURRENT_JOBS) {
+      jobId = pendingArticleJobs.shift()
+      kind = "articleGeneration"
+    } else if (pendingGeneralJobs.length > 0 && activeGeneralJobs.size < MAX_GENERAL_CONCURRENT_JOBS) {
+      jobId = pendingGeneralJobs.shift()
+      kind = "research"
+    }
+
+    if (!jobId || !kind) break
     scheduledJobs.delete(jobId)
-    void runJob(jobId)
+    void runJob(jobId, kind)
   }
 }
 
-function scheduleJob(jobId: string): void {
+function scheduleJob(jobId: string, kind: BackgroundJobKind): void {
   if (activeJobs.has(jobId) || scheduledJobs.has(jobId)) return
   scheduledJobs.add(jobId)
-  pendingJobs.push(jobId)
+  if (kind === "articleGeneration") pendingArticleJobs.push(jobId)
+  else pendingGeneralJobs.push(jobId)
   drainQueue()
 }
 
@@ -503,7 +557,7 @@ export async function createBackgroundJob(args: {
   try {
     await saveJob(job)
     await kv.set(key, id, { ex: JOB_TTL_SECONDS })
-    scheduleJob(id)
+    scheduleJob(id, args.kind)
     return { ok: true, job: toPublicJob(job), reused: false }
   } catch (error) {
     await kv.del(key)
@@ -512,16 +566,193 @@ export async function createBackgroundJob(args: {
   }
 }
 
+export async function createBackgroundJobsBatch(args: {
+  kind: BackgroundJobKind
+  clientId: string
+  ownerUserId: string
+  batchId: string
+  items: Array<{ requestId: string; payload: unknown }>
+}): Promise<CreateBackgroundJobsBatchResult> {
+  if (args.items.length < 2 || args.items.length > 50) {
+    return {
+      ok: false,
+      response: Response.json({ error: "批量生成数量必须在 2 到 50 篇之间" }, { status: 400 }),
+    }
+  }
+
+  const prepared = args.items.map(item => {
+    if (!/^[A-Za-z0-9_-]{16,160}$/.test(item.requestId)) {
+      throw new Error("批次任务请求编号无效，请刷新后重试")
+    }
+    const definition = resolveTask(args.kind, item.payload)
+    return {
+      ...item,
+      definition,
+      payloadGzip: encodePayload(item.payload),
+      creditCost: estimateFeatureCredits(definition.featureKey, definition.units),
+    }
+  })
+
+  for (const item of prepared) {
+    const pointer = await kv.get<string>(requestKey(args.ownerUserId, args.kind, item.requestId))
+    if (pointer) {
+      return {
+        ok: false,
+        response: Response.json({ error: "该批次任务已经创建，请刷新任务列表" }, { status: 409 }),
+      }
+    }
+  }
+
+  const totalCost = prepared.reduce((sum, item) => sum + item.creditCost, 0)
+  const firstDefinition = prepared[0].definition
+  const creditGuard = await reserveCreditsForUser(args.ownerUserId, totalCost, {
+    featureKey: firstDefinition.featureKey,
+    source: "api:article-generation-batches",
+    sourceId: args.batchId,
+    description: `${firstDefinition.label} × ${prepared.length}`,
+    metadata: {
+      kind: args.kind,
+      clientId: args.clientId,
+      batchId: args.batchId,
+      units: prepared.length,
+    },
+  })
+  if (!creditGuard.ok) return creditGuard
+
+  const now = nowIso()
+  const storedJobs: StoredBackgroundJob[] = prepared.map((item, index) => {
+    const id = `bgjob_${randomUUID().replace(/-/g, "")}`
+    return {
+      id,
+      kind: args.kind,
+      clientId: args.clientId,
+      requestId: item.requestId,
+      status: "queued",
+      progressPercent: 0,
+      stage: "任务已进入独立文章队列",
+      createdAt: now,
+      updatedAt: now,
+      ownerUserId: args.ownerUserId,
+      payloadGzip: item.payloadGzip,
+      endpoint: item.definition.endpoint,
+      reservation: {
+        userId: creditGuard.reservation.userId,
+        amount: creditGuard.reservation.amount > 0 ? item.creditCost : 0,
+        balanceAfterReserve: creditGuard.reservation.balanceAfterReserve,
+        ledgerContext: {
+          featureKey: item.definition.featureKey,
+          source: "api:article-generation-batches",
+          sourceId: id,
+          description: item.definition.label,
+          metadata: {
+            batchId: args.batchId,
+            clientId: args.clientId,
+            position: index + 1,
+            requestId: item.requestId,
+          },
+        },
+      },
+      creditCost: item.creditCost,
+    }
+  })
+
+  const savedKeys: string[] = []
+  try {
+    for (const job of storedJobs) {
+      await saveJob(job)
+      savedKeys.push(jobKey(job.id))
+    }
+    for (const job of storedJobs) {
+      const key = requestKey(args.ownerUserId, args.kind, job.requestId)
+      const claimed = await kv.set(key, job.id, { nx: true, ex: JOB_TTL_SECONDS })
+      if (!claimed) throw new Error("批次任务编号发生冲突，请刷新后重试")
+      savedKeys.push(key)
+    }
+    for (const job of storedJobs) scheduleJob(job.id, job.kind)
+    return { ok: true, jobs: storedJobs.map(toPublicJob) }
+  } catch (error) {
+    for (const job of storedJobs) memoryJobs.delete(job.id)
+    if (savedKeys.length > 0) await Promise.all(savedKeys.map(key => kv.del(key).catch(() => 0)))
+    await refundReservedCredits(creditGuard.reservation)
+    throw error
+  }
+}
+
+export async function createUnchargedBackgroundJob(args: {
+  kind: BackgroundJobKind
+  clientId: string
+  requestId: string
+  payload: unknown
+  ownerUserId: string
+  reason: string
+}): Promise<BackgroundJobRecord> {
+  if (!/^[A-Za-z0-9_-]{16,160}$/.test(args.requestId)) {
+    throw new Error("任务请求编号无效，请刷新后重试")
+  }
+  const definition = resolveTask(args.kind, args.payload)
+  const key = requestKey(args.ownerUserId, args.kind, args.requestId)
+  const existingPointer = await kv.get<string>(key)
+  if (existingPointer && !existingPointer.startsWith("pending:")) {
+    const existing = await getStoredJob(existingPointer)
+    if (existing?.ownerUserId === args.ownerUserId) return toPublicJob(existing)
+  }
+
+  const id = `bgjob_${randomUUID().replace(/-/g, "")}`
+  const now = nowIso()
+  const job: StoredBackgroundJob = {
+    id,
+    kind: args.kind,
+    clientId: args.clientId,
+    requestId: args.requestId,
+    status: "queued",
+    progressPercent: 0,
+    stage: args.reason,
+    createdAt: now,
+    updatedAt: now,
+    ownerUserId: args.ownerUserId,
+    payloadGzip: encodePayload(args.payload),
+    endpoint: definition.endpoint,
+    reservation: {
+      userId: args.ownerUserId,
+      amount: 0,
+      balanceAfterReserve: 0,
+      ledgerContext: {
+        featureKey: definition.featureKey,
+        source: "api:article-generation-batches",
+        sourceId: id,
+        description: args.reason,
+      },
+    },
+    creditCost: 0,
+  }
+  await saveJob(job)
+  await kv.set(key, id, { ex: JOB_TTL_SECONDS })
+  scheduleJob(id, args.kind)
+  return toPublicJob(job)
+}
+
 export async function getBackgroundJob(
   id: string,
   ownerUserId: string,
 ): Promise<BackgroundJobRecord | null> {
   const job = await getStoredJob(id)
   if (!job || job.ownerUserId !== ownerUserId) return null
-  if ((job.status === "queued" || job.status === "running") && !activeJobs.has(id)) {
-    scheduleJob(id)
+  const runningIsStale = job.status === "running"
+    && Date.now() - new Date(job.updatedAt).getTime() > JOB_TIMEOUT_MS + 60_000
+  if ((job.status === "queued" || runningIsStale) && !activeJobs.has(id)) {
+    scheduleJob(id, job.kind)
   }
   return toPublicJob(job)
+}
+
+export async function getBackgroundJobByRequest(
+  ownerUserId: string,
+  kind: BackgroundJobKind,
+  requestId: string,
+): Promise<BackgroundJobRecord | null> {
+  const pointer = await kv.get<string>(requestKey(ownerUserId, kind, requestId))
+  if (!pointer || pointer.startsWith("pending:")) return null
+  return getBackgroundJob(pointer, ownerUserId)
 }
 
 export async function cancelBackgroundJob(

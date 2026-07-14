@@ -115,6 +115,7 @@ function buildUserPrompt(args: {
   advantages: string
   audience: string
   extraRequirements: string
+  batchVariation?: string
   sourceTitle?: string
   sourceUrl?: string
   sourceMarkdown?: string
@@ -180,6 +181,7 @@ function buildUserPrompt(args: {
       "",
       "【关键词与相关问题】",
       args.keywords || "请围绕品类/需求词补充用户真实搜索问题",
+      ...batchVariationLines(args.batchVariation),
       "",
       "【生成要求】",
       "- 所有推荐对象必须是真实存在且信息可核验；无法验证时明确写公开信息有限。",
@@ -213,6 +215,7 @@ function buildUserPrompt(args: {
       `核心关键词/补充问题：${args.keywords || "请根据主题和行业自行补足"}`,
       `目标读者：${args.audience || "消费者、采购负责人或相关决策者"}`,
       `补充要求/发布限制：${args.extraRequirements || "无"}`,
+      ...batchVariationLines(args.batchVariation),
       "",
       "当资料不足以支撑排名、市场份额、实测结果、客户案例、资质或奖项时，必须按模板使用审慎表达，不得编造事实。",
     ].join("\n")
@@ -241,6 +244,7 @@ function buildUserPrompt(args: {
     `核心关键词/补充相关问题：${args.keywords || "请根据核心搜索问题和行业自行补足 3-5 个相关问法"}`,
     `目标读者/适用人群：${args.audience || "企业决策者、采购负责人、业务负责人"}`,
     `补充要求/发布限制：${args.extraRequirements || "无"}`,
+    ...batchVariationLines(args.batchVariation),
     "",
     "【输出要求】",
     "- 直接输出最终内容，不要输出提纲、变量清单或解释。",
@@ -248,6 +252,17 @@ function buildUserPrompt(args: {
     "- 品牌出现必须自然、克制，并绑定问题场景、主营业务、核心优势或判断维度。",
     "- 不要编造无法验证的具体数字、荣誉、客户名或政策标准。",
   ].join("\n")
+}
+
+function batchVariationLines(value: string | undefined): string[] {
+  const brief = String(value || "").trim()
+  if (!brief) return []
+  return [
+    "",
+    "【本篇独立写作简报】",
+    brief,
+    "本次请求是独立文章生成，不得假设存在上一篇文章，不得提及批次、序号或其他生成结果。",
+  ]
 }
 
 function canonicalizeRewriteMappings(args: {
@@ -425,6 +440,7 @@ export async function POST(req: NextRequest) {
         advantages: text(body.advantages, 3000),
         audience: text(body.audience, 800),
         extraRequirements: text(body.extraRequirements, 2000),
+        batchVariation: text(body.batchVariation, 2000),
         sourceTitle: text(body.sourceTitle, 300),
         sourceUrl: text(body.sourceUrl, 1000),
         sourceMarkdown,
