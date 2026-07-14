@@ -22,6 +22,7 @@ const {
   ONLINE_PAYMENT_ORDER_TTL_MS,
   paymentOrderBlocksFirstPurchase,
 } = await import("../src/lib/payment-lifecycle")
+const { mergeBillingRechargeRecords } = await import("../src/lib/billing-records")
 
 try {
   assert.equal(yuanFromCents(990), "9.90")
@@ -92,6 +93,37 @@ try {
   assert.equal(results.filter(result => result.ok && result.credited).length, 1)
   assert.equal(await getCredits(userId), 150, "concurrent callbacks must credit exactly once")
   assert.equal((await getPaymentOrder(order.id))?.status, "credited")
+
+  const creditedOrder = await getPaymentOrder(order.id)
+  assert.ok(creditedOrder)
+  const officialBillingRecords = mergeBillingRechargeRecords([], [creditedOrder])
+  assert.equal(officialBillingRecords.length, 1)
+  assert.equal(officialBillingRecords[0]?.status, "credited")
+  assert.equal(officialBillingRecords[0]?.credits, 100)
+
+  const linkedRequest = {
+    id: "request-linked-to-payment",
+    userId,
+    username: "支付测试用户",
+    email: "payment-test@example.com",
+    packageKey: "trial_990" as const,
+    packageName: "测试积分包",
+    priceCents: 990,
+    credits: 100,
+    amount: 100,
+    paymentOrderId: creditedOrder.id,
+    paymentOutTradeNo: creditedOrder.outTradeNo,
+    paymentMethod: "wechat" as const,
+    status: "approved" as const,
+    createdAt: creditedOrder.createdAt,
+    processedAt: creditedOrder.creditedAt,
+  }
+  const deduplicatedBillingRecords = mergeBillingRechargeRecords(
+    [linkedRequest],
+    [creditedOrder],
+  )
+  assert.equal(deduplicatedBillingRecords.length, 1)
+  assert.equal(deduplicatedBillingRecords[0]?.id, linkedRequest.id)
 
   const paymentLedgers = (await listCreditLedgerForUser(userId, 100))
     .filter(entry => entry.id === `ledger_payment_${order.id}`)

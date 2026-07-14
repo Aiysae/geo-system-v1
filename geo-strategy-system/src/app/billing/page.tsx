@@ -2,28 +2,45 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { ArrowLeft, CreditCard, ReceiptText, Sparkles } from "lucide-react"
 import { getCurrentUser } from "@/lib/auth"
+import {
+  mergeBillingRechargeRecords,
+  type BillingRechargeStatus,
+} from "@/lib/billing-records"
 import { getCredits } from "@/lib/credits"
+import { listPaymentOrdersForUser } from "@/lib/payment-orders"
 import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-ledger"
 import { formatYuan, getFeaturePrice, RECHARGE_PACKAGES } from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
-import { listRequestsForUser, type RechargeRequest } from "@/lib/recharge"
+import { listRequestsForUser } from "@/lib/recharge"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import SiteFooter from "@/components/site-footer"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-const STATUS_LABEL: Record<RechargeRequest["status"], string> = {
-  pending: "待审批",
-  approved: "已到账",
+const STATUS_LABEL: Record<BillingRechargeStatus, string> = {
+  pending_review: "待审批",
+  pending_payment: "待支付",
+  processing: "支付处理中",
+  credited: "已到账",
   rejected: "已拒绝",
+  canceled: "已取消",
+  failed: "支付失败",
+  refunding: "退款中",
+  refunded: "已退款",
 }
 
-const STATUS_CLASS: Record<RechargeRequest["status"], string> = {
-  pending: "bg-amber-50 text-amber-700 ring-amber-200",
-  approved: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+const STATUS_CLASS: Record<BillingRechargeStatus, string> = {
+  pending_review: "bg-amber-50 text-amber-700 ring-amber-200",
+  pending_payment: "bg-amber-50 text-amber-700 ring-amber-200",
+  processing: "bg-blue-50 text-blue-700 ring-blue-200",
+  credited: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   rejected: "bg-rose-50 text-rose-700 ring-rose-200",
+  canceled: "bg-slate-100 text-slate-600 ring-slate-200",
+  failed: "bg-rose-50 text-rose-700 ring-rose-200",
+  refunding: "bg-amber-50 text-amber-700 ring-amber-200",
+  refunded: "bg-slate-100 text-slate-600 ring-slate-200",
 }
 
 const LEDGER_TYPE_LABEL: Record<CreditLedgerEntry["type"], string> = {
@@ -60,11 +77,13 @@ export default async function BillingPage() {
   const user = await getCurrentUser()
   if (!user) redirect("/sign-in?redirect_url=/billing")
 
-  const [credits, recharges, ledger] = await Promise.all([
+  const [credits, rechargeRequests, paymentOrders, ledger] = await Promise.all([
     getCredits(user.id),
     listRequestsForUser(user.id, 80),
+    listPaymentOrdersForUser(user.id, 80),
     listCreditLedgerForUser(user.id, 120),
   ])
+  const recharges = mergeBillingRechargeRecords(rechargeRequests, paymentOrders, 80)
   const unlimited = hasUnlimitedCreditAccess(user)
 
   return (
@@ -141,7 +160,7 @@ export default async function BillingPage() {
         <section className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
           <div className="border-b border-slate-100 px-5 py-4">
             <h2 className="text-sm font-semibold text-slate-900">充值记录</h2>
-            <p className="mt-1 text-xs text-slate-500">展示你提交过的充值申请、套餐金额和审批状态。</p>
+            <p className="mt-1 text-xs text-slate-500">展示人工充值申请和官方支付订单的到账状态。</p>
           </div>
           {recharges.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-slate-400">暂无充值记录</div>
@@ -166,13 +185,13 @@ export default async function BillingPage() {
                     <tr key={record.id} className="border-t border-slate-100 text-sm">
                       <td className="px-5 py-3 font-medium text-slate-900">{record.packageName || "历史充值申请"}</td>
                       <td className="px-5 py-3 font-mono text-xs text-slate-500">
-                        {record.paymentOutTradeNo || record.paymentOrderId || "-"}
+                        {record.paymentOutTradeNo || "-"}
                       </td>
                       <td className="px-5 py-3 font-mono text-slate-700">
                         {record.priceCents ? formatYuan(record.priceCents) : "-"}
                       </td>
                       <td className="px-5 py-3 font-mono font-semibold text-slate-900">
-                        +{record.credits ?? record.amount}
+                        +{record.credits}
                       </td>
                       <td className="px-5 py-3 text-slate-600">{paymentLabel(record.paymentMethod)}</td>
                       <td className="px-5 py-3 text-xs leading-5 text-slate-600">
