@@ -7,6 +7,10 @@ import {
   failPaymentOrder,
   listPaymentOrdersForUser,
 } from "@/lib/payment-orders"
+import {
+  hasBlockingFirstPurchaseOrder,
+  ONLINE_PAYMENT_ORDER_TTL_MS,
+} from "@/lib/payment-lifecycle"
 import { getRechargePackage } from "@/lib/pricing"
 import { getClientIp, hitRateLimit } from "@/lib/rate-limit"
 
@@ -34,11 +38,7 @@ export async function POST(request: NextRequest) {
 
   if ("firstPurchaseOnly" in pkg && pkg.firstPurchaseOnly) {
     const orders = await listPaymentOrdersForUser(user.id, 500)
-    const used = orders.some(order => (
-      order.packageKey === pkg.key
-      && !["canceled", "failed", "refunded"].includes(order.status)
-    ))
-    if (used) {
+    if (hasBlockingFirstPurchaseOrder(orders, pkg.key)) {
       return NextResponse.json({ error: "首购体验包每个账号仅限购买一次" }, { status: 409 })
     }
   }
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       orderId: order.id,
       outTradeNo: order.outTradeNo,
       paymentUrl,
-      expiresAt: order.createdAt + 15 * 60 * 1000,
+      expiresAt: order.createdAt + ONLINE_PAYMENT_ORDER_TTL_MS,
     }, { headers: { "Cache-Control": "private, no-store" } })
   } catch (error) {
     await failPaymentOrder(order.id, error instanceof Error ? error.message : "支付宝下单失败")
