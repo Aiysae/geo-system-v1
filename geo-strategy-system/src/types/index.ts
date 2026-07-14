@@ -170,6 +170,64 @@ export interface ArticleGenerationState {
   generatedAt?: string
 }
 
+export type ArticleBatchTopicMode = "auto" | "questions" | "custom"
+
+export type ArticleBatchStatus =
+  | "preparing"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "cancelled"
+
+export type ArticleBatchItemStatus =
+  | "queued"
+  | "running"
+  | "word_processing"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+
+export interface ArticleBatchItemRecord {
+  id: string
+  position: number
+  topic: string
+  brief: string
+  status: ArticleBatchItemStatus
+  progressPercent: number
+  stage: string
+  title?: string
+  fileName?: string
+  error?: string
+  attempt: number
+  similarityScore?: number
+  generatedAt?: string
+  updatedAt: string
+}
+
+export interface ArticleBatchRecord {
+  id: string
+  clientId: string
+  promptKey: ArticlePromptKey
+  promptTitle: string
+  modelProvider: ArticleModelProviderKey
+  model: string
+  topicMode: ArticleBatchTopicMode
+  similarityRetry: boolean
+  requestedCount: number
+  completedCount: number
+  failedCount: number
+  cancelledCount: number
+  status: ArticleBatchStatus
+  stage: string
+  error?: string
+  createdAt: string
+  updatedAt: string
+  finishedAt?: string
+  items: ArticleBatchItemRecord[]
+}
+
 export type DifficultyLevel = "容易" | "中等" | "困难" | "超难"
 
 export type DifficultyAssessmentMode = "industry" | "brand"

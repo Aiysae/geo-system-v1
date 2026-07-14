@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import {
   Check,
@@ -29,7 +29,7 @@ import {
 import { ARTICLE_PROMPT_OPTIONS, type ArticlePromptOption } from "@/lib/article-prompt-meta"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
-import { ARTICLE_PROMPT_PRICE_KEYS } from "@/lib/pricing"
+import { ARTICLE_PROMPT_PRICE_KEYS, estimateFeatureCredits } from "@/lib/pricing"
 import { buildArticleSourceModelGroups } from "@/lib/article-source-options"
 import { cancelBackgroundJob, createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
@@ -92,6 +92,20 @@ const ArticleMarkdownWorkspace = dynamic(
     ),
   }
 )
+
+const ArticleBatchWorkspace = dynamic(
+  () => import("@/components/article/article-batch-workspace"),
+  {
+    ssr: false,
+    loading: () => (
+      <section className="flex min-h-[680px] items-center justify-center rounded-lg border border-slate-200 bg-white text-sm text-slate-400">
+        批量文章队列加载中...
+      </section>
+    ),
+  },
+)
+
+type ArticleWorkspaceMode = "single" | "batch" | "rewrite"
 
 function createInitialArticle(client: Client): ArticleGenerationState {
   const saved = client.articleGeneration
@@ -164,6 +178,10 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
 
 export default function ArticleGenerationModule({ client, onChangeClient }: Props) {
   const [article, setArticle] = useState<ArticleGenerationState>(() => createInitialArticle(client))
+  const articleRef = useRef(article)
+  const [workspaceMode, setWorkspaceMode] = useState<ArticleWorkspaceMode>(() => (
+    client.articleGeneration?.promptKey === "rewrite" ? "rewrite" : "single"
+  ))
   const [providers, setProviders] = useState<AiProviderPublicSetting[]>([])
   const [prompts, setPrompts] = useState<ArticlePromptOption[]>(ARTICLE_PROMPT_OPTIONS)
   const [settingsError, setSettingsError] = useState<string | null>(null)
@@ -171,6 +189,10 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const [stoppingJob, setStoppingJob] = useState(false)
   const [analyzingBrands, setAnalyzingBrands] = useState(false)
   const [brandAnalysisError, setBrandAnalysisError] = useState<string | null>(null)
+
+  useEffect(() => {
+    articleRef.current = article
+  }, [article])
 
   useEffect(() => {
     let cancelled = false
@@ -185,15 +207,18 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         setPrompts(data.prompts?.length ? data.prompts : ARTICLE_PROMPT_OPTIONS)
         setSettingsError(null)
 
-        setArticle(prev => {
-          if (prev.model) return prev
-          const provider = nextProviders.find(item => item.key === prev.modelProvider)
+        const currentArticle = articleRef.current
+        if (!currentArticle.model) {
+          const provider = nextProviders.find(item => item.key === currentArticle.modelProvider)
             || nextProviders.find(item => item.key === "article")
-          if (!provider?.model) return prev
-          const next = { ...prev, model: provider.model }
-          onChangeClient({ articleGeneration: next })
-          return next
-        })
+          if (provider?.model) {
+            const next = { ...currentArticle, model: provider.model }
+            articleRef.current = next
+            setArticle(next)
+            onChangeClient({ articleGeneration: next })
+          }
+        }
+
       } catch (error) {
         if (!cancelled) {
           setSettingsError(error instanceof Error ? error.message : "配置读取失败")
@@ -230,6 +255,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const hasKeywordQuickFill = keywordQuestions.length > 0 || keywordAdvantages.length > 0
 
   const isRewrite = article.promptKey === "rewrite"
+  const isBatch = workspaceMode === "batch" && !isRewrite
   const isGenerating = article.status === "generating"
   const isExtracting = article.extractStatus === "generating"
   const rewriteMappings = useMemo(
@@ -374,7 +400,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     })
   }
 
-  function updateMode(mode: "generate" | "rewrite") {
+  function updateMode(mode: ArticleWorkspaceMode) {
+    setWorkspaceMode(mode)
     const nextPrompt: ArticlePromptKey = mode === "rewrite"
       ? "rewrite"
       : article.promptKey === "rewrite"
@@ -672,7 +699,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 文章生成 · GEO 内容写作台
               </div>
               <div className="truncate text-[11px] text-slate-500">
-                {isRewrite ? "文章改写" : activePrompt.title} · {article.model || activeProvider?.model || "后台托管模型"}
+                {isBatch ? "批量生成" : isRewrite ? "文章改写" : activePrompt.title} · {article.model || activeProvider?.model || "后台托管模型"}
               </div>
             </div>
           </div>
@@ -702,17 +729,28 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               <WandSparkles className="h-3.5 w-3.5 text-[#1677FF]" />
               生成设置
             </div>
-            <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
               <button
                 type="button"
-                onClick={() => updateMode("generate")}
+                onClick={() => updateMode("single")}
                 className={`h-9 rounded-lg text-xs font-semibold transition ${
-                  !isRewrite
+                  workspaceMode === "single" && !isRewrite
                     ? "bg-white text-[#003EB3] shadow-sm"
                     : "text-slate-500 hover:bg-white/70"
                 }`}
               >
-                文章生成
+                单篇生成
+              </button>
+              <button
+                type="button"
+                onClick={() => updateMode("batch")}
+                className={`h-9 rounded-lg text-xs font-semibold transition ${
+                  isBatch
+                    ? "bg-white text-[#003EB3] shadow-sm"
+                    : "text-slate-500 hover:bg-white/70"
+                }`}
+              >
+                批量生成
               </button>
               <button
                 type="button"
@@ -1115,13 +1153,13 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           </section>
 
-          {article.error && (
+          {!isBatch && article.error && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {article.error}
             </div>
           )}
 
-          {isGenerating && (
+          {!isBatch && isGenerating && (
             <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs leading-5 text-cyan-800">
               <div className="font-medium">
                 {articleJobState.currentJob?.stage || "任务正在转入服务器后台"}
@@ -1132,9 +1170,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           )}
 
-          <CreditCostBadge featureKey={articleFeatureKey} className="w-fit" />
+          {!isBatch && <CreditCostBadge featureKey={articleFeatureKey} className="w-fit" />}
 
-          <div className="flex gap-2">
+          {!isBatch && <div className="flex gap-2">
             <Button
               onClick={runGenerate}
               disabled={!canGenerate}
@@ -1167,17 +1205,43 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 停止
               </Button>
             )}
-          </div>
+          </div>}
         </div>
 
-        <ArticleMarkdownWorkspace
-          value={article.output}
-          onChange={value => updateField("output", value)}
-          fileBaseName={buildFileBaseName(client, activePrompt)}
-          title={client.ourBrand || client.name || activePrompt.title || "文章生成"}
-          statusText={article.status === "done" ? "已生成，可编辑、预览和导出" : isRewrite ? "等待改写" : "等待生成"}
-          placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的 Markdown 内容会显示在这里"}
-        />
+        {isBatch ? (
+          <ArticleBatchWorkspace
+            key={client.id}
+            clientId={client.id}
+            promptTitle={activePrompt.title}
+            basePayload={{
+              promptKey: article.promptKey,
+              modelProvider: article.modelProvider,
+              model: article.model,
+              clientName: client.name,
+              brandName: client.ourBrand || client.name,
+              industry: client.industry,
+              website: client.website,
+              coreQuestion: article.coreQuestion,
+              keywords: article.keywords,
+              region: article.region,
+              business: article.business,
+              advantages: article.advantages,
+              audience: article.audience,
+              extraRequirements: article.extraRequirements,
+            }}
+            keywordQuestions={keywordQuestions.map(question => question.question).filter(Boolean)}
+            perArticleCredits={estimateFeatureCredits(articleFeatureKey)}
+          />
+        ) : (
+          <ArticleMarkdownWorkspace
+            value={article.output}
+            onChange={value => updateField("output", value)}
+            fileBaseName={buildFileBaseName(client, activePrompt)}
+            title={client.ourBrand || client.name || activePrompt.title || "文章生成"}
+            statusText={article.status === "done" ? "已生成，可编辑、预览和导出" : isRewrite ? "等待改写" : "等待生成"}
+            placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的 Markdown 内容会显示在这里"}
+          />
+        )}
       </div>
     </div>
   )
