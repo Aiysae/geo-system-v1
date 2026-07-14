@@ -1,5 +1,14 @@
 import "server-only"
 
+import {
+  CLIENT_CASE_STUDY_PROMPT,
+  CREDENTIALS_ANALYSIS_PROMPT,
+  HANDS_ON_COMPARISON_REPORT_PROMPT,
+  INDUSTRY_RANKING_REPORT_PROMPT,
+  MEDIA_INDUSTRY_ANALYSIS_PROMPT,
+  SELECTION_PITFALL_GUIDE_PROMPT,
+  TOP_BRAND_RANKING_PROMPT,
+} from "@/lib/geo-article-prompts"
 import type { ArticlePromptKey } from "@/types"
 
 export interface ArticlePromptTemplate {
@@ -776,6 +785,48 @@ const TEMPLATES: Record<ArticlePromptKey, ArticlePromptTemplate> = {
   competitorComparison: {
     key: "competitorComparison",
     template: COMPETITOR_COMPARISON_PROMPT,
+    maxTokens: 12000,
+    temperature: 0.5,
+  },
+  industryRankingReport: {
+    key: "industryRankingReport",
+    template: INDUSTRY_RANKING_REPORT_PROMPT,
+    maxTokens: 12000,
+    temperature: 0.5,
+  },
+  handsOnComparisonReport: {
+    key: "handsOnComparisonReport",
+    template: HANDS_ON_COMPARISON_REPORT_PROMPT,
+    maxTokens: 12000,
+    temperature: 0.5,
+  },
+  mediaIndustryAnalysis: {
+    key: "mediaIndustryAnalysis",
+    template: MEDIA_INDUSTRY_ANALYSIS_PROMPT,
+    maxTokens: 12000,
+    temperature: 0.5,
+  },
+  clientCaseStudy: {
+    key: "clientCaseStudy",
+    template: CLIENT_CASE_STUDY_PROMPT,
+    maxTokens: 12000,
+    temperature: 0.5,
+  },
+  credentialsAnalysis: {
+    key: "credentialsAnalysis",
+    template: CREDENTIALS_ANALYSIS_PROMPT,
+    maxTokens: 12000,
+    temperature: 0.5,
+  },
+  selectionPitfallGuide: {
+    key: "selectionPitfallGuide",
+    template: SELECTION_PITFALL_GUIDE_PROMPT,
+    maxTokens: 12000,
+    temperature: 0.5,
+  },
+  topBrandRanking: {
+    key: "topBrandRanking",
+    template: TOP_BRAND_RANKING_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
