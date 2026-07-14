@@ -11,9 +11,7 @@ import {
   ChevronLeft,
   CreditCard,
   Landmark,
-  MessageCircle,
   Plus,
-  QrCode,
   Sparkles,
   X,
 } from "lucide-react"
@@ -345,24 +343,18 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
       label: "微信支付",
       description: paymentOptions.wechat.enabled ? "微信官方支付" : "扫码后提交",
       enabled: wechatAvailable,
-      icon: MessageCircle,
-      iconClass: "bg-[#07C160] text-white shadow-emerald-500/20",
     },
     {
       id: "alipay" as const,
       label: "支付宝",
       description: paymentOptions.alipay ? "支付宝官方收银台" : "扫码后提交",
       enabled: alipayAvailable,
-      icon: CreditCard,
-      iconClass: "bg-[#1677FF] text-white shadow-blue-500/20",
     },
     {
       id: "manual_transfer" as const,
       label: "银行支付",
       description: "企业对公转账",
       enabled: bankAvailable,
-      icon: Landmark,
-      iconClass: "bg-[#006D75] text-white shadow-cyan-800/20",
     },
   ]
 
@@ -550,7 +542,6 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                   <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
                     {paymentMethods.map(method => {
                       const selected = paymentMethod === method.id
-                      const Icon = method.icon
                       return (
                         <button
                           key={method.id}
@@ -558,20 +549,17 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
                           onClick={() => selectPaymentMethod(method.id)}
                           disabled={!method.enabled || Boolean(wechatCheckout)}
                           aria-pressed={selected}
-                          className={`relative flex min-h-[92px] items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition ${
+                          aria-label={`${method.label}：${method.enabled ? method.description : "暂不可用"}`}
+                          className={`relative flex min-h-[102px] flex-col items-start justify-between gap-2 rounded-lg border px-3.5 py-3 text-left transition ${
                             selected
                               ? "border-[#1677FF] bg-[#F3F8FF] ring-2 ring-[#1677FF]/10"
                               : "border-slate-200 bg-white hover:border-[#69B1FF] hover:bg-slate-50"
                           } disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-55`}
                         >
-                          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg shadow-md ${method.iconClass}`}>
-                            <Icon className="h-5 w-5" />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block text-sm font-semibold text-slate-950">{method.label}</span>
-                            <span className="mt-1 block text-[11px] leading-4 text-slate-500">
-                              {method.enabled ? method.description : "暂不可用"}
-                            </span>
+                          <span className="sr-only">{method.label}</span>
+                          <PaymentBrandMark method={method.id} />
+                          <span className="block text-[11px] leading-4 text-slate-500">
+                            {method.enabled ? method.description : "暂不可用"}
                           </span>
                           {selected ? (
                             <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-[#1677FF] text-white">
@@ -714,6 +702,59 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
   return createPortal(dialog, document.body)
 }
 
+function WechatPayBrandMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      className={`relative block shrink-0 overflow-hidden ${
+        compact ? "h-5 w-[78px]" : "h-[30px] w-[116px]"
+      }`}
+    >
+      <Image
+        src="/recharge/wechat-pay-official.png"
+        alt="微信支付"
+        width={264}
+        height={34}
+        className={`${compact ? "h-5 w-[155px]" : "h-[30px] w-[233px]"} max-w-none object-left`}
+        sizes={compact ? "155px" : "233px"}
+      />
+    </span>
+  )
+}
+
+function AlipayBrandMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <span className={`flex shrink-0 items-center ${compact ? "gap-1.5" : "gap-2"}`}>
+      <span className={`relative block shrink-0 overflow-hidden ${compact ? "h-5 w-6" : "h-8 w-10"}`}>
+        <Image
+          src="/recharge/alipay-official.png"
+          alt=""
+          width={302}
+          height={68}
+          className={`${compact ? "h-5 w-[89px]" : "h-8 w-[142px]"} max-w-none object-left`}
+          sizes={compact ? "89px" : "142px"}
+        />
+      </span>
+      <span className={`${compact ? "text-xs" : "text-sm"} font-semibold text-[#1677FF]`}>
+        支付宝
+      </span>
+    </span>
+  )
+}
+
+function PaymentBrandMark({ method }: { method: RechargePaymentMethod }) {
+  if (method === "wechat") return <WechatPayBrandMark />
+  if (method === "alipay") return <AlipayBrandMark />
+
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#006D75] text-white shadow-sm shadow-cyan-900/15">
+        <Landmark className="h-4 w-4" />
+      </span>
+      <span className="text-sm font-semibold text-slate-950">银行支付</span>
+    </span>
+  )
+}
+
 function CustomerServiceInfo() {
   const wechatId = RECHARGE_PAYMENT_INFO.serviceWechatId
   const qrImageUrl = RECHARGE_PAYMENT_INFO.serviceWechatQrImageUrl
@@ -723,7 +764,14 @@ function CustomerServiceInfo() {
   return (
     <div className="mt-3 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-emerald-100">
       <div className="mb-2 flex items-center gap-1.5 font-semibold text-slate-900">
-        <MessageCircle className="h-3.5 w-3.5 text-emerald-700" />
+        <Image
+          src="/recharge/wechat-official.png"
+          alt="微信"
+          width={256}
+          height={256}
+          className="h-5 w-5 rounded-[5px]"
+          sizes="20px"
+        />
         充值客服微信
       </div>
       <div className="flex items-center gap-4 rounded-lg bg-white/85 px-3 py-3 ring-1 ring-emerald-100">
@@ -806,9 +854,9 @@ function PaymentMethodInfo({
         id="wechat-official-checkout"
         className="mt-3 scroll-mt-4 scroll-mb-24 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-emerald-200"
       >
-        <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-900">
-          <QrCode className="h-3.5 w-3.5 text-emerald-700" />
-          微信官方支付
+        <div className="mb-1.5 flex items-center gap-2 font-semibold text-slate-900">
+          <WechatPayBrandMark compact />
+          <span className="text-[11px] text-emerald-800">官方在线支付</span>
         </div>
         {!wechatCheckout ? (
           <>
@@ -860,9 +908,9 @@ function PaymentMethodInfo({
   if (officialAlipay) {
     return (
       <div className="mt-3 rounded-xl bg-[#EEF6FF] px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-[#BAE0FF]">
-        <div className="mb-1 flex items-center gap-1.5 font-semibold text-slate-900">
-          <CreditCard className="h-3.5 w-3.5 text-[#1677FF]" />
-          支付宝官方在线支付
+        <div className="mb-1.5 flex items-center gap-2 font-semibold text-slate-900">
+          <AlipayBrandMark compact />
+          <span className="text-[11px] text-[#0958D9]">官方在线支付</span>
         </div>
         <p>点击下方按钮进入支付宝官方收银台。系统以支付平台签名回调和订单主动查询双重确认到账，不需要上传付款截图。</p>
         <p className="mt-1 text-[11px] text-slate-500">支付成功后请返回本系统，积分通常会在数秒内自动到账。</p>
@@ -873,9 +921,9 @@ function PaymentMethodInfo({
   if (paymentMethod === "wechat" || paymentMethod === "alipay") {
     return (
       <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-700 ring-1 ring-slate-200">
-        <div className="mb-2 flex items-center gap-1.5 font-semibold text-slate-900">
-          <QrCode className="h-3.5 w-3.5 text-[#1677FF]" />
-          {paymentMethod === "wechat" ? "微信收款码" : "支付宝收款码"}
+        <div className="mb-2 flex items-center gap-2 font-semibold text-slate-900">
+          {paymentMethod === "wechat" ? <WechatPayBrandMark compact /> : <AlipayBrandMark compact />}
+          <span className="text-[11px] text-slate-600">收款码</span>
         </div>
         {selectedQrCode ? (
           <div className="mx-auto max-w-sm rounded-xl bg-white p-2 ring-1 ring-slate-200">
