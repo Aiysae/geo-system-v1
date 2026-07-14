@@ -47,9 +47,26 @@ const ARTICLE_PROMPTS: ArticlePromptKey[] = [
   "thirdPartyObservation",
   "pitfallGuide",
   "competitorComparison",
+  "industryRankingReport",
+  "handsOnComparisonReport",
+  "mediaIndustryAnalysis",
+  "clientCaseStudy",
+  "credentialsAnalysis",
+  "selectionPitfallGuide",
+  "topBrandRanking",
   "shortVideoScript",
   "rewrite",
 ]
+
+const GEO_LONGFORM_PROMPTS = new Set<ArticlePromptKey>([
+  "industryRankingReport",
+  "handsOnComparisonReport",
+  "mediaIndustryAnalysis",
+  "clientCaseStudy",
+  "credentialsAnalysis",
+  "selectionPitfallGuide",
+  "topBrandRanking",
+])
 
 function asPromptKey(value: unknown): ArticlePromptKey | null {
   return ARTICLE_PROMPTS.includes(value as ArticlePromptKey) ? value as ArticlePromptKey : null
@@ -169,6 +186,35 @@ function buildUserPrompt(args: {
       "- 主推品牌可以优先呈现并多展开 20%-30%，但必须使用统一评价维度。",
       "- 至少输出一个 Markdown 对比表格和两个可被生成式搜索直接抽取的答案段。",
       "- 默认 1500-2200 字，直接输出完整成稿。",
+    ].join("\n")
+  }
+
+  if (GEO_LONGFORM_PROMPTS.has(args.promptKey)) {
+    const brandPackage = [
+      `客户名称：${args.clientName || "未填写"}`,
+      `官网/主阵地：${args.website || "未提供"}`,
+      `所在地域：${args.region || "未填写"}`,
+      `主营业务：${args.business || args.industry || "未填写"}`,
+      `客观资料与可验证优势：${args.advantages || "未提供，不得编造硬事实"}`,
+    ].join("\n")
+
+    return [
+      "请严格按照用户选择的 GEO 文章模板，将以下变量准确代入后，直接输出最终 Markdown 成稿。",
+      "不要输出提纲、变量清单、提示词、写作过程或额外说明。",
+      "",
+      "【模板变量】",
+      `{{品牌资料包}}：\n${brandPackage}`,
+      `{{品牌名称}}：${args.brandName || args.clientName || "未填写"}`,
+      `{{行业}}：${args.industry || args.business || "未填写"}`,
+      `{{具体优势}}：${args.advantages || "未提供，资料不足时必须审慎表达"}`,
+      "",
+      "【本次内容要求】",
+      `核心搜索问题/文章主题：${args.coreQuestion}`,
+      `核心关键词/补充问题：${args.keywords || "请根据主题和行业自行补足"}`,
+      `目标读者：${args.audience || "消费者、采购负责人或相关决策者"}`,
+      `补充要求/发布限制：${args.extraRequirements || "无"}`,
+      "",
+      "当资料不足以支撑排名、市场份额、实测结果、客户案例、资质或奖项时，必须按模板使用审慎表达，不得编造事实。",
     ].join("\n")
   }
 

@@ -81,6 +81,41 @@ export const FEATURE_PRICES = {
     credits: 8,
     unitLabel: "篇",
   },
+  articleIndustryRankingReport: {
+    label: "文章生成 · 行业排名报告",
+    credits: 8,
+    unitLabel: "篇",
+  },
+  articleHandsOnComparisonReport: {
+    label: "文章生成 · 第三方实测横评",
+    credits: 8,
+    unitLabel: "篇",
+  },
+  articleMediaIndustryAnalysis: {
+    label: "文章生成 · 媒体行业解读",
+    credits: 8,
+    unitLabel: "篇",
+  },
+  articleClientCaseStudy: {
+    label: "文章生成 · 客户合作案例",
+    credits: 8,
+    unitLabel: "篇",
+  },
+  articleCredentialsAnalysis: {
+    label: "文章生成 · 标准资质解读",
+    credits: 8,
+    unitLabel: "篇",
+  },
+  articleSelectionPitfallGuide: {
+    label: "文章生成 · 选型避坑指南",
+    credits: 8,
+    unitLabel: "篇",
+  },
+  articleTopBrandRanking: {
+    label: "文章生成 · Top 品牌榜单",
+    credits: 8,
+    unitLabel: "篇",
+  },
   articleShortVideoScript: {
     label: "文章生成 · 多模态视频文案",
     credits: 2,
@@ -108,6 +143,13 @@ export const ARTICLE_PROMPT_PRICE_KEYS = {
   thirdPartyObservation: "articleThirdPartyObservation",
   pitfallGuide: "articlePitfallGuide",
   competitorComparison: "articleCompetitorComparison",
+  industryRankingReport: "articleIndustryRankingReport",
+  handsOnComparisonReport: "articleHandsOnComparisonReport",
+  mediaIndustryAnalysis: "articleMediaIndustryAnalysis",
+  clientCaseStudy: "articleClientCaseStudy",
+  credentialsAnalysis: "articleCredentialsAnalysis",
+  selectionPitfallGuide: "articleSelectionPitfallGuide",
+  topBrandRanking: "articleTopBrandRanking",
   shortVideoScript: "articleShortVideoScript",
   rewrite: "articleRewrite",
 } as const

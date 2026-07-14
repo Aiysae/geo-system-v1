@@ -56,6 +56,13 @@ export type ArticlePromptKey =
   | "thirdPartyObservation"
   | "pitfallGuide"
   | "competitorComparison"
+  | "industryRankingReport"
+  | "handsOnComparisonReport"
+  | "mediaIndustryAnalysis"
+  | "clientCaseStudy"
+  | "credentialsAnalysis"
+  | "selectionPitfallGuide"
+  | "topBrandRanking"
   | "shortVideoScript"
   | "rewrite"
 
