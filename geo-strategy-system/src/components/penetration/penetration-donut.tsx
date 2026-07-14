@@ -19,7 +19,7 @@ export default function PenetrationDonut({ rate, mentions, totalSlots }: Props) 
 
   return (
     <div className="relative w-full h-52 min-h-[208px]">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 208 }}>
         <PieChart>
           <defs>
             <linearGradient id="donutMentioned" x1="0%" y1="0%" x2="100%" y2="100%">

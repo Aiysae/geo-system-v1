@@ -18,11 +18,12 @@ import type { PerModelRate } from "@/types"
 interface Props {
   perModelRate: PerModelRate[]
   overallRate: number
+  compact?: boolean
 }
 
 const COLORS = ["#1677FF", "#13C2C2", "#2F54EB", "#6C5CE7", "#16C79A", "#FF5B6E"]
 
-export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
+export default function ModelRateTrend({ perModelRate, overallRate, compact = false }: Props) {
   const validRates = perModelRate.filter(item => item.total > 0)
 
   if (validRates.length === 0) {
@@ -39,9 +40,9 @@ export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
   }))
 
   return (
-    <div className="w-full h-64 min-h-[256px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 24, right: 24, left: 0, bottom: 8 }}>
+    <div className={compact ? "h-full min-h-[300px] w-full" : "h-64 min-h-[256px] w-full"}>
+      <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 520, height: 300 }}>
+        <ComposedChart data={data} margin={{ top: 24, right: compact ? 12 : 24, left: compact ? -8 : 0, bottom: 8 }}>
           <defs>
             {COLORS.map((c, i) => (
               <linearGradient key={i} id={`barGrad${i}`} x1="0" y1="0" x2="0" y2="1">
@@ -58,7 +59,7 @@ export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
           <CartesianGrid strokeDasharray="3 6" stroke="#e2e8f0" vertical={false} />
           <XAxis
             dataKey="model"
-            tick={{ fontSize: 12, fill: "#475569" }}
+            tick={{ fontSize: compact ? 11 : 12, fill: "#475569" }}
             axisLine={false}
             tickLine={false}
           />
@@ -89,7 +90,7 @@ export default function ModelRateTrend({ perModelRate, overallRate }: Props) {
               return [`${value}%`, "整体均值"]
             }}
           />
-          <Bar dataKey="rate" name="渗透率" radius={[8, 8, 0, 0]} barSize={42}>
+          <Bar dataKey="rate" name="渗透率" radius={[8, 8, 0, 0]} barSize={compact ? 32 : 42}>
             {data.map((d, i) => (
               <Cell key={i} fill={`url(#barGrad${i % COLORS.length})`} />
             ))}
