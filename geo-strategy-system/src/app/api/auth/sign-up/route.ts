@@ -3,6 +3,7 @@ import { createSession, createUser, validateSignUpInviteCode } from "@/lib/auth"
 import { AUTH_COOKIE_NAME } from "@/lib/session-cookie"
 import { isSecureRequest } from "@/lib/request-security"
 import { getClientIp, hitRateLimit } from "@/lib/rate-limit"
+import { consumeEmailVerificationCode } from "@/lib/email-verification"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -23,10 +24,11 @@ export async function POST(request: Request) {
     const password = typeof body?.password === "string" ? body.password : ""
     const name = typeof body?.name === "string" ? body.name : ""
     const inviteCode = typeof body?.inviteCode === "string" ? body.inviteCode : ""
+    const verificationCode = typeof body?.verificationCode === "string" ? body.verificationCode : ""
     const termsAccepted = body?.termsAccepted === true
 
-    if (!email || !password) {
-      return NextResponse.json({ error: "请输入邮箱和密码" }, { status: 400 })
+    if (!email || !password || !verificationCode) {
+      return NextResponse.json({ error: "请输入邮箱、验证码和密码" }, { status: 400 })
     }
 
     if (!termsAccepted) {
@@ -45,11 +47,19 @@ export async function POST(request: Request) {
       )
     }
 
+    await consumeEmailVerificationCode({
+      email,
+      purpose: "sign-up",
+      code: verificationCode,
+    })
+
+    const now = new Date().toISOString()
     const user = await createUser({
       email,
       password,
       name,
-      termsAcceptedAt: new Date().toISOString(),
+      termsAcceptedAt: now,
+      emailVerifiedAt: now,
     })
     const session = await createSession(user.id)
     const response = NextResponse.json({ user })

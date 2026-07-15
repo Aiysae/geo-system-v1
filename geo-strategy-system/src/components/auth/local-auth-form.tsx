@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowRight, Loader2, LockKeyhole, Mail, UserRound } from "lucide-react"
+import { ArrowRight, KeyRound, Loader2, LockKeyhole, Mail, MailCheck, UserRound } from "lucide-react"
+import { EmailVerificationField } from "@/components/auth/email-verification-field"
 
 type Mode = "sign-in" | "sign-up"
 
@@ -18,10 +19,14 @@ export function LocalAuthForm({
 }) {
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
+  const [email, setEmail] = useState("")
+  const [verificationCode, setVerificationCode] = useState("")
+  const [signInMethod, setSignInMethod] = useState<"password" | "code">("password")
   const router = useRouter()
   const isSignUp = mode === "sign-up"
-  const target = isSignUp ? "/api/auth/sign-up" : "/api/auth/sign-in"
+  const usesVerificationCode = isSignUp || signInMethod === "code"
   const nextUrl = sanitizeRedirect(redirectUrl)
+  const updateVerificationCode = useCallback((value: string) => setVerificationCode(value), [])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -31,11 +36,17 @@ export function LocalAuthForm({
     const form = new FormData(event.currentTarget)
     const payload = {
       name: String(form.get("name") || ""),
-      email: String(form.get("email") || ""),
+      email,
       password: String(form.get("password") || ""),
       inviteCode: String(form.get("inviteCode") || ""),
+      verificationCode,
       termsAccepted: form.get("termsAccepted") === "on",
     }
+    const target = isSignUp
+      ? "/api/auth/sign-up"
+      : signInMethod === "code"
+        ? "/api/auth/sign-in/code"
+        : "/api/auth/sign-in"
 
     try {
       const res = await fetch(target, {
@@ -74,11 +85,43 @@ export function LocalAuthForm({
           {isSignUp ? "注册势途 GEO" : "登录势途 GEO"}
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-500">
-          {isSignUp ? "使用邮箱和密码创建账号。" : "使用邮箱和密码进入系统。"}
+          {isSignUp ? "验证邮箱后创建账号。" : "使用密码或邮箱验证码进入系统。"}
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {!isSignUp && (
+          <div className="grid h-10 grid-cols-2 rounded-lg bg-slate-100 p-1" role="tablist" aria-label="登录方式">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={signInMethod === "password"}
+              style={{ backgroundColor: signInMethod === "password" ? "#ffffff" : "transparent" }}
+              onClick={() => {
+                setSignInMethod("password")
+                setError("")
+              }}
+              className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded-md text-xs font-semibold transition ${signInMethod === "password" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              密码登录
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={signInMethod === "code"}
+              style={{ backgroundColor: signInMethod === "code" ? "#ffffff" : "transparent" }}
+              onClick={() => {
+                setSignInMethod("code")
+                setError("")
+              }}
+              className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded-md text-xs font-semibold transition ${signInMethod === "code" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+            >
+              <MailCheck className="h-3.5 w-3.5" />
+              验证码登录
+            </button>
+          </div>
+        )}
         {isSignUp && (
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium text-slate-600">姓名或昵称</span>
@@ -115,6 +158,11 @@ export function LocalAuthForm({
           <span className="relative block">
             <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
+              value={email}
+              onChange={event => {
+                setEmail(event.target.value)
+                setVerificationCode("")
+              }}
               name="email"
               type="email"
               required
@@ -125,10 +173,20 @@ export function LocalAuthForm({
           </span>
         </label>
 
-        <label className="block">
+        {usesVerificationCode && (
+          <EmailVerificationField
+            email={email}
+            purpose={isSignUp ? "sign-up" : "sign-in"}
+            code={verificationCode}
+            onCodeChange={updateVerificationCode}
+            disabled={pending}
+          />
+        )}
+
+        {(!usesVerificationCode || isSignUp) && <label className="block">
           <span className="mb-1.5 flex items-center justify-between gap-2 text-xs font-medium text-slate-600">
             <span>密码</span>
-            {!isSignUp && (
+            {!isSignUp && signInMethod === "password" && (
               <Link href="/forgot-password" className="font-medium text-[#0958D9] hover:text-[#003EB3]">
                 忘记密码？
               </Link>
@@ -146,7 +204,7 @@ export function LocalAuthForm({
               placeholder={isSignUp ? "至少 8 位，含字母和数字" : "请输入密码"}
             />
           </span>
-        </label>
+        </label>}
 
         {isSignUp && (
           <label className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600 ring-1 ring-slate-200">
@@ -184,7 +242,7 @@ export function LocalAuthForm({
           className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-sm font-semibold text-white shadow-md shadow-blue-500/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-          {isSignUp ? "注册并进入系统" : "登录"}
+          {isSignUp ? "注册并进入系统" : signInMethod === "code" ? "验证并登录" : "登录"}
         </button>
       </form>
 
