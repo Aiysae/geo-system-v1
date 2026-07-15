@@ -402,7 +402,13 @@ export async function openaiCompatChat({
     })
     const nativeSources = onSearchSources ? extractSourcesFromUnknown(data, String(user)) : []
     if (nativeSources.length > 0) {
-      onSearchSources?.({ query: String(user), sources: nativeSources, mode: "native_web" })
+      onSearchSources?.({
+        query: String(user),
+        sources: nativeSources,
+        mode: "native_web",
+        searchExecuted: true,
+        providerRequestId: data.id,
+      })
     }
     const choice = data.choices?.[0]
     const content = extractMessageContent(choice?.message, label)

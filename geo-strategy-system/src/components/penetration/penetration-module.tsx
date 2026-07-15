@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Target, ChevronDown, MessageSquare, BarChart3, Globe2, ExternalLink, CheckCircle2, X } from "lucide-react"
+import { Target, ChevronDown, MessageSquare, BarChart3, Globe2, ExternalLink, CheckCircle2, RefreshCw, X } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
 import PenetrationDonut from "./penetration-donut"
 import IndustryShareChart from "./industry-share-chart"
@@ -41,6 +41,15 @@ interface Props {
   onChangeClient: (patch: Partial<Client>) => void
 }
 
+type PenetrationRunParams = {
+  questions: string[]
+  models: ModelKey[]
+  brandAliases: string[]
+  competitors: string[]
+  operation?: "replace" | "append"
+  retestSampleId?: string
+}
+
 export default function PenetrationModule({ client, onChangeClient }: Props) {
   const [loading, setLoading] = useState(Boolean(client.penetrationJobId))
   const [error, setError] = useState<string | null>(null)
@@ -48,6 +57,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   const [modelErrors, setModelErrors] = useState<Partial<Record<ModelKey, string>>>({})
   const [progressLabel, setProgressLabel] = useState("")
   const [completionNotice, setCompletionNotice] = useState("")
+  const [retestingSampleId, setRetestingSampleId] = useState<string | null>(null)
   const publishedResultAtRef = useRef(client.penetration?.generatedAt || "")
 
   useEffect(() => {
@@ -107,10 +117,13 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               penetrationJobId: undefined,
             })
             setLoading(false)
+            setRetestingSampleId(null)
             setProgressLabel("")
             setCompletionNotice(
-              completedQuestions && completedModels
-                ? `疑问句检测已完成：${completedQuestions} 条疑问句、${completedModels} 个模型的结果已更新。`
+              job.operation === "append"
+                ? "本题重新检测已完成：新的独立联网回答已追加，旧回答仍然保留。"
+                : completedQuestions && completedModels
+                ? `疑问句检测已完成：${job.totalSlots} 次独立采样（${completedQuestions} 个不同问题、${completedModels} 个模型）。`
                 : `疑问句检测已完成：${job.completedSlots} 项结果已更新。`,
             )
             return
@@ -119,6 +132,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
             onChangeClient({ penetrationJobId: undefined })
             setError(job.error || "疑问句检测后台任务失败")
             setLoading(false)
+            setRetestingSampleId(null)
             setProgressLabel("")
             return
           }
@@ -129,6 +143,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
             })
             setError(job.result ? "检测已停止，已保留当前完成结果。" : "检测已停止。")
             setLoading(false)
+            setRetestingSampleId(null)
             setProgressLabel("")
             return
           }
@@ -151,21 +166,18 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     }
   }, [client.penetrationJobId, onChangeClient])
 
-  async function handleRun(params: {
-    questions: string[]
-    models: ModelKey[]
-    brandAliases: string[]
-    competitors: string[]
-  }) {
+  async function handleRun(params: PenetrationRunParams) {
     setLoading(true)
+    setRetestingSampleId(params.retestSampleId || null)
     setError(null)
     setSkipped([])
     setModelErrors({})
-    setProgressLabel("正在创建后台检测任务...")
+    setProgressLabel(params.operation === "append" ? "正在创建本题独立重测任务..." : "正在创建后台检测任务...")
     try {
+      const requestId = createBackgroundRequestId("penetration")
       const job = await createIdempotentApiJob<PenetrationJobRecord & { error?: string }>({
         endpoint: "/api/penetration/jobs",
-        requestId: createBackgroundRequestId("penetration"),
+        requestId,
         label: "疑问句检测任务创建",
         payload: {
           clientId: client.id,
@@ -175,6 +187,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           questions: params.questions,
           competitors: params.competitors,
           models: params.models,
+          operation: params.operation || "replace",
         },
         onRetry: () => {
           setProgressLabel("网络暂时中断，正在确认检测任务是否已经创建...")
@@ -194,8 +207,21 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : "未知错误")
       setLoading(false)
+      setRetestingSampleId(null)
       setProgressLabel("")
     }
+  }
+
+  function handleRetest(model: ModelKey, item: PenetrationItem, sampleKey: string) {
+    if (loading) return
+    void handleRun({
+      questions: [item.question],
+      models: [model],
+      brandAliases: client.brandAliases ?? [],
+      competitors: client.competitors,
+      operation: "append",
+      retestSampleId: sampleKey,
+    })
   }
 
   async function handleStop() {
@@ -210,6 +236,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     } finally {
       onChangeClient({ penetrationJobId: undefined })
       setLoading(false)
+      setRetestingSampleId(null)
       setProgressLabel("")
       setError(client.penetration ? "检测已停止，已保留当前完成结果。" : "检测已停止。")
     }
@@ -366,6 +393,9 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                   byModel={pen.byModel}
                   ourBrand={client.ourBrand}
                   brandAliases={client.brandAliases ?? []}
+                  onRetest={handleRetest}
+                  retestingSampleId={retestingSampleId}
+                  retestDisabled={loading}
                 />
 
                 <div className="text-[11px] text-slate-400 text-right">
@@ -406,10 +436,16 @@ function RawAnswersPanel({
   byModel,
   ourBrand,
   brandAliases,
+  onRetest,
+  retestingSampleId,
+  retestDisabled,
 }: {
   byModel: PenetrationResult["byModel"]
   ourBrand: string
   brandAliases: string[]
+  onRetest: (model: ModelKey, item: PenetrationItem, sampleKey: string) => void
+  retestingSampleId: string | null
+  retestDisabled: boolean
 }) {
   const models = (Object.keys(byModel) as ModelKey[]).filter(m => byModel[m]?.length)
   const [open, setOpen] = useState(false)
@@ -446,6 +482,22 @@ function RawAnswersPanel({
   const topSource = modelDomainStats[0] ?? null
   const sourceTotal = modelDomainStats.reduce((sum, item) => sum + item.count, 0)
   const auditStats = getModelAuditStats(items)
+  const questionTotals = new Map<string, number>()
+  for (const item of items) {
+    const key = item.question.trim()
+    questionTotals.set(key, (questionTotals.get(key) ?? 0) + 1)
+  }
+  const questionOccurrences = new Map<string, number>()
+  const sampleMeta = items.map((item, index) => {
+    const questionKey = item.question.trim()
+    const ordinal = (questionOccurrences.get(questionKey) ?? 0) + 1
+    questionOccurrences.set(questionKey, ordinal)
+    return {
+      ordinal,
+      total: questionTotals.get(questionKey) ?? 1,
+      key: item.sampleId || `legacy_${currentModel}_${index}`,
+    }
+  })
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -547,6 +599,7 @@ function RawAnswersPanel({
           </div>
           <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
             {items.map((it, i) => {
+              const meta = sampleMeta[i]
               const hit =
                 typeof it.hitOur === "boolean"
                   ? it.hitOur
@@ -559,17 +612,44 @@ function RawAnswersPanel({
                     <span className="text-[10px] font-mono text-slate-400 mt-0.5">
                       Q{String(i + 1).padStart(2, "0")}
                     </span>
-                    <div className="text-xs font-medium text-slate-700 flex-1">{it.question}</div>
-                    {hit ? (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold whitespace-nowrap">
-                        ✓ 命中
-                      </span>
-                    ) : (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 whitespace-nowrap">
-                        未命中
-                      </span>
-                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="break-words text-xs font-medium leading-relaxed text-slate-700">
+                        {it.question}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span
+                          className="whitespace-nowrap rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
+                          title={it.sampleId || "历史结果"}
+                        >
+                          第 {meta.ordinal} 次采样{meta.total > 1 ? ` / 共 ${meta.total} 次` : ""}
+                        </span>
+                        {hit ? (
+                          <span className="whitespace-nowrap rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            ✓ 命中
+                          </span>
+                        ) : (
+                          <span className="whitespace-nowrap rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                            未命中
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onRetest(currentModel, it, meta.key)}
+                          disabled={retestDisabled}
+                          className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-blue-200 bg-white px-1.5 text-[10px] font-medium text-[#1677FF] transition hover:border-[#1677FF] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          title={`使用${MODEL_LABELS[currentModel]}重新联网检测本题，并保留当前回答`}
+                        >
+                          <RefreshCw className={`h-3 w-3 ${retestingSampleId === meta.key ? "animate-spin" : ""}`} />
+                          重新检测
+                        </button>
+                      </div>
+                    </div>
                   </div>
+                  {it.sampledAt && (
+                    <div className="mb-1.5 pl-7 text-[10px] text-slate-400">
+                      请求时间 {new Date(it.sampledAt).toLocaleString("zh-CN")}
+                    </div>
+                  )}
                   <AnswerItem text={it.answer} ourBrand={ourBrand} highlightFn={highlight} />
                   <AnswerAuditBadges item={it} />
                   <SourceAuditSnippet item={it} />
@@ -660,6 +740,7 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
   const sourceCount = item.sourceCount ?? item.searchSources?.length ?? 0
   const verified = item.webVerified === true
   const executionOnly = verified && item.webExecutionVerified === true && sourceCount === 0
+  const providerRequestId = item.providerRequestIds?.at(-1)
   return (
     <div className="pl-7 mb-2 flex flex-wrap gap-1.5">
       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
@@ -682,6 +763,22 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
             : "官方联网已验证"
           : "官方联网不可验证"} · 来源 {sourceCount}
       </span>
+      {item.sampleId && (
+        <span
+          className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500"
+          title={`独立采样编号：${item.sampleId}`}
+        >
+          采样 {item.sampleId.slice(-8)}
+        </span>
+      )}
+      {providerRequestId && (
+        <span
+          className="rounded border border-cyan-100 bg-cyan-50 px-1.5 py-0.5 font-mono text-[10px] text-cyan-700"
+          title={`厂商请求编号：${providerRequestId}`}
+        >
+          厂商请求 {providerRequestId.slice(-8)}
+        </span>
+      )}
     </div>
   )
 }

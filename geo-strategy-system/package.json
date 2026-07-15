@@ -19,6 +19,7 @@
     "test:report-branding": "tsx scripts/test-report-branding.mts",
     "test:email-verification": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-email-verification.mts",
     "test:penetration-web": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-web-adapters.mts",
+    "test:penetration-sampling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-independent-sampling.mts",
     "kv:migrate:file-to-redis": "node scripts/migrate-file-kv-to-redis.mjs"
   },
   "dependencies": {

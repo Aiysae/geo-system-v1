@@ -105,10 +105,10 @@ ${JSON.stringify(args.entries)}
 请逐条抽取全部品牌，并严格按 system 规定返回 JSON。`
 }
 
-// 用 (model, question) 哈希派生稳定 seed
-function deriveSeed(model: ModelKey, question: string): number {
+// 同一次任务重试保持稳定；用户主动重测或同题重复采样时使用不同 seed。
+function deriveSampleSeed(model: ModelKey, sampleId: string): number {
   let h = 2166136261
-  const s = `${model}::${question}`
+  const s = `${model}::${sampleId}`
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i)
     h = Math.imul(h, 16777619)
@@ -346,6 +346,7 @@ function buildAuditFields(
 async function blindQuery(
   model: ModelKey,
   question: string,
+  sampleId: string,
   auditProfile: PenetrationAuditProfile
 ): Promise<{
   answer: string
@@ -368,7 +369,7 @@ async function blindQuery(
   >
 }> {
   const adapter = ADAPTERS[model]
-  const seed = deriveSeed(model, question)
+  const seed = deriveSampleSeed(model, sampleId)
   const t0 = Date.now()
   const collectedSources: PenetrationSource[] = []
   const searchQueries = new Set<string>()
@@ -573,15 +574,19 @@ async function judgeAnswersBatch(
 async function processSlot(args: {
   model: ModelKey
   question: string
+  sampleId: string
   ourBrand: string
   brandAliases: string[]
   competitors: string[]
   auditProfile: PenetrationAuditProfile
 }): Promise<PenetrationItem & { error?: string; judgeError?: string }> {
-  const blind = await blindQuery(args.model, args.question, args.auditProfile)
+  const blind = await blindQuery(args.model, args.question, args.sampleId, args.auditProfile)
+  const sampledAt = new Date().toISOString()
 
   if (blind.error || !blind.answer) {
     return {
+      sampleId: args.sampleId,
+      sampledAt,
       question: args.question,
       answer: "",
       mentionedBrands: [],
@@ -618,6 +623,8 @@ async function processSlot(args: {
   const codeHit = resolver.targetNames.some(brand => answerMentionsBrand(blind.answer, brand))
 
   return {
+    sampleId: args.sampleId,
+    sampledAt,
     question: args.question,
     answer: blind.answer,
     mentionedBrands,
@@ -771,6 +778,17 @@ async function handler(req: NextRequest) {
     const questions: string[] = Array.isArray(body.questions)
       ? body.questions.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
+    const requestedRunId = String(body.runId || "").trim()
+    const runId = /^[A-Za-z0-9_-]{16,200}$/.test(requestedRunId)
+      ? requestedRunId
+      : `penetration_${crypto.randomUUID().replace(/-/g, "")}`
+    const sampleStart = Number.isSafeInteger(body.sampleStart) && body.sampleStart >= 0
+      ? Math.min(body.sampleStart, 1_000_000)
+      : 0
+    const questionSamples = questions.map((question, index) => ({
+      question,
+      sampleIndex: sampleStart + index,
+    }))
     const competitors: string[] = Array.isArray(body.competitors)
       ? body.competitors.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
@@ -859,12 +877,16 @@ async function handler(req: NextRequest) {
       activeModels.map(m => {
         let permanentError = ""
         const auditProfile = auditProfiles[m]
-        return mapWithConcurrency(questions, modelConcurrency(m), async q => {
+        return mapWithConcurrency(questionSamples, modelConcurrency(m), async sample => {
+          const q = sample.question
+          const sampleId = `${runId}_${m}_${sample.sampleIndex + 1}`
           if (permanentError) {
             const auditFields = buildAuditFields(auditProfile, [])
             return {
               model: m,
               item: {
+                sampleId,
+                sampledAt: new Date().toISOString(),
                 question: q,
                 answer: "",
                 mentionedBrands: [],
@@ -881,6 +903,7 @@ async function handler(req: NextRequest) {
           const item = await processSlot({
             model: m,
             question: q,
+            sampleId,
             ourBrand,
             brandAliases,
             competitors,
@@ -905,14 +928,10 @@ async function handler(req: NextRequest) {
     )
     console.log(`[penetration] 全部完成 耗时 ${Date.now() - t0}ms`)
 
-    // 按 model → 题目顺序整理
+    // mapWithConcurrency 保留输入下标顺序；不能再按问题文字建 Map，重复问题是独立样本。
     const byModel: PenetrationByModel = {}
     for (const m of activeModels) byModel[m] = []
     for (const { model, item } of results) byModel[model]!.push(item)
-    for (const m of activeModels) {
-      const map = new Map(byModel[m]!.map(it => [it.question, it]))
-      byModel[m] = questions.map(q => map.get(q)).filter((it): it is PenetrationItem => !!it)
-    }
 
     // 各模型错误透传（用于前端在对应栏显示红色提示）
     const modelErrors: Partial<Record<ModelKey, string>> = {}
@@ -954,7 +973,7 @@ async function handler(req: NextRequest) {
         })),
         modelErrors,
         judgeErrors,
-        requestId: crypto.randomUUID(),
+        requestId: runId,
       },
       {
         headers: {

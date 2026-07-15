@@ -3,20 +3,22 @@ import "server-only"
 import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
 import { createInternalApiHeaders } from "@/lib/internal-api"
-import { aggregatePenetration } from "@/lib/score-utils"
+import { buildPenetrationBatchResult } from "@/lib/penetration/result-merge"
 import { estimateFeatureCredits } from "@/lib/pricing"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
 import type {
   ModelKey,
   PenetrationByModel,
-  PenetrationItem,
+  PenetrationJobOperation,
   PenetrationJobRecord,
   PenetrationResult,
 } from "@/types"
 
 export interface PenetrationJobRequest {
   clientId: string
+  runId: string
+  operation: PenetrationJobOperation
   ourBrand: string
   brandAliases: string[]
   industry: string
@@ -30,12 +32,14 @@ type StoredPenetrationJob = PenetrationJobRecord & {
   ownerUserId: string
   reservedCredits: number
   batchBaseUrls: string[]
+  baseResult?: PenetrationResult
   creditsSettledAt?: string
 }
 
 type PenetrationBatch = {
   questions: string[]
   models: ModelKey[]
+  sampleStart: number
 }
 
 type PenetrationBatchResponse = {
@@ -69,6 +73,7 @@ function toPublicJob(job: StoredPenetrationJob): PenetrationJobRecord {
   delete publicJob.ownerUserId
   delete publicJob.reservedCredits
   delete publicJob.batchBaseUrls
+  delete publicJob.baseResult
   delete publicJob.creditsSettledAt
   return publicJob as PenetrationJobRecord
 }
@@ -103,6 +108,7 @@ function buildBatches(questions: string[], models: ModelKey[]): PenetrationBatch
     batches.push({
       questions: questions.slice(start, start + questionBatchSize),
       models,
+      sampleStart: start,
     })
   }
   return batches
@@ -174,26 +180,19 @@ function mergeModelErrors(
   return merged
 }
 
-function mergeByModel(
-  current: PenetrationByModel,
-  incoming: PenetrationByModel,
-): PenetrationByModel {
-  const merged: PenetrationByModel = {}
-  for (const [model, items] of Object.entries(current) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
-    if (items?.length) merged[model] = [...items]
-  }
-  for (const [model, items] of Object.entries(incoming) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
-    if (!items?.length) continue
-    merged[model] = [...(merged[model] || []), ...items]
-  }
-  return merged
-}
-
 function successfulSlotCount(byModel: PenetrationByModel | undefined): number {
   if (!byModel) return 0
   return Object.values(byModel).reduce((total, items) => {
     return total + (items || []).filter(item => item.answer.trim().length > 0).length
   }, 0)
+}
+
+function successfulNewSlotCount(job: StoredPenetrationJob | null | undefined): number {
+  if (!job) return 0
+  return Math.max(
+    0,
+    successfulSlotCount(job.result?.byModel) - successfulSlotCount(job.baseResult?.byModel),
+  )
 }
 
 async function settleJobCredits(id: string, usedSlots: number): Promise<void> {
@@ -291,6 +290,7 @@ async function fetchBatch(job: StoredPenetrationJob, batch: PenetrationBatch): P
             ...job.request,
             questions: batch.questions,
             models: batch.models,
+            sampleStart: batch.sampleStart,
           }),
           signal: controller.signal,
         })
@@ -341,18 +341,17 @@ async function runJob(jobId: string): Promise<void> {
       const data = await fetchBatch(job, batches[index])
       job = await getStoredJob(job.id) || job
 
-      const byModel = mergeByModel(job.result?.byModel || {}, data.byModel || {})
       const generatedAt = data.generatedAt || nowIso()
-      const result: PenetrationResult = {
-        byModel,
-        aggregated: aggregatePenetration(
-          byModel,
-          job.request.ourBrand,
-          job.request.brandAliases,
-          job.request.competitors,
-        ),
+      const result = buildPenetrationBatchResult({
+        operation: job.request.operation || "replace",
+        currentResult: job.result,
+        baseResult: job.baseResult,
+        incomingByModel: data.byModel || {},
+        ourBrand: job.request.ourBrand,
+        brandAliases: job.request.brandAliases,
+        competitors: job.request.competitors,
         generatedAt,
-      }
+      })
 
       job = await patchJob(job.id, {
         result,
@@ -367,7 +366,7 @@ async function runJob(jobId: string): Promise<void> {
     }
 
     await persistJobResultToWorkspace(job)
-    const usedSlots = successfulSlotCount(job.result?.byModel)
+    const usedSlots = successfulNewSlotCount(job)
     await settleJobCreditsQuietly(job.id, usedSlots)
     await patchJob(job.id, {
       status: "succeeded",
@@ -377,7 +376,7 @@ async function runJob(jobId: string): Promise<void> {
     })
   } catch (error) {
     const current = await getStoredJob(jobId)
-    const usedSlots = successfulSlotCount(current?.result?.byModel)
+    const usedSlots = successfulNewSlotCount(current)
     await settleJobCreditsQuietly(jobId, usedSlots)
 
     if (isCancelledError(error) || current?.status === "cancelled") {
@@ -407,6 +406,7 @@ export async function createPenetrationJob(args: {
   ownerUserId: string
   reservation: CreditReservation
   skipped: string[]
+  baseResult?: PenetrationResult
 }): Promise<PenetrationJobRecord> {
   const batches = buildBatches(args.request.questions, args.request.models)
   const now = nowIso()
@@ -414,6 +414,7 @@ export async function createPenetrationJob(args: {
     id: args.id || `pjob_${randomUUID().replace(/-/g, "")}`,
     clientId: args.request.clientId,
     status: "queued",
+    operation: args.request.operation,
     totalSlots: args.request.questions.length * args.request.models.length,
     completedSlots: 0,
     totalBatches: batches.length,
@@ -426,6 +427,7 @@ export async function createPenetrationJob(args: {
     ownerUserId: args.ownerUserId,
     reservedCredits: args.reservation.amount,
     batchBaseUrls: buildBatchBaseUrls(),
+    baseResult: args.request.operation === "append" ? args.baseResult : undefined,
   }
 
   await saveJob(stored)
@@ -453,7 +455,7 @@ export async function cancelPenetrationJob(
   if (!job || job.ownerUserId !== ownerUserId) return null
   if (["succeeded", "failed", "cancelled"].includes(job.status)) return toPublicJob(job)
 
-  const usedSlots = successfulSlotCount(job.result?.byModel)
+  const usedSlots = successfulNewSlotCount(job)
   await settleJobCreditsQuietly(id, usedSlots)
   const cancelled = await patchJob(id, {
     status: "cancelled",

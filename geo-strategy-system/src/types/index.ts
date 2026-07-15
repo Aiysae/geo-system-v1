@@ -424,6 +424,9 @@ export type PenetrationPromptPurity =
   | "unknown"
 
 export interface PenetrationItem {
+  /** Identifies this exact model invocation, even when the question text is repeated. */
+  sampleId?: string
+  sampledAt?: string
   question: string
   answer: string
   mentionedBrands: string[]
@@ -479,11 +482,13 @@ export interface PenetrationResult {
 }
 
 export type PenetrationJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
+export type PenetrationJobOperation = "replace" | "append"
 
 export interface PenetrationJobRecord {
   id: string
   clientId: string
   status: PenetrationJobStatus
+  operation?: PenetrationJobOperation
   totalSlots: number
   completedSlots: number
   totalBatches: number
