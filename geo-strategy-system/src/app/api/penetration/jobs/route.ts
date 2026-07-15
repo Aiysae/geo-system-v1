@@ -15,7 +15,8 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
-import type { ModelKey } from "@/types"
+import { listWorkspaceClients } from "@/lib/workspace-store"
+import type { ModelKey, PenetrationJobOperation, PenetrationResult } from "@/types"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
     const clientId = String(body.clientId || "").trim()
     const requestId = normalizeJobRequestId(body.requestId)
     const jobId = jobIdFromRequest("pjob", userGuard.userId, requestId)
+    const operation: PenetrationJobOperation = body.operation === "append" ? "append" : "replace"
 
     if (!clientId) return NextResponse.json({ error: "客户标识缺失，请刷新页面后重试" }, { status: 400 })
     if (!ourBrand) return NextResponse.json({ error: "请填写我方品牌名" }, { status: 400 })
@@ -88,12 +90,20 @@ export async function POST(req: NextRequest) {
 
     const request: PenetrationJobRequest = {
       clientId,
+      runId: requestId,
+      operation,
       ourBrand,
       brandAliases: stringList(body.brandAliases),
       industry: String(body.industry || "").trim(),
       questions,
       competitors: stringList(body.competitors),
       models: activeModels,
+    }
+    let baseResult: PenetrationResult | undefined
+    if (operation === "append") {
+      const currentClient = (await listWorkspaceClients(userGuard.userId))
+        .find(item => item.client.id === clientId)
+      baseResult = currentClient?.client.penetration
     }
     const slotCount = questions.length * activeModels.length
     const credits = estimateFeatureCredits("penetrationSlot", slotCount)
@@ -122,6 +132,7 @@ export async function POST(req: NextRequest) {
       ownerUserId: userGuard.userId,
       reservation,
       skipped,
+      baseResult,
     })
     reservation = null
     await releaseJobRequestClaim(requestClaim)

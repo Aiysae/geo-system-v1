@@ -136,7 +136,7 @@ export function computeKeywordCompetition(
       const count = resolver.canonicalizeList(slot.mentionedBrands).length
 
       const cur = agg.get(slot.question) ?? { perModel: {}, total: 0 }
-      // 同一 (model, question) 可能因后端去重已合并；累加为安全做法
+      // 同题可以独立重复采样，每一份有效原始回答都应参与竞争热度统计。
       cur.perModel[mk] = (cur.perModel[mk] ?? 0) + count
       cur.total += count
       agg.set(slot.question, cur)
