@@ -18,6 +18,10 @@ export interface SearchSourceEvent {
   sources: PenetrationSource[]
   mode?: PenetrationSearchMode
   failureReason?: string
+  /** Provider-native web tool/search was observed, even when the provider exposes no URLs. */
+  searchExecuted?: boolean
+  /** Safe request identifier for support and audit; never contains credentials. */
+  providerRequestId?: string
 }
 
 export interface ChatArgs {
@@ -124,6 +128,7 @@ export interface RawChatCompletionMessage {
 }
 
 export interface RawChatCompletion {
+  id?: string
   choices: Array<{
     finish_reason?: string
     message: RawChatCompletionMessage
