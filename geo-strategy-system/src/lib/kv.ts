@@ -135,6 +135,9 @@ class LocalFileKv implements KvClient {
     if (script.includes('redis.call("INCR"')) {
       return this.evalRateLimit(keys[0], args) as TResult
     }
+    if (script.includes("email_verification_v1")) {
+      return this.evalEmailVerification(keys[0], args) as TResult
+    }
     if (script.includes("next_balance") && script.includes('redis.call("SET"')) {
       return this.evalReserveCredits(keys[0], args) as TResult
     }
@@ -174,6 +177,51 @@ class LocalFileKv implements KvClient {
       ? Math.max(1, Math.ceil((entry.expiresAt - Date.now()) / 1000))
       : windowSec
     return [count, ttl]
+  }
+
+  private evalEmailVerification<TData>(key: string, args: TData[]): [number, number] {
+    const current = this.getEntry(key)
+    if (!current || current.type !== "value" || !current.value || typeof current.value !== "object") {
+      return [-1, 0]
+    }
+
+    const record = current.value as Record<string, unknown>
+    const submittedHash = String(args[0] ?? "")
+    const now = Number(args[1] ?? Date.now())
+    const maxAttempts = Math.max(1, Number(args[2] ?? 5))
+    const expiresAt = Number(record.expiresAt ?? 0)
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+      delete this.state[key]
+      this.persist()
+      return [-1, 0]
+    }
+
+    const attempts = Math.max(0, Number(record.attempts ?? 0))
+    if (attempts >= maxAttempts) {
+      delete this.state[key]
+      this.persist()
+      return [-2, 0]
+    }
+
+    if (String(record.codeHash ?? "") !== submittedHash) {
+      const nextAttempts = attempts + 1
+      if (nextAttempts >= maxAttempts) {
+        delete this.state[key]
+        this.persist()
+        return [-2, 0]
+      }
+
+      this.state[key] = {
+        ...current,
+        value: { ...record, attempts: nextAttempts },
+      }
+      this.persist()
+      return [0, maxAttempts - nextAttempts]
+    }
+
+    delete this.state[key]
+    this.persist()
+    return [1, maxAttempts - attempts]
   }
 
   private evalReserveCredits<TData>(key: string, args: TData[]): [number, number] {

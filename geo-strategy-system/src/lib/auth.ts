@@ -1,6 +1,7 @@
 import "server-only"
 
 import { kv } from "@/lib/kv"
+import { consumeEmailVerificationCode } from "@/lib/email-verification"
 import { cookies } from "next/headers"
 import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto"
 import { promisify } from "util"
@@ -32,9 +33,11 @@ export type AuthUser = {
   updatedAt: string
   lastLoginAt?: string
   termsAcceptedAt?: string
+  emailVerifiedAt?: string
+  authVersion: number
 }
 
-export type PublicUser = Omit<AuthUser, "passwordHash">
+export type PublicUser = Omit<AuthUser, "passwordHash" | "authVersion">
 
 export type PasswordResetRequest = {
   id: string
@@ -56,6 +59,7 @@ type AuthSession = {
   userId: string
   createdAt: string
   expiresAt: string
+  authVersion?: number
 }
 
 type PasswordResetTokenRecord = {
@@ -112,7 +116,12 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 function toPublicUser(user: AuthUser): PublicUser {
   const publicUser = { ...user } as AuthUser
   delete (publicUser as Partial<AuthUser>).passwordHash
-  return publicUser
+  delete (publicUser as Partial<AuthUser>).authVersion
+  return publicUser as PublicUser
+}
+
+function currentAuthVersion(user: Pick<AuthUser, "authVersion">): number {
+  return Number.isFinite(user.authVersion) ? Math.max(0, Math.floor(user.authVersion)) : 0
 }
 
 function validatePassword(password: string): string | null {
@@ -149,6 +158,7 @@ export async function createUser(input: {
   password: string
   name?: string
   termsAcceptedAt?: string
+  emailVerifiedAt?: string
 }): Promise<PublicUser> {
   const email = normalizeEmail(input.email)
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -172,6 +182,8 @@ export async function createUser(input: {
     createdAt: now,
     updatedAt: now,
     termsAcceptedAt: input.termsAcceptedAt || now,
+    emailVerifiedAt: input.emailVerifiedAt,
+    authVersion: 0,
   }
 
   const created = await kv.set(KEY_EMAIL(email), user.id, { nx: true })
@@ -203,6 +215,35 @@ export async function authenticateUser(emailInput: string, password: string): Pr
   }
   await kv.set(KEY_USER(user.id), updated)
 
+  return toPublicUser(updated)
+}
+
+export async function authenticateUserWithEmailCode(
+  emailInput: string,
+  code: string,
+): Promise<PublicUser> {
+  const email = normalizeEmail(emailInput)
+  const userId = await kv.get<string>(KEY_EMAIL(email))
+  if (!userId) throw new Error("验证码无效或已过期")
+
+  const user = await kv.get<AuthUser>(KEY_USER(userId))
+  if (!user) throw new Error("验证码无效或已过期")
+  if (user.status !== "active") throw new Error("账号已停用，请联系管理员")
+
+  await consumeEmailVerificationCode({
+    email,
+    purpose: "sign-in",
+    code,
+  })
+
+  const now = new Date().toISOString()
+  const updated: AuthUser = {
+    ...user,
+    emailVerifiedAt: user.emailVerifiedAt || now,
+    lastLoginAt: now,
+    updatedAt: now,
+  }
+  await kv.set(KEY_USER(user.id), updated)
   return toPublicUser(updated)
 }
 
@@ -320,6 +361,7 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
   const updated: AuthUser = {
     ...user,
     passwordHash: await hashPassword(newPassword),
+    authVersion: currentAuthVersion(user) + 1,
     updatedAt: now,
   }
   await kv.set(KEY_USER(user.id), updated)
@@ -340,10 +382,46 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
   return toPublicUser(updated)
 }
 
+export async function resetPasswordWithEmailCode(input: {
+  email: string
+  code: string
+  newPassword: string
+}): Promise<PublicUser> {
+  const email = normalizeEmail(input.email)
+  const passwordError = validatePassword(input.newPassword)
+  if (passwordError) throw new Error(passwordError)
+
+  const userId = await kv.get<string>(KEY_EMAIL(email))
+  if (!userId) throw new Error("验证码无效或已过期")
+  const user = await kv.get<AuthUser>(KEY_USER(userId))
+  if (!user) throw new Error("验证码无效或已过期")
+  if (user.status !== "active") throw new Error("账号已停用，请联系管理员")
+
+  await consumeEmailVerificationCode({
+    email,
+    purpose: "password-reset",
+    code: input.code,
+  })
+
+  const now = new Date().toISOString()
+  const updated: AuthUser = {
+    ...user,
+    passwordHash: await hashPassword(input.newPassword),
+    emailVerifiedAt: user.emailVerifiedAt || now,
+    authVersion: currentAuthVersion(user) + 1,
+    updatedAt: now,
+  }
+  await kv.set(KEY_USER(user.id), updated)
+  return toPublicUser(updated)
+}
+
 export async function createSession(userId: string): Promise<{
   cookieValue: string
   expiresAt: Date
 }> {
+  const user = await kv.get<AuthUser>(KEY_USER(userId))
+  if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
+
   const now = new Date()
   const expiresAt = new Date(now.getTime() + SESSION_TTL_SECONDS * 1000)
   const session: AuthSession = {
@@ -351,6 +429,7 @@ export async function createSession(userId: string): Promise<{
     userId,
     createdAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
+    authVersion: currentAuthVersion(user),
   }
 
   await kv.set(KEY_SESSION(session.id), session, { ex: SESSION_TTL_SECONDS })
@@ -388,6 +467,10 @@ export async function getCurrentUser(): Promise<PublicUser | null> {
 
   const user = await kv.get<AuthUser>(KEY_USER(session.userId))
   if (!user || user.status !== "active") return null
+  if ((session.authVersion ?? 0) !== currentAuthVersion(user)) {
+    await kv.del(KEY_SESSION(session.id))
+    return null
+  }
 
   return toPublicUser({
     ...user,
@@ -414,6 +497,13 @@ export async function getUserById(userId: string): Promise<PublicUser | null> {
   return user ? toPublicUser(user) : null
 }
 
+export async function getUserByEmail(emailInput: string): Promise<PublicUser | null> {
+  const email = normalizeEmail(emailInput)
+  const userId = await kv.get<string>(KEY_EMAIL(email))
+  if (!userId) return null
+  return getUserById(userId)
+}
+
 export async function updateUserStatus(
   userId: string,
   status: AuthUser["status"],
@@ -423,6 +513,7 @@ export async function updateUserStatus(
   const updated: AuthUser = {
     ...user,
     status,
+    authVersion: status === "disabled" ? currentAuthVersion(user) + 1 : currentAuthVersion(user),
     updatedAt: new Date().toISOString(),
   }
   await kv.set(KEY_USER(user.id), updated)
