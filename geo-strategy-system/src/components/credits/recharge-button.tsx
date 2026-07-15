@@ -10,7 +10,6 @@ import {
   Check,
   ChevronLeft,
   CreditCard,
-  Landmark,
   Plus,
   Sparkles,
   X,
@@ -704,18 +703,14 @@ function RechargeDialog({ onClose }: { onClose: () => void }) {
 
 function WechatPayBrandMark({ compact = false }: { compact?: boolean }) {
   return (
-    <span
-      className={`relative block shrink-0 overflow-hidden ${
-        compact ? "h-5 w-[78px]" : "h-[30px] w-[116px]"
-      }`}
-    >
+    <span className="flex min-w-0 shrink-0 items-center">
       <Image
         src="/recharge/wechat-pay-official.png"
         alt="微信支付"
         width={264}
         height={34}
-        className={`${compact ? "h-5 w-[155px]" : "h-[30px] w-[233px]"} max-w-none object-left`}
-        sizes={compact ? "155px" : "233px"}
+        className={`${compact ? "h-[18px]" : "h-6"} w-auto max-w-full object-contain`}
+        sizes={compact ? "140px" : "187px"}
       />
     </span>
   )
@@ -747,8 +742,14 @@ function PaymentBrandMark({ method }: { method: RechargePaymentMethod }) {
 
   return (
     <span className="flex shrink-0 items-center gap-2">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#006D75] text-white shadow-sm shadow-cyan-900/15">
-        <Landmark className="h-4 w-4" />
+      <span className="relative block h-9 w-14 shrink-0 overflow-hidden bg-white">
+        <Image
+          src="/recharge/unionpay-official.png"
+          alt="银联"
+          fill
+          className="scale-[1.72] object-contain"
+          sizes="56px"
+        />
       </span>
       <span className="text-sm font-semibold text-slate-950">银行支付</span>
     </span>
