@@ -1,6 +1,7 @@
 import { chatWithLocalWebSearchTool } from "./tool-loop"
 import type { ChatArgs } from "./openai-compat"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { chatDashScopeNativeSearch } from "./dashscope-native-search"
 
 // DeepSeek 适配器
 //
@@ -29,12 +30,27 @@ export async function isDeepSeekConfigured(): Promise<boolean> {
 
 export async function chatDeepSeek(args: ChatArgs): Promise<string> {
   const config = await getAiProviderRuntimeSetting("deepseek")
+  const strictPenetrationSearch =
+    args.forceWebSearch === true &&
+    args.officialWebOnly === true &&
+    args.requireWebEvidence === true &&
+    args.mode === "consumer"
+
+  if (strictPenetrationSearch) {
+    const dashScope = await getAiProviderRuntimeSetting("qwen")
+    return chatDashScopeNativeSearch({
+      ...args,
+      apiKey: dashScope.apiKey,
+      baseUrl: dashScope.baseUrl,
+      model: process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-v4-flash",
+      timeoutSec: args.timeoutSec ?? dashScope.timeout,
+      label: LABEL,
+    })
+  }
+
   if (!config.apiKey) {
     console.warn("[DeepSeek] API Key is undefined（请在后台管理页配置 DeepSeek 模型）")
     throw new Error(`${LABEL} 接口配置缺失：请在后台管理页配置 API Key 和模型。`)
-  }
-  if (args.forceWebSearch) {
-    throw new Error("DeepSeek 官方接口当前不提供可验证的原生联网搜索；严格联网盲测已禁止本地 search_web 兜底。")
   }
   const model = shouldUseToolCompatibleModel(config.model, args, config.baseUrl) ? "deepseek-chat" : config.model
   if (model !== config.model) {

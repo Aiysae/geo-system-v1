@@ -434,6 +434,8 @@ export interface PenetrationItem {
   searchMode?: PenetrationSearchMode
   promptPurity?: PenetrationPromptPurity
   webAttempted?: boolean
+  webExecutionVerified?: boolean
+  providerRequestIds?: string[]
   searchQueries?: string[]
   webFailureReason?: string | null
   sourceCount?: number

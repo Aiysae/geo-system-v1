@@ -58,10 +58,6 @@ function messageText(content: unknown): string {
   return ""
 }
 
-function isTemperatureOneOnlyError(message: string): boolean {
-  return /invalid temperature/i.test(message) && /only\s+1\s+is\s+allowed/i.test(message)
-}
-
 async function chatKimiDirect(args: ChatArgs): Promise<string> {
   const config = await getAiProviderRuntimeSetting("kimi")
   const key = config.apiKey
@@ -91,27 +87,28 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
   // 裁判/分析路径注入"当前北京时间"作为时间锚点；客观盲测 rawQuestionOnly
   // 不注入 system message，保持被测模型只收到用户疑问句本身。
   const messages: Array<Record<string, unknown>> = []
-  if (!args.rawQuestionOnly || args.system.trim()) {
+  if (!args.rawQuestionOnly && args.system.trim()) {
     messages.push({
       role: "system",
-      content: args.rawQuestionOnly ? args.system : withBeijingTime(args.system),
+      content: withBeijingTime(args.system),
     })
   }
   messages.push({ role: "user", content: args.user })
 
   const MAX_ROUNDS = 4
-  let forceTemperatureOne = false
-  let observedSourceCount = 0
+  let officialSearchExecuted = false
   for (let round = 0; round < MAX_ROUNDS; round++) {
     let data
-    const callMoonshot = (temperature: number | undefined) =>
+    const callMoonshot = () =>
       openaiCompatRaw({
         url: buildAiChatUrl(config),
         apiKey: key,
         model: selectedModel,
         label: LABEL,
         messages,
-        temperature,
+        // Kimi K2.6 官方联网要求关闭思考；此时温度固定为 0.6。
+        // 不透传盲测调用方的 temperature=0，避免先失败再重试。
+        temperature: shouldDisableThinking(selectedModel) ? undefined : args.temperature,
         maxTokens: args.maxTokens,
         seed: args.seed,
         // jsonMode 透传给底层；若上游 400/422 拒绝 tools+response_format，
@@ -127,20 +124,14 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
       })
 
     try {
-      data = await callMoonshot(forceTemperatureOne ? 1 : args.temperature)
+      data = await callMoonshot()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if (!forceTemperatureOne && isTemperatureOneOnlyError(msg)) {
-        forceTemperatureOne = true
-        console.warn(`[${LABEL}] 当前模型只允许 temperature=1，已自动用 temperature=1 重试。`)
-        data = await callMoonshot(1)
-      } else {
-        console.error(
-          `[${LABEL}·tool-loop] 第 ${round + 1}/${MAX_ROUNDS} 轮调用失败 | model=${selectedModel} | error=`,
-          msg
-        )
-        throw e
-      }
+      console.error(
+        `[${LABEL}·tool-loop] 第 ${round + 1}/${MAX_ROUNDS} 轮调用失败 | model=${selectedModel} | error=`,
+        msg
+      )
+      throw e
     }
 
     if (!data) {
@@ -165,6 +156,7 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
       })
       for (const tc of msg.tool_calls) {
         if (tc.function?.name === "$web_search") {
+          officialSearchExecuted = true
           let parsedArguments: unknown = tc.function.arguments
           try {
             parsedArguments = JSON.parse(tc.function.arguments || "{}")
@@ -172,10 +164,13 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
             parsedArguments = tc.function.arguments
           }
           const sources = extractSourcesFromUnknown(parsedArguments, args.user)
-          if (sources.length > 0) {
-            observedSourceCount += sources.length
-            args.onSearchSources?.({ query: args.user, sources, mode: "native_web" })
-          }
+          args.onSearchSources?.({
+            query: args.user,
+            sources,
+            mode: "native_web",
+            searchExecuted: true,
+            providerRequestId: data.id,
+          })
           // Moonshot 协议：$web_search 是 builtin，搜索已在服务器端执行，
           // 客户端只需把 arguments 原样作为 tool 结果回传。
           messages.push({
@@ -201,12 +196,18 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
       throw new Error(`${LABEL} 返回空内容（finish_reason=${finish || "unknown"}），请检查模型名、联网工具或上游额度。`)
     }
     const nativeSources = extractSourcesFromUnknown(data, args.user)
+    if (nativeSources.length > 0) officialSearchExecuted = true
     if (nativeSources.length > 0) {
-      observedSourceCount += nativeSources.length
-      args.onSearchSources?.({ query: args.user, sources: nativeSources, mode: "native_web" })
+      args.onSearchSources?.({
+        query: args.user,
+        sources: nativeSources,
+        mode: "native_web",
+        searchExecuted: true,
+        providerRequestId: data.id,
+      })
     }
-    if (args.requireWebEvidence && observedSourceCount === 0) {
-      throw new Error(`${LABEL} 官方 $web_search 未返回可审计来源，已阻断本地检索兜底。`)
+    if (args.requireWebEvidence && !officialSearchExecuted) {
+      throw new Error(`${LABEL} 官方 $web_search 未执行，已阻断模型自答和本地检索兜底。`)
     }
     return content
   }

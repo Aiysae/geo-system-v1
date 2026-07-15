@@ -54,6 +54,7 @@ const IMAGE_CDN_HOST_PATTERNS = [
   /(^|\.)gtimg\.com$/,
   /^n\.sinaimg\.cn$/,
   /^p\d*\.itc\.cn$/,
+  /^(?:ss|t|img|pic)\d*\.baidu\.com$/,
   /(^|\.)bdimg\.com$/,
   /(^|\.)bdstatic\.com$/,
   /(^|\.)alicdn\.com$/,

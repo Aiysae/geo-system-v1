@@ -659,6 +659,7 @@ function AuditStatCard({ label, value }: { label: string; value: string }) {
 function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
   const sourceCount = item.sourceCount ?? item.searchSources?.length ?? 0
   const verified = item.webVerified === true
+  const executionOnly = verified && item.webExecutionVerified === true && sourceCount === 0
   return (
     <div className="pl-7 mb-2 flex flex-wrap gap-1.5">
       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
@@ -675,7 +676,11 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
         }`}
         title={item.webFailureReason || item.webVerificationNote}
       >
-        {verified ? "官方联网已验证" : "官方联网不可验证"} · 来源 {sourceCount}
+        {verified
+          ? executionOnly
+            ? "官方联网已执行"
+            : "官方联网已验证"
+          : "官方联网不可验证"} · 来源 {sourceCount}
       </span>
     </div>
   )

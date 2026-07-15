@@ -230,10 +230,6 @@ function summarizeSourceDomains(sources: PenetrationSource[]): SourceDomainCount
     .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
 }
 
-function isTokenHubBaseUrl(baseUrl: string): boolean {
-  return /tokenhub\.tencentmaas\.com/i.test(baseUrl)
-}
-
 async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationAuditProfile> {
   const config = await getAiProviderRuntimeSetting(model)
 
@@ -260,31 +256,19 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
   }
 
   if (model === "hunyuan") {
-    return isTokenHubBaseUrl(config.baseUrl)
-      ? {
-          searchMode: "none",
-          promptPurity: "raw_question_only",
-          webVerificationNote: "腾讯 TokenHub 不稳定支持官方联网来源追踪，严格模式不会使用本地检索兜底。",
-        }
-      : {
-          searchMode: "native_web",
-          promptPurity: "raw_question_only",
-          webVerificationNote: "已请求混元原生增强参数；如果上游未返回引用，将自动尝试公开网页预检索兜底。",
-        }
+    return {
+      searchMode: "native_web",
+      promptPurity: "raw_question_only",
+      webVerificationNote: "严格模式使用腾讯 TokenHub HY3 官方联网搜索，并读取 search_results。",
+    }
   }
 
   if (model === "deepseek") {
-    return isTokenHubBaseUrl(config.baseUrl)
-      ? {
-          searchMode: "none",
-          promptPurity: "raw_question_only",
-          webVerificationNote: "DeepSeek 当前配置不提供可验证的官方联网搜索，严格模式不会使用本地检索兜底。",
-        }
-      : {
-          searchMode: "none",
-          promptPurity: "raw_question_only",
-          webVerificationNote: "DeepSeek 官方接口无原生联网开关，严格模式不会使用本地 search_web 工具。",
-        }
+    return {
+      searchMode: "native_web",
+      promptPurity: "raw_question_only",
+      webVerificationNote: "严格模式使用百炼托管 DeepSeek V4 强制联网，并返回结构化网页来源。",
+    }
   }
 
   if (model === "doubao") {
@@ -318,12 +302,16 @@ function buildAuditFields(
     promptPurity?: PenetrationPromptPurity
     searchQueries?: string[]
     webFailureReason?: string | null
+    webExecutionVerified?: boolean
+    providerRequestIds?: string[]
   } = {}
 ): Pick<
   PenetrationItem,
   | "searchMode"
   | "promptPurity"
   | "webAttempted"
+  | "webExecutionVerified"
+  | "providerRequestIds"
   | "searchQueries"
   | "webFailureReason"
   | "sourceCount"
@@ -332,17 +320,22 @@ function buildAuditFields(
 > {
   const sourceCount = searchSources.length
   const webFailureReason = overrides.webFailureReason ?? null
+  const webExecutionVerified = overrides.webExecutionVerified === true || sourceCount > 0
   return {
     searchMode: overrides.searchMode ?? profile.searchMode,
     promptPurity: overrides.promptPurity ?? profile.promptPurity,
     webAttempted: true,
+    webExecutionVerified,
+    providerRequestIds: overrides.providerRequestIds ?? [],
     searchQueries: overrides.searchQueries ?? [],
     webFailureReason,
     sourceCount,
-    webVerified: sourceCount > 0,
+    webVerified: webExecutionVerified,
     webVerificationNote:
       sourceCount > 0
         ? `已记录 ${sourceCount} 条可审计公开网页来源。`
+        : webExecutionVerified
+          ? "厂商官方联网工具已确认执行；该接口本次未公开可点击来源。"
         : webFailureReason || profile.webVerificationNote,
   }
 }
@@ -365,6 +358,8 @@ async function blindQuery(
     | "searchMode"
     | "promptPurity"
     | "webAttempted"
+    | "webExecutionVerified"
+    | "providerRequestIds"
     | "searchQueries"
     | "webFailureReason"
     | "sourceCount"
@@ -377,42 +372,62 @@ async function blindQuery(
   const t0 = Date.now()
   const collectedSources: PenetrationSource[] = []
   const searchQueries = new Set<string>()
+  const providerRequestIds = new Set<string>()
   let actualSearchMode = auditProfile.searchMode
   let actualPromptPurity = auditProfile.promptPurity
   let webFailureReason: string | null = null
+  let webExecutionVerified = false
 
   try {
-    const maxAttempts = model === "kimi" ? 2 : 1
+    const maxAttempts = model === "kimi" || model === "hunyuan" ? 2 : 1
     let answer = ""
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const raw = await adapter.chat({
-        system: "",
-        user: question,
-        temperature: 0,
-        seed: seed + attempt,
-        mode: "consumer",
-        jsonMode: false,
-        maxTokens: BLIND_QUERY_MAX_TOKENS,
-        timeoutSec: BLIND_QUERY_TIMEOUT_SEC,
-        forceWebSearch: true,
-        rawQuestionOnly: true,
-        requireWebEvidence: true,
-        officialWebOnly: true,
-        onSearchSources: event => {
-          if (event.query?.trim()) searchQueries.add(event.query.trim())
-          if (event.mode) {
-            actualSearchMode = event.mode
-            actualPromptPurity =
-              event.mode === "presearch_context"
-                ? "search_context_augmented"
-                : event.mode === "local_tool_search"
-                  ? "tool_augmented"
-                  : auditProfile.promptPurity
-          }
-          if (event.failureReason) webFailureReason = event.failureReason
-          collectedSources.push(...event.sources)
-        },
-      })
+      let raw = ""
+      try {
+        raw = await adapter.chat({
+          system: "",
+          user: question,
+          temperature: 0,
+          seed: seed + attempt,
+          mode: "consumer",
+          jsonMode: false,
+          maxTokens: BLIND_QUERY_MAX_TOKENS,
+          timeoutSec: BLIND_QUERY_TIMEOUT_SEC,
+          forceWebSearch: true,
+          rawQuestionOnly: true,
+          requireWebEvidence: true,
+          officialWebOnly: true,
+          onSearchSources: event => {
+            if (event.query?.trim()) searchQueries.add(event.query.trim())
+            if (event.mode) {
+              actualSearchMode = event.mode
+              actualPromptPurity =
+                event.mode === "presearch_context"
+                  ? "search_context_augmented"
+                  : event.mode === "local_tool_search"
+                    ? "tool_augmented"
+                    : auditProfile.promptPurity
+            }
+            if (event.failureReason) webFailureReason = event.failureReason
+            if (event.searchExecuted) {
+              webExecutionVerified = true
+              if (!event.failureReason) webFailureReason = null
+            }
+            if (event.providerRequestId?.trim()) providerRequestIds.add(event.providerRequestId.trim())
+            collectedSources.push(...event.sources)
+          },
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (attempt < maxAttempts - 1 && !isPermanentProviderError(message)) {
+          console.warn(
+            `[penetration·blind] ${adapter.label} 本次没有形成可验证联网回答，将以同一原始问题重试 (${attempt + 1}/${maxAttempts})。`,
+          )
+          await sleep(1500)
+          continue
+        }
+        throw error
+      }
       answer = raw || ""
       if (answer.trim() || attempt === maxAttempts - 1) break
       console.warn(`[penetration·blind] ${adapter.label} 返回空内容，将串行重试一次。`)
@@ -423,7 +438,7 @@ async function blindQuery(
     }
     const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
-    if (searchSources.length === 0) {
+    if (searchSources.length === 0 && !webExecutionVerified) {
       throw new Error(webFailureReason || "联网搜索未返回可审计来源，已阻断模型自答。")
     }
     const auditFields = buildAuditFields(auditProfile, searchSources, {
@@ -431,9 +446,11 @@ async function blindQuery(
       promptPurity: actualPromptPurity,
       searchQueries: Array.from(searchQueries),
       webFailureReason,
+      webExecutionVerified,
+      providerRequestIds: Array.from(providerRequestIds),
     })
     console.log(
-      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | webVerified=${auditFields.webVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
+      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | webVerified=${auditFields.webVerified} | webExecuted=${auditFields.webExecutionVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
     )
     console.log(`[penetration·blind-answer] preservedLen=${answer.length}`)
     return {
@@ -452,6 +469,8 @@ async function blindQuery(
       promptPurity: actualPromptPurity,
       searchQueries: Array.from(searchQueries),
       webFailureReason: webFailureReason || msg,
+      webExecutionVerified,
+      providerRequestIds: Array.from(providerRequestIds),
     })
     console.error(`[penetration·blind] ✗ ${adapter.label} | ${msg} | q="${question.slice(0, 30)}..."`)
     return {
