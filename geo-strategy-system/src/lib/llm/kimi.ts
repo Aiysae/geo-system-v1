@@ -3,6 +3,7 @@ import { chatWithLocalWebSearchTool } from "./tool-loop"
 import { extractSourcesFromUnknown } from "./source-extract"
 import { withBeijingTime } from "./time-context"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { chatBaiduAiSearch } from "./baidu-ai-search"
 
 // Kimi (Moonshot) 适配器
 //
@@ -117,7 +118,7 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
         tools: useSearchTool ? [WEB_SEARCH_TOOL] : undefined,
         toolChoice:
           args.forceWebSearch && round === 0
-            ? { type: "builtin_function", function: { name: "$web_search" } }
+            ? "required"
             : undefined,
         extraBody: shouldDisableThinking(selectedModel) ? { thinking: { type: "disabled" } } : undefined,
         timeoutMs: (args.timeoutSec ?? config.timeout) * 1000,
@@ -237,10 +238,38 @@ async function enqueuePenetrationRequest<T>(task: () => Promise<T>): Promise<T> 
   }
 }
 
+async function chatKimiStrictSearch(args: ChatArgs): Promise<string> {
+  const [kimiConfig, baiduConfig] = await Promise.all([
+    getAiProviderRuntimeSetting("kimi"),
+    getAiProviderRuntimeSetting("ernie"),
+  ])
+  const model = process.env.KIMI_BAIDU_SEARCH_MODEL?.trim() || kimiConfig.model || "kimi-k2.6"
+  const appId = typeof baiduConfig.extra.appId === "string" ? baiduConfig.extra.appId : ""
+  if (process.env.KIMI_STRICT_SEARCH_PROVIDER?.trim().toLowerCase() === "moonshot") {
+    return chatKimiDirect(args)
+  }
+
+  try {
+    return await chatBaiduAiSearch({
+      ...args,
+      apiKey: baiduConfig.apiKey,
+      model,
+      label: "Kimi",
+      timeoutSec: args.timeoutSec ?? baiduConfig.timeout,
+      modelAppId: appId,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!/model_offline|model is offline/i.test(message)) throw error
+    console.warn("[Kimi·strict-web] 百度 AI 搜索的 Kimi 模型当前离线，改用 Moonshot 官方 $web_search。")
+    return chatKimiDirect(args)
+  }
+}
+
 export async function chatKimi(args: ChatArgs): Promise<string> {
   const isPenetrationBlindQuery =
     args.forceWebSearch === true && args.mode === "consumer" && args.rawQuestionOnly === true
   return isPenetrationBlindQuery
-    ? enqueuePenetrationRequest(() => chatKimiDirect(args))
+    ? enqueuePenetrationRequest(() => chatKimiStrictSearch(args))
     : chatKimiDirect(args)
 }

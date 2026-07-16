@@ -21,13 +21,18 @@ import {
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import { isInternalApiRequest } from "@/lib/internal-api"
+import {
+  formatPenetrationProviderError,
+  isPermanentPenetrationProviderError,
+} from "@/lib/penetration/provider-errors"
+import { isCompletePenetrationItem } from "@/lib/penetration/slot-policy"
+import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-const BLIND_QUERY_TIMEOUT_SEC = 75
 const BLIND_QUERY_MAX_TOKENS = 2048
 const JUDGE_BATCH_TIMEOUT_SEC = 45
 const JUDGE_BATCH_MAX_TOKENS = 3072
@@ -36,6 +41,21 @@ interface PenetrationAuditProfile {
   searchMode: PenetrationSearchMode
   promptPurity: PenetrationPromptPurity
   webVerificationNote: string
+}
+
+function blindQueryTimeoutSec(model: ModelKey): number {
+  const envValue = Number(process.env[`PENETRATION_${model.toUpperCase()}_TIMEOUT_SEC`])
+  if (Number.isFinite(envValue) && envValue >= 30) return Math.min(300, Math.round(envValue))
+  if (model === "ernie" || model === "kimi") return 180
+  if (model === "hunyuan") return 240
+  if (model === "doubao") return 150
+  return 120
+}
+
+function blindQueryMaxTokens(model: ModelKey): number {
+  // TokenHub's Hunyuan search stream is more reliable when the response stays
+  // concise; sources and the untouched answer are still preserved in full.
+  return model === "hunyuan" ? 1200 : BLIND_QUERY_MAX_TOKENS
 }
 
 // ============================================================================
@@ -190,22 +210,6 @@ function isGenericBrandCandidate(brand: string, ourBrand: string): boolean {
   )
 }
 
-function isPermanentProviderError(message: string): boolean {
-  return /AccountOverdueError|overdue balance|insufficient balance|余额不足|欠费|invalid[_ ]api[_ ]key|incorrect api key|unauthorized|does not exist or you do not have access|InvalidEndpointOrModel/i.test(
-    message
-  )
-}
-
-function formatProviderError(model: ModelKey, message: string): string {
-  if (model === "doubao" && /AccountOverdueError|overdue balance|余额不足|欠费/i.test(message)) {
-    return "火山方舟账号存在欠费，当前豆包 API Key 已被平台拒绝调用。请在火山方舟结清欠费或在后台管理页更换一个有余额的 ARK_API_KEY。系统已停止本轮其余豆包请求，失败项不会计入渗透率分母。"
-  }
-  if (model === "doubao" && /InvalidEndpointOrModel|does not exist or you do not have access/i.test(message)) {
-    return "豆包 Endpoint/模型不存在或当前账号无权访问。请在后台管理页选择“纯净盲测 · 豆包 Seed 2.0 Lite”，或填写当前账号已发布的 ep- Endpoint。系统已停止本轮其余豆包请求，失败项不会计入渗透率分母。"
-  }
-  return message
-}
-
 function dedupeSources(sources: PenetrationSource[]): PenetrationSource[] {
   const seen = new Set<string>()
   const out: PenetrationSource[] = []
@@ -251,7 +255,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "native_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "已请求百度千帆 web_search 参数并开启 trace；如果上游仍未返回引用，将自动尝试公开网页预检索兜底。",
+      webVerificationNote: "严格模式使用百度 AI 搜索 required 强制联网，并只接收网页类型 references。",
     }
   }
 
@@ -275,7 +279,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "native_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式要求豆包使用火山方舟官方联网 Bot/Agent，并返回可审计来源。",
+      webVerificationNote: "严格模式使用火山方舟 Responses API 内置 web_search，并读取网址引用。",
     }
   }
 
@@ -283,7 +287,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "native_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式要求 Kimi 使用 Moonshot 官方 $web_search，并返回可审计来源。",
+      webVerificationNote: "严格模式通过百度 AI 搜索调用 Kimi K2.6，强制联网并返回网页 references。",
     }
   }
 
@@ -304,6 +308,7 @@ function buildAuditFields(
     webFailureReason?: string | null
     webExecutionVerified?: boolean
     providerRequestIds?: string[]
+    answerReceived?: boolean
   } = {}
 ): Pick<
   PenetrationItem,
@@ -321,21 +326,25 @@ function buildAuditFields(
   const sourceCount = searchSources.length
   const webFailureReason = overrides.webFailureReason ?? null
   const webExecutionVerified = overrides.webExecutionVerified === true || sourceCount > 0
+  const providerRequestIds = overrides.providerRequestIds ?? []
+  const webVerified =
+    overrides.answerReceived === true
+    && webExecutionVerified
+    && sourceCount > 0
+    && providerRequestIds.some(value => value.trim())
   return {
     searchMode: overrides.searchMode ?? profile.searchMode,
     promptPurity: overrides.promptPurity ?? profile.promptPurity,
     webAttempted: true,
     webExecutionVerified,
-    providerRequestIds: overrides.providerRequestIds ?? [],
+    providerRequestIds,
     searchQueries: overrides.searchQueries ?? [],
     webFailureReason,
     sourceCount,
-    webVerified: webExecutionVerified,
+    webVerified,
     webVerificationNote:
-      sourceCount > 0
+      webVerified
         ? `已记录 ${sourceCount} 条可审计公开网页来源。`
-        : webExecutionVerified
-          ? "厂商官方联网工具已确认执行；该接口本次未公开可点击来源。"
         : webFailureReason || profile.webVerificationNote,
   }
 }
@@ -380,7 +389,7 @@ async function blindQuery(
   let webExecutionVerified = false
 
   try {
-    const maxAttempts = model === "kimi" || model === "hunyuan" ? 2 : 1
+    const maxAttempts = 1
     let answer = ""
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       let raw = ""
@@ -392,8 +401,8 @@ async function blindQuery(
           seed: seed + attempt,
           mode: "consumer",
           jsonMode: false,
-          maxTokens: BLIND_QUERY_MAX_TOKENS,
-          timeoutSec: BLIND_QUERY_TIMEOUT_SEC,
+          maxTokens: blindQueryMaxTokens(model),
+          timeoutSec: blindQueryTimeoutSec(model),
           forceWebSearch: true,
           rawQuestionOnly: true,
           requireWebEvidence: true,
@@ -420,7 +429,7 @@ async function blindQuery(
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        if (attempt < maxAttempts - 1 && !isPermanentProviderError(message)) {
+        if (attempt < maxAttempts - 1 && !isPermanentPenetrationProviderError(message)) {
           console.warn(
             `[penetration·blind] ${adapter.label} 本次没有形成可验证联网回答，将以同一原始问题重试 (${attempt + 1}/${maxAttempts})。`,
           )
@@ -439,8 +448,11 @@ async function blindQuery(
     }
     const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
-    if (searchSources.length === 0 && !webExecutionVerified) {
-      throw new Error(webFailureReason || "联网搜索未返回可审计来源，已阻断模型自答。")
+    if (searchSources.length === 0) {
+      throw new Error(webFailureReason || "官方联网没有返回可点击、可读取的有效信源网址，已进入后台补采。")
+    }
+    if (providerRequestIds.size === 0) {
+      throw new Error("厂商没有返回可审计请求编号，已进入后台补采。")
     }
     const auditFields = buildAuditFields(auditProfile, searchSources, {
       searchMode: actualSearchMode,
@@ -449,6 +461,7 @@ async function blindQuery(
       webFailureReason,
       webExecutionVerified,
       providerRequestIds: Array.from(providerRequestIds),
+      answerReceived: true,
     })
     console.log(
       `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | webVerified=${auditFields.webVerified} | webExecuted=${auditFields.webExecutionVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
@@ -472,6 +485,7 @@ async function blindQuery(
       webFailureReason: webFailureReason || msg,
       webExecutionVerified,
       providerRequestIds: Array.from(providerRequestIds),
+      answerReceived: false,
     })
     console.error(`[penetration·blind] ✗ ${adapter.label} | ${msg} | q="${question.slice(0, 30)}..."`)
     return {
@@ -766,7 +780,7 @@ async function mapWithConcurrency<T, R>(
 }
 
 function modelConcurrency(model: ModelKey): number {
-  return model === "kimi" || model === "doubao" ? 1 : 3
+  return model === "kimi" || model === "doubao" || model === "hunyuan" ? 1 : 3
 }
 
 async function handler(req: NextRequest) {
@@ -811,21 +825,26 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "请至少选择一个模型" }, { status: 400 })
     }
 
-    // ★ 强校验后台/环境模型配置：勾选但未配置 Key 的模型必须显式跳过，绝不返回 Mock
+    // 强校验严格联网能力：未通过预检的模型显式跳过，绝不返回 Mock 或无来源自答。
     const activeModels: ModelKey[] = []
-    const skipped: ModelKey[] = []
+    const skipped: Array<{ model: ModelKey; reason: string }> = []
     for (const m of models) {
-      if (await ADAPTERS[m].configured()) activeModels.push(m)
-      else skipped.push(m)
+      const readiness = await getPenetrationModelReadiness(m)
+      if (readiness.ready) activeModels.push(m)
+      else skipped.push({ model: m, reason: readiness.reason || "严格联网预检未通过" })
     }
 
     if (activeModels.length === 0) {
       return NextResponse.json(
         {
-          error: `所选模型均未配置 API Key（缺失: ${skipped
-            .map(m => ADAPTERS[m].label)
-            .join("、")}）。请在后台管理页配置对应密钥后重试。`,
-          skipped: skipped.map(m => ({ model: m, label: ADAPTERS[m].label })),
+          error: `所选模型均未通过严格联网预检：${skipped
+            .map(item => `${ADAPTERS[item.model].label}（${item.reason}）`)
+            .join("、")}`,
+          skipped: skipped.map(item => ({
+            model: item.model,
+            label: ADAPTERS[item.model].label,
+            reason: item.reason,
+          })),
         },
         { status: 400 }
       )
@@ -909,8 +928,8 @@ async function handler(req: NextRequest) {
             competitors,
             auditProfile,
           })
-          if (item.error && isPermanentProviderError(item.error)) {
-            permanentError = formatProviderError(m, item.error)
+          if (item.error && isPermanentPenetrationProviderError(item.error)) {
+            permanentError = formatPenetrationProviderError(m, item.error)
             item.error = permanentError
           }
           return { model: m, item }
@@ -952,7 +971,7 @@ async function handler(req: NextRequest) {
 
     const aggregated = aggregatePenetration(byModel, ourBrand, brandAliases, competitors)
 
-    const successfulSlots = results.filter(result => result.item.answer.trim().length > 0).length
+    const successfulSlots = results.filter(result => isCompletePenetrationItem(result.item)).length
     if (reservation) {
       await settleReservedCredits(reservation, estimateFeatureCredits(featureKey, successfulSlots))
       reservation = null
@@ -965,11 +984,11 @@ async function handler(req: NextRequest) {
         generatedAt: new Date().toISOString(),
         judgeModel,
         judgeLabel: `${ADAPTERS[judgeModel].label}（批量品牌裁判，不联网）`,
-        skipped: skipped.map(m => ADAPTERS[m].label),
-        skippedDetail: skipped.map(m => ({
-          model: m,
-          label: ADAPTERS[m].label,
-          reason: `${ADAPTERS[m].label} 接口配置缺失：请在后台管理页配置 API Key 和模型`,
+        skipped: skipped.map(item => `${ADAPTERS[item.model].label}（${item.reason}）`),
+        skippedDetail: skipped.map(item => ({
+          model: item.model,
+          label: ADAPTERS[item.model].label,
+          reason: item.reason,
         })),
         modelErrors,
         judgeErrors,

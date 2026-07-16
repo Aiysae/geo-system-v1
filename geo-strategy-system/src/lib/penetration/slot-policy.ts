@@ -1,0 +1,38 @@
+import { isAuditableSourceUrl } from "@/lib/llm/source-extract"
+import type { PenetrationItem } from "@/types"
+
+export const PENETRATION_SLOT_RETRY_DELAYS_MS = [
+  5_000,
+  20_000,
+  60_000,
+  120_000,
+  300_000,
+  900_000,
+] as const
+
+export const PENETRATION_SLOT_MAX_ATTEMPTS = PENETRATION_SLOT_RETRY_DELAYS_MS.length + 1
+
+function auditableSources(item: PenetrationItem) {
+  return (item.searchSources || []).filter(source =>
+    isAuditableSourceUrl(source.url, source.title, source.snippet),
+  )
+}
+
+export function getPenetrationSlotValidationError(item: PenetrationItem | undefined): string | null {
+  if (!item?.answer.trim()) return "模型没有返回完整原始回答"
+  if (item.searchMode !== "native_web") return "本次回答不是模型官方联网搜索结果"
+  if (item.promptPurity !== "raw_question_only") return "本次请求没有保持仅发送原始问题"
+  if (item.webExecutionVerified !== true) return "没有确认厂商联网搜索实际执行"
+  if (auditableSources(item).length === 0) return "没有返回可点击、可读取的有效信源网址"
+  if (!(item.providerRequestIds || []).some(value => value.trim())) return "厂商没有返回可审计请求编号"
+  return null
+}
+
+export function isCompletePenetrationItem(item: PenetrationItem | undefined): item is PenetrationItem {
+  return getPenetrationSlotValidationError(item) === null
+}
+
+export function nextPenetrationRetryAt(attempts: number, fromMs = Date.now()): string | null {
+  const delay = PENETRATION_SLOT_RETRY_DELAYS_MS[attempts - 1]
+  return delay === undefined ? null : new Date(fromMs + delay).toISOString()
+}

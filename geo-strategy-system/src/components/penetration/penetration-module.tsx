@@ -29,6 +29,7 @@ import type {
   ModelKey,
   PenetrationItem,
   PenetrationJobRecord,
+  PenetrationModelProgress,
   PenetrationPromptPurity,
   PenetrationResult,
   PenetrationSource,
@@ -55,6 +56,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
   const [modelErrors, setModelErrors] = useState<Partial<Record<ModelKey, string>>>({})
+  const [modelProgress, setModelProgress] = useState<Partial<Record<ModelKey, PenetrationModelProgress>>>({})
   const [progressLabel, setProgressLabel] = useState("")
   const [completionNotice, setCompletionNotice] = useState("")
   const [retestingSampleId, setRetestingSampleId] = useState<string | null>(null)
@@ -93,11 +95,8 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           setLoading(job.status === "queued" || job.status === "running")
           setSkipped(job.skipped || [])
           setModelErrors(job.modelErrors || {})
-          setProgressLabel(
-            job.status === "queued"
-              ? "后台任务排队中..."
-              : `后台检测 ${job.completedSlots}/${job.totalSlots}（第 ${Math.min(job.completedBatches + 1, job.totalBatches)}/${job.totalBatches} 批）`,
-          )
+          setModelProgress(job.modelProgress || {})
+          setProgressLabel(formatPenetrationJobProgress(job))
 
           if (job.result && job.result.generatedAt !== publishedResultAtRef.current) {
             publishedResultAtRef.current = job.result.generatedAt
@@ -131,6 +130,17 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
           if (job.status === "failed") {
             onChangeClient({ penetrationJobId: undefined })
             setError(job.error || "疑问句检测后台任务失败")
+            setLoading(false)
+            setRetestingSampleId(null)
+            setProgressLabel("")
+            return
+          }
+          if (job.status === "blocked") {
+            onChangeClient({
+              ...(job.result ? { penetration: job.result } : {}),
+              penetrationJobId: undefined,
+            })
+            setError(job.error || "部分模型在多轮联网补采后仍不可用，请检查对应模型配置。")
             setLoading(false)
             setRetestingSampleId(null)
             setProgressLabel("")
@@ -172,6 +182,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     setError(null)
     setSkipped([])
     setModelErrors({})
+    setModelProgress({})
     setProgressLabel(params.operation === "append" ? "正在创建本题独立重测任务..." : "正在创建后台检测任务...")
     try {
       const requestId = createBackgroundRequestId("penetration")
@@ -290,6 +301,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               error={error}
               skipped={skipped}
               modelErrors={modelErrors}
+              modelProgress={modelProgress}
               progressLabel={progressLabel}
             />
         </div>
@@ -430,6 +442,22 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
       ) : null}
     </Card>
   )
+}
+
+function formatPenetrationJobProgress(job: PenetrationJobRecord): string {
+  if (job.status === "queued" || job.phase === "preflight") {
+    return "正在进行所选模型联网能力预检..."
+  }
+  const base = `有效结果 ${job.completedSlots}/${job.totalSlots}`
+  if (job.phase !== "retrying") return `${base} · 正在独立联网采样`
+
+  const retrying = job.retryingSlots || 0
+  if (!job.nextRetryAt) return `${base} · 正在自动补采 ${retrying} 项`
+  const waitSeconds = Math.max(0, Math.ceil((Date.parse(job.nextRetryAt) - Date.now()) / 1000))
+  const waitLabel = waitSeconds >= 60
+    ? `${Math.ceil(waitSeconds / 60)} 分钟内`
+    : `${Math.max(1, waitSeconds)} 秒内`
+  return `${base} · ${retrying} 项待补采，${waitLabel}继续`
 }
 
 function RawAnswersPanel({

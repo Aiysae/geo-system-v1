@@ -22,6 +22,10 @@
     "test:email-verification": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-email-verification.mts",
     "test:penetration-web": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-web-adapters.mts",
     "test:penetration-sampling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-independent-sampling.mts",
+    "test:penetration-strict": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-strict-completion.mts",
+    "test:penetration-recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-job-recovery.mts",
+    "smoke:penetration-live": "NODE_OPTIONS=--conditions=react-server tsx scripts/smoke-penetration-live.mts",
+    "stress:penetration-live": "NODE_OPTIONS=--conditions=react-server tsx scripts/stress-penetration-live.mts",
     "kv:migrate:file-to-redis": "node scripts/migrate-file-kv-to-redis.mjs"
   },
   "dependencies": {
