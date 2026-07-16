@@ -555,8 +555,11 @@ export interface CommercialReportInput {
 export interface CommercialReportJobRecord {
   id: string
   clientId: string
+  clientName?: string
   kind: CommercialReportKind
   detail: CommercialReportDetail
+  brandingMode?: ReportBrandingMode
+  publisherName?: string
   status: CommercialReportJobStatus
   progress: number
   stage: string
@@ -568,6 +571,7 @@ export interface CommercialReportJobRecord {
   startedAt?: string
   finishedAt?: string
   expiresAt: string
+  fileAvailable?: boolean
   creditCost?: number
   creditsRefunded?: boolean
 }

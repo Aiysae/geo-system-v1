@@ -1972,6 +1972,7 @@ function StrategyStep({
   const [officialPromptError, setOfficialPromptError] = useState("")
   const [thirdPartyPrompts, setThirdPartyPrompts] = useState<Record<string, string>>({})
   const [thirdPartyPromptErrors, setThirdPartyPromptErrors] = useState<Record<string, string>>({})
+  const questionPoolRef = useRef<HTMLDivElement>(null)
   const questionAdvantages = extractQuestionAdvantages(plan)
   const websitePromptPayload = websitePromptJobRef?.payload as WebsitePromptJobPayload | undefined
   const websitePromptKey = websitePromptJobRef
@@ -1981,6 +1982,17 @@ function StrategyStep({
     : null
   const officialPromptLoading = websitePromptKey === "official"
   const thirdPartyPromptLoadingKey = websitePromptKey?.startsWith("third-") ? websitePromptKey : null
+
+  const revealQuestionPool = useCallback(() => {
+    setShowJson(true)
+    window.requestAnimationFrame(() => {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      questionPoolRef.current?.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start",
+      })
+    })
+  }, [])
 
   const handleCopyPrompt = useCallback(async (key: string, prompt: string) => {
     try {
@@ -2098,6 +2110,31 @@ function StrategyStep({
           </button>
         </div>
       </div>
+
+      {hasQuestions ? (
+        <button
+          type="button"
+          onClick={revealQuestionPool}
+          className="group flex w-full items-center justify-between gap-3 rounded-xl border border-[#69DFFF] bg-gradient-to-r from-[#EAF5FF] via-[#F3FBFF] to-[#E8FBFF] px-4 py-3 text-left shadow-[0_12px_30px_-24px_rgba(0,119,255,0.75)] transition hover:border-[#1677FF] hover:shadow-[0_16px_34px_-22px_rgba(0,119,255,0.72)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2"
+          aria-label={`查看全部 ${questions.length} 条疑问句`}
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00AEEA] text-white shadow-sm">
+              <ListOrdered className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xs font-medium text-[#0050B3]">疑问句已生成</span>
+              <span className="mt-0.5 block truncate text-sm font-bold text-slate-900">
+                疑问句池 <span className="text-[#1677FF]">{questions.length} 条</span>
+              </span>
+            </span>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-[#1677FF]">
+            查看全部
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </button>
+      ) : null}
 
       {websitePromptJobRef && (
         <KeywordBackgroundJobNotice
@@ -2328,6 +2365,7 @@ function StrategyStep({
       </div>
 
       {/* Question Module */}
+      <div ref={questionPoolRef} className="scroll-mt-24">
       <Card title="疑问句池" icon={<Search className="h-4 w-4 text-violet-500" />}
         extra={
           hasQuestions ? (
@@ -2462,7 +2500,7 @@ function StrategyStep({
                 </div>
               ))}
               {!showJson && questions.length > 10 && (
-                <button onClick={() => setShowJson(true)} className="text-xs text-blue-500 hover:text-blue-600">
+                <button onClick={revealQuestionPool} className="text-xs font-medium text-blue-500 hover:text-blue-600">
                   显示全部 {questions.length} 条...
                 </button>
               )}
@@ -2470,6 +2508,7 @@ function StrategyStep({
           </>
         )}
       </Card>
+      </div>
 
       {/* JSON Preview */}
       <details className="bg-white/50 backdrop-blur rounded-2xl border border-slate-200/60 shadow-sm">

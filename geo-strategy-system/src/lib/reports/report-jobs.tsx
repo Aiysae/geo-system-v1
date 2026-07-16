@@ -29,9 +29,12 @@ export type CommercialReportFile = {
   fileSize: number
 }
 
-const REPORT_JOB_TTL_SECONDS = 60 * 60 * 24
+const REPORT_JOB_TTL_SECONDS = 60 * 60 * 24 * 365
 const REPORT_FILE_MAX_AGE_MS = REPORT_JOB_TTL_SECONDS * 1000
+const REPORT_HISTORY_LIMIT = 100
 const memoryJobs = new Map<string, StoredCommercialReportJob>()
+const memoryHistory = new Map<string, Set<string>>()
+const historyDiscoveryCompleted = new Set<string>()
 const activeJobs = new Set<string>()
 const scheduledJobs = new Set<string>()
 const settlingJobs = new Set<string>()
@@ -39,6 +42,7 @@ const execFileAsync = promisify(execFile)
 let reportQueue: Promise<void> = Promise.resolve()
 
 const jobKey = (id: string) => `geo:commercial-report-jobs:${id}`
+const historyKey = (ownerUserId: string) => `geo:commercial-report-history:${ownerUserId}`
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -94,6 +98,38 @@ async function saveJob(job: StoredCommercialReportJob): Promise<void> {
   }
 }
 
+function rememberHistory(ownerUserId: string, id: string): void {
+  const ids = memoryHistory.get(ownerUserId) || new Set<string>()
+  ids.add(id)
+  memoryHistory.set(ownerUserId, ids)
+}
+
+function forgetHistory(ownerUserId: string, id: string): void {
+  const ids = memoryHistory.get(ownerUserId)
+  if (!ids) return
+  ids.delete(id)
+  if (ids.size === 0) memoryHistory.delete(ownerUserId)
+}
+
+async function addToHistory(ownerUserId: string, id: string): Promise<void> {
+  if (memoryHistory.get(ownerUserId)?.has(id)) return
+  rememberHistory(ownerUserId, id)
+  try {
+    await kv.sadd(historyKey(ownerUserId), id)
+  } catch (error) {
+    console.warn("[commercial-report-jobs] history index write failed, using memory fallback:", error)
+  }
+}
+
+async function removeFromHistory(ownerUserId: string, id: string): Promise<void> {
+  forgetHistory(ownerUserId, id)
+  try {
+    await kv.srem(historyKey(ownerUserId), id)
+  } catch (error) {
+    console.warn("[commercial-report-jobs] history index cleanup failed:", error)
+  }
+}
+
 async function getStoredJob(id: string): Promise<StoredCommercialReportJob | null> {
   const memory = memoryJobs.get(id)
   try {
@@ -106,6 +142,89 @@ async function getStoredJob(id: string): Promise<StoredCommercialReportJob | nul
     console.warn("[commercial-report-jobs] KV read failed, using memory fallback:", error)
   }
   return memory || null
+}
+
+async function historyIds(ownerUserId: string): Promise<string[]> {
+  const ids = new Set(memoryHistory.get(ownerUserId) || [])
+  try {
+    const storedIds = await kv.smembers<string[]>(historyKey(ownerUserId))
+    for (const id of storedIds || []) ids.add(String(id))
+  } catch (error) {
+    console.warn("[commercial-report-jobs] history index read failed, using memory fallback:", error)
+  }
+  memoryHistory.set(ownerUserId, new Set(ids))
+  return [...ids]
+}
+
+async function discoverRecentHistory(ownerUserId: string): Promise<void> {
+  if (historyDiscoveryCompleted.has(ownerUserId)) return
+  const directory = reportsDirectory()
+  try {
+    const entries = await fs.readdir(directory, { withFileTypes: true })
+    const pdfEntries = await Promise.all(entries
+      .filter(entry => entry.isFile() && /^rjob_[A-Za-z0-9_]+\.pdf$/.test(entry.name))
+      .map(async entry => ({
+        id: entry.name.slice(0, -4),
+        mtimeMs: (await fs.stat(path.join(directory, entry.name))).mtimeMs,
+      })))
+    const recent = pdfEntries
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(0, REPORT_HISTORY_LIMIT * 2)
+    for (const entry of recent) {
+      const job = await getStoredJob(entry.id)
+      if (job?.ownerUserId !== ownerUserId) continue
+      const createdAtMs = Date.parse(job.createdAt)
+      const desiredExpiresAt = Number.isFinite(createdAtMs)
+        ? new Date(createdAtMs + REPORT_FILE_MAX_AGE_MS).toISOString()
+        : new Date(Date.now() + REPORT_FILE_MAX_AGE_MS).toISOString()
+      if (!Number.isFinite(Date.parse(job.expiresAt)) || Date.parse(job.expiresAt) < Date.parse(desiredExpiresAt)) {
+        await saveJob({ ...job, expiresAt: desiredExpiresAt })
+      }
+      await addToHistory(ownerUserId, entry.id)
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("[commercial-report-jobs] recent report discovery failed:", error)
+    }
+  } finally {
+    historyDiscoveryCompleted.add(ownerUserId)
+  }
+}
+
+async function reportFileAvailable(job: StoredCommercialReportJob): Promise<boolean> {
+  if (job.status !== "succeeded") return false
+  try {
+    await fs.access(job.filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function deleteJobArtifacts(job: StoredCommercialReportJob): Promise<void> {
+  await Promise.all([
+    fs.unlink(job.inputPath).catch(() => undefined),
+    fs.unlink(job.filePath).catch(() => undefined),
+  ])
+  memoryJobs.delete(job.id)
+  try {
+    await kv.del(jobKey(job.id))
+  } catch (error) {
+    console.warn("[commercial-report-jobs] job deletion failed in KV:", error)
+  }
+  await removeFromHistory(job.ownerUserId, job.id)
+}
+
+async function pruneHistory(ownerUserId: string): Promise<void> {
+  const ids = await historyIds(ownerUserId)
+  const jobs = (await Promise.all(ids.map(id => getStoredJob(id))))
+    .filter((job): job is StoredCommercialReportJob => Boolean(job?.ownerUserId === ownerUserId))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+  const staleIds = ids.filter(id => !jobs.some(job => job.id === id))
+  await Promise.all(staleIds.map(id => removeFromHistory(ownerUserId, id)))
+
+  const removable = jobs.slice(REPORT_HISTORY_LIMIT).filter(job => job.status !== "queued" && job.status !== "running")
+  await Promise.all(removable.map(deleteJobArtifacts))
 }
 
 async function patchJob(
@@ -291,8 +410,11 @@ export async function createCommercialReportJob(
   const job: StoredCommercialReportJob = {
     id,
     clientId: input.client.id,
+    clientName: input.client.name,
     kind: input.kind,
     detail: input.detail,
+    brandingMode: input.branding?.mode || "shitu",
+    publisherName: input.branding?.companyName || "杭州势途数字科技有限公司",
     status: "queued",
     progress: 0,
     stage: "报告任务已创建",
@@ -311,8 +433,53 @@ export async function createCommercialReportJob(
     creditsSettledAt: args.reservation ? undefined : createdAt,
   }
   await saveJob(job)
+  await addToHistory(ownerUserId, id)
+  void pruneHistory(ownerUserId)
   queueJob(id)
   return toPublicJob(job)
+}
+
+export async function listCommercialReportJobs(
+  ownerUserId: string,
+): Promise<CommercialReportJobRecord[]> {
+  await discoverRecentHistory(ownerUserId)
+  const ids = await historyIds(ownerUserId)
+  const jobs = await Promise.all(ids.map(id => getStoredJob(id)))
+  const ownedJobs = jobs
+    .filter((job): job is StoredCommercialReportJob => Boolean(job?.ownerUserId === ownerUserId))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+
+  const staleIds = ids.filter(id => !ownedJobs.some(job => job.id === id))
+  await Promise.all(staleIds.map(id => removeFromHistory(ownerUserId, id)))
+
+  const removable = ownedJobs
+    .slice(REPORT_HISTORY_LIMIT)
+    .filter(job => job.status !== "queued" && job.status !== "running")
+  await Promise.all(removable.map(deleteJobArtifacts))
+  const visibleJobs = ownedJobs.slice(0, REPORT_HISTORY_LIMIT)
+
+  return Promise.all(visibleJobs.map(async job => {
+    if ((job.status === "queued" || job.status === "running") && !activeJobs.has(job.id) && !scheduledJobs.has(job.id)) {
+      queueJob(job.id)
+    }
+    return {
+      ...toPublicJob(job),
+      fileAvailable: await reportFileAvailable(job),
+    }
+  }))
+}
+
+export type DeleteCommercialReportResult = "deleted" | "not_found" | "active"
+
+export async function deleteCommercialReportJob(
+  id: string,
+  ownerUserId: string,
+): Promise<DeleteCommercialReportResult> {
+  const job = await getStoredJob(id)
+  if (!job || job.ownerUserId !== ownerUserId) return "not_found"
+  if (job.status === "queued" || job.status === "running") return "active"
+  await deleteJobArtifacts(job)
+  return "deleted"
 }
 
 export async function getCommercialReportJob(

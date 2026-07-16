@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import dynamic from "next/dynamic"
 import {
   AlertTriangle,
-  BarChart3,
   Building2,
   Calculator,
   CheckCircle2,
@@ -46,6 +46,14 @@ import type {
   DifficultyStageKey,
 } from "@/types"
 import { MODEL_LABELS } from "@/lib/model-labels"
+
+const DifficultyDimensionsRadial = dynamic(
+  () => import("@/components/difficulty/difficulty-dimensions-radial"),
+  {
+    ssr: false,
+    loading: () => <div className="h-[350px] animate-pulse rounded-lg bg-slate-100" />,
+  },
+)
 
 interface Props {
   client: Client
@@ -1191,36 +1199,14 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 
             <section>
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
-                <BarChart3 className="h-4 w-4 text-[#1677FF]" />
+                <Gauge className="h-4 w-4 text-[#1677FF]" />
                 {dimensions.length}维评分
               </div>
-              <div className="space-y-3">
-                {dimensions.map(item => {
-                  const percent = Math.round((item.score / item.max) * 100)
-                  return (
-                    <div key={item.name} className="rounded-xl border border-slate-200 bg-white px-3 py-3">
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <div className="min-w-0 font-medium text-slate-800">{item.name}</div>
-                        <div className="flex items-center gap-2">
-                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${levelClasses(item.level)}`}>
-                            {item.level}
-                          </span>
-                          <span className="font-mono text-sm font-bold text-slate-900">
-                            {item.score}/{item.max}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full bg-[#1677FF]"
-                          style={{ width: `${percent}%` }}
-                        />
-                      </div>
-                      <p className="mt-2 text-xs leading-5 text-slate-500">{item.analysis}</p>
-                    </div>
-                  )
-                })}
-              </div>
+              <DifficultyDimensionsRadial
+                dimensions={dimensions}
+                totalScore={result.totalScore}
+                level={result.level}
+              />
             </section>
 
             <section>

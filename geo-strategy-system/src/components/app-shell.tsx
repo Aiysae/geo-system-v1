@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import ClientSidebar from "@/components/sidebar/client-sidebar"
@@ -11,9 +11,11 @@ import KeywordStrategyModule from "@/components/keyword/keyword-strategy-module"
 import ArticleGenerationModule from "@/components/article/article-generation-module"
 import DifficultyAssessmentModule from "@/components/difficulty/difficulty-assessment-module"
 import ReportExportDialog from "@/components/reports/report-export-dialog"
+import ReportHistoryDialog from "@/components/reports/report-history-dialog"
 import SiteFooter from "@/components/site-footer"
 import {
   AlertTriangle,
+  ArrowUp,
   Brain,
   CheckCircle2,
   Cloud,
@@ -21,6 +23,7 @@ import {
   FileDown,
   FileText,
   Gauge,
+  History,
   ListOrdered,
   LoaderCircle,
   Menu,
@@ -57,6 +60,9 @@ export default function Home({ userId }: { userId: string }) {
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [reportExportPreset, setReportExportPreset] = useState<ReportExportPreset | null>(null)
+  const [reportHistoryOpen, setReportHistoryOpen] = useState(false)
+  const [showBackToTop, setShowBackToTop] = useState(false)
+  const mainScrollRef = useRef<HTMLElement>(null)
 
   const active = clients.find(c => c.id === activeId) ?? null
 
@@ -65,12 +71,27 @@ export default function Home({ userId }: { userId: string }) {
     // 移动端：选中客户后自动收起抽屉，直接进入详情面板
     setSidebarOpen(false)
     setReportExportPreset(null)
+    setReportHistoryOpen(false)
   }, [selectClient])
 
   const handleCreate = useCallback((name: string) => {
     createWorkspaceClient(name)
     setSidebarOpen(false)
   }, [createWorkspaceClient])
+
+  useEffect(() => {
+    const scrollContainer = mainScrollRef.current
+    if (!scrollContainer) return
+    const updateVisibility = () => setShowBackToTop(scrollContainer.scrollTop > 500)
+    updateVisibility()
+    scrollContainer.addEventListener("scroll", updateVisibility, { passive: true })
+    return () => scrollContainer.removeEventListener("scroll", updateVisibility)
+  }, [])
+
+  const scrollToTop = useCallback(() => {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    mainScrollRef.current?.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" })
+  }, [])
 
   return (
     <div className="flex h-screen w-screen overflow-hidden geo-workspace-bg print-root">
@@ -93,12 +114,13 @@ export default function Home({ userId }: { userId: string }) {
         onClose={() => setSidebarOpen(false)}
       />
 
-      <main className="flex-1 min-w-0 h-screen overflow-y-auto overscroll-contain relative print-main">
+      <main ref={mainScrollRef} className="flex-1 min-w-0 h-screen overflow-y-auto overscroll-contain relative print-main">
         <div className="relative z-10">
         <StickyHeader
           client={active}
           onOpenSidebar={() => setSidebarOpen(true)}
           onExportReport={() => setReportExportPreset({})}
+          onOpenReportHistory={() => setReportHistoryOpen(true)}
           syncState={syncState}
           onRetrySync={retry}
         />
@@ -127,6 +149,17 @@ export default function Home({ userId }: { userId: string }) {
         <SiteFooter />
         </div>
       </main>
+      {showBackToTop ? (
+        <button
+          type="button"
+          onClick={scrollToTop}
+          className="no-print fixed bottom-5 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-[#1677FF] to-[#00AEEA] text-white shadow-[0_14px_34px_-12px_rgba(0,119,255,0.82)] ring-1 ring-white/70 transition hover:-translate-y-0.5 hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2 sm:bottom-7 sm:right-7"
+          aria-label="回到页面顶部"
+          title="回到顶部"
+        >
+          <ArrowUp className="h-5 w-5" />
+        </button>
+      ) : null}
       {active && reportExportPreset && (
         <ReportExportDialog
           client={active}
@@ -134,6 +167,13 @@ export default function Home({ userId }: { userId: string }) {
           onClose={() => setReportExportPreset(null)}
         />
       )}
+      {reportHistoryOpen ? (
+        <ReportHistoryDialog
+          clients={clients}
+          activeClientId={activeId}
+          onClose={() => setReportHistoryOpen(false)}
+        />
+      ) : null}
       {showMigration ? (
         <LegacyMigrationDialog
           count={legacyClientCount}
@@ -149,12 +189,14 @@ function StickyHeader({
   client,
   onOpenSidebar,
   onExportReport,
+  onOpenReportHistory,
   syncState,
   onRetrySync,
 }: {
   client: Client | null
   onOpenSidebar: () => void
   onExportReport: () => void
+  onOpenReportHistory: () => void
   syncState: WorkspaceSyncState
   onRetrySync: () => void
 }) {
@@ -201,7 +243,17 @@ function StickyHeader({
             )}
           </div>
         </div>
-        <div className="no-print order-last flex w-full justify-end sm:order-none sm:w-auto sm:justify-start">
+        <div className="no-print order-last flex w-full justify-end gap-2 sm:order-none sm:w-auto sm:justify-start">
+          <button
+            type="button"
+            onClick={onOpenReportHistory}
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/16 md:px-3.5"
+            title="查看历史专业报告"
+          >
+            <History className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">历史报告</span>
+            <span className="sm:hidden">历史</span>
+          </button>
           {client && (
             <button
               onClick={onExportReport}
