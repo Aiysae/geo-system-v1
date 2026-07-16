@@ -165,9 +165,21 @@ export interface ArticleGenerationState {
   audience: string
   extraRequirements: string
   output: string
+  publishing?: ArticlePublishingSettings
   status: GenerationStatus
   error?: string
   generatedAt?: string
+}
+
+export interface ArticlePublishingSettings {
+  title?: string
+  digest?: string
+  tags?: string
+  coverUrl?: string
+  selectedPlatforms?: string[]
+  publishMode?: "review" | "auto"
+  original?: boolean
+  allowComment?: boolean
 }
 
 export type ArticleBatchTopicMode = "auto" | "questions" | "custom"

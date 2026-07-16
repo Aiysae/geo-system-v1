@@ -36,6 +36,7 @@ import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type {
   ArticleGenerationState,
+  ArticlePublishingSettings,
   ArticleModelProviderKey,
   ArticlePromptKey,
   ArticleRewriteAnalysis,
@@ -388,6 +389,16 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       [key]: value,
       error: key === "output" ? article.error : undefined,
       status: key === "output" ? article.status : article.status === "error" ? "idle" : article.status,
+    })
+  }
+
+  function updatePublishing(patch: Partial<ArticlePublishingSettings>) {
+    persist({
+      ...article,
+      publishing: {
+        ...(article.publishing || {}),
+        ...patch,
+      },
     })
   }
 
@@ -1238,8 +1249,10 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             onChange={value => updateField("output", value)}
             fileBaseName={buildFileBaseName(client, activePrompt)}
             title={client.ourBrand || client.name || activePrompt.title || "文章生成"}
-            statusText={article.status === "done" ? "已生成，可编辑、预览和导出" : isRewrite ? "等待改写" : "等待生成"}
+            statusText={article.status === "done" ? "已生成，可编辑、预览、导出或发布" : isRewrite ? "等待改写" : "等待生成"}
             placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的 Markdown 内容会显示在这里"}
+            publishing={article.publishing}
+            onPublishingChange={updatePublishing}
           />
         )}
       </div>
