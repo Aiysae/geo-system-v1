@@ -3,11 +3,9 @@ import { redirect } from "next/navigation"
 import type { ReactNode } from "react"
 import {
   Activity,
-  ArrowLeft,
   BarChart3,
   Clock3,
   CreditCard,
-  ReceiptText,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -19,6 +17,7 @@ import { getCurrentUser } from "@/lib/auth"
 import { getAdminOperationsMetrics, type DailyOperationsMetric } from "@/lib/admin-metrics"
 import { formatYuan } from "@/lib/pricing"
 import SiteFooter from "@/components/site-footer"
+import { AdminHeader } from "@/components/admin/admin-header"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -65,44 +64,12 @@ export default async function AdminMetricsPage() {
 
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="geo-utility-header sticky top-0 z-30 border-b backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="geo-utility-header-icon flex h-10 w-10 items-center justify-center rounded-xl shadow-sm">
-              <BarChart3 className="h-5 w-5 text-white" />
-            </span>
-            <div>
-              <div className="geo-utility-header-title geo-brand-title text-lg">
-                势途 GEO · 运营监控
-              </div>
-              <div className="geo-utility-header-subtitle mt-0.5 text-[11px]">积分消耗、充值到账与模块使用排行</div>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Link
-              href="/admin/recharge"
-              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
-            >
-              <CreditCard className="h-3.5 w-3.5" />
-              充值审批
-            </Link>
-            <Link
-              href="/admin/ledger"
-              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
-            >
-              <ReceiptText className="h-3.5 w-3.5" />
-              积分流水
-            </Link>
-            <Link
-              href="/admin"
-              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              用户管理
-            </Link>
-          </div>
-        </div>
-      </header>
+      <AdminHeader
+        title="势途 GEO · 运营监控"
+        subtitle="积分消耗、充值到账与模块使用排行"
+        icon={<BarChart3 className="h-5 w-5 text-white" />}
+        active="metrics"
+      />
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-8 md:py-8">
         <section className="grid gap-3 md:grid-cols-4">
@@ -173,8 +140,8 @@ export default async function AdminMetricsPage() {
               <h1 className="text-sm font-semibold text-slate-900">近 14 天运营趋势</h1>
               <p className="mt-1 text-xs text-slate-500">按北京时间聚合功能净消耗、使用次数、充值到账和活跃用户。</p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] text-left">
+            <div className="md:overflow-x-auto">
+              <table className="admin-responsive-table w-full min-w-[920px] text-left">
                 <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-5 py-3">日期</th>
@@ -188,8 +155,8 @@ export default async function AdminMetricsPage() {
                 <tbody>
                   {metrics.daily.map(item => (
                     <tr key={item.date} className="border-t border-slate-100 text-sm">
-                      <td className="whitespace-nowrap px-5 py-3 font-mono text-xs text-slate-500">{formatDateLabel(item.date)}</td>
-                      <td className="px-5 py-3">
+                      <td data-label="日期" className="whitespace-nowrap px-5 py-3 font-mono text-xs text-slate-500">{formatDateLabel(item.date)}</td>
+                      <td data-label="净消耗" className="px-5 py-3">
                         <div className="flex items-center gap-3">
                           <div className="h-2 w-28 overflow-hidden rounded-full bg-slate-100">
                             <div className="h-full rounded-full bg-orange-400" style={{ width: usageBarWidth(item, maxDailyUsage) }} />
@@ -197,13 +164,13 @@ export default async function AdminMetricsPage() {
                           <span className="font-mono font-semibold text-orange-700">{formatInt(item.usageNet)}</span>
                         </div>
                       </td>
-                      <td className="px-5 py-3 font-mono text-slate-700">{formatInt(item.usageCount)}</td>
-                      <td className="px-5 py-3">
+                      <td data-label="使用次数" className="px-5 py-3 font-mono text-slate-700">{formatInt(item.usageCount)}</td>
+                      <td data-label="充值到账" className="px-5 py-3">
                         <div className="font-mono font-semibold text-emerald-700">+{formatInt(item.rechargeCredits)}</div>
                         <div className="mt-0.5 text-[11px] text-slate-400">{formatYuan(item.rechargeAmountCents)}</div>
                       </td>
-                      <td className="px-5 py-3 font-mono text-slate-700">{formatInt(item.activeUserCount)}</td>
-                      <td className="px-5 py-3 font-mono text-amber-700">{formatInt(item.pendingRechargeCount)}</td>
+                      <td data-label="活跃用户" className="px-5 py-3 font-mono text-slate-700">{formatInt(item.activeUserCount)}</td>
+                      <td data-label="待审批" className="px-5 py-3 font-mono text-amber-700">{formatInt(item.pendingRechargeCount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -250,8 +217,8 @@ export default async function AdminMetricsPage() {
             {metrics.users.length === 0 ? (
               <div className="px-5 py-12 text-center text-sm text-slate-400">暂无用户数据</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] text-left">
+              <div className="md:overflow-x-auto">
+                <table className="admin-responsive-table w-full min-w-[760px] text-left">
                   <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                     <tr>
                       <th className="px-5 py-3">用户</th>
@@ -264,22 +231,22 @@ export default async function AdminMetricsPage() {
                   <tbody>
                     {metrics.users.map(user => (
                       <tr key={user.userId} className="border-t border-slate-100 text-sm">
-                        <td className="px-5 py-3">
+                        <td data-label="用户" className="px-5 py-3">
                           <Link href={`/admin/users/${user.userId}`} className="font-medium text-slate-900 hover:text-[#1677FF]">
                             {user.name}
                           </Link>
                           <div className="mt-0.5 text-[11px] text-slate-400">{user.email}</div>
                         </td>
-                        <td className="px-5 py-3">
+                        <td data-label="净消耗" className="px-5 py-3">
                           <div className="font-mono font-semibold text-orange-700">{formatInt(user.usageNet)}</div>
                           <div className="mt-0.5 text-[11px] text-slate-400">{formatInt(user.usageCount)} 次</div>
                         </td>
-                        <td className="px-5 py-3">
+                        <td data-label="充值" className="px-5 py-3">
                           <div className="font-mono font-semibold text-emerald-700">+{formatInt(user.rechargeCredits)}</div>
                           <div className="mt-0.5 text-[11px] text-slate-400">{formatYuan(user.rechargeAmountCents)}</div>
                         </td>
-                        <td className="px-5 py-3 font-mono font-semibold text-slate-900">{formatInt(user.balance)}</td>
-                        <td className="px-5 py-3 text-xs text-slate-500">{formatTime(user.lastActivityAt)}</td>
+                        <td data-label="余额" className="px-5 py-3 font-mono font-semibold text-slate-900">{formatInt(user.balance)}</td>
+                        <td data-label="最近活动" className="px-5 py-3 text-xs text-slate-500">{formatTime(user.lastActivityAt)}</td>
                       </tr>
                     ))}
                   </tbody>

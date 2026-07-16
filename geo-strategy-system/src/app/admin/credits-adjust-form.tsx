@@ -53,7 +53,7 @@ export function CreditsAdjustForm({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
       <input
         type="number"
         min={1}
@@ -62,13 +62,13 @@ export function CreditsAdjustForm({
         onChange={event => setAmount(event.target.value)}
         disabled={disabled || pending}
         placeholder="积分"
-        className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
+        className="col-span-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100 sm:h-9 sm:w-20"
       />
       <button
         type="button"
         onClick={() => adjust("add")}
         disabled={disabled || pending}
-        className="inline-flex h-9 items-center gap-1 rounded-lg bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-100 disabled:opacity-60"
+        className="inline-flex h-10 items-center justify-center gap-1 rounded-lg bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-100 disabled:opacity-60 sm:h-9"
       >
         <Plus className="h-3.5 w-3.5" />
         增加
@@ -77,17 +77,17 @@ export function CreditsAdjustForm({
         type="button"
         onClick={() => adjust("subtract")}
         disabled={disabled || pending}
-        className="inline-flex h-9 items-center gap-1 rounded-lg bg-rose-50 px-2.5 text-xs font-medium text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-100 disabled:opacity-60"
+        className="inline-flex h-10 items-center justify-center gap-1 rounded-lg bg-rose-50 px-2.5 text-xs font-medium text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-100 disabled:opacity-60 sm:h-9"
       >
         <Minus className="h-3.5 w-3.5" />
         扣除
       </button>
       {state?.message && (
-        <span className={state.ok ? "text-xs text-emerald-600" : "text-xs text-rose-600"}>
+        <span className={state.ok ? "col-span-2 text-xs text-emerald-600" : "col-span-2 text-xs text-rose-600"}>
           {state.message}
         </span>
       )}
-      {disabled && <span className="text-xs text-blue-600">无限积分账号无需调整</span>}
+      {disabled && <span className="col-span-2 text-xs text-blue-600">无限积分账号无需调整</span>}
     </div>
   )
 }

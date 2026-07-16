@@ -2,7 +2,7 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { useActionState, useCallback, useState, useEffect } from "react"
+import { useActionState, useCallback, useState, useEffect, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import {
   ArrowRight,
@@ -40,12 +40,25 @@ type WechatCheckout = {
 type RechargeStep = "package" | "payment"
 type RechargePaymentMethod = "wechat" | "alipay" | "manual_transfer"
 
-export function RechargeButton() {
+type RechargeButtonProps = {
+  initialPackageKey?: RechargePackageKey
+  triggerClassName?: string
+  children?: ReactNode
+  processPaymentReturn?: boolean
+}
+
+export function RechargeButton({
+  initialPackageKey = "standard_99",
+  triggerClassName,
+  children,
+  processPaymentReturn = true,
+}: RechargeButtonProps = {}) {
   const { refresh } = useCredits()
   const [open, setOpen] = useState(false)
   const [paymentReturn, setPaymentReturn] = useState<"idle" | "syncing" | "credited" | "pending" | "failed">("idle")
 
   useEffect(() => {
+    if (!processPaymentReturn) return
     const url = new URL(window.location.href)
     const orderId = url.searchParams.get("order_id")
     const provider = url.searchParams.get("payment_return")
@@ -76,20 +89,25 @@ export function RechargeButton() {
         url.searchParams.delete("order_id")
         window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
       })
-  }, [refresh])
+  }, [processPaymentReturn, refresh])
 
   return (
     <>
       <button
+        type="button"
         onClick={() => setOpen(true)}
-        title="申请充值积分"
-        className="inline-flex items-center gap-1 rounded-lg border border-[#1677FF] bg-gradient-to-r from-[#1677FF] to-[#00C8FF] px-2.5 py-1.5 text-[11px] font-medium text-white shadow-sm shadow-blue-500/20 transition hover:brightness-105"
+        title={children ? undefined : "申请充值积分"}
+        className={triggerClassName || "inline-flex items-center gap-1 rounded-lg border border-[#1677FF] bg-gradient-to-r from-[#1677FF] to-[#00C8FF] px-2.5 py-1.5 text-[11px] font-medium text-white shadow-sm shadow-blue-500/20 transition hover:brightness-105"}
       >
-        <Plus className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">申请充值</span>
+        {children || (
+          <>
+            <Plus className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">申请充值</span>
+          </>
+        )}
       </button>
-      {open && <RechargeDialog onClose={() => setOpen(false)} />}
-      {paymentReturn !== "idle" && (
+      {open && <RechargeDialog initialPackageKey={initialPackageKey} onClose={() => setOpen(false)} />}
+      {processPaymentReturn && paymentReturn !== "idle" && (
         <div
           role="status"
           className={`fixed right-4 bottom-4 z-[10000] max-w-sm rounded-lg px-4 py-3 text-sm font-medium text-white shadow-xl ${
@@ -110,10 +128,16 @@ export function RechargeButton() {
   )
 }
 
-function RechargeDialog({ onClose }: { onClose: () => void }) {
+function RechargeDialog({
+  initialPackageKey,
+  onClose,
+}: {
+  initialPackageKey: RechargePackageKey
+  onClose: () => void
+}) {
   const { refresh } = useCredits()
   const [step, setStep] = useState<RechargeStep>("package")
-  const [packageKey, setPackageKey] = useState<RechargePackageKey>("standard_99")
+  const [packageKey, setPackageKey] = useState<RechargePackageKey>(initialPackageKey)
   const [paymentMethod, setPaymentMethod] = useState<RechargePaymentMethod>("wechat")
   const [paymentOptions, setPaymentOptions] = useState<PaymentOptions>({
     alipay: false,

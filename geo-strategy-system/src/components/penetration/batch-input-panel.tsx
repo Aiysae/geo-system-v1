@@ -188,7 +188,11 @@ export default function BatchInputPanel({
           </Label>
           <Textarea
             value={brandAliasesText}
-            onChange={e => setBrandAliasesText(e.target.value)}
+            onChange={e => {
+              const value = e.target.value
+              setBrandAliasesText(value)
+              onChangeClient({ brandAliases: parseLines(value) })
+            }}
             rows={2}
             placeholder={"品牌简称\n英文名 / 公司全称"}
             className="min-h-[42px] font-mono text-xs"
@@ -200,7 +204,11 @@ export default function BatchInputPanel({
           </Label>
           <Textarea
             value={competitorsText}
-            onChange={e => setCompetitorsText(e.target.value)}
+            onChange={e => {
+              const value = e.target.value
+              setCompetitorsText(value)
+              onChangeClient({ competitors: parseLines(value) })
+            }}
             rows={2}
             placeholder={"竞品A\n竞品B"}
             className="min-h-[42px] font-mono text-xs"
@@ -253,7 +261,11 @@ export default function BatchInputPanel({
         {inputMode === "manual" ? (
           <Textarea
             value={questionsText}
-            onChange={e => setQuestionsText(e.target.value)}
+            onChange={e => {
+              const value = e.target.value
+              setQuestionsText(value)
+              onChangeClient({ questions: parseLines(value) })
+            }}
             rows={6}
             placeholder={"国内有哪些值得推荐的 AI Agent 工具？\n2026 年企业级 GEO 平台怎么选？\n..."}
             className="font-mono text-xs"

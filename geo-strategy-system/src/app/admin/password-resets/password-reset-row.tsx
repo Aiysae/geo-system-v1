@@ -53,29 +53,29 @@ export function PasswordResetRow({ request }: { request: PasswordResetRequest })
 
   return (
     <tr className="border-t border-slate-100 text-sm">
-      <td className="px-5 py-3">
+      <td data-label="用户" className="px-5 py-3">
         <div className="font-medium text-slate-900">{request.userName || "未匹配用户"}</div>
         <div className="mt-0.5 font-mono text-xs text-slate-500">{request.email}</div>
       </td>
-      <td className="px-5 py-3">
+      <td data-label="匹配状态" className="px-5 py-3">
         <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-medium ring-1 ${MATCH_STATUS_CLASS[matchStatus]}`}>
           {MATCH_STATUS_LABEL[matchStatus]}
         </span>
       </td>
-      <td className="px-5 py-3">
+      <td data-label="申请状态" className="px-5 py-3">
         <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-medium ring-1 ${STATUS_CLASS[request.status]}`}>
           {STATUS_LABEL[request.status]}
         </span>
       </td>
-      <td className="px-5 py-3 text-xs text-slate-500">{formatTime(request.createdAt)}</td>
-      <td className="px-5 py-3 text-xs text-slate-500">{formatTime(request.tokenExpiresAt)}</td>
-      <td className="px-5 py-3">
+      <td data-label="申请时间" className="px-5 py-3 text-xs text-slate-500">{formatTime(request.createdAt)}</td>
+      <td data-label="链接过期时间" className="px-5 py-3 text-xs text-slate-500">{formatTime(request.tokenExpiresAt)}</td>
+      <td data-label="操作" className="px-5 py-3">
         <form action={formAction} className="flex flex-col gap-2">
           <input type="hidden" name="requestId" value={request.id} />
           <button
             type="submit"
             disabled={pending || !canGenerateLink}
-            className="inline-flex w-fit items-center rounded-lg bg-[#0958D9] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#003EB3] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-10 w-full items-center justify-center rounded-lg bg-[#0958D9] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#003EB3] disabled:cursor-not-allowed disabled:opacity-50 sm:w-fit"
           >
             {pending ? "生成中..." : canGenerateLink ? "生成重置链接" : "不能生成链接"}
           </button>
@@ -90,7 +90,7 @@ export function PasswordResetRow({ request }: { request: PasswordResetRequest })
             </div>
           )}
           {absoluteLink && (
-            <div className="max-w-md rounded-lg bg-slate-50 p-2 ring-1 ring-slate-200">
+            <div className="w-full max-w-md rounded-lg bg-slate-50 p-2 ring-1 ring-slate-200">
               <div className="mb-1 text-[11px] text-slate-500">复制给用户，30 分钟内有效：</div>
               <input
                 readOnly

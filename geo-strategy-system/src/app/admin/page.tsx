@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { Inbox, KeyRound, ReceiptText, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
+import { Inbox, ReceiptText, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listPasswordResetRequests, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
@@ -8,6 +8,7 @@ import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "./credits-adjust-form"
 import { UserStatusForm } from "./user-status-form"
+import { AdminHeader } from "@/components/admin/admin-header"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -49,62 +50,16 @@ export default async function AdminPage() {
 
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="geo-utility-header sticky top-0 z-30 border-b backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="geo-utility-header-icon w-10 h-10 rounded-xl flex items-center justify-center shadow-sm">
-              <ShieldCheck className="h-5 w-5 text-white" />
-            </span>
-            <div>
-              <div className="geo-utility-header-title geo-brand-title text-lg">
-                势途 GEO · 管理后台
-              </div>
-              <div className="geo-utility-header-subtitle text-[11px] mt-0.5">用户与积分管理</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/admin/metrics"
-              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              运营监控
-            </Link>
-            <Link
-              href="/admin/recharge"
-              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              充值审批 / 模型配置
-            </Link>
-            <Link
-              href="/admin/ledger"
-              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              积分流水
-            </Link>
-            <Link
-              href="/admin/password-resets"
-              className="geo-utility-header-action inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              <KeyRound className="h-3.5 w-3.5 text-[#1677FF]" />
-              密码重置
-              {pendingPasswordResetCount > 0 && (
-                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-700">
-                  {pendingPasswordResetCount}
-                </span>
-              )}
-            </Link>
-            <Link
-              href="/workspace"
-              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              返回工作台
-            </Link>
-          </div>
-        </div>
-      </header>
+      <AdminHeader
+        title="势途 GEO · 管理后台"
+        subtitle="用户与积分管理"
+        icon={<ShieldCheck className="h-5 w-5 text-white" />}
+        active="users"
+        pendingPasswordResetCount={pendingPasswordResetCount}
+      />
 
       <main className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8">
-        <div className="mb-6 flex items-end justify-between gap-3">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-[11px] text-slate-400 mb-1.5 tracking-[0.18em] uppercase font-medium">
               Users
@@ -149,7 +104,8 @@ export default async function AdminPage() {
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm">
-            <table className="w-full min-w-[920px]">
+            <div className="md:overflow-x-auto">
+              <table className="admin-responsive-table w-full min-w-[920px]">
               <thead>
                 <tr className="bg-slate-50/60 text-left text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   <th className="px-4 py-3">用户</th>
@@ -164,7 +120,7 @@ export default async function AdminPage() {
               <tbody>
                 {rows.map(({ user, credits, unlimited }) => (
                   <tr key={user.id} className="border-t border-slate-100 align-top">
-                    <td className="px-4 py-4">
+                    <td data-label="用户" className="px-4 py-4">
                       <div className="flex items-start gap-3">
                         <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-[#0958D9] ring-1 ring-blue-100">
                           <UsersRound className="h-4 w-4" />
@@ -176,15 +132,15 @@ export default async function AdminPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-4">
+                    <td data-label="角色" className="px-4 py-4">
                       <span className={user.role === "admin" ? "rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-100" : "rounded-lg bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200"}>
                         {user.role === "admin" ? "管理员" : "用户"}
                       </span>
                     </td>
-                    <td className="px-4 py-4">
+                    <td data-label="状态" className="px-4 py-4">
                       <UserStatusForm userId={user.id} status={user.status} />
                     </td>
-                    <td className="px-4 py-4 text-sm font-bold text-slate-900">
+                    <td data-label="积分" className="px-4 py-4 text-sm font-bold text-slate-900">
                       {unlimited ? (
                         <div>
                           <span className="rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700 ring-1 ring-blue-100">无限</span>
@@ -194,16 +150,16 @@ export default async function AdminPage() {
                         <span className="font-mono">{credits}</span>
                       )}
                     </td>
-                    <td className="px-4 py-4 text-xs text-slate-500">
+                    <td data-label="注册时间" className="px-4 py-4 text-xs text-slate-500">
                       {new Date(user.createdAt).toLocaleString("zh-CN", { hour12: false })}
                     </td>
-                    <td className="px-4 py-4">
+                    <td data-label="积分操作" className="px-4 py-4">
                       <CreditsAdjustForm userId={user.id} disabled={unlimited} />
                     </td>
-                    <td className="px-4 py-4">
+                    <td data-label="明细" className="px-4 py-4">
                       <Link
                         href={`/admin/users/${user.id}`}
-                        className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-[#1677FF]"
+                        className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-[#1677FF] sm:min-h-0"
                       >
                         <ReceiptText className="h-3.5 w-3.5" />
                         查看
@@ -212,7 +168,8 @@ export default async function AdminPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         )}
       </main>
