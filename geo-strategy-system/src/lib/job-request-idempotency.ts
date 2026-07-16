@@ -34,7 +34,7 @@ export function normalizeJobRequestId(value: unknown): string {
 }
 
 export function jobIdFromRequest(
-  prefix: "pjob" | "djob" | "qjob",
+  prefix: "pjob" | "djob" | "qjob" | "rjob",
   ownerUserId: string,
   requestId: string,
 ): string {

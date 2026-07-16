@@ -2,6 +2,7 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { settlePaymentCreditsOnce } from "@/lib/credits"
+import { grantVip1FromPaymentOrder } from "@/lib/membership"
 import {
   getPaymentOrderRecord,
   getPaymentOrderRecordByOutTradeNo,
@@ -145,6 +146,7 @@ export async function creditPaymentOrder(input: {
   const order = await getPaymentOrder(input.orderId)
   if (!order) return { ok: false, reason: "支付订单不存在" }
   if (order.status === "credited" && order.creditedAt) {
+    await grantVip1FromPaymentOrder(order)
     return { ok: true, credited: false, order, reason: "already_credited" }
   }
   if (order.status === "canceled") return { ok: false, reason: "支付订单已取消，不能到账" }
@@ -168,6 +170,7 @@ export async function creditPaymentOrder(input: {
   const latest = await getPaymentOrder(order.id)
   if (!latest) return { ok: false, reason: "支付订单不存在" }
   if (latest.status === "credited" && latest.creditedAt) {
+    await grantVip1FromPaymentOrder(latest)
     return { ok: true, credited: false, order: latest, reason: "already_credited" }
   }
 
@@ -215,6 +218,7 @@ export async function creditPaymentOrder(input: {
     updatedAt: settledAt,
   }
   await savePaymentOrderRecord(updated)
+  await grantVip1FromPaymentOrder(updated)
   return settlement.alreadySettled
     ? { ok: true, credited: false, order: updated, reason: "already_credited" }
     : { ok: true, credited: true, order: updated, balance: settlement.balance }

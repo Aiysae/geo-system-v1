@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { House, LogOut, ReceiptText, ShieldCheck, UserRound } from "lucide-react"
+import { Crown, House, LogOut, ReceiptText, ShieldCheck, UserRound } from "lucide-react"
 import { BillingLink } from "@/components/billing/billing-link"
+import type { MembershipSnapshot } from "@/types"
 
 type MeResponse = {
   user?: {
@@ -12,10 +13,12 @@ type MeResponse = {
     name: string
     role: "admin" | "user"
   }
+  membership?: MembershipSnapshot
 }
 
 export function AccountMenu() {
   const [user, setUser] = useState<MeResponse["user"] | null>(null)
+  const [membership, setMembership] = useState<MembershipSnapshot>({ tier: "free", active: false })
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -23,7 +26,12 @@ export function AccountMenu() {
     fetch("/api/me", { cache: "no-store" })
       .then(res => (res.ok ? res.json() : null))
       .then((data: MeResponse | null) => {
-        if (alive) setUser(data?.user ?? null)
+        if (alive) {
+          setUser(data?.user ?? null)
+          setMembership(data?.membership?.active === true
+            ? data.membership
+            : { tier: "free", active: false })
+        }
       })
       .catch(() => {
         if (alive) setUser(null)
@@ -56,6 +64,16 @@ export function AccountMenu() {
               {user?.name || "当前账号"}
             </div>
             <div className="mt-0.5 truncate text-xs text-slate-500">{user?.email || "已登录"}</div>
+            <div className="mt-2">
+              <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold ring-1 ${
+                user?.role === "admin" || membership.active
+                  ? "bg-amber-50 text-amber-700 ring-amber-200"
+                  : "bg-slate-50 text-slate-500 ring-slate-200"
+              }`}>
+                <Crown className="h-3 w-3" />
+                {user?.role === "admin" ? "管理员权益" : membership.active ? "VIP1 会员" : "普通用户"}
+              </span>
+            </div>
           </div>
 
           {user?.role === "admin" && (

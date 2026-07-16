@@ -3,7 +3,9 @@ import {
   getReportBranding,
   ReportBrandingValidationError,
   saveReportBranding,
+  validateReportBranding,
 } from "@/lib/reports/report-branding-store"
+import { getReportBrandingAccess } from "@/lib/report-access"
 import { requireUserId } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
@@ -22,7 +24,11 @@ function noStore(data: unknown, init?: ResponseInit) {
 export async function GET() {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
-  return noStore({ branding: await getReportBranding(auth.userId) })
+  const [branding, access] = await Promise.all([
+    getReportBranding(auth.userId),
+    getReportBrandingAccess(auth.userId),
+  ])
+  return noStore({ branding, access })
 }
 
 export async function PUT(req: NextRequest) {
@@ -34,7 +40,18 @@ export async function PUT(req: NextRequest) {
       return noStore({ error: "Logo 文件过大，请压缩后重试" }, { status: 413 })
     }
     const body = await req.json() as { branding?: unknown }
-    const branding = await saveReportBranding(auth.userId, body.branding)
+    const candidate = validateReportBranding(body.branding)
+    if (candidate.mode === "custom") {
+      const access = await getReportBrandingAccess(auth.userId)
+      if (!access.canUseCustomBranding) {
+        return noStore({
+          error: "充值任意套餐并到账后，即可解锁白标报告",
+          code: "VIP_REQUIRED",
+          access,
+        }, { status: 403 })
+      }
+    }
+    const branding = await saveReportBranding(auth.userId, candidate)
     return noStore({ branding })
   } catch (error) {
     const message = error instanceof ReportBrandingValidationError

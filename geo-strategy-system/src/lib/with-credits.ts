@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { addCreditsBy, decrCreditsBy, getCredits, reserveCreditsBy } from "./credits"
+import { addCreditsBy, decrCreditsBy, getCredits, refundCreditsOnce, reserveCreditsBy } from "./credits"
 import { getCurrentUser, getUserById, type PublicUser } from "./auth"
 import { isAdminUser } from "./admin"
 import type { CreditLedgerContext } from "./credit-ledger"
@@ -209,6 +209,25 @@ export async function refundReservedCreditsQuietly(
   } catch (error) {
     console.error("[credits] refund reservation failed", reservation.userId, reservation.amount, error)
   }
+}
+
+export async function refundReservedCreditsOnce(
+  reservation: CreditReservation,
+  operationId: string,
+): Promise<void> {
+  if (reservation.amount <= 0) return
+  await refundCreditsOnce({
+    operationId,
+    userId: reservation.userId,
+    credits: reservation.amount,
+    context: {
+      ...reservation.ledgerContext,
+      type: "usage_refund",
+      description: reservation.ledgerContext?.description
+        ? `${reservation.ledgerContext.description} · 失败退回`
+        : "任务失败退回预扣积分",
+    },
+  })
 }
 
 export async function settleReservedCredits(

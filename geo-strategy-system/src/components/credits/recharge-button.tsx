@@ -10,6 +10,7 @@ import {
   Check,
   ChevronLeft,
   CreditCard,
+  Crown,
   Plus,
   Sparkles,
   X,
@@ -119,7 +120,7 @@ export function RechargeButton({
           }`}
         >
           {paymentReturn === "syncing" && "正在确认支付到账状态..."}
-          {paymentReturn === "credited" && "支付成功，积分已自动到账。"}
+          {paymentReturn === "credited" && "支付成功，积分已到账，VIP1 权益已同步。"}
           {paymentReturn === "pending" && "支付结果仍在确认中，请稍后刷新积分。"}
           {paymentReturn === "failed" && "暂未确认到账，请稍后在账单中刷新支付状态。"}
         </div>
@@ -446,6 +447,7 @@ function RechargeDialog({
                     {state!.ok && state!.credits}
                   </span>
                   。管理员核对到账后会审批加积分。
+                  首次真实充值到账后会同时解锁 VIP1。
                 </p>
                 {state!.ok && state!.paymentOutTradeNo && (
                   <div className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">
@@ -470,6 +472,11 @@ function RechargeDialog({
                   <div>
                     <h3 className="text-base font-semibold text-slate-950">选择充值套餐</h3>
                     <p className="mt-1 text-xs leading-5 text-slate-500">确认所需积分额度，下一步再选择付款方式。</p>
+                  </div>
+
+                  <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-[11px] leading-5 text-amber-900 ring-1 ring-amber-200">
+                    <Crown className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <span>任意真实充值套餐首次到账，即永久解锁 VIP1；白标专业报告每份 15 积分。</span>
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">

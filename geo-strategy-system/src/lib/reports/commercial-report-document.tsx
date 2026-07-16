@@ -416,8 +416,8 @@ function metricValueStyle(value: string): { fontSize: number; lineHeight: number
   return { fontSize: 8, lineHeight: 1.45 }
 }
 
-function concisePeriod(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim()
+function concisePeriod(value?: string | null): string {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim()
   if (/暂无|尚未|未形成/.test(normalized) || /(?:^|[^\d])0\s*(?:天|日)/.test(normalized)) {
     return "尚未形成稳定提及周期"
   }

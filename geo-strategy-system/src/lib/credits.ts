@@ -17,6 +17,7 @@ const INITIAL_CREDITS = readPositiveIntEnv("CREDITS_INITIAL", 50)
 const key = (userId: string) => `user_credits:${userId}`
 const adminAdjustmentKey = (operationId: string) => `credit_admin_adjustment:${operationId}`
 const paymentSettlementKey = (orderId: string) => `payment_credit_settlement:${orderId}`
+const usageRefundKey = (operationId: string) => `credit_usage_refund:${operationId}`
 
 const ADMIN_ADJUSTMENT_TTL_SECONDS = 60 * 60 * 24 * 30
 
@@ -109,6 +110,36 @@ redis.call("SET", KEYS[2], encoded)
 return {1, encoded}
 `
 
+const USAGE_REFUND_SCRIPT = `
+-- usage_refund_v1
+local completed = redis.call("GET", KEYS[2])
+if completed then
+  return {2, completed}
+end
+
+local current = redis.call("GET", KEYS[1])
+local initial = tonumber(ARGV[1])
+local amount = tonumber(ARGV[2])
+
+if not current then
+  current = initial
+else
+  current = tonumber(current) or 0
+end
+
+if not amount or amount <= 0 then
+  return {0, current}
+end
+
+local next_balance = current + amount
+local result = cjson.decode(ARGV[3])
+result.balance = next_balance
+local encoded = cjson.encode(result)
+redis.call("SET", KEYS[1], next_balance)
+redis.call("SET", KEYS[2], encoded)
+return {1, encoded}
+`
+
 function normalizeAmount(value: number, fallback = 1): number {
   return Math.max(1, Math.floor(Number.isFinite(value) ? value : fallback))
 }
@@ -157,6 +188,18 @@ export type PaymentCreditSettlementResult = {
 
 type StoredPaymentCreditSettlement = Omit<PaymentCreditSettlementResult, "alreadySettled">
 
+export type CreditRefundSettlementResult = {
+  operationId: string
+  userId: string
+  credits: number
+  balance: number
+  ledgerEntryId: string
+  createdAt: string
+  alreadySettled: boolean
+}
+
+type StoredCreditRefundSettlement = Omit<CreditRefundSettlementResult, "alreadySettled">
+
 type StoredAdminCreditAdjustment = AdminCreditAdjustmentResult & {
   operatorUserId: string
   createdAt: string
@@ -183,6 +226,18 @@ function parseStoredPaymentSettlement(value: unknown): StoredPaymentCreditSettle
     }
   }
   if (value && typeof value === "object") return value as StoredPaymentCreditSettlement
+  return null
+}
+
+function parseStoredCreditRefund(value: unknown): StoredCreditRefundSettlement | null {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as StoredCreditRefundSettlement
+    } catch {
+      return null
+    }
+  }
+  if (value && typeof value === "object") return value as StoredCreditRefundSettlement
   return null
 }
 
@@ -258,6 +313,75 @@ export async function settlePaymentCreditsOnce(input: {
     throw new Error("支付订单结算信息冲突")
   }
   await ensurePaymentSettlementLedger(result, input.context)
+  return { ...result, alreadySettled: status === 2 }
+}
+
+async function ensureCreditRefundLedger(
+  result: StoredCreditRefundSettlement,
+  context?: CreditLedgerContext,
+): Promise<void> {
+  await writeCreditLedgerEntry({
+    id: result.ledgerEntryId,
+    userId: result.userId,
+    delta: result.credits,
+    balanceAfter: result.balance,
+    context: {
+      ...context,
+      type: "usage_refund",
+      source: context?.source || "background_job",
+      sourceId: context?.sourceId || result.operationId,
+    },
+  })
+}
+
+/** 长任务失败退回专用：余额增加和退回标记原子完成，重试不会重复加积分。 */
+export async function refundCreditsOnce(input: {
+  operationId: string
+  userId: string
+  credits: number
+  context?: CreditLedgerContext
+}): Promise<CreditRefundSettlementResult> {
+  const operationId = input.operationId.trim()
+  const userId = input.userId.trim()
+  const credits = Math.trunc(input.credits)
+  if (!/^[a-zA-Z0-9_-]{8,180}$/.test(operationId)) throw new Error("积分退回操作号无效")
+  if (!userId) throw new Error("积分退回用户缺失")
+  if (!Number.isFinite(credits) || credits <= 0) throw new Error("积分退回数量必须为正整数")
+
+  const existing = parseStoredCreditRefund(
+    await kv.get<StoredCreditRefundSettlement>(usageRefundKey(operationId)),
+  )
+  if (existing) {
+    if (existing.userId !== userId || existing.credits !== credits) {
+      throw new Error("积分退回操作信息冲突")
+    }
+    await ensureCreditRefundLedger(existing, input.context)
+    return { ...existing, alreadySettled: true }
+  }
+
+  await ensureInitialized(userId)
+  const pending: StoredCreditRefundSettlement = {
+    operationId,
+    userId,
+    credits,
+    balance: 0,
+    ledgerEntryId: `ledger_refund_${operationId}`,
+    createdAt: new Date().toISOString(),
+  }
+  const tuple = await kv.eval<[number, string | number], unknown>(
+    USAGE_REFUND_SCRIPT,
+    [key(userId), usageRefundKey(operationId)],
+    [INITIAL_CREDITS, credits, JSON.stringify(pending)],
+  )
+  const status = Number(tuple?.[0])
+  if (status !== 1 && status !== 2) throw new Error("积分退回结算失败")
+
+  const result = parseStoredCreditRefund(tuple?.[1])
+  if (!result) throw new Error("积分退回结算结果无效")
+  if (result.userId !== userId || result.credits !== credits) {
+    throw new Error("积分退回操作信息冲突")
+  }
+  await ensureCreditRefundLedger(result, input.context)
   return { ...result, alreadySettled: status === 2 }
 }
 

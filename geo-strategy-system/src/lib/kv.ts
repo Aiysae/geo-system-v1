@@ -129,6 +129,9 @@ class LocalFileKv implements KvClient {
     if (script.includes("payment_settlement_v1")) {
       return this.evalPaymentSettlement(keys, args) as TResult
     }
+    if (script.includes("usage_refund_v1")) {
+      return this.evalPaymentSettlement(keys, args) as TResult
+    }
     if (script.includes("admin_adjustment_v1")) {
       return this.evalAdminAdjustment(keys, args) as TResult
     }

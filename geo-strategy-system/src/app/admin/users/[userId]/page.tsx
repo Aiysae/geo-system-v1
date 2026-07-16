@@ -1,8 +1,9 @@
 import { notFound, redirect } from "next/navigation"
-import { ReceiptText, ShieldCheck, UserRound, WalletCards } from "lucide-react"
+import { Crown, ReceiptText, ShieldCheck, UserRound, WalletCards } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, getUserById } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
+import { getMembershipWithPaymentRepair } from "@/lib/membership"
 import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-ledger"
 import { formatYuan, getFeaturePrice } from "@/lib/pricing"
@@ -76,10 +77,11 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
   const user = await getUserById(userId)
   if (!user) notFound()
 
-  const [credits, recharges, ledger] = await Promise.all([
+  const [credits, recharges, ledger, membership] = await Promise.all([
     getCredits(user.id),
     listRequestsForUser(user.id, 100),
     listCreditLedgerForUser(user.id, 150),
+    getMembershipWithPaymentRepair(user.id),
   ])
   const totalRechargeCredits = recharges
     .filter(item => item.status === "approved")
@@ -125,6 +127,14 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
               <span className="ml-2 inline-flex rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
                 {user.role === "admin" ? "管理员" : "用户"}
               </span>
+              <span className={`ml-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium ring-1 ${
+                membership.active
+                  ? "bg-amber-50 text-amber-700 ring-amber-200"
+                  : "bg-slate-50 text-slate-500 ring-slate-200"
+              }`}>
+                <Crown className="h-3 w-3" />
+                {membership.active ? "VIP1" : "普通会员"}
+              </span>
             </div>
           </div>
         </section>
@@ -149,6 +159,11 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
             <div>注册时间：{formatTime(user.createdAt)}</div>
             <div>最近登录：{formatTime(user.lastLoginAt)}</div>
           </div>
+          {membership.active ? (
+            <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
+              VIP1 激活时间：{formatTime(membership.activatedAt)}；来源：{membership.source === "payment" ? "真实充值到账" : "管理员授权"}。
+            </div>
+          ) : null}
         </section>
 
         <section className="grid gap-5 xl:grid-cols-2">

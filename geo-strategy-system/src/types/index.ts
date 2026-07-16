@@ -552,6 +552,26 @@ export interface CommercialReportJobRecord {
   startedAt?: string
   finishedAt?: string
   expiresAt: string
+  creditCost?: number
+  creditsRefunded?: boolean
+}
+
+export type MembershipTier = "free" | "vip1"
+export type MembershipSource = "payment" | "admin"
+
+export interface MembershipSnapshot {
+  tier: MembershipTier
+  active: boolean
+  source?: MembershipSource
+  sourceOrderId?: string
+  activatedAt?: number
+}
+
+export interface ReportBrandingAccess {
+  membership: MembershipSnapshot
+  canUseCustomBranding: boolean
+  accessSource: "admin" | "vip1" | "none"
+  customReportCredits: number
 }
 
 export interface DiagnosisDimensions {

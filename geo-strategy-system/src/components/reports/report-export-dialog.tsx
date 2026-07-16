@@ -1,7 +1,7 @@
 "use client"
 
 import NextImage from "next/image"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   BarChart3,
@@ -13,13 +13,16 @@ import {
   ImagePlus,
   Layers3,
   Link2,
+  LockKeyhole,
   Loader2,
   RotateCcw,
   ShieldCheck,
   Trash2,
   X,
 } from "lucide-react"
-import { readApiJson } from "@/lib/api-fetch"
+import { BillingLink } from "@/components/billing/billing-link"
+import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
+import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { DEFAULT_REPORT_BRANDING, resolveReportBranding } from "@/lib/report-branding"
 import type {
   Client,
@@ -30,6 +33,7 @@ import type {
   PenetrationItem,
   PenetrationResult,
   ReportBrandingSettings,
+  ReportBrandingAccess,
   ReportExportPreset,
 } from "@/types"
 
@@ -217,12 +221,24 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
   const [job, setJob] = useState<CommercialReportJobRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [branding, setBranding] = useState<ReportBrandingSettings>({ ...DEFAULT_REPORT_BRANDING })
+  const [brandingAccess, setBrandingAccess] = useState<ReportBrandingAccess>({
+    membership: { tier: "free", active: false },
+    canUseCustomBranding: false,
+    accessSource: "none",
+    customReportCredits: 15,
+  })
   const [brandingLoading, setBrandingLoading] = useState(true)
   const [brandingSaving, setBrandingSaving] = useState(false)
   const [logoProcessing, setLogoProcessing] = useState(false)
   const [rememberBranding, setRememberBranding] = useState(true)
   const [brandingError, setBrandingError] = useState<string | null>(null)
   const [brandingNotice, setBrandingNotice] = useState<string | null>(null)
+  const customBrandingRef = useRef<ReportBrandingSettings>({
+    mode: "custom",
+    companyName: "",
+    website: "",
+  })
+  const reportRequestIdRef = useRef<string | null>(null)
 
   const difficulty = client.difficultyAssessments?.find(entry => entry.id === difficultyEntryId)
     || client.difficultyAssessments?.[0]
@@ -232,7 +248,9 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
     && !brandingLoading
     && !brandingSaving
     && !logoProcessing
+    && (branding.mode !== "custom" || brandingAccess.canUseCustomBranding)
     && (branding.mode !== "custom" || Boolean(branding.companyName.trim()))
+  const customBrandingLocked = branding.mode === "custom" && !brandingAccess.canUseCustomBranding
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -251,13 +269,26 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
   }, [generating, onClose])
 
   useEffect(() => {
+    if (branding.mode === "custom") customBrandingRef.current = branding
+  }, [branding])
+
+  useEffect(() => {
     let active = true
     async function loadBranding() {
       try {
         const response = await reportFetch("/api/reports/branding")
-        const data = await readApiJson<{ branding?: ReportBrandingSettings; error?: string }>(response, "报告出品方")
+        const data = await readApiJson<{
+          branding?: ReportBrandingSettings
+          access?: ReportBrandingAccess
+          error?: string
+        }>(response, "报告出品方")
         if (!response.ok) throw new Error(data.error || "读取报告出品方失败")
-        if (active) setBranding(resolveReportBranding(data.branding))
+        if (active) {
+          const resolved = resolveReportBranding(data.branding)
+          setBranding(resolved)
+          if (resolved.mode === "custom") customBrandingRef.current = resolved
+          if (data.access) setBrandingAccess(data.access)
+        }
       } catch {
         if (active) {
           setBranding({ ...DEFAULT_REPORT_BRANDING })
@@ -294,9 +325,8 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
   function changeBrandingMode(mode: ReportBrandingSettings["mode"]) {
     setBrandingError(null)
     setBrandingNotice(null)
-    setBranding(mode === "shitu"
-      ? { ...DEFAULT_REPORT_BRANDING }
-      : { mode: "custom", companyName: "", website: "", logoDataUrl: undefined })
+    if (branding.mode === "custom") customBrandingRef.current = branding
+    setBranding(mode === "shitu" ? { ...DEFAULT_REPORT_BRANDING } : { ...customBrandingRef.current })
   }
 
   async function handleLogoFile(file: File | undefined) {
@@ -322,7 +352,11 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branding }),
       })
-      const data = await readApiJson<{ branding?: ReportBrandingSettings; error?: string }>(response, "保存报告出品方")
+      const data = await readApiJson<{
+        branding?: ReportBrandingSettings
+        error?: string
+        code?: string
+      }>(response, "保存报告出品方")
       if (!response.ok || !data.branding) throw new Error(data.error || "保存报告出品方失败")
       const saved = resolveReportBranding(data.branding)
       setBranding(saved)
@@ -352,14 +386,21 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
     setBrandingError(null)
     setJob(null)
     try {
-      if (rememberBranding) await persistBranding()
-      const response = await reportFetch("/api/reports/jobs", {
+      if (rememberBranding && branding.mode === "custom") await persistBranding()
+      const requestId = reportRequestIdRef.current
+        || `report_${crypto.randomUUID().replace(/-/g, "")}`
+      reportRequestIdRef.current = requestId
+      const response = await apiFetch("/api/reports/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: buildInput() }),
+        body: JSON.stringify({ input: buildInput(), requestId }),
       })
       let current = await readApiJson<CommercialReportJobRecord & { error?: string }>(response, "专业报告任务")
-      if (!response.ok) throw new Error(current.error || "创建专业报告任务失败")
+      if (!response.ok) {
+        if (response.status !== 409) reportRequestIdRef.current = null
+        throw new Error(current.error || "创建专业报告任务失败")
+      }
+      reportRequestIdRef.current = null
       setJob(current)
 
       while (current.status === "queued" || current.status === "running") {
@@ -502,7 +543,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div>
                       <div className="text-xs font-semibold text-slate-700">报告出品方</div>
-                      <div className="mt-1 text-[11px] text-slate-500">自定义后，PDF 中不会混入势途名称或 Logo。</div>
+                      <div className="mt-1 text-[11px] text-slate-500">势途标准版免费；白标版可换成你的公司名称和 Logo。</div>
                     </div>
                     {brandingLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#1677FF]" /> : null}
                   </div>
@@ -515,7 +556,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                       className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-xs font-semibold transition ${branding.mode === "shitu" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500"}`}
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
-                      势途默认
+                      势途标准版 · 免费
                     </button>
                     <button
                       type="button"
@@ -523,8 +564,10 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                       disabled={generating || brandingLoading}
                       className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-xs font-semibold transition ${branding.mode === "custom" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500"}`}
                     >
-                      <Building2 className="h-3.5 w-3.5" />
-                      我的公司
+                      {brandingAccess.canUseCustomBranding
+                        ? <Building2 className="h-3.5 w-3.5" />
+                        : <LockKeyhole className="h-3.5 w-3.5" />}
+                      白标交付版
                     </button>
                   </div>
 
@@ -537,6 +580,26 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                         <span className="block truncate text-xs font-semibold text-slate-800">杭州势途数字科技有限公司</span>
                         <span className="mt-1 block truncate text-[11px] text-[#1677FF]">https://shitugeo.top</span>
                       </span>
+                    </div>
+                  ) : customBrandingLocked ? (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+                      <div className="flex items-start gap-3">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                          <LockKeyhole className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-amber-950">充值到账后解锁 VIP1</div>
+                          <p className="mt-1 text-[11px] leading-5 text-amber-800">
+                            任意真实充值套餐首次到账即永久解锁白标报告，之后每份仅消耗 {brandingAccess.customReportCredits} 积分。势途标准版始终免费。
+                          </p>
+                          {branding.companyName ? (
+                            <p className="mt-1 text-[11px] text-amber-700">你之前保存的白标资料仍在，解锁后会自动恢复。</p>
+                          ) : null}
+                          <BillingLink onNavigate={onClose} className="mt-3 inline-flex h-8 items-center justify-center rounded-md bg-amber-600 px-3 text-xs font-semibold text-white transition hover:bg-amber-700">
+                            查看充值套餐
+                          </BillingLink>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="mt-3 grid gap-4 md:grid-cols-[1fr_220px]">
@@ -619,16 +682,29 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                     </div>
                   )}
 
-                  <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-slate-600">
-                    <input
-                      type="checkbox"
-                      checked={rememberBranding}
-                      onChange={event => setRememberBranding(event.target.checked)}
-                      disabled={generating || brandingLoading}
-                      className="mt-1 h-3.5 w-3.5 accent-[#1677FF]"
-                    />
-                    保存为我的默认报告出品方，下次和其他设备自动使用
-                  </label>
+                  {branding.mode === "custom" && brandingAccess.canUseCustomBranding ? (
+                    <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={rememberBranding}
+                        onChange={event => setRememberBranding(event.target.checked)}
+                        disabled={generating || brandingLoading}
+                        className="mt-1 h-3.5 w-3.5 accent-[#1677FF]"
+                      />
+                      保存为我的默认白标出品方，下次和其他设备自动使用
+                    </label>
+                  ) : null}
+
+                  {branding.mode === "custom" && brandingAccess.canUseCustomBranding ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                        {brandingAccess.accessSource === "admin" ? "管理员已解锁" : "VIP1 已解锁"}
+                      </span>
+                      {brandingAccess.customReportCredits > 0 ? (
+                        <CreditCostBadge featureKey="reportCustomBranding" label="本份消耗" />
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   {brandingNotice ? (
                     <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">{brandingNotice}</div>
@@ -675,15 +751,28 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
               >
                 取消
               </button>
-              <button
-                type="button"
-                onClick={generateReport}
-                disabled={!canGenerate || generating}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#1677FF] bg-[#1677FF] px-6 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#0958D9] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                {brandingSaving ? "正在保存出品方" : generating ? "正在生成" : "生成并下载 PDF"}
-              </button>
+              {customBrandingLocked ? (
+                <BillingLink onNavigate={onClose} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-amber-600 px-6 text-sm font-semibold text-white transition hover:bg-amber-700">
+                  <LockKeyhole className="h-4 w-4" />
+                  充值解锁 VIP1
+                </BillingLink>
+              ) : (
+                <button
+                  type="button"
+                  onClick={generateReport}
+                  disabled={!canGenerate || generating}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#1677FF] bg-[#1677FF] px-6 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#0958D9] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {brandingSaving
+                    ? "正在保存出品方"
+                    : generating
+                      ? "正在生成"
+                      : branding.mode === "custom" && brandingAccess.customReportCredits > 0
+                        ? `消耗 ${brandingAccess.customReportCredits} 积分并生成 PDF`
+                        : "生成并下载 PDF"}
+                </button>
+              )}
             </div>
           </div>
         </div>
