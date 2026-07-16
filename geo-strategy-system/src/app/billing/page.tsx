@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { ArrowLeft, ArrowUpRight, CreditCard, ReceiptText, Sparkles } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, CreditCard, Crown, ReceiptText, Sparkles } from "lucide-react"
 import { getCurrentUser } from "@/lib/auth"
 import {
   mergeBillingRechargeRecords,
@@ -13,6 +13,7 @@ import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-le
 import { formatYuan, getFeaturePrice, RECHARGE_PACKAGES } from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
 import { listRequestsForUser } from "@/lib/recharge"
+import { getMembershipWithPaymentRepair } from "@/lib/membership"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import SiteFooter from "@/components/site-footer"
 
@@ -77,11 +78,12 @@ export default async function BillingPage() {
   const user = await getCurrentUser()
   if (!user) redirect("/sign-in?redirect_url=/billing")
 
-  const [credits, rechargeRequests, paymentOrders, ledger] = await Promise.all([
+  const [credits, rechargeRequests, paymentOrders, ledger, membership] = await Promise.all([
     getCredits(user.id),
     listRequestsForUser(user.id, 80),
     listPaymentOrdersForUser(user.id, 80),
     listCreditLedgerForUser(user.id, 120),
+    getMembershipWithPaymentRepair(user.id),
   ])
   const recharges = mergeBillingRechargeRecords(rechargeRequests, paymentOrders, 80)
   const unlimited = hasUnlimitedCreditAccess(user)
@@ -121,6 +123,14 @@ export default async function BillingPage() {
             <p className="mt-2 text-xs leading-5 text-slate-500">
               所有功能扣费、失败退回、充值到账都会进入下方消费流水。
             </p>
+            <div className={`mt-4 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold ring-1 ${
+              unlimited || membership.active
+                ? "bg-amber-50 text-amber-800 ring-amber-200"
+                : "bg-slate-50 text-slate-600 ring-slate-200"
+            }`}>
+              <Crown className="h-4 w-4" />
+              {unlimited ? "管理员权益已解锁" : membership.active ? "VIP1 已解锁 · 可生成白标报告" : "充值任意套餐到账后解锁 VIP1"}
+            </div>
             <div className="mt-5">
               <RechargeButton />
             </div>
@@ -130,6 +140,10 @@ export default async function BillingPage() {
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900">
               <CreditCard className="h-4 w-4 text-[#1677FF]" />
               当前充值套餐
+            </div>
+            <div className="mb-4 flex items-start gap-2 rounded-lg bg-[#EEF6FF] px-3 py-2.5 text-xs leading-5 text-[#003EB3] ring-1 ring-[#BAE0FF]">
+              <Crown className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <span>首次真实充值到账即永久升级 VIP1，白标专业报告 15 积分/份；势途标准报告仍免费。</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {RECHARGE_PACKAGES.map(pkg => (

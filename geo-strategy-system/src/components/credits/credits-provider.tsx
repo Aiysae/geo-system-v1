@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation"
 import { Sparkles, X } from "lucide-react"
 import { registerCreditsHandlers, unregisterCreditsHandlers } from "@/lib/api-fetch"
 import { BillingLink } from "@/components/billing/billing-link"
+import type { MembershipSnapshot } from "@/types"
 
 type CreditsContextValue = {
   balance: number | null
   unlimited: boolean
+  membership: MembershipSnapshot
   refresh: () => Promise<void>
 }
 
@@ -30,6 +32,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
     || pathname.startsWith("/admin")
   const [balance, setBalance] = useState<number | null>(null)
   const [unlimited, setUnlimited] = useState(false)
+  const [membership, setMembership] = useState<MembershipSnapshot>({ tier: "free", active: false })
   const [modal, setModal] = useState<ModalState>(null)
   // 避免短时间内多次成功触发并发 refresh
   const refreshingRef = useRef(false)
@@ -44,9 +47,13 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json()
         if (typeof data?.credits === "number") setBalance(data.credits)
         setUnlimited(data?.unlimited === true)
+        setMembership(data?.membership?.active === true
+          ? data.membership as MembershipSnapshot
+          : { tier: "free", active: false })
       } else if (res.status === 401) {
         setBalance(null)
         setUnlimited(false)
+        setMembership({ tier: "free", active: false })
       }
     } catch {
       /* 静默 */
@@ -91,7 +98,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
   }, [refresh])
 
   return (
-    <CreditsContext.Provider value={{ balance, unlimited, refresh }}>
+    <CreditsContext.Provider value={{ balance, unlimited, membership, refresh }}>
       {children}
       {modal && (
         <InsufficientCreditsModal

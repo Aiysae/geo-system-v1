@@ -1,9 +1,10 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { Inbox, ReceiptText, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
+import { Crown, Inbox, ReceiptText, ShieldCheck, Sparkles, UsersRound } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listPasswordResetRequests, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
+import { getMembershipWithPaymentRepair } from "@/lib/membership"
 import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "./credits-adjust-form"
@@ -38,14 +39,22 @@ export default async function AdminPage() {
     listPasswordResetRequests(120),
   ])
   const rows = await Promise.all(
-    users.map(async user => ({
-      user,
-      credits: await getCredits(user.id),
-      unlimited: hasUnlimitedCreditAccess(user),
-    }))
+    users.map(async user => {
+      const [credits, membership] = await Promise.all([
+        getCredits(user.id),
+        getMembershipWithPaymentRepair(user.id),
+      ])
+      return {
+        user,
+        credits,
+        membership,
+        unlimited: hasUnlimitedCreditAccess(user),
+      }
+    })
   )
   const totalCredits = rows.reduce((sum, row) => sum + (row.unlimited ? 0 : row.credits), 0)
   const adminCount = rows.filter(row => row.user.role === "admin").length
+  const vip1Count = rows.filter(row => row.membership.active).length
   const pendingPasswordResetCount = passwordResetRequests.filter(request => request.status === "pending").length
 
   return (
@@ -74,7 +83,7 @@ export default async function AdminPage() {
           </span>
         </div>
 
-        <div className="mb-5 grid gap-3 md:grid-cols-3">
+        <div className="mb-5 grid gap-3 md:grid-cols-4">
           <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-slate-500">用户总数</div>
             <div className="mt-2 font-mono text-2xl font-bold text-slate-900">{rows.length}</div>
@@ -93,6 +102,13 @@ export default async function AdminPage() {
             </div>
             <div className="mt-2 font-mono text-2xl font-bold text-blue-700">{adminCount}</div>
           </div>
+          <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
+            <div className="flex items-center gap-1.5 text-xs text-amber-700">
+              <Crown className="h-3.5 w-3.5" />
+              VIP1 会员
+            </div>
+            <div className="mt-2 font-mono text-2xl font-bold text-amber-700">{vip1Count}</div>
+          </div>
         </div>
 
         {rows.length === 0 ? (
@@ -105,10 +121,11 @@ export default async function AdminPage() {
         ) : (
           <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm">
             <div className="md:overflow-x-auto">
-              <table className="admin-responsive-table w-full min-w-[920px]">
+              <table className="admin-responsive-table w-full min-w-[1040px]">
               <thead>
                 <tr className="bg-slate-50/60 text-left text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   <th className="px-4 py-3">用户</th>
+                  <th className="px-4 py-3">会员</th>
                   <th className="px-4 py-3">角色</th>
                   <th className="px-4 py-3">状态</th>
                   <th className="px-4 py-3">积分</th>
@@ -118,7 +135,7 @@ export default async function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ user, credits, unlimited }) => (
+                {rows.map(({ user, credits, membership, unlimited }) => (
                   <tr key={user.id} className="border-t border-slate-100 align-top">
                     <td data-label="用户" className="px-4 py-4">
                       <div className="flex items-start gap-3">
@@ -131,6 +148,16 @@ export default async function AdminPage() {
                           <div className="mt-1 font-mono text-[10px] text-slate-400">{user.id}</div>
                         </div>
                       </div>
+                    </td>
+                    <td data-label="会员" className="px-4 py-4">
+                      <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium ring-1 ${
+                        membership.active
+                          ? "bg-amber-50 text-amber-700 ring-amber-200"
+                          : "bg-slate-50 text-slate-500 ring-slate-200"
+                      }`}>
+                        <Crown className="h-3 w-3" />
+                        {membership.active ? "VIP1" : "普通"}
+                      </span>
                     </td>
                     <td data-label="角色" className="px-4 py-4">
                       <span className={user.role === "admin" ? "rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-100" : "rounded-lg bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200"}>

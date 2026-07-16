@@ -1,7 +1,22 @@
+import { randomUUID } from "crypto"
 import { NextRequest, NextResponse } from "next/server"
-import { createCommercialReportJob } from "@/lib/reports/report-jobs"
+import {
+  acquireJobRequest,
+  jobIdFromRequest,
+  normalizeJobRequestId,
+  releaseJobRequestClaim,
+  type JobRequestClaim,
+} from "@/lib/job-request-idempotency"
+import { getFeaturePrice } from "@/lib/pricing"
+import { getReportBrandingAccess } from "@/lib/report-access"
+import { createCommercialReportJob, getCommercialReportJob } from "@/lib/reports/report-jobs"
 import { validateReportBranding } from "@/lib/reports/report-branding-store"
-import { requireUserId } from "@/lib/with-credits"
+import {
+  refundReservedCreditsOnce,
+  requireUserId,
+  reserveCreditsForUser,
+  type CreditReservation,
+} from "@/lib/with-credits"
 import type {
   CommercialReportDetail,
   CommercialReportInput,
@@ -114,6 +129,9 @@ function parseInput(value: unknown): CommercialReportInput | null {
 }
 
 export async function POST(req: NextRequest) {
+  let reservation: CreditReservation | null = null
+  let refundOperationId: string | null = null
+  let requestClaim: JobRequestClaim | null = null
   try {
     const userGuard = await requireUserId()
     if (!userGuard.ok) return userGuard.response
@@ -124,6 +142,8 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
+    const requestId = normalizeJobRequestId(isRecord(body) ? body.requestId : undefined)
+    const jobId = jobIdFromRequest("rjob", userGuard.userId, requestId)
     const input = parseInput(isRecord(body) ? body.input : null)
     if (!input) {
       return NextResponse.json({ error: "报告数据不完整或格式异常" }, { status: 400 })
@@ -132,9 +152,80 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "报告数据过大，请选择精简版后重试" }, { status: 413 })
     }
 
-    const job = await createCommercialReportJob(input, userGuard.userId)
+    let creditCost = 0
+    if (input.branding?.mode === "custom") {
+      const access = await getReportBrandingAccess(userGuard.userId)
+      if (!access.canUseCustomBranding) {
+        return NextResponse.json({
+          error: "充值任意套餐并到账后，即可解锁白标报告",
+          code: "VIP_REQUIRED",
+          access,
+        }, { status: 403 })
+      }
+      creditCost = access.customReportCredits
+    }
+
+    const acquired = await acquireJobRequest({
+      namespace: "commercial-report",
+      ownerUserId: userGuard.userId,
+      requestId,
+      existingJobId: jobId,
+      loadExisting: id => getCommercialReportJob(id, userGuard.userId),
+    })
+    if (acquired.status === "existing") {
+      return NextResponse.json(acquired.job, { status: 202 })
+    }
+    if (acquired.status === "pending") {
+      return NextResponse.json({ error: "报告任务正在创建，请稍后自动重试" }, { status: 409 })
+    }
+    requestClaim = acquired.claim
+
+    if (creditCost > 0) {
+      const featureKey = "reportCustomBranding"
+      const creditGuard = await reserveCreditsForUser(userGuard.userId, creditCost, {
+        featureKey,
+        source: "api:reports:jobs",
+        sourceId: jobId,
+        description: getFeaturePrice(featureKey).label,
+        metadata: {
+          clientId: input.client.id,
+          reportKind: input.kind,
+          reportDetail: input.detail,
+          requestId,
+        },
+      })
+      if (!creditGuard.ok) {
+        await releaseJobRequestClaim(requestClaim)
+        requestClaim = null
+        return creditGuard.response
+      }
+      reservation = creditGuard.reservation
+      refundOperationId = `rrefund_${randomUUID().replace(/-/g, "")}`
+    }
+
+    const job = await createCommercialReportJob({
+      id: jobId,
+      input,
+      ownerUserId: userGuard.userId,
+      requestId,
+      creditCost,
+      reservation: reservation || undefined,
+      refundOperationId: refundOperationId || undefined,
+    })
+    reservation = null
+    refundOperationId = null
+    await releaseJobRequestClaim(requestClaim)
+    requestClaim = null
     return NextResponse.json(job, { status: 202 })
   } catch (error) {
+    await releaseJobRequestClaim(requestClaim)
+    if (reservation && refundOperationId) {
+      try {
+        await refundReservedCreditsOnce(reservation, refundOperationId)
+      } catch (refundError) {
+        console.error("[reports] failed to refund report reservation", refundError)
+      }
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "创建专业报告任务失败" },
       { status: 400 },

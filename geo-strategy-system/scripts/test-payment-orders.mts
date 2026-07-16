@@ -15,6 +15,7 @@ const {
   getPaymentOrder,
 } = await import("../src/lib/payment-orders")
 const { getCredits } = await import("../src/lib/credits")
+const { getMembership } = await import("../src/lib/membership")
 const { listCreditLedgerForUser } = await import("../src/lib/credit-ledger")
 const { centsFromYuan, yuanFromCents } = await import("../src/lib/alipay-payment")
 const {
@@ -41,6 +42,7 @@ try {
     credits: 100,
     provider: "alipay",
   })
+  assert.equal((await getMembership(userId)).active, false, "an unpaid order must not grant VIP1")
 
   const beforeExpiry = order.createdAt + ONLINE_PAYMENT_ORDER_TTL_MS - 1
   const atExpiry = order.createdAt + ONLINE_PAYMENT_ORDER_TTL_MS
@@ -93,6 +95,7 @@ try {
   assert.equal(results.filter(result => result.ok && result.credited).length, 1)
   assert.equal(await getCredits(userId), 150, "concurrent callbacks must credit exactly once")
   assert.equal((await getPaymentOrder(order.id))?.status, "credited")
+  assert.equal((await getMembership(userId)).tier, "vip1", "a credited payment must grant VIP1")
 
   const creditedOrder = await getPaymentOrder(order.id)
   assert.ok(creditedOrder)
@@ -149,6 +152,7 @@ try {
   assert.equal(mismatchResult.ok, false)
   assert.equal(await getCredits(mismatchUserId), 50, "wrong amount must not credit")
   assert.equal((await getPaymentOrder(mismatch.id))?.status, "failed")
+  assert.equal((await getMembership(mismatchUserId)).active, false, "a failed payment must not grant VIP1")
 
   console.log("Payment order settlement contract passed")
 } finally {

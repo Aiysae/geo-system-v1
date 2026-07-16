@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
 import { CREDITS_INITIAL, getCredits } from "@/lib/credits"
 import { hasUnlimitedCreditAccess, UNLIMITED_CREDITS_BALANCE } from "@/lib/with-credits"
+import { getMembershipWithPaymentRepair } from "@/lib/membership"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -12,17 +13,19 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+  const membership = await getMembershipWithPaymentRepair(user.id)
   if (hasUnlimitedCreditAccess(user)) {
     return NextResponse.json({
       credits: UNLIMITED_CREDITS_BALANCE,
       initial: CREDITS_INITIAL,
       unlimited: true,
+      membership,
     }, { headers: { "Cache-Control": "private, no-store" } })
   }
 
   const credits = await getCredits(user.id)
   return NextResponse.json(
-    { credits, initial: CREDITS_INITIAL, unlimited: false },
+    { credits, initial: CREDITS_INITIAL, unlimited: false, membership },
     { headers: { "Cache-Control": "private, no-store" } },
   )
 }

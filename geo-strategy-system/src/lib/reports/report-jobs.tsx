@@ -6,12 +6,21 @@ import fs from "fs/promises"
 import path from "path"
 import { promisify } from "util"
 import { kv } from "@/lib/kv"
+import {
+  refundReservedCreditsOnce,
+  settleReservedCredits,
+  type CreditReservation,
+} from "@/lib/with-credits"
 import type { CommercialReportInput, CommercialReportJobRecord } from "@/types"
 
 type StoredCommercialReportJob = CommercialReportJobRecord & {
   ownerUserId: string
   inputPath: string
   filePath: string
+  requestId?: string
+  reservation?: CreditReservation
+  refundOperationId?: string
+  creditsSettledAt?: string
 }
 
 export type CommercialReportFile = {
@@ -25,6 +34,7 @@ const REPORT_FILE_MAX_AGE_MS = REPORT_JOB_TTL_SECONDS * 1000
 const memoryJobs = new Map<string, StoredCommercialReportJob>()
 const activeJobs = new Set<string>()
 const scheduledJobs = new Set<string>()
+const settlingJobs = new Set<string>()
 const execFileAsync = promisify(execFile)
 let reportQueue: Promise<void> = Promise.resolve()
 
@@ -46,6 +56,10 @@ function toPublicJob(job: StoredCommercialReportJob): CommercialReportJobRecord 
   delete publicJob.ownerUserId
   delete publicJob.inputPath
   delete publicJob.filePath
+  delete publicJob.requestId
+  delete publicJob.reservation
+  delete publicJob.refundOperationId
+  delete publicJob.creditsSettledAt
   return publicJob as CommercialReportJobRecord
 }
 
@@ -100,10 +114,48 @@ async function patchJob(
 ): Promise<StoredCommercialReportJob | null> {
   const current = await getStoredJob(id)
   if (!current) return null
-  if (current.status === "succeeded" || current.status === "failed") return current
+  if (
+    (current.status === "succeeded" || current.status === "failed")
+    && patch.status
+    && patch.status !== current.status
+  ) return current
   const next = { ...current, ...patch, updatedAt: nowIso() }
   await saveJob(next)
   return next
+}
+
+async function settleJobCredits(id: string, successful: boolean): Promise<void> {
+  if (settlingJobs.has(id)) return
+  settlingJobs.add(id)
+  try {
+    const job = await getStoredJob(id)
+    if (!job || job.creditsSettledAt) return
+
+    if (job.reservation) {
+      if (successful) {
+        await settleReservedCredits(job.reservation, job.creditCost || job.reservation.amount)
+      } else if (job.refundOperationId) {
+        await refundReservedCreditsOnce(job.reservation, job.refundOperationId)
+      } else {
+        throw new Error("报告积分退回操作号缺失")
+      }
+    }
+
+    await patchJob(id, {
+      creditsSettledAt: nowIso(),
+      creditsRefunded: !successful && Boolean(job.reservation?.amount),
+    })
+  } finally {
+    settlingJobs.delete(id)
+  }
+}
+
+async function settleJobCreditsQuietly(id: string, successful: boolean): Promise<void> {
+  try {
+    await settleJobCredits(id, successful)
+  } catch (error) {
+    console.error("[commercial-report-jobs] credit settlement failed", id, error)
+  }
 }
 
 async function cleanupExpiredReportFiles(directory: string): Promise<void> {
@@ -180,6 +232,8 @@ async function runCommercialReportJob(id: string): Promise<void> {
     await patchJob(id, { progress: 86, stage: "正在生成 PDF 文件" })
     await fs.unlink(job.inputPath).catch(() => undefined)
 
+    await settleJobCredits(id, true)
+
     await patchJob(id, {
       status: "succeeded",
       progress: 100,
@@ -189,6 +243,7 @@ async function runCommercialReportJob(id: string): Promise<void> {
     })
   } catch (error) {
     console.error("[commercial-report-jobs] report generation failed", id, error)
+    await settleJobCreditsQuietly(id, false)
     await patchJob(id, {
       status: "failed",
       progress: 100,
@@ -213,10 +268,17 @@ function queueJob(id: string): void {
 }
 
 export async function createCommercialReportJob(
-  input: CommercialReportInput,
-  ownerUserId: string,
+  args: {
+    id: string
+    input: CommercialReportInput
+    ownerUserId: string
+    requestId: string
+    creditCost: number
+    reservation?: CreditReservation
+    refundOperationId?: string
+  },
 ): Promise<CommercialReportJobRecord> {
-  const id = randomUUID()
+  const { id, input, ownerUserId } = args
   const directory = reportsDirectory()
   await fs.mkdir(directory, { recursive: true })
   void cleanupExpiredReportFiles(directory)
@@ -238,9 +300,15 @@ export async function createCommercialReportJob(
     createdAt,
     updatedAt: createdAt,
     expiresAt: new Date(Date.now() + REPORT_FILE_MAX_AGE_MS).toISOString(),
+    creditCost: Math.max(0, Math.floor(args.creditCost)),
+    creditsRefunded: false,
     ownerUserId,
     inputPath,
     filePath,
+    requestId: args.requestId,
+    reservation: args.reservation,
+    refundOperationId: args.refundOperationId,
+    creditsSettledAt: args.reservation ? undefined : createdAt,
   }
   await saveJob(job)
   queueJob(id)
@@ -254,7 +322,10 @@ export async function getCommercialReportJob(
   const job = await getStoredJob(id)
   if (!job || job.ownerUserId !== ownerUserId) return null
   if ((job.status === "queued" || job.status === "running") && !activeJobs.has(id) && !scheduledJobs.has(id)) queueJob(id)
-  return toPublicJob(job)
+  if (job.status === "failed" && !job.creditsSettledAt) {
+    await settleJobCreditsQuietly(id, false)
+  }
+  return toPublicJob(await getStoredJob(id) || job)
 }
 
 export async function getCommercialReportFile(

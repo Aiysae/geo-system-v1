@@ -1,4 +1,4 @@
-export const PRICING_VERSION = "commercial-mvp-2026-07-09"
+export const PRICING_VERSION = "commercial-mvp-2026-07-16"
 
 export const FEATURE_PRICES = {
   diagnose: {
@@ -125,6 +125,11 @@ export const FEATURE_PRICES = {
     label: "文章生成 · 文章改写",
     credits: 8,
     unitLabel: "篇",
+  },
+  reportCustomBranding: {
+    label: "专业报告 · 白标交付版",
+    credits: 15,
+    unitLabel: "份",
   },
 } as const
 
