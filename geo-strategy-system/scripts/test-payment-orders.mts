@@ -19,17 +19,46 @@ const { getMembership } = await import("../src/lib/membership")
 const { listCreditLedgerForUser } = await import("../src/lib/credit-ledger")
 const { centsFromYuan, yuanFromCents } = await import("../src/lib/alipay-payment")
 const {
+  getFirstPurchaseBlockReason,
   hasBlockingFirstPurchaseOrder,
   ONLINE_PAYMENT_ORDER_TTL_MS,
   paymentOrderBlocksFirstPurchase,
 } = await import("../src/lib/payment-lifecycle")
 const { mergeBillingRechargeRecords } = await import("../src/lib/billing-records")
+const {
+  getRechargePackage,
+  rechargeSavingsPercent,
+  rechargeUnitPrice,
+  RECHARGE_PACKAGES,
+} = await import("../src/lib/pricing")
 
 try {
   assert.equal(yuanFromCents(990), "9.90")
   assert.equal(centsFromYuan("9.9"), 990)
   assert.equal(centsFromYuan("9.90"), 990)
   assert.equal(centsFromYuan("9.901"), null)
+  assert.equal(getRechargePackage("trial_990")?.credits, 100)
+  assert.equal(getRechargePackage("light_66")?.credits, 300)
+  assert.equal(getRechargePackage("enterprise_1298")?.credits, 10_000)
+  assert.equal(getRechargePackage("light_49"), null, "legacy packages must not be sold again")
+  assert.equal(RECHARGE_PACKAGES.length, 6)
+  assert.equal(rechargeSavingsPercent(RECHARGE_PACKAGES[0]), 55)
+  assert.ok(
+    rechargeUnitPrice(RECHARGE_PACKAGES[5]) > rechargeUnitPrice(RECHARGE_PACKAGES[0]),
+    "the first-purchase package must remain the cheapest package per credit",
+  )
+  for (let index = 2; index < RECHARGE_PACKAGES.length; index += 1) {
+    assert.ok(
+      rechargeUnitPrice(RECHARGE_PACKAGES[index]) < rechargeUnitPrice(RECHARGE_PACKAGES[index - 1]),
+      "regular package unit prices must decrease as package value increases",
+    )
+  }
+  for (const packageItem of RECHARGE_PACKAGES.slice(1)) {
+    assert.ok(
+      rechargeUnitPrice(packageItem) * 9 <= 2,
+      "a white-label report must cost no more than two yuan on regular packages",
+    )
+  }
 
   const userId = "payment-test-user"
   const order = await createPaymentOrder({
@@ -82,6 +111,27 @@ try {
     ),
     false,
     "a failed order must release the first-purchase package",
+  )
+  assert.equal(
+    getFirstPurchaseBlockReason([
+      { ...order, packageKey: "light_66", status: "pending" },
+    ], "trial_990", beforeExpiry),
+    null,
+    "an unpaid regular package must not consume the first-purchase offer",
+  )
+  assert.equal(
+    getFirstPurchaseBlockReason([
+      { ...order, packageKey: "light_66", status: "credited" },
+    ], "trial_990", beforeExpiry),
+    "completed_purchase",
+    "any credited package must consume the first-purchase offer",
+  )
+  assert.equal(
+    getFirstPurchaseBlockReason([
+      { ...order, packageKey: "light_66", status: "refunded" },
+    ], "trial_990", beforeExpiry),
+    "completed_purchase",
+    "a refunded completed purchase must not restore the introductory offer",
   )
 
   const results = await Promise.all(

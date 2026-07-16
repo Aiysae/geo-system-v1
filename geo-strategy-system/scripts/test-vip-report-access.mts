@@ -28,7 +28,7 @@ const {
 const { getFeaturePrice } = await import("../src/lib/pricing")
 
 try {
-  assert.equal(getFeaturePrice("reportCustomBranding").credits, 15)
+  assert.equal(getFeaturePrice("reportCustomBranding").credits, 9)
 
   const paidUserId = "vip-paid-user"
   const pendingOrder = await createPaymentOrder({
@@ -96,20 +96,20 @@ try {
   assert.equal((await getMembership(historicalUserId)).tier, "vip1")
 
   const reportUserId = "vip-report-refund-user"
-  const reserved = await reserveCreditsBy(reportUserId, 15, {
+  const reserved = await reserveCreditsBy(reportUserId, 9, {
     featureKey: "reportCustomBranding",
     source: "test:commercial-report",
     sourceId: "rjob_refund_contract",
     description: "专业报告 · 白标交付版",
   })
   assert.equal(reserved.ok, true)
-  assert.equal(await getCredits(reportUserId), 35)
+  assert.equal(await getCredits(reportUserId), 41)
 
   const refunds = await Promise.all(
     Array.from({ length: 12 }, () => refundCreditsOnce({
       operationId: "rrefund_report_contract_001",
       userId: reportUserId,
-      credits: 15,
+      credits: 9,
       context: {
         featureKey: "reportCustomBranding",
         source: "test:commercial-report",
@@ -124,7 +124,7 @@ try {
   const refundLedgers = (await listCreditLedgerForUser(reportUserId, 50))
     .filter(entry => entry.id === "ledger_refund_rrefund_report_contract_001")
   assert.equal(refundLedgers.length, 1)
-  assert.equal(refundLedgers[0]?.delta, 15)
+  assert.equal(refundLedgers[0]?.delta, 9)
 
   console.log("VIP1 membership and white-label report billing contract passed")
 } finally {

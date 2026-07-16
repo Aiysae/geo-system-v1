@@ -6,18 +6,27 @@ import { useActionState, useCallback, useState, useEffect, type ReactNode } from
 import { createPortal } from "react-dom"
 import {
   ArrowRight,
+  BadgePercent,
   Building2,
   Check,
   ChevronLeft,
   CreditCard,
-  Crown,
+  FileBadge2,
+  Gem,
   Plus,
-  Sparkles,
+  ShieldCheck,
   X,
 } from "lucide-react"
 import { requestRechargeAction, type RequestRechargeResult } from "@/app/actions/recharge"
 import { useCredits } from "./credits-provider"
-import { formatYuan, RECHARGE_PACKAGES, type RechargePackageKey } from "@/lib/pricing"
+import {
+  estimatePackageFeatureUses,
+  formatYuan,
+  rechargeSavingsPercent,
+  rechargeUnitPrice,
+  RECHARGE_PACKAGES,
+  type ActiveRechargePackageKey,
+} from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
 
 type PaymentOptions = {
@@ -28,6 +37,10 @@ type PaymentOptions = {
     h5: boolean
   }
   manualTransfer: boolean
+  firstPurchase: {
+    available: boolean
+    reason: "signed_out" | "completed_purchase" | "active_intro_order" | null
+  }
 }
 
 type WechatCheckout = {
@@ -42,14 +55,14 @@ type RechargeStep = "package" | "payment"
 type RechargePaymentMethod = "wechat" | "alipay" | "manual_transfer"
 
 type RechargeButtonProps = {
-  initialPackageKey?: RechargePackageKey
+  initialPackageKey?: ActiveRechargePackageKey
   triggerClassName?: string
   children?: ReactNode
   processPaymentReturn?: boolean
 }
 
 export function RechargeButton({
-  initialPackageKey = "standard_99",
+  initialPackageKey = "trial_990",
   triggerClassName,
   children,
   processPaymentReturn = true,
@@ -133,17 +146,25 @@ function RechargeDialog({
   initialPackageKey,
   onClose,
 }: {
-  initialPackageKey: RechargePackageKey
+  initialPackageKey: ActiveRechargePackageKey
   onClose: () => void
 }) {
-  const { refresh } = useCredits()
+  const { refresh, membership } = useCredits()
+  const requestedPackage = RECHARGE_PACKAGES.find(pkg => pkg.key === initialPackageKey)
+  const resolvedInitialPackageKey: ActiveRechargePackageKey = membership.active && requestedPackage?.firstPurchaseOnly
+    ? "growth_298"
+    : initialPackageKey
   const [step, setStep] = useState<RechargeStep>("package")
-  const [packageKey, setPackageKey] = useState<RechargePackageKey>(initialPackageKey)
+  const [requestedPackageKey, setRequestedPackageKey] = useState<ActiveRechargePackageKey>(resolvedInitialPackageKey)
   const [paymentMethod, setPaymentMethod] = useState<RechargePaymentMethod>("wechat")
   const [paymentOptions, setPaymentOptions] = useState<PaymentOptions>({
     alipay: false,
     wechat: { enabled: false, native: false, h5: false },
     manualTransfer: true,
+    firstPurchase: {
+      available: !membership.active,
+      reason: membership.active ? "completed_purchase" : null,
+    },
   })
   const [checkoutPending, setCheckoutPending] = useState(false)
   const [checkoutError, setCheckoutError] = useState("")
@@ -204,7 +225,12 @@ function RechargeDialog({
     || RECHARGE_PAYMENT_INFO.contact
   )
   const selectedQrCode = RECHARGE_PAYMENT_INFO.qrCodes.find(code => code.method === paymentMethod)
-  const selectedPackage = RECHARGE_PACKAGES.find(pkg => pkg.key === packageKey)!
+  const requestedSelection = RECHARGE_PACKAGES.find(pkg => pkg.key === requestedPackageKey)
+  const packageKey: ActiveRechargePackageKey = requestedSelection?.firstPurchaseOnly
+    && !paymentOptions.firstPurchase.available
+    ? "growth_298"
+    : requestedPackageKey
+  const selectedPackage = RECHARGE_PACKAGES.find(pkg => pkg.key === packageKey) ?? RECHARGE_PACKAGES[0]
   const wechatAvailable = paymentOptions.wechat.enabled
     || RECHARGE_PAYMENT_INFO.qrCodes.some(code => code.method === "wechat")
   const alipayAvailable = paymentOptions.alipay
@@ -402,13 +428,27 @@ function RechargeDialog({
             <X className="h-4 w-4" />
           </button>
 
-          <div className="shrink-0 flex items-center gap-3 border-b border-white/10 bg-[#001D66] px-5 py-4 text-white sm:px-7">
-            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00C8FF] shadow-sm">
-              <Sparkles className="h-5 w-5 text-white" />
-            </span>
-            <div className="min-w-0 pr-9">
-              <h2 className="geo-display-title text-xl text-white">申请积分充值</h2>
-              <p className="mt-0.5 text-xs text-blue-100">选择套餐，再选择付款方式</p>
+          <div className="relative shrink-0 overflow-hidden border-b border-cyan-200/20 bg-[linear-gradient(112deg,#001D66_0%,#003EB3_46%,#1677FF_78%,#00AEEF_100%)] px-5 py-4 text-white sm:px-7 sm:py-5">
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 opacity-20"
+              style={{
+                backgroundImage: "linear-gradient(rgba(255,255,255,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.14) 1px, transparent 1px)",
+                backgroundSize: "26px 26px",
+              }}
+            />
+            <div className="relative flex items-center gap-3 pr-10">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/14 ring-1 ring-white/25 shadow-[0_12px_30px_-16px_rgba(0,200,255,0.9)]">
+                <Gem className="h-5 w-5 text-cyan-100" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="geo-display-title text-xl text-white">积分充值</h2>
+                <p className="mt-0.5 text-xs text-blue-50">首充 ¥9.9 解锁 VIP1，积分到账后立即可用</p>
+              </div>
+              <div className="ml-auto hidden shrink-0 items-baseline gap-2 rounded-lg bg-white/12 px-3 py-2 ring-1 ring-white/20 sm:flex">
+                <span className="text-[10px] font-semibold text-cyan-100">首购专享</span>
+                <span className="font-mono text-xl font-bold text-white">4.5 折</span>
+              </div>
             </div>
           </div>
 
@@ -469,49 +509,85 @@ function RechargeDialog({
 
               {step === "package" ? (
                 <>
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-950">选择充值套餐</h3>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">确认所需积分额度，下一步再选择付款方式。</p>
+                  <div className="flex items-end justify-between gap-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-slate-950">选择充值套餐</h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">套餐越高，每积分价格越低。</p>
+                    </div>
+                    <span className="hidden text-right font-mono text-[10px] text-slate-400 sm:block">
+                      所有到账积分永久有效
+                    </span>
                   </div>
 
-                  <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-[11px] leading-5 text-amber-900 ring-1 ring-amber-200">
-                    <Crown className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                    <span>任意真实充值套餐首次到账，即永久解锁 VIP1；白标专业报告每份 15 积分。</span>
+                  <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-lg bg-[linear-gradient(110deg,#FFF7E6_0%,#F0F7FF_48%,#E8FBFF_100%)] ring-1 ring-[#B7D7FF]">
+                    <div className="flex min-h-16 flex-col items-center justify-center gap-1 border-r border-white/80 px-2 py-2 text-center sm:flex-row sm:text-left">
+                      <BadgePercent className="h-4 w-4 shrink-0 text-amber-600" />
+                      <span className="text-[10px] font-semibold leading-4 text-amber-900 sm:text-[11px]">首购省 55%</span>
+                    </div>
+                    <div className="flex min-h-16 flex-col items-center justify-center gap-1 border-r border-white/80 px-2 py-2 text-center sm:flex-row sm:text-left">
+                      <ShieldCheck className="h-4 w-4 shrink-0 text-[#1677FF]" />
+                      <span className="text-[10px] font-semibold leading-4 text-[#003EB3] sm:text-[11px]">到账解锁 VIP1</span>
+                    </div>
+                    <div className="flex min-h-16 flex-col items-center justify-center gap-1 px-2 py-2 text-center sm:flex-row sm:text-left">
+                      <FileBadge2 className="h-4 w-4 shrink-0 text-cyan-700" />
+                      <span className="text-[10px] font-semibold leading-4 text-cyan-900 sm:text-[11px]">白标报告 9 积分</span>
+                    </div>
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {RECHARGE_PACKAGES.map(pkg => {
                       const selected = packageKey === pkg.key
+                      const locked = pkg.firstPurchaseOnly && !paymentOptions.firstPurchase.available
+                      const savings = rechargeSavingsPercent(pkg)
+                      const reportUses = estimatePackageFeatureUses(pkg, "reportCustomBranding")
+                      const highlighted = pkg.kind === "intro" || pkg.recommended
+                      const cardStyle = locked
+                        ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-65"
+                        : selected && pkg.kind === "intro"
+                          ? "border-amber-400 bg-[linear-gradient(135deg,#FFF8E7_0%,#F1F8FF_100%)] shadow-[0_14px_30px_-20px_rgba(245,158,11,0.9)] ring-2 ring-amber-300/30"
+                          : selected
+                            ? "border-[#1677FF] bg-[#EEF6FF] shadow-[0_14px_30px_-20px_rgba(22,119,255,0.9)] ring-2 ring-[#1677FF]/15"
+                            : highlighted
+                              ? "border-[#91CAFF] bg-[#F7FBFF] hover:-translate-y-0.5 hover:border-[#1677FF] hover:shadow-md"
+                              : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-[#69B1FF] hover:bg-[#F7FBFF] hover:shadow-md"
                       return (
                         <button
                           key={pkg.key}
                           type="button"
-                          onClick={() => setPackageKey(pkg.key)}
+                          onClick={() => {
+                            if (!locked) setRequestedPackageKey(pkg.key)
+                          }}
+                          disabled={locked}
                           aria-pressed={selected}
-                          className={`relative min-h-[112px] rounded-lg border px-4 py-3.5 text-left transition ${
-                            selected
-                              ? "border-[#1677FF] bg-[#EEF6FF] shadow-sm ring-2 ring-[#1677FF]/10"
-                              : "border-slate-200 bg-white hover:border-[#69B1FF] hover:bg-[#F7FBFF]"
-                          }`}
+                          className={`relative min-h-[148px] rounded-lg border px-4 py-3.5 text-left transition ${cardStyle}`}
                         >
                           {selected ? (
-                            <span className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-[#1677FF] text-white">
+                            <span className={`absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full text-white ${pkg.kind === "intro" ? "bg-amber-500" : "bg-[#1677FF]"}`}>
                               <Check className="h-3 w-3" />
                             </span>
                           ) : null}
                           <span className="flex min-h-6 items-center gap-2 pr-7">
                             <span className="text-sm font-semibold text-slate-950">{pkg.name}</span>
-                            {"badge" in pkg && pkg.badge ? (
-                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                            {locked ? (
+                              <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                {paymentOptions.firstPurchase.reason === "active_intro_order" ? "已有待支付" : "首购已使用"}
+                              </span>
+                            ) : pkg.badge ? (
+                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${pkg.kind === "intro" ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-[#0958D9]"}`}>
                                 {pkg.badge}
                               </span>
                             ) : null}
                           </span>
-                          <span className="mt-2 flex items-end justify-between gap-3">
-                            <span className="text-xl font-bold text-slate-950">{formatYuan(pkg.priceCents)}</span>
-                            <span className="font-mono text-xs font-semibold text-[#0958D9]">+{pkg.credits} 积分</span>
+                          <span className="mt-2.5 flex items-end justify-between gap-3">
+                            <span className="font-mono text-2xl font-bold text-slate-950">{formatYuan(pkg.priceCents)}</span>
+                            <span className="font-mono text-sm font-bold text-[#0958D9]">{pkg.credits} 积分</span>
                           </span>
-                          <span className="mt-2 block text-[11px] leading-4 text-slate-500">{pkg.description}</span>
+                          <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-200/70 pt-2 font-mono text-[10px] text-slate-500">
+                            <span>¥{rechargeUnitPrice(pkg).toFixed(3)}/积分</span>
+                            <span>白标报告约 {reportUses} 份</span>
+                            {savings > 0 && pkg.kind !== "intro" ? <span className="text-emerald-700">省 {savings}%</span> : null}
+                          </span>
+                          <span className="mt-1.5 block text-[11px] leading-4 text-slate-500">{pkg.description}</span>
                         </button>
                       )
                     })}
@@ -525,27 +601,33 @@ function RechargeDialog({
                     。
                   </p>
 
-                  <div className="sticky bottom-0 -mx-5 mt-6 flex gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
+                  <div className="sticky bottom-0 -mx-5 mt-6 flex items-center gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
                     <button
                       type="button"
                       onClick={onClose}
-                      className="flex-1 rounded-lg bg-white py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+                      className="h-11 shrink-0 rounded-lg bg-white px-4 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
                     >
                       取消
                     </button>
+                    <div className="hidden min-w-0 flex-1 px-2 sm:block">
+                      <p className="truncate text-[10px] text-slate-400">已选 {selectedPackage.name}</p>
+                      <p className="mt-0.5 font-mono text-xs font-semibold text-slate-800">
+                        {selectedPackage.credits} 积分 · {formatYuan(selectedPackage.priceCents)}
+                      </p>
+                    </div>
                     <button
                       type="button"
                       onClick={goToPaymentStep}
-                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEF] py-2.5 text-sm font-medium text-white transition hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40"
+                      className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] via-[#0B8DFF] to-[#00AEEF] px-4 text-sm font-semibold text-white transition hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40 sm:flex-none"
                     >
-                      下一步
+                      下一步 · 选择付款方式
                       <ArrowRight className="h-4 w-4" />
                     </button>
                   </div>
                 </>
               ) : (
                 <>
-                  <div className="flex items-center justify-between gap-4 rounded-lg bg-[#EEF6FF] px-4 py-3 ring-1 ring-[#BAE0FF]">
+                  <div className="flex items-center justify-between gap-4 rounded-lg bg-[linear-gradient(110deg,#EEF6FF_0%,#E8FBFF_100%)] px-4 py-3 ring-1 ring-[#91CAFF]">
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium text-[#0958D9]">已选套餐</p>
                       <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -553,6 +635,9 @@ function RechargeDialog({
                         <span className="text-lg font-bold text-slate-950">{formatYuan(selectedPackage.priceCents)}</span>
                         <span className="font-mono text-xs font-semibold text-[#0958D9]">+{selectedPackage.credits} 积分</span>
                       </div>
+                      <p className="mt-1 font-mono text-[10px] text-slate-500">
+                        ¥{rechargeUnitPrice(selectedPackage).toFixed(3)}/积分 · 白标报告约 {estimatePackageFeatureUses(selectedPackage, "reportCustomBranding")} 份
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -703,10 +788,10 @@ function RechargeDialog({
                           ? (wechatCheckout ? () => void syncWechatCheckout(wechatCheckout.orderId) : startWechatCheckout)
                           : undefined}
                       disabled={pending || checkoutPending || wechatCheckout?.status === "credited"}
-                      className="flex flex-1 items-center justify-center rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEF] py-2.5 text-sm font-medium text-white transition-all hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex flex-1 items-center justify-center whitespace-nowrap rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEF] px-2 py-2.5 text-xs font-semibold text-white transition-all hover:brightness-105 hover:shadow-lg hover:shadow-blue-300/40 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
                     >
                       {officialAlipay
-                        ? (checkoutPending ? "正在创建订单..." : "前往支付宝付款")
+                        ? (checkoutPending ? "正在创建订单..." : `支付宝支付 · ${formatYuan(selectedPackage.priceCents)}`)
                         : officialWechat
                           ? (checkoutPending
                               ? "正在创建订单..."
@@ -714,8 +799,8 @@ function RechargeDialog({
                                 ? "支付成功"
                                 : wechatCheckout
                                   ? "刷新支付状态"
-                                  : "微信官方支付")
-                          : (pending ? "提交中..." : "提交付款申请")}
+                                  : `微信支付 · ${formatYuan(selectedPackage.priceCents)}`)
+                          : (pending ? "提交中..." : `提交申请 · ${formatYuan(selectedPackage.priceCents)}`)}
                     </button>
                   </div>
                 </>
