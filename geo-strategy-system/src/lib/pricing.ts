@@ -1,4 +1,4 @@
-export const PRICING_VERSION = "commercial-mvp-2026-07-16"
+export const PRICING_VERSION = "commercial-v2-2026-07-16"
 
 export const FEATURE_PRICES = {
   diagnose: {
@@ -128,7 +128,7 @@ export const FEATURE_PRICES = {
   },
   reportCustomBranding: {
     label: "专业报告 · 白标交付版",
-    credits: 15,
+    credits: 9,
     unitLabel: "份",
   },
 } as const
@@ -159,60 +159,120 @@ export const ARTICLE_PROMPT_PRICE_KEYS = {
   rewrite: "articleRewrite",
 } as const
 
+export type RechargePackageDefinition = {
+  key: string
+  name: string
+  priceCents: number
+  credits: number
+  badge: string | null
+  firstPurchaseOnly: boolean
+  recommended: boolean
+  kind: "intro" | "regular" | "recommended" | "enterprise"
+  description: string
+}
+
 export const RECHARGE_PACKAGES = [
   {
     key: "trial_990",
     name: "首购体验包",
     priceCents: 990,
     credits: 100,
-    badge: "限首购",
+    badge: "首购约 4.5 折",
     firstPurchaseOnly: true,
-    description: "适合第一次体验 GEO 检测、疑问句生成和文章改写。",
+    recommended: false,
+    kind: "intro",
+    description: "第一次体验 GEO 检测、内容生成和白标报告。",
   },
   {
-    key: "light_49",
-    name: "轻量包",
-    priceCents: 4900,
-    credits: 600,
-    description: "适合个体老板、运营人员做小批量检测和内容生产。",
+    key: "light_66",
+    name: "轻量续费包",
+    priceCents: 6600,
+    credits: 300,
+    badge: null,
+    firstPurchaseOnly: false,
+    recommended: false,
+    kind: "regular",
+    description: "适合偶尔补充积分和低频任务。",
   },
   {
-    key: "standard_99",
-    name: "标准包",
-    priceCents: 9900,
-    credits: 1500,
-    badge: "推荐",
-    description: "适合单品牌商家持续做检测、关键词策略和文章生成。",
+    key: "standard_128",
+    name: "标准运营包",
+    priceCents: 12800,
+    credits: 700,
+    badge: "单品牌优选",
+    firstPurchaseOnly: false,
+    recommended: false,
+    kind: "regular",
+    description: "适合单品牌日常检测与内容生产。",
   },
   {
-    key: "growth_299",
-    name: "增长包",
-    priceCents: 29900,
-    credits: 5500,
-    description: "适合本地服务商家、增长团队做月度高频检测。",
+    key: "growth_298",
+    name: "增长推荐包",
+    priceCents: 29800,
+    credits: 1800,
+    badge: "重点推荐",
+    firstPurchaseOnly: false,
+    recommended: true,
+    kind: "recommended",
+    description: "适合持续运营和阶段性 GEO 项目。",
   },
   {
-    key: "team_699",
-    name: "团队包",
-    priceCents: 69900,
-    credits: 15000,
-    description: "适合代运营、咨询顾问和多客户批量交付场景。",
+    key: "team_598",
+    name: "团队交付包",
+    priceCents: 59800,
+    credits: 4000,
+    badge: "团队高频",
+    firstPurchaseOnly: false,
+    recommended: false,
+    kind: "regular",
+    description: "适合多客户交付与团队高频使用。",
   },
   {
-    key: "enterprise_1999",
-    name: "企业包",
-    priceCents: 199900,
-    credits: 50000,
-    badge: "对公优先",
-    description: "适合企业市场部、品牌方长期监控和批量报告需求。",
+    key: "enterprise_1298",
+    name: "企业储备包",
+    priceCents: 129800,
+    credits: 10000,
+    badge: "对公优选",
+    firstPurchaseOnly: false,
+    recommended: false,
+    kind: "enterprise",
+    description: "适合企业市场部和代运营团队长期储备。",
   },
+] as const satisfies readonly RechargePackageDefinition[]
+
+export const LEGACY_RECHARGE_PACKAGE_KEYS = [
+  "light_49",
+  "standard_99",
+  "growth_299",
+  "team_699",
+  "enterprise_1999",
 ] as const
 
-export type RechargePackageKey = (typeof RECHARGE_PACKAGES)[number]["key"]
+export type ActiveRechargePackageKey = (typeof RECHARGE_PACKAGES)[number]["key"]
+export type LegacyRechargePackageKey = (typeof LEGACY_RECHARGE_PACKAGE_KEYS)[number]
+export type RechargePackageKey = ActiveRechargePackageKey | LegacyRechargePackageKey
 export type RechargePackage = (typeof RECHARGE_PACKAGES)[number]
 
 export function getRechargePackage(key: string): RechargePackage | null {
   return RECHARGE_PACKAGES.find(item => item.key === key) ?? null
+}
+
+export function rechargeUnitPrice(packageItem: RechargePackage): number {
+  return packageItem.priceCents / 100 / packageItem.credits
+}
+
+export function rechargeSavingsPercent(packageItem: RechargePackage): number {
+  const baseline = RECHARGE_PACKAGES.find(item => item.key === "light_66")
+  if (!baseline || packageItem.key === baseline.key) return 0
+  const percentage = (1 - rechargeUnitPrice(packageItem) / rechargeUnitPrice(baseline)) * 100
+  return Math.max(0, Math.round(percentage))
+}
+
+export function estimatePackageFeatureUses(
+  packageItem: RechargePackage,
+  featureKey: FeaturePriceKey,
+): number {
+  return Math.floor(packageItem.credits / FEATURE_PRICES[featureKey].credits)
 }
 
 export function formatYuan(priceCents: number): string {

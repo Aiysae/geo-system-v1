@@ -8,12 +8,21 @@ import {
 } from "@/lib/billing-records"
 import { getCredits } from "@/lib/credits"
 import { listPaymentOrdersForUser } from "@/lib/payment-orders"
+import { getFirstPurchaseBlockReason } from "@/lib/payment-lifecycle"
 import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-ledger"
-import { formatYuan, getFeaturePrice, RECHARGE_PACKAGES } from "@/lib/pricing"
+import {
+  estimatePackageFeatureUses,
+  formatYuan,
+  getFeaturePrice,
+  rechargeSavingsPercent,
+  rechargeUnitPrice,
+  RECHARGE_PACKAGES,
+} from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
 import { listRequestsForUser } from "@/lib/recharge"
 import { getMembershipWithPaymentRepair } from "@/lib/membership"
+import { InvoiceSupportButton } from "@/components/billing/invoice-support-button"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import SiteFooter from "@/components/site-footer"
 
@@ -87,6 +96,13 @@ export default async function BillingPage() {
   ])
   const recharges = mergeBillingRechargeRecords(rechargeRequests, paymentOrders, 80)
   const unlimited = hasUnlimitedCreditAccess(user)
+  const introPackage = RECHARGE_PACKAGES.find(item => item.firstPurchaseOnly)
+  const firstPurchaseBlockReason = membership.active
+    ? "completed_purchase"
+    : introPackage
+      ? getFirstPurchaseBlockReason(paymentOrders, introPackage.key)
+      : null
+  const whiteLabelCredits = getFeaturePrice("reportCustomBranding").credits
 
   return (
     <div className="min-h-screen geo-saturated-bg">
@@ -143,33 +159,63 @@ export default async function BillingPage() {
             </div>
             <div className="mb-4 flex items-start gap-2 rounded-lg bg-[#EEF6FF] px-3 py-2.5 text-xs leading-5 text-[#003EB3] ring-1 ring-[#BAE0FF]">
               <Crown className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <span>首次真实充值到账即永久升级 VIP1，白标专业报告 15 积分/份；势途标准报告仍免费。</span>
+              <span>首次真实充值到账即永久升级 VIP1，白标专业报告 {whiteLabelCredits} 积分/份；势途标准报告仍免费。</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {RECHARGE_PACKAGES.map(pkg => (
-                <RechargeButton
-                  key={pkg.key}
-                  initialPackageKey={pkg.key}
-                  processPaymentReturn={false}
-                  triggerClassName="group relative w-full rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-left transition hover:-translate-y-0.5 hover:border-[#69B1FF] hover:bg-[#F7FBFF] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm font-semibold text-slate-900">{pkg.name}</div>
-                    {"badge" in pkg && pkg.badge && (
-                      <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                        {pkg.badge}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 font-mono text-lg font-bold text-slate-900">{formatYuan(pkg.priceCents)}</div>
-                  <div className="font-mono text-xs font-medium text-[#0958D9]">+{pkg.credits} 积分</div>
-                  <p className="mt-2 text-[11px] leading-4 text-slate-500">{pkg.description}</p>
-                  <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#0958D9]">
-                    购买
-                    <ArrowUpRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                  </span>
-                </RechargeButton>
-              ))}
+              {RECHARGE_PACKAGES.map(pkg => {
+                const locked = pkg.firstPurchaseOnly && firstPurchaseBlockReason !== null
+                const savings = rechargeSavingsPercent(pkg)
+                const card = (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-semibold text-slate-900">{pkg.name}</div>
+                      {locked ? (
+                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                          {firstPurchaseBlockReason === "active_intro_order" ? "已有待支付" : "首购已使用"}
+                        </span>
+                      ) : pkg.badge ? (
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${pkg.kind === "intro" ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-[#0958D9]"}`}>
+                          {pkg.badge}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 flex items-baseline justify-between gap-2">
+                      <span className="font-mono text-lg font-bold text-slate-900">{formatYuan(pkg.priceCents)}</span>
+                      <span className="font-mono text-xs font-semibold text-[#0958D9]">{pkg.credits} 积分</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-2 font-mono text-[10px] text-slate-500">
+                      <span>¥{rechargeUnitPrice(pkg).toFixed(3)}/积分</span>
+                      <span>报告约 {estimatePackageFeatureUses(pkg, "reportCustomBranding")} 份</span>
+                      {savings > 0 && pkg.kind !== "intro" ? <span className="text-emerald-700">省 {savings}%</span> : null}
+                    </div>
+                    <p className="mt-2 text-[11px] leading-4 text-slate-500">{pkg.description}</p>
+                    <span className={`mt-2 inline-flex items-center gap-1 text-[11px] font-semibold ${locked ? "text-slate-400" : "text-[#0958D9]"}`}>
+                      {locked ? "不可重复购买" : "购买"}
+                      {!locked ? <ArrowUpRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" /> : null}
+                    </span>
+                  </>
+                )
+                if (locked) {
+                  return (
+                    <div
+                      key={pkg.key}
+                      className="relative w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 p-3 text-left opacity-70"
+                    >
+                      {card}
+                    </div>
+                  )
+                }
+                return (
+                  <RechargeButton
+                    key={pkg.key}
+                    initialPackageKey={pkg.key}
+                    processPaymentReturn={false}
+                    triggerClassName={`group relative w-full rounded-lg border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2 ${pkg.kind === "intro" ? "border-amber-300 bg-[linear-gradient(135deg,#FFF8E7_0%,#F1F8FF_100%)]" : pkg.recommended ? "border-[#69B1FF] bg-[#F0F7FF]" : "border-slate-200 bg-slate-50/70 hover:border-[#69B1FF] hover:bg-[#F7FBFF]"}`}
+                  >
+                    {card}
+                  </RechargeButton>
+                )
+              })}
             </div>
             <p className="mt-4 rounded-xl bg-blue-50/70 px-3 py-2 text-xs leading-5 text-slate-600 ring-1 ring-blue-100">
               {RECHARGE_PAYMENT_INFO.notice}
@@ -188,8 +234,71 @@ export default async function BillingPage() {
           {recharges.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-slate-400">暂无充值记录</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1040px] text-left">
+            <>
+              <div className="divide-y divide-slate-100 md:hidden">
+                {recharges.map(record => (
+                  <article key={record.id} className="px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-sm font-semibold text-slate-950">
+                          {record.packageName || "历史充值申请"}
+                        </h3>
+                        <p className="mt-1 break-all font-mono text-[10px] text-slate-400">
+                          {record.paymentOutTradeNo || record.id}
+                        </p>
+                      </div>
+                      <span className={`inline-flex shrink-0 rounded-lg px-2 py-1 text-xs font-medium ring-1 ${STATUS_CLASS[record.status]}`}>
+                        {STATUS_LABEL[record.status]}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-end justify-between gap-4 rounded-lg bg-slate-50 px-3 py-2.5">
+                      <div>
+                        <p className="text-[10px] text-slate-400">充值金额</p>
+                        <p className="mt-0.5 font-mono text-base font-bold text-slate-950">
+                          {record.priceCents ? formatYuan(record.priceCents) : "-"}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-slate-400">到账积分</p>
+                        <p className="mt-0.5 font-mono text-sm font-semibold text-[#0958D9]">+{record.credits}</p>
+                      </div>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                      <div>
+                        <dt className="text-[10px] text-slate-400">付款方式</dt>
+                        <dd className="mt-0.5 text-slate-700">{paymentLabel(record.paymentMethod)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] text-slate-400">提交时间</dt>
+                        <dd className="mt-0.5 text-slate-700">{formatTime(record.createdAt)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] text-slate-400">处理时间</dt>
+                        <dd className="mt-0.5 text-slate-700">{formatTime(record.processedAt)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] text-slate-400">付款人</dt>
+                        <dd className="mt-0.5 truncate text-slate-700">{record.payerName || "未填写"}</dd>
+                      </div>
+                    </dl>
+                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                      <span className="text-[11px] text-slate-500">电子发票请联系微信客服办理</span>
+                      <InvoiceSupportButton
+                        status={record.status}
+                        orderNo={record.paymentOutTradeNo || record.id}
+                        packageName={record.packageName || "历史充值申请"}
+                        priceCents={record.priceCents}
+                        paymentMethod={paymentLabel(record.paymentMethod)}
+                        createdAt={record.createdAt}
+                        processedAt={record.processedAt}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[1160px] text-left">
                 <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-5 py-3">套餐</th>
@@ -201,6 +310,7 @@ export default async function BillingPage() {
                     <th className="px-5 py-3">状态</th>
                     <th className="px-5 py-3">提交时间</th>
                     <th className="px-5 py-3">处理时间</th>
+                    <th className="px-5 py-3">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -235,11 +345,23 @@ export default async function BillingPage() {
                       </td>
                       <td className="px-5 py-3 text-xs text-slate-500">{formatTime(record.createdAt)}</td>
                       <td className="px-5 py-3 text-xs text-slate-500">{formatTime(record.processedAt)}</td>
+                      <td className="px-5 py-3">
+                        <InvoiceSupportButton
+                          status={record.status}
+                          orderNo={record.paymentOutTradeNo || record.id}
+                          packageName={record.packageName || "历史充值申请"}
+                          priceCents={record.priceCents}
+                          paymentMethod={paymentLabel(record.paymentMethod)}
+                          createdAt={record.createdAt}
+                          processedAt={record.processedAt}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </section>
 

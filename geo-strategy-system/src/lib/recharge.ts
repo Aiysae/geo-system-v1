@@ -5,6 +5,8 @@ import {
   createPaymentOrder,
   creditPaymentOrder,
 } from "@/lib/payment-orders"
+import { firstPurchaseBlockMessage } from "@/lib/payment-lifecycle"
+import { getFirstPurchaseBlockReasonForUser } from "@/lib/recharge-eligibility"
 import {
   getRechargePackage,
   type RechargePackageKey,
@@ -63,14 +65,9 @@ export async function createRequest(input: {
 }): Promise<RechargeRequest> {
   const pkg = getRechargePackage(input.packageKey)
   if (!pkg) throw new Error("请选择有效的充值套餐")
-  if ("firstPurchaseOnly" in pkg && pkg.firstPurchaseOnly) {
-    const previousRequests = await listRequestsForUser(input.userId, 300)
-    const hasUsedFirstPurchasePackage = previousRequests.some(
-      request => request.packageKey === pkg.key && request.status !== "rejected"
-    )
-    if (hasUsedFirstPurchasePackage) {
-      throw new Error("首购体验包每个账号仅限提交一次，请选择轻量包或标准包。")
-    }
+  if (pkg.firstPurchaseOnly) {
+    const reason = await getFirstPurchaseBlockReasonForUser(input.userId, pkg.key)
+    if (reason) throw new Error(firstPurchaseBlockMessage(reason))
   }
 
   const requestId = newId()

@@ -5,12 +5,12 @@ import { alipayFeatureEnabled } from "@/lib/payment-config"
 import {
   createPaymentOrder,
   failPaymentOrder,
-  listPaymentOrdersForUser,
 } from "@/lib/payment-orders"
 import {
-  hasBlockingFirstPurchaseOrder,
+  firstPurchaseBlockMessage,
   ONLINE_PAYMENT_ORDER_TTL_MS,
 } from "@/lib/payment-lifecycle"
+import { getFirstPurchaseBlockReasonForUser } from "@/lib/recharge-eligibility"
 import { getRechargePackage } from "@/lib/pricing"
 import { getClientIp, hitRateLimit } from "@/lib/rate-limit"
 
@@ -36,10 +36,10 @@ export async function POST(request: NextRequest) {
   const pkg = getRechargePackage(String(body.packageKey || ""))
   if (!pkg) return NextResponse.json({ error: "请选择有效的充值套餐" }, { status: 400 })
 
-  if ("firstPurchaseOnly" in pkg && pkg.firstPurchaseOnly) {
-    const orders = await listPaymentOrdersForUser(user.id, 500)
-    if (hasBlockingFirstPurchaseOrder(orders, pkg.key)) {
-      return NextResponse.json({ error: "首购体验包每个账号仅限购买一次" }, { status: 409 })
+  if (pkg.firstPurchaseOnly) {
+    const reason = await getFirstPurchaseBlockReasonForUser(user.id, pkg.key)
+    if (reason) {
+      return NextResponse.json({ error: firstPurchaseBlockMessage(reason) }, { status: 409 })
     }
   }
 
