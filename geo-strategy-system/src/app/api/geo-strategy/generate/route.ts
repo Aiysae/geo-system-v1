@@ -7,8 +7,12 @@ import {
   refundReservedCreditsQuietly,
   type CreditReservation,
 } from "@/lib/with-credits"
-import type { GeoStrategyPlan } from "@/types/geo-strategy"
+import type { GeoStrategyPlan, SourcePlatformSnapshot } from "@/types/geo-strategy"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import {
+  linkStrategyToSourcePlatforms,
+  sourcePlatformPromptContext,
+} from "@/lib/source-platform-intelligence"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -29,9 +33,14 @@ const SYSTEM_PROMPT = `你是一个资深 GEO（生成式引擎优化）策略�
 5. 疑问句采用两层挖掘法，第二层比例受控。
 6. 第三方网站策略不是普通媒体发布计划，而是“搭建第三方网站”的策略，例如测评类网站、交流论坛、问答知识库、案例口碑站、对比榜单站等。
 7. 每个第三方网站都必须说明它针对哪类劣势，以及如何把这个劣势转化为优势叙事。
-8. 输出必须是严格 JSON，不要输出 Markdown，不要解释 JSON 外的任何文字。`
+8. 疑问句检测已经命中的自媒体和行业垂直平台必须进入自媒体发文策略；官媒、政府和协会信源必须单独进入权威媒体策略，不能混写。
+9. 输出必须是严格 JSON，不要输出 Markdown，不要解释 JSON 外的任何文字。`
 
-function buildUserPrompt(profile: Record<string, unknown>): string {
+function buildUserPrompt(
+  profile: Record<string, unknown>,
+  sourcePlatformSnapshot?: SourcePlatformSnapshot,
+): string {
+  const sourcePlatforms = sourcePlatformPromptContext(sourcePlatformSnapshot)
   const sections: string[] = [
     "请基于以下“已确认的结构化客户资料”和规则引擎草稿，生成一份完整、具体、可交付的 GEO 优化策略 JSON。",
     "",
@@ -42,6 +51,7 @@ function buildUserPrompt(profile: Record<string, unknown>): string {
     "- official_site_strategy",
     "- third_party_site_strategy",
     "- media_plan",
+    "- authority_media_plan",
     "- geo_monitoring_plan",
     "- execution_roadmap",
     "",
@@ -63,6 +73,17 @@ function buildUserPrompt(profile: Record<string, unknown>): string {
     }
   }
 
+  if (sourcePlatforms.length > 0) {
+    sections.push(
+      "",
+      "【疑问句检测信源平台情报】",
+      `成功联网回答数：${sourcePlatformSnapshot?.successful_answer_count || 0}`,
+      `有效引用事件数：${sourcePlatformSnapshot?.total_citation_events || 0}`,
+      "采信率表示：引用该平台的独立联网回答数 ÷ 全部成功联网回答数。同一网址被不同模型或不同独立回答引用时必须分别保留权重。",
+      JSON.stringify(sourcePlatforms, null, 2),
+    )
+  }
+
   sections.push(
     "",
     "要求：",
@@ -75,7 +96,13 @@ function buildUserPrompt(profile: Record<string, unknown>): string {
     "- third_party_site_strategy 必须是“搭建第三方网站”的策略，不要写成知乎、小红书、公众号、百家号、头条号、B站这些自媒体平台。",
     "- third_party_site_strategy 至少 5 个站点类型，优先包含：测评类网站、交流论坛、问答知识库、案例/口碑站、对比/榜单站、行业资料库。",
     "- 每个 third_party_site_strategy 条目必须填写 weakness_conversion：说明这个站点迎合哪个劣势，并如何把劣势打造为优势。",
-    "- media_plan 至少包含知乎、小红书、公众号、百家号、头条号、B站专栏。",
+    sourcePlatforms.length > 0
+      ? "- media_plan 必须逐一包含上方 category 为 self_media 或 industry_vertical 的全部检测命中平台，不得遗漏；platform_key、platform 名称必须原样返回。"
+      : "- 当前没有可用的检测信源平台情报，media_plan 至少包含知乎、小红书、公众号、百家号、头条号、B站专栏。",
+    "- authority_media_plan 必须逐一包含上方 category 为 authority_media 或 government_association 的全部检测命中平台，不得遗漏；官媒要写投稿、采访、媒体合作或发稿策略，政府/协会信源要写政策、标准、资质等可核验引用策略，不能写成可自行注册发布。",
+    "- 检测命中平台的 source_origin 填 penetration_detected；自行补充的平台填 system_recommended。",
+    "- platform_type 只能使用 self_media、industry_vertical、authority_media、government_association、brand_official、other。",
+    "- 可以补充资料和检测结果之外的适配平台，但必须排在检测命中平台之后，并明确标为 system_recommended。",
     "- geo_monitoring_plan 至少包含品牌主动提及率、引用/事实一致性、第三方交叉验证覆盖、疑问句内容覆盖率。",
     "- execution_roadmap 至少包含第1周、第2-3周、第3-5周、持续执行。",
     "",
@@ -101,7 +128,10 @@ function buildUserPrompt(profile: Record<string, unknown>): string {
     {"priority": "1", "site_type": "", "suggested_name": "", "positioning": "", "content_pillars": "", "weakness_conversion": "", "cross_validation_role": ""}
   ],
   "media_plan": [
-    {"platform": "", "role": "", "keyword_focus": "", "sample_title": "", "cadence": ""}
+    {"platform_key": "", "platform": "", "platform_type": "self_media", "source_origin": "penetration_detected", "role": "", "keyword_focus": "", "sample_title": "", "cadence": ""}
+  ],
+  "authority_media_plan": [
+    {"platform_key": "", "platform": "", "platform_type": "authority_media", "source_origin": "penetration_detected", "role": "", "keyword_focus": "", "sample_title": "", "cadence": ""}
   ],
   "geo_monitoring_plan": [{"metric": "", "method": "", "target": ""}],
   "execution_roadmap": [{"phase": "", "focus": "", "deliverable": ""}]
@@ -129,7 +159,7 @@ async function callLlm(args: {
       : `${args.system}\n\n注意：上次输出无法解析或字段不完整。请严格输出一个完整合法 JSON 对象，不要包含任何额外文字、代码块标记或注释。`,
     user: args.attempt === 0
       ? args.user
-      : `${args.user}\n\n请确保本次只输出完整 JSON 对象，并包含 project_name、summary、profile、keyword_strategy、official_site_strategy、third_party_site_strategy、media_plan、geo_monitoring_plan、execution_roadmap。`,
+      : `${args.user}\n\n请确保本次只输出完整 JSON 对象，并包含 project_name、summary、profile、keyword_strategy、official_site_strategy、third_party_site_strategy、media_plan、authority_media_plan、geo_monitoring_plan、execution_roadmap。`,
     temperature: args.attempt === 0 ? 0.35 : 0.2,
     maxTokens: 16384,
     jsonMode: true,
@@ -201,6 +231,10 @@ async function handler(req: NextRequest) {
   try {
     const body = await req.json()
     const { profile } = body
+    const sourcePlatformSnapshot = isRecord(body.sourcePlatformContext)
+      && Array.isArray(body.sourcePlatformContext.platforms)
+      ? body.sourcePlatformContext as unknown as SourcePlatformSnapshot
+      : undefined
 
     if (!profile) {
       return NextResponse.json({ error: "请提供客户资料" }, { status: 400 })
@@ -222,14 +256,15 @@ async function handler(req: NextRequest) {
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 
-    const userPrompt = buildUserPrompt(profile)
-    const strategy = await generateStrategyWithRetries({
+    const userPrompt = buildUserPrompt(profile, sourcePlatformSnapshot)
+    const generatedStrategy = await generateStrategyWithRetries({
       url,
       apiKey: aiConfig.apiKey,
       model: aiConfig.model,
       userPrompt,
       timeoutSec,
     })
+    const strategy = linkStrategyToSourcePlatforms(generatedStrategy, sourcePlatformSnapshot)
 
     reservation = null
     return NextResponse.json(strategy)

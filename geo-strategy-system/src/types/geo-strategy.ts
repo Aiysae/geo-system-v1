@@ -110,8 +110,61 @@ export interface ThirdPartySite {
 }
 
 /** 自媒体计划 */
+export type SourcePlatformCategory =
+  | "self_media"
+  | "industry_vertical"
+  | "authority_media"
+  | "government_association"
+  | "brand_official"
+  | "other"
+
+export type MediaPlanOrigin = "penetration_detected" | "system_recommended"
+
+export interface SourcePlatformCitationEvidence {
+  title: string
+  url: string
+  domain: string
+  model: string
+  question: string
+  sample_id?: string
+}
+
+export interface SourcePlatformEvidence {
+  platform_key: string
+  platform: string
+  category: SourcePlatformCategory
+  domains: string[]
+  answer_hits: number
+  citation_events: number
+  unique_url_count: number
+  adoption_rate: number
+  citation_share: number
+  balanced_adoption_rate: number
+  model_keys: string[]
+  question_count: number
+  evidence: SourcePlatformCitationEvidence[]
+}
+
+export interface SourcePlatformSnapshot {
+  penetration_generated_at?: string
+  calculated_at: string
+  successful_answer_count: number
+  successful_model_count: number
+  total_citation_events: number
+  platforms: SourcePlatformEvidence[]
+}
+
 export interface MediaPlanItem {
   platform: string
+  platform_key?: string
+  platform_type?: SourcePlatformCategory
+  source_origin?: MediaPlanOrigin
+  evidence_domains?: string[]
+  answer_hits?: number
+  citation_events?: number
+  adoption_rate?: number
+  model_coverage?: number
+  question_coverage?: number
   role: string
   keyword_focus: string
   sample_title: string
@@ -176,6 +229,8 @@ export interface GeoStrategyPlan {
   official_site_strategy: OfficialSiteAction[]
   third_party_site_strategy: ThirdPartySite[]
   media_plan: MediaPlanItem[]
+  authority_media_plan?: MediaPlanItem[]
+  source_platform_snapshot?: SourcePlatformSnapshot
   geo_monitoring_plan: GeoMonitoringItem[]
   execution_roadmap: ExecutionPhase[]
   question_strategy?: QuestionItem[]

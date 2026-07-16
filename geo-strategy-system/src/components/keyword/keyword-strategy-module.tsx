@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import {
   DEFAULT_CATEGORY_CONFIG,
   DEFAULT_QUESTION_MODEL_PROVIDER,
@@ -22,6 +22,9 @@ import {
   type QuestionJobProgress,
   type QuestionJobRecord,
   type QuestionModelProvider,
+  type MediaPlanItem,
+  type SourcePlatformCategory,
+  type SourcePlatformSnapshot,
 } from "@/types/geo-strategy"
 import type { BackgroundJobKind, BackgroundJobRef, Client } from "@/types"
 import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
@@ -31,6 +34,12 @@ import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-s
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
+import {
+  buildSourcePlatformSnapshot,
+  compactSourcePlatformSnapshot,
+  SOURCE_PLATFORM_CATEGORY_LABELS,
+} from "@/lib/source-platform-intelligence"
+import { SourcePlatformAdoptionChart } from "@/components/keyword/source-platform-adoption-chart"
 
 // ==================== Brand Data ====================
 
@@ -597,6 +606,10 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   const questionRunIdRef = useRef(0)
   const questionAbortRef = useRef<AbortController | null>(null)
   const questionJobCreatingRef = useRef(false)
+  const sourcePlatformSnapshot = useMemo(
+    () => buildSourcePlatformSnapshot(client.penetration, { officialWebsite: client.website }),
+    [client.penetration, client.website],
+  )
 
   useEffect(() => {
     mountedRef.current = true
@@ -685,7 +698,10 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     rawInputs,
     count: 10,
   }
-  const strategyPayload = { profile: activeBrand.extractedProfile }
+  const strategyPayload = {
+    profile: activeBrand.extractedProfile,
+    sourcePlatformContext: compactSourcePlatformSnapshot(sourcePlatformSnapshot),
+  }
 
   const extractJobState = useResumableBackgroundJob<ExtractedProfile>({
     kind: "keywordExtract",
@@ -1394,6 +1410,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               onGenerateAdvantages={handleGenerateAdvantages}
               reExtracting={Boolean(extractJobRef)}
               onReExtract={handleReExtract}
+              sourcePlatformSnapshot={sourcePlatformSnapshot}
             />
           )}
 
@@ -1401,6 +1418,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           {(ab.step === "strategy") && ab.strategyPlan && (
             <StrategyStep
               plan={ab.strategyPlan}
+              sourcePlatformSnapshot={sourcePlatformSnapshot}
               clientId={client.id}
               websitePromptJobRef={client.backgroundJobs?.keywordWebsitePrompt}
               onChangeWebsitePromptJob={ref => {
@@ -1738,7 +1756,7 @@ function InputStep({
 function ExtractionStep({
   profile, onProfileChange, onBack, onGenerate, generating, strategyError,
   advantageStatus, advantageError, onGenerateAdvantages,
-  reExtracting, onReExtract,
+  reExtracting, onReExtract, sourcePlatformSnapshot,
 }: {
   profile: ExtractedProfile
   onProfileChange: (p: ExtractedProfile) => void
@@ -1751,6 +1769,7 @@ function ExtractionStep({
   onGenerateAdvantages: () => void
   reExtracting: boolean
   onReExtract: () => void
+  sourcePlatformSnapshot: SourcePlatformSnapshot
 }) {
   const updateItem = useCallback((field: keyof ExtractedProfile, index: number, patch: Partial<ExtractedItem>) => {
     onProfileChange({
@@ -1786,6 +1805,12 @@ function ExtractionStep({
     { key: "competitors", label: "竞品", color: "violet" },
     { key: "scenes", label: "场景", color: "cyan" },
   ]
+  const linkedContentPlatforms = sourcePlatformSnapshot.platforms.filter(platform =>
+    platform.category === "self_media" || platform.category === "industry_vertical",
+  )
+  const linkedAuthorityPlatforms = sourcePlatformSnapshot.platforms.filter(platform =>
+    platform.category === "authority_media" || platform.category === "government_association",
+  )
 
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -1894,6 +1919,56 @@ function ExtractionStep({
         </div>
       ))}
 
+      <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <Search className="h-4 w-4 text-[#1677FF]" />
+              疑问句检测信源关联
+            </h2>
+            <p className="mt-1 text-[11px] leading-5 text-slate-500">
+              {sourcePlatformSnapshot.successful_answer_count > 0
+                ? `已读取 ${sourcePlatformSnapshot.successful_answer_count} 次成功联网回答、${sourcePlatformSnapshot.total_citation_events} 次有效引用事件。检测命中平台会强制进入对应策略。`
+                : "当前客户暂无可用联网信源，策略会先按行业和关键词生成。完成疑问句检测后重新生成即可自动关联。"}
+            </p>
+          </div>
+          {sourcePlatformSnapshot.penetration_generated_at ? (
+            <span className="shrink-0 text-[10px] text-slate-400">
+              检测于 {new Date(sourcePlatformSnapshot.penetration_generated_at).toLocaleString("zh-CN")}
+            </span>
+          ) : null}
+        </div>
+
+        {sourcePlatformSnapshot.platforms.length > 0 ? (
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <div className="mb-2 text-[10px] font-semibold uppercase text-slate-400">
+                自媒体与行业平台 · {linkedContentPlatforms.length}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {linkedContentPlatforms.length > 0 ? linkedContentPlatforms.map(platform => (
+                  <span key={platform.platform_key} className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-medium text-[#0958D9]">
+                    {platform.platform} · {platform.adoption_rate}%
+                  </span>
+                )) : <span className="text-[11px] text-slate-400">本次未命中</span>}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-[10px] font-semibold uppercase text-slate-400">
+                官媒与权威信源 · {linkedAuthorityPlatforms.length}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {linkedAuthorityPlatforms.length > 0 ? linkedAuthorityPlatforms.map(platform => (
+                  <span key={platform.platform_key} className="rounded-md border border-orange-200 bg-orange-50 px-2 py-1 text-[10px] font-medium text-orange-700">
+                    {platform.platform} · {platform.adoption_rate}%
+                  </span>
+                )) : <span className="text-[11px] text-slate-400">本次未命中</span>}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {strategyError && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-600">{strategyError}</div>
       )}
@@ -1922,7 +1997,7 @@ function ExtractionStep({
 // ==================== Step 3: Strategy ====================
 
 function StrategyStep({
-  plan, clientId, websitePromptJobRef, onChangeWebsitePromptJob,
+  plan, sourcePlatformSnapshot, clientId, websitePromptJobRef, onChangeWebsitePromptJob,
   questions, questionStatus, questionError,
   questionJobProgress,
   questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios,
@@ -1932,6 +2007,7 @@ function StrategyStep({
   hasQuestions,
 }: {
   plan: GeoStrategyPlan
+  sourcePlatformSnapshot: SourcePlatformSnapshot
   clientId: string
   websitePromptJobRef?: BackgroundJobRef
   onChangeWebsitePromptJob: (ref?: BackgroundJobRef) => void
@@ -1982,6 +2058,9 @@ function StrategyStep({
     : null
   const officialPromptLoading = websitePromptKey === "official"
   const thirdPartyPromptLoadingKey = websitePromptKey?.startsWith("third-") ? websitePromptKey : null
+  const displayedSourcePlatformSnapshot = sourcePlatformSnapshot.platforms.length > 0
+    ? sourcePlatformSnapshot
+    : plan.source_platform_snapshot
 
   const revealQuestionPool = useCallback(() => {
     setShowJson(true)
@@ -2303,33 +2382,28 @@ function StrategyStep({
         </Card>
       )}
 
+      <Card
+        title="AI 信源平台采信率排名"
+        icon={<ListOrdered className="h-4 w-4 text-[#1677FF]" />}
+        extra={displayedSourcePlatformSnapshot?.penetration_generated_at ? (
+          <span className="text-[10px] text-slate-400">
+            {new Date(displayedSourcePlatformSnapshot.penetration_generated_at).toLocaleString("zh-CN")}
+          </span>
+        ) : undefined}
+      >
+        <SourcePlatformAdoptionChart snapshot={displayedSourcePlatformSnapshot} />
+      </Card>
+
       {/* Media Plan */}
       {plan.media_plan && plan.media_plan.length > 0 && (
         <Card title="自媒体发文策略" icon={<FileText className="h-4 w-4 text-orange-500" />}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-200">
-                  <th className="text-left py-2 px-2 text-slate-500 font-medium">平台</th>
-                  <th className="text-left py-2 px-2 text-slate-500 font-medium">角色</th>
-                  <th className="text-left py-2 px-2 text-slate-500 font-medium">关键词</th>
-                  <th className="text-left py-2 px-2 text-slate-500 font-medium">标题示例</th>
-                  <th className="text-left py-2 px-2 text-slate-500 font-medium">节奏</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.media_plan.map((item, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 px-2 font-medium text-slate-700">{item.platform}</td>
-                    <td className="py-2 px-2 text-slate-500">{item.role}</td>
-                    <td className="py-2 px-2 text-slate-500 max-w-[200px] truncate">{item.keyword_focus}</td>
-                    <td className="py-2 px-2 text-slate-500 max-w-[200px] truncate">{item.sample_title}</td>
-                    <td className="py-2 px-2 text-slate-500 whitespace-nowrap">{item.cadence}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <MediaPlanTable items={plan.media_plan} />
+        </Card>
+      )}
+
+      {plan.authority_media_plan && plan.authority_media_plan.length > 0 && (
+        <Card title="官媒与权威信源策略" icon={<FileText className="h-4 w-4 text-[#FA8C16]" />}>
+          <MediaPlanTable items={plan.authority_media_plan} />
         </Card>
       )}
 
@@ -3050,6 +3124,63 @@ function WebsitePromptPanel({
 
 // ==================== Utility Components ====================
 
+const MEDIA_PLAN_CATEGORY_TONES: Record<SourcePlatformCategory, string> = {
+  self_media: "border-blue-200 bg-blue-50 text-[#0958D9]",
+  industry_vertical: "border-cyan-200 bg-cyan-50 text-cyan-700",
+  authority_media: "border-orange-200 bg-orange-50 text-orange-700",
+  government_association: "border-red-200 bg-red-50 text-red-700",
+  brand_official: "border-violet-200 bg-violet-50 text-violet-700",
+  other: "border-slate-200 bg-slate-50 text-slate-600",
+}
+
+function MediaPlanTable({ items }: { items: MediaPlanItem[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] text-xs">
+        <thead>
+          <tr className="border-b border-slate-200">
+            <th className="px-2 py-2 text-left font-medium text-slate-500">平台与依据</th>
+            <th className="px-2 py-2 text-left font-medium text-slate-500">角色</th>
+            <th className="px-2 py-2 text-left font-medium text-slate-500">关键词</th>
+            <th className="px-2 py-2 text-left font-medium text-slate-500">标题示例</th>
+            <th className="px-2 py-2 text-left font-medium text-slate-500">节奏</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => {
+            const category = item.platform_type || "other"
+            const detected = item.source_origin === "penetration_detected"
+            return (
+              <tr key={item.platform_key || `${item.platform}-${index}`} className="border-b border-slate-100 align-top">
+                <td className="w-48 px-2 py-2.5">
+                  <div className="font-semibold text-slate-700">{item.platform}</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <span className={`rounded-md border px-1.5 py-0.5 text-[9px] font-medium ${MEDIA_PLAN_CATEGORY_TONES[category]}`}>
+                      {SOURCE_PLATFORM_CATEGORY_LABELS[category]}
+                    </span>
+                    <span className={`rounded-md border px-1.5 py-0.5 text-[9px] font-medium ${detected ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
+                      {detected ? "检测命中" : "系统补充"}
+                    </span>
+                  </div>
+                  {detected ? (
+                    <div className="mt-1.5 text-[10px] leading-4 tabular-nums text-slate-400">
+                      采信率 {item.adoption_rate || 0}% · {item.answer_hits || 0} 次回答 · {item.citation_events || 0} 次引用
+                    </div>
+                  ) : null}
+                </td>
+                <td className="max-w-[240px] px-2 py-2.5 leading-5 text-slate-500">{item.role}</td>
+                <td className="max-w-[200px] px-2 py-2.5 leading-5 text-slate-500">{item.keyword_focus}</td>
+                <td className="max-w-[240px] px-2 py-2.5 leading-5 text-slate-500">{item.sample_title}</td>
+                <td className="whitespace-nowrap px-2 py-2.5 leading-5 text-slate-500">{item.cadence}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function Card({ title, icon, children, extra }: {
   title: string
   icon: React.ReactNode
@@ -3269,12 +3400,32 @@ function generateMarkdown(
       lines.push(``)
     })
   }
+  if (plan.source_platform_snapshot?.platforms.length) {
+    lines.push(`## AI 信源平台采信率排名`)
+    lines.push(``)
+    lines.push(`统计口径：平台采信率 = 引用该平台的独立联网回答数 ÷ ${plan.source_platform_snapshot.successful_answer_count} 次成功联网回答。`)
+    lines.push(``)
+    lines.push(`| 排名 | 平台 | 类型 | 采信率 | 命中回答 | 引用事件 | 覆盖模型 |`)
+    lines.push(`|------|------|------|--------|----------|----------|----------|`)
+    plan.source_platform_snapshot.platforms.forEach((platform, index) => {
+      lines.push(`| ${index + 1} | ${platform.platform} | ${SOURCE_PLATFORM_CATEGORY_LABELS[platform.category]} | ${platform.adoption_rate}% | ${platform.answer_hits} | ${platform.citation_events} | ${platform.model_keys.length}/${plan.source_platform_snapshot?.successful_model_count || 0} |`)
+    })
+    lines.push(``)
+  }
   if (plan.media_plan?.length) {
     lines.push(`## 自媒体发文策略`)
     lines.push(``)
-    lines.push(`| 平台 | 角色 | 关键词 | 标题示例 | 节奏 |`)
-    lines.push(`|------|------|--------|----------|------|`)
-    plan.media_plan.forEach(m => lines.push(`| ${m.platform} | ${m.role} | ${m.keyword_focus} | ${m.sample_title} | ${m.cadence} |`))
+    lines.push(`| 平台 | 类型 | 来源 | 采信率 | 角色 | 关键词 | 标题示例 | 节奏 |`)
+    lines.push(`|------|------|------|--------|------|--------|----------|------|`)
+    plan.media_plan.forEach(m => lines.push(`| ${m.platform} | ${SOURCE_PLATFORM_CATEGORY_LABELS[m.platform_type || "other"]} | ${m.source_origin === "penetration_detected" ? "检测命中" : "系统补充"} | ${m.source_origin === "penetration_detected" ? `${m.adoption_rate || 0}%` : "-"} | ${m.role} | ${m.keyword_focus} | ${m.sample_title} | ${m.cadence} |`))
+    lines.push(``)
+  }
+  if (plan.authority_media_plan?.length) {
+    lines.push(`## 官媒与权威信源策略`)
+    lines.push(``)
+    lines.push(`| 平台 | 类型 | 来源 | 采信率 | 传播角色 | 关键词 | 标题示例 | 节奏 |`)
+    lines.push(`|------|------|------|--------|----------|--------|----------|------|`)
+    plan.authority_media_plan.forEach(m => lines.push(`| ${m.platform} | ${SOURCE_PLATFORM_CATEGORY_LABELS[m.platform_type || "other"]} | ${m.source_origin === "penetration_detected" ? "检测命中" : "系统补充"} | ${m.source_origin === "penetration_detected" ? `${m.adoption_rate || 0}%` : "-"} | ${m.role} | ${m.keyword_focus} | ${m.sample_title} | ${m.cadence} |`))
     lines.push(``)
   }
   if (questions.length) {
@@ -3300,7 +3451,7 @@ function generateWordHtml(
   const parts: string[] = [
     `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>`,
     `<head><meta charset="utf-8"><title>${h(plan.project_name)}</title>`,
-    `<style>body{font-family:'微软雅黑',sans-serif;font-size:12pt;color:#1e293b;line-height:1.6;margin:2cm}h1{font-size:22pt;color:#003EB3;border-bottom:2px solid #003EB3;padding-bottom:8px}h2{font-size:16pt;color:#003EB3;margin-top:24px}h3{font-size:13pt;color:#475569;margin-top:16px}table{border-collapse:collapse;width:100%;margin:12px 0;font-size:10pt}td,th{border:1px solid #cbd5e1;padding:6px 10px;text-align:left}th{background:#f1f5f9;color:#475569;font-weight:600}tr:nth-child(even){background:#f8fafc}.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:9pt;margin:2px}ul{list-style:none;padding:0}li{padding:4px 0}</style></head><body>`,
+    `<style>body{font-family:'微软雅黑',sans-serif;font-size:12pt;color:#1e293b;line-height:1.6;margin:2cm}h1{font-size:22pt;color:#003EB3;border-bottom:2px solid #003EB3;padding-bottom:8px}h2{font-size:16pt;color:#003EB3;margin-top:24px}h3{font-size:13pt;color:#475569;margin-top:16px}table{border-collapse:collapse;width:100%;margin:12px 0;font-size:10pt}td,th{border:1px solid #cbd5e1;padding:6px 10px;text-align:left;vertical-align:top}th{background:#f1f5f9;color:#475569;font-weight:600}tr:nth-child(even){background:#f8fafc}.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:9pt;margin:2px}.bar-track{height:10px;background:#e2e8f0;border-radius:2px;overflow:hidden;min-width:140px}.bar-fill{height:10px;border-radius:2px}ul{list-style:none;padding:0}li{padding:4px 0}</style></head><body>`,
     `<h1>${h(plan.project_name || "GEO 优化策略方案")}</h1>`,
   ]
 
@@ -3352,10 +3503,36 @@ function generateWordHtml(
     })
   }
 
+  if (plan.source_platform_snapshot?.platforms.length) {
+    const categoryColors: Record<SourcePlatformCategory, string> = {
+      self_media: "#1677FF",
+      industry_vertical: "#00B8D9",
+      authority_media: "#FA8C16",
+      government_association: "#F5222D",
+      brand_official: "#6F42C1",
+      other: "#94A3B8",
+    }
+    parts.push(`<h2>AI 信源平台采信率排名</h2>`)
+    parts.push(`<p>统计口径：平台采信率 = 引用该平台的独立联网回答数 ÷ ${plan.source_platform_snapshot.successful_answer_count} 次成功联网回答。跨模型、跨独立回答重复引用会分别计入。</p>`)
+    parts.push(`<table><tr><th width="42">排名</th><th width="110">平台</th><th width="95">类型</th><th>采信率</th><th width="70">引用事件</th></tr>`)
+    plan.source_platform_snapshot.platforms.forEach((platform, index) => {
+      const color = categoryColors[platform.category]
+      const width = Math.max(platform.adoption_rate, platform.adoption_rate > 0 ? 2 : 0)
+      parts.push(`<tr><td>${index + 1}</td><td><b>${h(platform.platform)}</b></td><td>${h(SOURCE_PLATFORM_CATEGORY_LABELS[platform.category])}</td><td><div class="bar-track"><div class="bar-fill" style="width:${width}%;background:${color}"></div></div><div style="margin-top:3px;color:#64748b">${platform.adoption_rate}% · 命中 ${platform.answer_hits}/${plan.source_platform_snapshot?.successful_answer_count || 0}</div></td><td>${platform.citation_events}</td></tr>`)
+    })
+    parts.push(`</table>`)
+  }
+
   // Media plan
   if (plan.media_plan?.length) {
-    parts.push(`<h2>自媒体发文策略</h2><table><tr><th>平台</th><th>角色</th><th>关键词</th><th>标题示例</th><th>节奏</th></tr>`)
-    plan.media_plan.forEach(m => parts.push(`<tr><td>${h(m.platform)}</td><td>${h(m.role)}</td><td>${h(m.keyword_focus)}</td><td>${h(m.sample_title)}</td><td>${h(m.cadence)}</td></tr>`))
+    parts.push(`<h2>自媒体发文策略</h2><table><tr><th>平台与依据</th><th>角色</th><th>关键词</th><th>标题示例</th><th>节奏</th></tr>`)
+    plan.media_plan.forEach(m => parts.push(`<tr><td><b>${h(m.platform)}</b><br><span style="color:#64748b">${h(SOURCE_PLATFORM_CATEGORY_LABELS[m.platform_type || "other"])} · ${m.source_origin === "penetration_detected" ? `检测命中 · 采信率 ${m.adoption_rate || 0}%` : "系统补充"}</span></td><td>${h(m.role)}</td><td>${h(m.keyword_focus)}</td><td>${h(m.sample_title)}</td><td>${h(m.cadence)}</td></tr>`))
+    parts.push(`</table>`)
+  }
+
+  if (plan.authority_media_plan?.length) {
+    parts.push(`<h2>官媒与权威信源策略</h2><table><tr><th>平台与依据</th><th>传播角色</th><th>关键词</th><th>标题示例</th><th>节奏</th></tr>`)
+    plan.authority_media_plan.forEach(m => parts.push(`<tr><td><b>${h(m.platform)}</b><br><span style="color:#64748b">${h(SOURCE_PLATFORM_CATEGORY_LABELS[m.platform_type || "other"])} · ${m.source_origin === "penetration_detected" ? `检测命中 · 采信率 ${m.adoption_rate || 0}%` : "系统补充"}</span></td><td>${h(m.role)}</td><td>${h(m.keyword_focus)}</td><td>${h(m.sample_title)}</td><td>${h(m.cadence)}</td></tr>`))
     parts.push(`</table>`)
   }
 
