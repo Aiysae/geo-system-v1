@@ -14,11 +14,14 @@ import {
   FileDown,
   FileText,
   Palette,
+  Send,
 } from "lucide-react"
+import ArticlePublishPanel from "@/components/article/article-publish-panel"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import type { ArticlePublishingSettings } from "@/types"
 
-type WorkspaceTab = "edit" | "preview" | "export"
+type WorkspaceTab = "edit" | "preview" | "export" | "publish"
 type ThemeKey = "default" | "wechat"
 type CopyState = "idle" | "markdown" | "html"
 
@@ -29,6 +32,8 @@ interface Props {
   title: string
   statusText: string
   placeholder: string
+  publishing?: ArticlePublishingSettings
+  onPublishingChange: (patch: Partial<ArticlePublishingSettings>) => void
 }
 
 interface MarkdownTheme {
@@ -313,8 +318,11 @@ export default function ArticleMarkdownWorkspace({
   title,
   statusText,
   placeholder,
+  publishing,
+  onPublishingChange,
 }: Props) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("edit")
+  const [publishVisited, setPublishVisited] = useState(false)
   const [themeKey, setThemeKey] = useState<ThemeKey>("default")
   const [copyState, setCopyState] = useState<CopyState>("idle")
   const previewRef = useRef<HTMLDivElement | null>(null)
@@ -395,7 +403,7 @@ export default function ArticleMarkdownWorkspace({
         </div>
 
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 text-xs font-semibold md:w-[330px]">
+          <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1 text-xs font-semibold md:w-[440px]">
             <button type="button" onClick={() => setActiveTab("edit")} className={tabClass(activeTab === "edit")}>
               <Code2 className="h-3.5 w-3.5" />
               源码
@@ -407,6 +415,18 @@ export default function ArticleMarkdownWorkspace({
             <button type="button" onClick={() => setActiveTab("export")} className={tabClass(activeTab === "export")}>
               <Download className="h-3.5 w-3.5" />
               导出
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPublishVisited(true)
+                setActiveTab("publish")
+              }}
+              disabled={!hasContent}
+              className={`${tabClass(activeTab === "publish")} disabled:cursor-not-allowed disabled:opacity-45`}
+            >
+              <Send className="h-3.5 w-3.5" />
+              发布
             </button>
           </div>
 
@@ -490,6 +510,18 @@ export default function ArticleMarkdownWorkspace({
           </div>
 
         </div>
+
+        {publishVisited && (
+          <div className={activeTab === "publish" ? "h-full overflow-auto" : "hidden"}>
+            <ArticlePublishPanel
+              markdown={value}
+              getRenderedHtml={() => getRenderedHtml(previewRef.current)}
+              fallbackTitle={title}
+              settings={publishing}
+              onSettingsChange={onPublishingChange}
+            />
+          </div>
+        )}
       </div>
     </section>
   )
