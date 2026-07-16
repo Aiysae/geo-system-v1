@@ -16,6 +16,7 @@ import {
 } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import { listWorkspaceClients } from "@/lib/workspace-store"
+import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
 import type { ModelKey, PenetrationJobOperation, PenetrationResult } from "@/types"
 
 export const runtime = "nodejs"
@@ -61,14 +62,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请至少选择一个模型" }, { status: 400 })
     }
 
-    const configured = await Promise.all(
-      requestedModels.map(async model => ({ model, configured: await ADAPTERS[model].configured() })),
-    )
-    const activeModels = configured.filter(item => item.configured).map(item => item.model)
-    const skipped = configured.filter(item => !item.configured).map(item => ADAPTERS[item.model].label)
+    const readiness = await Promise.all(requestedModels.map(getPenetrationModelReadiness))
+    const activeModels = readiness.filter(item => item.ready).map(item => item.model)
+    const skipped = readiness
+      .filter(item => !item.ready)
+      .map(item => `${ADAPTERS[item.model].label}（${item.reason || "严格联网预检未通过"}）`)
     if (activeModels.length === 0) {
       return NextResponse.json(
-        { error: `所选模型均未配置 API Key（缺失：${skipped.join("、")}）`, skipped },
+        { error: `所选模型均未通过严格联网预检：${skipped.join("、")}`, skipped },
         { status: 400 },
       )
     }

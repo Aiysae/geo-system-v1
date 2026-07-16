@@ -14,17 +14,19 @@ import {
   Pencil,
   X,
   Globe2,
+  RefreshCw,
 } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
-import type { BackgroundJobRef, Client, ModelKey } from "@/types"
+import type { BackgroundJobRef, Client, ModelKey, PenetrationModelProgress } from "@/types"
 
 const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
 
 type InputMode = "manual" | "ai"
+type ModelReadiness = Partial<Record<ModelKey, { ready: boolean; reason?: string }>>
 
 interface Props {
   client: Client
@@ -40,6 +42,7 @@ interface Props {
   error: string | null
   skipped?: string[]
   modelErrors?: Partial<Record<ModelKey, string>>
+  modelProgress?: Partial<Record<ModelKey, PenetrationModelProgress>>
   progressLabel?: string
 }
 
@@ -52,6 +55,7 @@ export default function BatchInputPanel({
   error,
   skipped,
   modelErrors,
+  modelProgress,
   progressLabel,
 }: Props) {
   const [questionsText, setQuestionsText] = useState(() => client.questions.join("\n"))
@@ -62,6 +66,7 @@ export default function BatchInputPanel({
   const [aiCount, setAiCount] = useState(5)
   const [aiKeywords, setAiKeywords] = useState("")
   const [aiToast, setAiToast] = useState<string | null>(null)
+  const [modelReadiness, setModelReadiness] = useState<ModelReadiness>({})
   const aiJobRef = client.backgroundJobs?.queryGeneration
   const aiLoading = Boolean(aiJobRef)
   const aiPayload = {
@@ -126,6 +131,30 @@ export default function BatchInputPanel({
     return () => clearTimeout(t)
   }, [aiToast])
 
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch("/api/penetration/readiness", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json() as Promise<{
+          readiness?: Array<{ model: ModelKey; ready: boolean; reason?: string }>
+        }>
+      })
+      .then(data => {
+        const next: ModelReadiness = {}
+        for (const item of data.readiness || []) next[item.model] = item
+        setModelReadiness(next)
+      })
+      .catch(error => {
+        if (error instanceof DOMException && error.name === "AbortError") return
+        console.warn("[penetration] model readiness check failed", error)
+      })
+    return () => controller.abort()
+  }, [])
+
   function parseLines(text: string): string[] {
     return text
       .split(/\r?\n/)
@@ -134,6 +163,7 @@ export default function BatchInputPanel({
   }
 
   function toggleModel(m: ModelKey) {
+    if (modelReadiness[m]?.ready === false) return
     const set = new Set(client.selectedModels)
     if (set.has(m)) set.delete(m)
     else set.add(m)
@@ -145,7 +175,7 @@ export default function BatchInputPanel({
     const brandAliases = parseLines(brandAliasesText)
     const competitors = parseLines(competitorsText)
     onChangeClient({ questions, brandAliases, competitors })
-    onRun({ questions, models: client.selectedModels, brandAliases, competitors })
+    onRun({ questions, models: eligibleSelectedModels, brandAliases, competitors })
   }
 
   function runAiGenerate() {
@@ -159,8 +189,11 @@ export default function BatchInputPanel({
   }
 
   const questionCount = parseLines(questionsText).length
+  const eligibleSelectedModels = client.selectedModels.filter(
+    model => modelReadiness[model]?.ready !== false,
+  )
   const canRun =
-    !loading && client.ourBrand.trim().length > 0 && questionCount > 0 && client.selectedModels.length > 0
+    !loading && client.ourBrand.trim().length > 0 && questionCount > 0 && eligibleSelectedModels.length > 0
   const canAiRun = !aiLoading && (!!client.industry.trim() || !!client.ourBrand.trim())
 
   return (
@@ -342,12 +375,17 @@ export default function BatchInputPanel({
         <Label className="text-xs text-slate-600 mb-2 block">检测模型 *</Label>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
           {ALL_MODELS.map(m => {
-            const checked = client.selectedModels.includes(m)
+            const readiness = modelReadiness[m]
+            const unavailable = readiness?.ready === false
+            const checked = !unavailable && client.selectedModels.includes(m)
             return (
               <label
                 key={m}
+                title={unavailable ? readiness.reason : undefined}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition text-sm ${
-                  checked
+                  unavailable
+                    ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-75"
+                    : checked
                     ? "border-[#003EB3] bg-[#003EB3]/5 text-[#003EB3]"
                     : "border-slate-200 hover:border-slate-300 text-slate-600"
                 }`}
@@ -355,11 +393,13 @@ export default function BatchInputPanel({
                 <input
                   type="checkbox"
                   checked={checked}
+                  disabled={unavailable}
                   onChange={() => toggleModel(m)}
                   className="accent-[#003EB3]"
                 />
                 <ModelAvatar model={m} size="xs" />
                 <span className="font-medium">{MODEL_LABELS[m]}</span>
+                {unavailable && <span className="ml-auto text-[10px]">暂不可用</span>}
               </label>
             )
           })}
@@ -377,7 +417,7 @@ export default function BatchInputPanel({
         <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
           <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <span>
-            以下模型未配置 API Key 已被跳过：<b>{skipped.join("、")}</b>
+            以下模型未通过严格联网预检，已在任务开始前跳过且不计费：<b>{skipped.join("、")}</b>
           </span>
         </div>
       )}
@@ -387,13 +427,38 @@ export default function BatchInputPanel({
           {(Object.entries(modelErrors) as Array<[ModelKey, string]>).map(([m, msg]) => (
             <div
               key={m}
-              className="flex items-start gap-2 text-xs text-red-700 bg-red-50 border border-red-300 rounded-lg p-2.5"
+              className={`flex items-start gap-2 rounded-lg border p-2.5 text-xs ${
+                loading
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-red-300 bg-red-50 text-red-700"
+              }`}
             >
-              <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-red-500" />
+              {loading ? (
+                <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" />
+              ) : (
+                <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+              )}
               <span>
-                <b>{MODEL_LABELS[m]} API 调用失败：</b>
+                <b>{MODEL_LABELS[m]} {loading ? "正在自动补采：" : "需要处理："}</b>
                 {msg}
               </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modelProgress && Object.keys(modelProgress).length > 0 && loading && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+          {(Object.entries(modelProgress) as Array<[ModelKey, PenetrationModelProgress]>).map(([model, progress]) => (
+            <div key={model} className="rounded-lg border border-blue-100 bg-blue-50/60 px-2.5 py-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-700">
+                <ModelAvatar model={model} size="xs" />
+                <span className="truncate">{MODEL_LABELS[model]}</span>
+              </div>
+              <div className="mt-1 text-[10px] text-slate-500">
+                有效 {progress.succeeded}/{progress.total}
+                {progress.retrying > 0 ? ` · 补采 ${progress.retrying}` : ""}
+              </div>
             </div>
           ))}
         </div>
@@ -408,7 +473,7 @@ export default function BatchInputPanel({
       <div className="flex flex-col gap-3 border-t border-slate-200/70 pt-4 lg:flex-row lg:items-center lg:justify-between">
         <CreditCostBadge
           featureKey="penetrationSlot"
-          units={Math.max(1, questionCount * client.selectedModels.length)}
+          units={Math.max(1, questionCount * eligibleSelectedModels.length)}
           className="w-fit"
         />
 
@@ -429,7 +494,7 @@ export default function BatchInputPanel({
             className="w-full gap-2 border-0 bg-gradient-to-r from-[#003EB3] via-[#1677FF] to-[#00C8FF] px-6 py-5 text-sm font-medium transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 lg:w-auto lg:min-w-[300px]"
           >
             <Play className="h-4 w-4" />
-            开始多模型检测 ({client.selectedModels.length} × {questionCount})
+            开始多模型检测 ({eligibleSelectedModels.length} × {questionCount})
           </Button>
         )}
       </div>

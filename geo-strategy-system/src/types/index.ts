@@ -481,8 +481,17 @@ export interface PenetrationResult {
   generatedAt: string
 }
 
-export type PenetrationJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
+export type PenetrationJobStatus = "queued" | "running" | "succeeded" | "blocked" | "failed" | "cancelled"
 export type PenetrationJobOperation = "replace" | "append"
+export type PenetrationJobPhase = "preflight" | "sampling" | "retrying" | "finalizing"
+
+export interface PenetrationModelProgress {
+  total: number
+  succeeded: number
+  retrying: number
+  blocked: number
+  attempts: number
+}
 
 export interface PenetrationJobRecord {
   id: string
@@ -493,6 +502,13 @@ export interface PenetrationJobRecord {
   completedSlots: number
   totalBatches: number
   completedBatches: number
+  phase?: PenetrationJobPhase
+  retryRound?: number
+  nextRetryAt?: string
+  totalAttempts?: number
+  retryingSlots?: number
+  blockedSlots?: number
+  modelProgress?: Partial<Record<ModelKey, PenetrationModelProgress>>
   result?: PenetrationResult
   skipped: string[]
   modelErrors: Partial<Record<ModelKey, string>>

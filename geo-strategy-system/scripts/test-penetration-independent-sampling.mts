@@ -9,6 +9,8 @@ import type { ModelKey, PenetrationResult } from "../src/types"
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "geo-penetration-sampling-"))
 process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = path.join(tempDir, "kv.json")
+process.env.ARK_API_KEY = "test-ark-key"
+process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 
 const { ADAPTERS } = await import("../src/lib/llm")
 const { createInternalApiHeaders } = await import("../src/lib/internal-api")

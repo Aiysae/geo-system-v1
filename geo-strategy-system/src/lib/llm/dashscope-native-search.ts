@@ -143,6 +143,7 @@ export async function chatDashScopeNativeSearch(
           enable_search: true,
           search_options: {
             forced_search: true,
+            search_strategy: "max",
             enable_source: true,
             enable_citation: true,
             citation_format: "[<number>]",
@@ -185,7 +186,10 @@ export async function chatDashScopeNativeSearch(
       throw new Error(`${args.label} 百炼联网返回空内容（finish_reason=${finish}）。`)
     }
     if (args.requireWebEvidence && sources.length === 0) {
-      throw new Error(`${args.label} 百炼联网未返回可审计来源，已阻断模型自答。`)
+      const searchResultCount = data.output?.search_info?.search_results?.length || 0
+      throw new Error(
+        `${args.label} 百炼联网未返回可审计来源（search_results=${searchResultCount}），已阻断模型自答。`,
+      )
     }
     return answer
   } catch (error) {

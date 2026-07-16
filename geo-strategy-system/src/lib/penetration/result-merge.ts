@@ -17,7 +17,15 @@ export function mergePenetrationByModel(
   }
   for (const [model, items] of Object.entries(incoming) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
     if (!items?.length) continue
-    merged[model] = [...(merged[model] || []), ...items]
+    const target = [...(merged[model] || [])]
+    for (const item of items) {
+      const existingIndex = item.sampleId
+        ? target.findIndex(existing => existing.sampleId === item.sampleId)
+        : -1
+      if (existingIndex >= 0) target[existingIndex] = item
+      else target.push(item)
+    }
+    merged[model] = target
   }
   return merged
 }
