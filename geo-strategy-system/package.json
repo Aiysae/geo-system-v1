@@ -18,6 +18,7 @@
     "test:workspace-sync": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-workspace-sync.mts",
     "test:difficulty-scoring": "tsx scripts/test-difficulty-scoring.mts",
     "test:report-branding": "tsx scripts/test-report-branding.mts",
+    "test:report-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-report-history.mts",
     "membership:backfill-vip1": "NODE_OPTIONS=--conditions=react-server tsx scripts/backfill-vip1-memberships.mts",
     "test:email-verification": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-email-verification.mts",
     "test:penetration-web": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-web-adapters.mts",

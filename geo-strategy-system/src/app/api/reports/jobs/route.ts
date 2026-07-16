@@ -9,7 +9,11 @@ import {
 } from "@/lib/job-request-idempotency"
 import { getFeaturePrice } from "@/lib/pricing"
 import { getReportBrandingAccess } from "@/lib/report-access"
-import { createCommercialReportJob, getCommercialReportJob } from "@/lib/reports/report-jobs"
+import {
+  createCommercialReportJob,
+  getCommercialReportJob,
+  listCommercialReportJobs,
+} from "@/lib/reports/report-jobs"
 import { validateReportBranding } from "@/lib/reports/report-branding-store"
 import {
   refundReservedCreditsOnce,
@@ -126,6 +130,31 @@ function parseInput(value: unknown): CommercialReportInput | null {
     penetration: penetration as PenetrationResult | undefined,
     difficulty: difficulty as DifficultyAssessmentEntry | undefined,
   }
+}
+
+export async function GET(req: NextRequest) {
+  const userGuard = await requireUserId()
+  if (!userGuard.ok) return userGuard.response
+
+  const params = req.nextUrl.searchParams
+  const clientId = limitedString(params.get("clientId"), 160)
+  const kind = limitedString(params.get("kind"), 32)
+  const status = limitedString(params.get("status"), 32)
+  const days = Math.max(0, Math.min(365, Number(params.get("days") || 0)))
+  const cutoff = days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0
+
+  let jobs = await listCommercialReportJobs(userGuard.userId)
+  if (clientId) jobs = jobs.filter(job => job.clientId === clientId)
+  if (REPORT_KINDS.has(kind as CommercialReportKind)) jobs = jobs.filter(job => job.kind === kind)
+  if (["queued", "running", "succeeded", "failed"].includes(status)) {
+    jobs = jobs.filter(job => job.status === status)
+  }
+  if (cutoff) jobs = jobs.filter(job => Date.parse(job.createdAt) >= cutoff)
+
+  return NextResponse.json(
+    { jobs, retentionDays: 365, limit: 100 },
+    { headers: { "Cache-Control": "private, no-store" } },
+  )
 }
 
 export async function POST(req: NextRequest) {
