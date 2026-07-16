@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth"
 import { listAiProviderPublicSettings } from "@/lib/ai-settings"
 import { listAllRequests } from "@/lib/recharge"
 import SiteFooter from "@/components/site-footer"
+import { AdminHeader } from "@/components/admin/admin-header"
 import { AiSettingsManager } from "./ai-settings-manager"
 import { RechargeRow } from "./recharge-row"
 
@@ -42,50 +43,15 @@ export default async function AdminRechargePage() {
 
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="geo-utility-header sticky top-0 z-30 border-b backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="geo-utility-header-icon w-10 h-10 rounded-xl flex items-center justify-center shadow-sm">
-              <ShieldCheck className="h-5 w-5 text-white" />
-            </span>
-            <div>
-              <div className="geo-utility-header-title geo-brand-title text-lg">
-                势途 GEO · 管理后台
-              </div>
-              <div className="geo-utility-header-subtitle text-[11px] mt-0.5">积分充值审批</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/admin/metrics"
-              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              运营监控
-            </Link>
-            <Link
-              href="/admin/ledger"
-              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              积分流水
-            </Link>
-            <Link
-              href="/admin"
-              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              用户管理
-            </Link>
-            <Link
-              href="/workspace"
-              className="geo-utility-header-action text-xs font-medium px-3 py-2 rounded-lg transition"
-            >
-              返回工作台
-            </Link>
-          </div>
-        </div>
-      </header>
+      <AdminHeader
+        title="势途 GEO · 管理后台"
+        subtitle="积分充值审批与模型配置"
+        icon={<ShieldCheck className="h-5 w-5 text-white" />}
+        active="recharge"
+      />
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-8">
-        <div className="mb-6 flex items-end justify-between gap-3">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-[11px] text-slate-400 mb-1.5 tracking-[0.18em] uppercase font-medium">
               待审批
@@ -94,7 +60,7 @@ export default async function AdminRechargePage() {
               积分充值申请
             </h1>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <Link
               href="/admin/recharge/export"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white ring-1 ring-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
@@ -144,7 +110,8 @@ export default async function AdminRechargePage() {
               </div>
               <span className="text-xs text-slate-400">已拒绝 {rejected.length} 条</span>
             </div>
-            <table className="w-full">
+            <div className="md:overflow-x-auto">
+              <table className="admin-responsive-table w-full min-w-[820px]">
               <thead>
                 <tr className="bg-slate-50/60 text-left text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   <th className="px-4 py-3">用户</th>
@@ -158,7 +125,8 @@ export default async function AdminRechargePage() {
                   <RechargeRow key={req.id} req={req} />
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         )}
 

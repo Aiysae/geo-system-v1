@@ -1,10 +1,10 @@
-import Link from "next/link"
 import { redirect } from "next/navigation"
-import { ArrowLeft, KeyRound } from "lucide-react"
+import { KeyRound } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listPasswordResetRequests } from "@/lib/auth"
 import SiteFooter from "@/components/site-footer"
 import { PasswordResetRow } from "./password-reset-row"
+import { AdminHeader } from "@/components/admin/admin-header"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -20,26 +20,13 @@ export default async function AdminPasswordResetsPage() {
 
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="geo-utility-header sticky top-0 z-30 border-b backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="geo-utility-header-icon flex h-10 w-10 items-center justify-center rounded-xl shadow-sm">
-              <KeyRound className="h-5 w-5 text-white" />
-            </span>
-            <div>
-              <div className="geo-utility-header-title text-sm font-bold tracking-wide">密码重置申请</div>
-              <div className="geo-utility-header-subtitle mt-0.5 text-[11px]">生成一次性重置链接</div>
-            </div>
-          </div>
-          <Link
-            href="/admin"
-            className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            返回后台
-          </Link>
-        </div>
-      </header>
+      <AdminHeader
+        title="密码重置申请"
+        subtitle="生成一次性重置链接"
+        icon={<KeyRound className="h-5 w-5 text-white" />}
+        active="password-resets"
+        pendingPasswordResetCount={pendingCount}
+      />
 
       <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
         <section className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
@@ -60,8 +47,8 @@ export default async function AdminPasswordResetsPage() {
           {requests.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-slate-400">暂无密码重置申请</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-left">
+            <div className="md:overflow-x-auto">
+              <table className="admin-responsive-table w-full min-w-[860px] text-left">
                 <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-5 py-3">用户</th>

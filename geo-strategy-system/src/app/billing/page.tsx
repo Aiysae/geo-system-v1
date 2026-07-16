@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { ArrowLeft, CreditCard, ReceiptText, Sparkles } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, CreditCard, ReceiptText, Sparkles } from "lucide-react"
 import { getCurrentUser } from "@/lib/auth"
 import {
   mergeBillingRechargeRecords,
@@ -133,7 +133,12 @@ export default async function BillingPage() {
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {RECHARGE_PACKAGES.map(pkg => (
-                <div key={pkg.key} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                <RechargeButton
+                  key={pkg.key}
+                  initialPackageKey={pkg.key}
+                  processPaymentReturn={false}
+                  triggerClassName="group relative w-full rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-left transition hover:-translate-y-0.5 hover:border-[#69B1FF] hover:bg-[#F7FBFF] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2"
+                >
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-semibold text-slate-900">{pkg.name}</div>
                     {"badge" in pkg && pkg.badge && (
@@ -145,7 +150,11 @@ export default async function BillingPage() {
                   <div className="mt-1 font-mono text-lg font-bold text-slate-900">{formatYuan(pkg.priceCents)}</div>
                   <div className="font-mono text-xs font-medium text-[#0958D9]">+{pkg.credits} 积分</div>
                   <p className="mt-2 text-[11px] leading-4 text-slate-500">{pkg.description}</p>
-                </div>
+                  <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#0958D9]">
+                    购买
+                    <ArrowUpRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </span>
+                </RechargeButton>
               ))}
             </div>
             <p className="mt-4 rounded-xl bg-blue-50/70 px-3 py-2 text-xs leading-5 text-slate-600 ring-1 ring-blue-100">

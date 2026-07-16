@@ -47,14 +47,14 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
 
   return (
     <tr className="border-t border-slate-200 hover:bg-slate-50/60 transition">
-      <td className="px-4 py-3 align-top">
+      <td data-label="用户" className="px-4 py-3 align-top">
         <div className="text-sm font-medium text-slate-900">
           {req.username || <span className="text-slate-400">（无昵称）</span>}
         </div>
         <div className="text-xs text-slate-500 mt-0.5">{req.email || "—"}</div>
         <div className="text-[10px] text-slate-400 font-mono mt-1">{req.userId}</div>
       </td>
-      <td className="px-4 py-3 align-top">
+      <td data-label="套餐 / 金额 / 积分" className="px-4 py-3 align-top">
         <div className="mb-1 text-xs font-medium text-slate-700">
           {req.packageName || "历史充值申请"}
         </div>
@@ -85,18 +85,18 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
           </div>
         )}
       </td>
-      <td className="px-4 py-3 align-top text-xs text-slate-500 whitespace-nowrap">
+      <td data-label="提交时间" className="px-4 py-3 align-top text-xs text-slate-500 whitespace-nowrap">
         {new Date(req.createdAt).toLocaleString("zh-CN", { hour12: false })}
       </td>
-      <td className="px-4 py-3 align-top">
+      <td data-label="状态 / 操作" className="px-4 py-3 align-top">
         {isPending ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <form action={approveFormAction}>
               <input type="hidden" name="requestId" value={req.id} />
               <button
                 type="submit"
                 disabled={busy}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:shadow-md hover:shadow-emerald-200/60 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 transition-all"
+                className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-emerald-200/60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50 sm:min-h-0"
               >
                 <Check className="h-3.5 w-3.5" />
                 {approvePending ? "处理中..." : "同意"}
@@ -107,7 +107,7 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
               <button
                 type="submit"
                 disabled={busy}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-white ring-1 ring-slate-200 text-slate-700 hover:bg-slate-50 hover:ring-rose-200 hover:text-rose-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition-all hover:bg-slate-50 hover:text-rose-600 hover:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0"
               >
                 <X className="h-3.5 w-3.5" />
                 {rejectPending ? "处理中..." : "拒绝"}

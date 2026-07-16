@@ -1,11 +1,12 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { ArrowLeft, Download, ReceiptText, ShieldCheck } from "lucide-react"
+import { Download, ReceiptText, ShieldCheck } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listUsers } from "@/lib/auth"
 import { listAllCreditLedger, type CreditLedgerEntry } from "@/lib/credit-ledger"
 import { getFeaturePrice } from "@/lib/pricing"
 import SiteFooter from "@/components/site-footer"
+import { AdminHeader } from "@/components/admin/admin-header"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -78,43 +79,12 @@ export default async function AdminLedgerPage() {
 
   return (
     <div className="min-h-screen geo-saturated-bg">
-      <header className="geo-utility-header sticky top-0 z-30 border-b backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 md:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="geo-utility-header-icon flex h-10 w-10 items-center justify-center rounded-xl shadow-sm">
-              <ReceiptText className="h-5 w-5 text-white" />
-            </span>
-            <div>
-              <div className="geo-utility-header-title geo-brand-title text-lg">
-                势途 GEO · 积分流水审计
-              </div>
-              <div className="geo-utility-header-subtitle mt-0.5 text-[11px]">最近 500 条积分变动</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/admin/metrics"
-              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
-            >
-              运营监控
-            </Link>
-            <Link
-              href="/admin/ledger/export"
-              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
-            >
-              <Download className="h-3.5 w-3.5" />
-              导出流水
-            </Link>
-            <Link
-              href="/admin/recharge"
-              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              返回后台
-            </Link>
-          </div>
-        </div>
-      </header>
+      <AdminHeader
+        title="势途 GEO · 积分流水审计"
+        subtitle="最近 500 条积分变动"
+        icon={<ReceiptText className="h-5 w-5 text-white" />}
+        active="ledger"
+      />
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-8 md:py-8">
         <section className="grid gap-3 md:grid-cols-4">
@@ -137,15 +107,24 @@ export default async function AdminLedgerPage() {
         </section>
 
         <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <h1 className="text-sm font-semibold text-slate-900">积分流水</h1>
-            <p className="mt-1 text-xs text-slate-500">用于核对每一次功能扣费、失败退回、充值到账和人工调账。</p>
+          <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-sm font-semibold text-slate-900">积分流水</h1>
+              <p className="mt-1 text-xs text-slate-500">用于核对每一次功能扣费、失败退回、充值到账和人工调账。</p>
+            </div>
+            <Link
+              href="/admin/ledger/export"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+            >
+              <Download className="h-3.5 w-3.5" />
+              导出流水
+            </Link>
           </div>
           {entries.length === 0 ? (
             <div className="px-5 py-12 text-center text-sm text-slate-400">暂无积分流水</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left">
+            <div className="md:overflow-x-auto">
+              <table className="admin-responsive-table w-full min-w-[960px] text-left">
                 <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-5 py-3">时间</th>
@@ -162,26 +141,26 @@ export default async function AdminLedgerPage() {
                     const user = userMap.get(entry.userId)
                     return (
                       <tr key={entry.id} className="border-t border-slate-100 text-sm">
-                        <td className="whitespace-nowrap px-5 py-3 text-xs text-slate-500">{formatTime(entry.createdAt)}</td>
-                        <td className="px-5 py-3">
+                        <td data-label="时间" className="whitespace-nowrap px-5 py-3 text-xs text-slate-500">{formatTime(entry.createdAt)}</td>
+                        <td data-label="用户" className="px-5 py-3">
                           <Link href={`/admin/users/${entry.userId}`} className="font-medium text-slate-900 hover:text-[#1677FF]">
                             {user?.name || user?.email || entry.userId}
                           </Link>
                           <div className="mt-0.5 text-[11px] text-slate-400">{user?.email || entry.userId}</div>
                         </td>
-                        <td className="px-5 py-3">
+                        <td data-label="类型" className="px-5 py-3">
                           <span className={`inline-flex rounded-lg px-2 py-1 text-xs font-medium ring-1 ${TYPE_CLASS[entry.type]}`}>
                             {TYPE_LABEL[entry.type]}
                           </span>
                         </td>
-                        <td className="px-5 py-3 text-slate-900">{entryLabel(entry)}</td>
-                        <td className={`px-5 py-3 font-mono font-semibold ${entry.delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                        <td data-label="说明" className="px-5 py-3 text-slate-900">{entryLabel(entry)}</td>
+                        <td data-label="变动" className={`px-5 py-3 font-mono font-semibold ${entry.delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>
                           {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
                         </td>
-                        <td className="px-5 py-3 font-mono text-slate-700">
+                        <td data-label="余额" className="px-5 py-3 font-mono text-slate-700">
                           {typeof entry.balanceAfter === "number" ? entry.balanceAfter : "-"}
                         </td>
-                        <td className="px-5 py-3 text-xs text-slate-500">
+                        <td data-label="来源" className="px-5 py-3 text-xs text-slate-500">
                           {entry.source || "-"}
                           {entry.sourceId ? <div className="mt-0.5 font-mono text-[10px] text-slate-400">{entry.sourceId}</div> : null}
                         </td>
