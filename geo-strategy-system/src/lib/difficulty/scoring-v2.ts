@@ -32,6 +32,7 @@ export interface DifficultyScoringSignals {
 }
 
 export interface DifficultyScoringV2Input {
+  industry: string
   mode: DifficultyAssessmentMode
   scope: DifficultyGeographicScope
   region: string
@@ -217,6 +218,7 @@ function commercialPressure(
   const userAov = positive(commercial?.averageOrderValue)
   const userMargin = asRate(commercial?.grossMarginRate)
   const userRepeat = positive(commercial?.annualRepeatPurchases)
+  const userRiskLevel = commercial?.riskLevel
   const averageOrderValue = userAov ?? positive(signals.averageOrderValue)
   const grossMarginRate = userMargin ?? asRate(signals.grossMarginRate)
   const annualRepeatPurchases = userRepeat ?? positive(signals.annualRepeatPurchases) ?? 1
@@ -246,7 +248,12 @@ function commercialPressure(
     averageOrderValue,
     grossMarginRate,
     annualRepeatPurchases,
-    userSupplied: Boolean(userAov || userMargin || userRepeat),
+    userSupplied: Boolean(
+      userAov
+      || userMargin
+      || userRepeat
+      || (userRiskLevel && userRiskLevel !== "auto"),
+    ),
   }
 }
 
@@ -263,6 +270,10 @@ function estimateCost(args: {
     confidence,
     scopeLabel: SCOPE_LABELS[args.input.scope],
     region: args.input.region,
+    industry: args.input.industry,
+    requestedRiskLevel: args.input.commercial?.riskLevel,
+    averageOrderValue: args.commercial.averageOrderValue,
+    authorityBarrier: args.input.signals.authorityBarrier,
   })
 }
 

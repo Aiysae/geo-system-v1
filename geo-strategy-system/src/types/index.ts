@@ -246,10 +246,20 @@ export type DifficultyAssessmentMode = "industry" | "brand"
 
 export type DifficultyGeographicScope = "city" | "province" | "region" | "national"
 
+export type DifficultyIndustryRiskLevel =
+  | "auto"
+  | "standard"
+  | "high_trust"
+  | "regulated"
+  | "strict"
+
+export type DifficultyResolvedIndustryRiskLevel = Exclude<DifficultyIndustryRiskLevel, "auto">
+
 export interface DifficultyCommercialInput {
   averageOrderValue?: number
   grossMarginRate?: number
   annualRepeatPurchases?: number
+  riskLevel?: DifficultyIndustryRiskLevel
 }
 
 export interface DifficultyCostRange {
@@ -298,10 +308,10 @@ export interface DifficultyContentCostMilestone {
   allocation: DifficultyContentAllocation
   cumulativeCost: DifficultyCostRange
   incrementalCost: DifficultyCostRange
+  recommendedCost?: number
 }
 
-export interface DifficultyContentCostEstimate {
-  version: "content-volume-v2"
+interface DifficultyContentCostEstimateBase {
   currency: "CNY"
   confidence: "高" | "中" | "低"
   foundationCost: number
@@ -318,6 +328,65 @@ export interface DifficultyContentCostEstimate {
   milestones: DifficultyContentCostMilestone[]
   assumptions: string[]
 }
+
+export interface DifficultyContentCostEstimateV2 extends DifficultyContentCostEstimateBase {
+  version: "content-volume-v2"
+}
+
+export interface DifficultyCostScoreImpact {
+  fromScore: number
+  toScore: number
+  contentDelta: number
+  costDelta: number
+}
+
+export interface DifficultyCostLevelTransition extends DifficultyCostScoreImpact {
+  fromContent: number
+  toContent: number
+}
+
+export interface DifficultyCostBandDetails {
+  level: DifficultyLevel
+  score: number
+  minScore: number
+  maxScore: number
+  anchorContent: number
+  scoreOffset: number
+  perPointGrowthRate: number
+  stableContent: number
+  formula: string
+  nextScoreImpact?: DifficultyCostScoreImpact
+  nextLevelTransition?: DifficultyCostLevelTransition
+}
+
+export interface DifficultyIndustryCostProfile {
+  requestedLevel: DifficultyIndustryRiskLevel
+  resolvedLevel: DifficultyResolvedIndustryRiskLevel
+  label: string
+  source: "manual" | "system"
+  reason: string
+  riskMultiplier: number
+  valueMultiplier: number
+  effectiveMultiplier: number
+  complianceMultiplier: number
+  dailyThroughput: number
+  averageOrderValue?: number
+  valueReason: string
+}
+
+export interface DifficultyContentCostEstimateV3 extends DifficultyContentCostEstimateBase {
+  version: "content-volume-v3"
+  riskPreparationCost: number
+  effectiveFoundationCost: number
+  baselineWeightedUnitCost: number
+  effectiveWeightedUnitCost: number
+  difficultyBand: DifficultyCostBandDetails
+  industryProfile: DifficultyIndustryCostProfile
+}
+
+export type DifficultyContentCostEstimate =
+  | DifficultyContentCostEstimateV2
+  | DifficultyContentCostEstimateV3
 
 export type DifficultyCostEstimate = DifficultyLegacyCostEstimate | DifficultyContentCostEstimate
 

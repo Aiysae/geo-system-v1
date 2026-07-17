@@ -15,8 +15,10 @@ import {
   History,
   Loader2,
   Play,
+  ShieldCheck,
   Square,
   Table2,
+  TrendingUp,
   Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -30,6 +32,7 @@ import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/backgro
 import {
   estimateGeoContentCost,
   isContentVolumeCostEstimate,
+  isContentVolumeV3CostEstimate,
 } from "@/lib/difficulty/content-cost-estimate"
 import type {
   Client,
@@ -38,6 +41,7 @@ import type {
   DifficultyAssessmentResult,
   DifficultyContentCostEstimate,
   DifficultyGeographicScope,
+  DifficultyIndustryRiskLevel,
   DifficultyJobRecord,
   DifficultyLegacyCostEstimate,
   DifficultyLevel,
@@ -223,6 +227,7 @@ const SAMPLE_COST_ESTIMATE = estimateGeoContentCost({
   confidence: "中",
   scopeLabel: "全国",
   region: "全国",
+  industry: "除甲醛",
 })
 const SAMPLE_STABLE_MILESTONE = SAMPLE_COST_ESTIMATE.milestones.find(item => item.key === "stableMention")!
 const BRAND_SAMPLE_COST_ESTIMATE = estimateGeoContentCost({
@@ -230,6 +235,7 @@ const BRAND_SAMPLE_COST_ESTIMATE = estimateGeoContentCost({
   confidence: "中",
   scopeLabel: "全国",
   region: "全国",
+  industry: "除甲醛",
 })
 const BRAND_SAMPLE_STABLE_MILESTONE = BRAND_SAMPLE_COST_ESTIMATE.milestones.find(item => item.key === "stableMention")!
 
@@ -573,6 +579,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
   const [averageOrderValue, setAverageOrderValue] = useState("")
   const [grossMarginRate, setGrossMarginRate] = useState("")
   const [annualRepeatPurchases, setAnnualRepeatPurchases] = useState("")
+  const [industryRiskLevel, setIndustryRiskLevel] = useState<DifficultyIndustryRiskLevel>("auto")
   const [targetBrand, setTargetBrand] = useState(() => client.ourBrand || "")
   const [website, setWebsite] = useState(() => client.website || "")
   const [selectedModel, setSelectedModel] = useState<DifficultyModelSelection>("auto")
@@ -789,6 +796,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             averageOrderValue: optionalNumber(averageOrderValue),
             grossMarginRate: optionalNumber(grossMarginRate),
             annualRepeatPurchases: optionalNumber(annualRepeatPurchases),
+            riskLevel: industryRiskLevel,
           },
           targetBrand: mode === "brand" ? brandName : undefined,
           website: mode === "brand" ? brandWebsite : undefined,
@@ -985,9 +993,24 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             <Calculator className="h-4 w-4 text-[#1677FF]" />
             商业参数（可选，留空由系统联网估算）
           </div>
-          <span className="text-[10px] text-[#7E91A7]">客单价、毛利率、复购次数</span>
+          <span className="text-[10px] text-[#7E91A7]">行业属性、客单价、毛利率、复购次数</span>
           </summary>
-          <div className="grid gap-3 border-t border-[#E8EEF5] p-3 sm:grid-cols-3">
+          <div className="grid gap-3 border-t border-[#E8EEF5] p-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <Label htmlFor="difficulty-risk-level">行业属性</Label>
+              <Select
+                id="difficulty-risk-level"
+                value={industryRiskLevel}
+                onChange={event => setIndustryRiskLevel(event.target.value as DifficultyIndustryRiskLevel)}
+                disabled={loading}
+              >
+                <option value="auto">系统自动判断（推荐）</option>
+                <option value="standard">普通行业</option>
+                <option value="high_trust">高信任决策行业</option>
+                <option value="regulated">强监管行业</option>
+                <option value="strict">严格监管行业</option>
+              </Select>
+            </div>
             <div>
               <Label htmlFor="difficulty-aov">平均客单价（元）</Label>
               <Input
@@ -1186,7 +1209,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 </div>
                 {costEstimate ? (
                   <span className="text-[11px] text-slate-500">
-                    {isContentVolumeCostEstimate(costEstimate) ? "内容量模型" : "旧版预算模型"} · 测算置信度：{costEstimate.confidence}
+                    {isContentVolumeV3CostEstimate(costEstimate)
+                      ? "四档逐分模型"
+                      : isContentVolumeCostEstimate(costEstimate)
+                        ? "内容量模型"
+                        : "旧版预算模型"} · 测算置信度：{costEstimate.confidence}
                   </span>
                 ) : null}
               </div>
@@ -1317,6 +1344,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 }
 
 function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostEstimate }) {
+  const v3 = isContentVolumeV3CostEstimate(estimate) ? estimate : null
   const stageTones = [
     "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50/70",
     "border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-blue-50/70",
@@ -1325,6 +1353,77 @@ function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostE
 
   return (
     <div className="space-y-4">
+      {v3 ? (
+        <div className="overflow-hidden border-y border-blue-100 bg-[linear-gradient(110deg,#F0F7FF_0%,#FFFFFF_55%,#F0FDFF_100%)]">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100/80 px-4 py-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#003EB3]">
+              <TrendingUp className="h-4 w-4" />
+              四档逐分成本推导
+            </div>
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${levelClasses(v3.difficultyBand.level)}`}>
+              {v3.difficultyBand.score} 分 · {v3.difficultyBand.level}
+            </span>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-blue-100">
+            <CostBasis
+              label="当前分数档"
+              value={`${v3.difficultyBand.minScore}-${v3.difficultyBand.maxScore} 分`}
+              detail={`档内每分复合增长 ${(v3.difficultyBand.perPointGrowthRate * 100).toFixed(1)}%`}
+            />
+            <CostBasis
+              label="稳定内容量公式"
+              value={`${v3.difficultyBand.stableContent} 条`}
+              detail={v3.difficultyBand.formula}
+            />
+            <CostBasis
+              label="行业执行标准"
+              value={v3.industryProfile.label}
+              detail={`${v3.industryProfile.source === "manual" ? "用户选择" : "系统判断"} · 行业 ${v3.industryProfile.riskMultiplier} 倍`}
+            />
+            <CostBasis
+              label="综合执行系数"
+              value={`${v3.industryProfile.effectiveMultiplier} 倍`}
+              detail={`客单价 ${v3.industryProfile.valueMultiplier} 倍 · 封顶 3.5 倍`}
+            />
+          </div>
+          <div className="grid border-t border-blue-100/80 md:grid-cols-2 md:divide-x md:divide-blue-100">
+            <div className="flex items-start gap-2 px-4 py-3">
+              <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-[#1677FF]" />
+              <div className="min-w-0 text-[11px] leading-5 text-slate-600">
+                <div className="font-semibold text-slate-800">
+                  {v3.difficultyBand.nextScoreImpact
+                    ? `${v3.difficultyBand.score}→${v3.difficultyBand.nextScoreImpact.toScore} 分`
+                    : "当前已到 100 分"}
+                </div>
+                <div>
+                  {v3.difficultyBand.nextScoreImpact
+                    ? `增加 ${v3.difficultyBand.nextScoreImpact.contentDelta} 条内容，稳定成本增加 ¥${formatMoney(v3.difficultyBand.nextScoreImpact.costDelta)}`
+                    : "没有更高分值，当前采用最高工作量标准"}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 px-4 py-3">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#13A8A8]" />
+              <div className="min-w-0 text-[11px] leading-5 text-slate-600">
+                <div className="font-semibold text-slate-800">
+                  {v3.difficultyBand.nextLevelTransition
+                    ? `${v3.difficultyBand.nextLevelTransition.fromScore}→${v3.difficultyBand.nextLevelTransition.toScore} 分跨档`
+                    : "当前为最高难度档"}
+                </div>
+                <div>
+                  {v3.difficultyBand.nextLevelTransition
+                    ? `${v3.difficultyBand.nextLevelTransition.fromContent}→${v3.difficultyBand.nextLevelTransition.toContent} 条，成本跃升 ¥${formatMoney(v3.difficultyBand.nextLevelTransition.costDelta)}`
+                    : v3.industryProfile.reason}
+                </div>
+              </div>
+            </div>
+          </div>
+          <p className="border-t border-blue-100/80 px-4 py-2.5 text-[10px] leading-5 text-slate-500">
+            {v3.industryProfile.reason}；{v3.industryProfile.valueReason}。
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 lg:grid-cols-3">
         {estimate.milestones.map((milestone, index) => (
           <article key={milestone.key} className={`min-w-0 overflow-hidden rounded-lg border p-4 ${stageTones[index]}`}>
@@ -1355,7 +1454,10 @@ function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostE
 
             <div className="mt-3">
               <div className="mb-2 flex items-center justify-between text-[10px] text-slate-400">
-                <span>建议中位数 {milestone.contentCount.recommended} 条</span>
+                <span>
+                  建议 {milestone.contentCount.recommended} 条
+                  {milestone.recommendedCost ? ` · ¥${formatMoney(milestone.recommendedCost)}` : ""}
+                </span>
                 <span>新增 {formatMoneyRange(milestone.incrementalCost)}</span>
               </div>
               <div className="grid grid-cols-3 divide-x divide-slate-200 rounded-md bg-white/80 py-2 text-center ring-1 ring-slate-200/80">
@@ -1368,15 +1470,31 @@ function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostE
         ))}
       </div>
 
-      <div className="grid overflow-hidden border-y border-slate-200 bg-slate-50/70 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-slate-200">
-        <CostBasis label="基础建设" value={`¥${formatMoney(estimate.foundationCost)}`} detail="官网和第三方站，只计一次" />
-        <CostBasis label="自媒体文章" value={`${Math.round(estimate.contentRatios.selfMediaArticles * 100)}% · ¥${estimate.unitCosts.selfMediaArticle}/篇`} detail="内容矩阵主体" />
-        <CostBasis label="权威媒体文章" value={`${Math.round(estimate.contentRatios.authorityMediaArticles * 100)}% · ¥${estimate.unitCosts.authorityMediaArticle}/篇`} detail="权威信源支撑" />
-        <CostBasis label="抖音视频" value={`${Math.round(estimate.contentRatios.douyinVideos * 100)}% · ¥${estimate.unitCosts.douyinVideo}/个`} detail="视频内容补充" />
-      </div>
+      {v3 ? (
+        <>
+          <div className="grid overflow-hidden border-y border-slate-200 bg-slate-50/70 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-slate-200">
+            <CostBasis label="基础建设" value={`¥${formatMoney(v3.foundationCost)}`} detail="官网和第三方站，只计一次" />
+            <CostBasis label="信任与合规准备" value={`¥${formatMoney(v3.riskPreparationCost)}`} detail={`调整后基础投入 ¥${formatMoney(v3.effectiveFoundationCost)}`} />
+            <CostBasis label="基准综合单价" value={`¥${v3.baselineWeightedUnitCost.toFixed(1)}/条`} detail="按 70/20/10 基准结构折算" />
+            <CostBasis label="当前综合单价" value={`¥${v3.effectiveWeightedUnitCost.toFixed(2)}/条`} detail={`约 ${v3.industryProfile.dailyThroughput} 条/日有效产能`} />
+          </div>
+          <div className="grid overflow-hidden border-b border-slate-200 bg-white sm:grid-cols-3 sm:divide-x sm:divide-slate-200">
+            <CostBasis label="自媒体文章" value={`${Math.round(v3.contentRatios.selfMediaArticles * 100)}% · ¥${v3.unitCosts.selfMediaArticle}/篇`} detail="行业内容矩阵" />
+            <CostBasis label="权威媒体文章" value={`${Math.round(v3.contentRatios.authorityMediaArticles * 100)}% · ¥${v3.unitCosts.authorityMediaArticle}/篇`} detail="专业信源与背书" />
+            <CostBasis label="抖音视频" value={`${Math.round(v3.contentRatios.douyinVideos * 100)}% · ¥${v3.unitCosts.douyinVideo}/个`} detail="场景和视频信号" />
+          </div>
+        </>
+      ) : (
+        <div className="grid overflow-hidden border-y border-slate-200 bg-slate-50/70 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-slate-200">
+          <CostBasis label="基础建设" value={`¥${formatMoney(estimate.foundationCost)}`} detail="官网和第三方站，只计一次" />
+          <CostBasis label="自媒体文章" value={`${Math.round(estimate.contentRatios.selfMediaArticles * 100)}% · ¥${estimate.unitCosts.selfMediaArticle}/篇`} detail="内容矩阵主体" />
+          <CostBasis label="权威媒体文章" value={`${Math.round(estimate.contentRatios.authorityMediaArticles * 100)}% · ¥${estimate.unitCosts.authorityMediaArticle}/篇`} detail="权威信源支撑" />
+          <CostBasis label="抖音视频" value={`${Math.round(estimate.contentRatios.douyinVideos * 100)}% · ¥${estimate.unitCosts.douyinVideo}/个`} detail="视频内容补充" />
+        </div>
+      )}
 
       <div className="grid gap-1 text-[11px] leading-5 text-slate-500 md:grid-cols-2">
-        {estimate.assumptions.slice(0, 4).map((item, index) => (
+        {estimate.assumptions.slice(0, v3 ? 6 : 4).map((item, index) => (
           <p key={`${index}-${item}`} className="pr-3">{item}</p>
         ))}
       </div>

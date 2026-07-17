@@ -22,7 +22,10 @@ import type {
   PenetrationSource,
   ReportBrandingSettings,
 } from "@/types"
-import { isContentVolumeCostEstimate } from "@/lib/difficulty/content-cost-estimate"
+import {
+  isContentVolumeCostEstimate,
+  isContentVolumeV3CostEstimate,
+} from "@/lib/difficulty/content-cost-estimate"
 import { reportPublisherLabel, resolveReportBranding } from "@/lib/report-branding"
 
 const FONT_DIR = path.join(process.cwd(), "public", "fonts")
@@ -1203,13 +1206,16 @@ function DifficultyContentCostPage({
   input: CommercialReportInput
   estimate: DifficultyContentCostEstimate
 }) {
+  const v3 = isContentVolumeV3CostEstimate(estimate) ? estimate : null
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
       <ChapterTitle
         kicker="CONTENT COST MODEL"
         title="GEO 执行成本测算"
-        intro={`难度总分已包含地域、竞品、商业价值和资产缺口；预算只按达到各阶段所需内容数量计算。置信度为${estimate.confidence}，三个阶段均为累计投入。`}
+        intro={v3
+          ? `难度总分采用容易、中等、困难、超难四档工作量锚点，档内逐分复合增长，跨档明显跃升。行业与客单价共同修正执行标准；置信度为${estimate.confidence}，三个阶段均为累计投入。`
+          : `难度总分已包含地域、竞品、商业价值和资产缺口；预算只按达到各阶段所需内容数量计算。置信度为${estimate.confidence}，三个阶段均为累计投入。`}
       />
       <View style={styles.signalStrip} wrap={false}>
         {estimate.milestones.map(item => (
@@ -1219,6 +1225,49 @@ function DifficultyContentCostPage({
           </View>
         ))}
       </View>
+
+      {v3 ? (
+        <>
+          <View style={[styles.section, { marginTop: 14 }]} wrap={false}>
+            <Text style={styles.sectionTitle}>四档逐分推导</Text>
+            <View style={styles.metricsGrid}>
+              <MetricCard
+                label="当前分数档"
+                value={`${v3.difficultyBand.score}分 · ${v3.difficultyBand.level}`}
+                note={`${v3.difficultyBand.minScore}-${v3.difficultyBand.maxScore}分，每分增长 ${(v3.difficultyBand.perPointGrowthRate * 100).toFixed(1)}%`}
+              />
+              <MetricCard
+                label="稳定内容量"
+                value={`${v3.difficultyBand.stableContent}条`}
+                note={v3.difficultyBand.formula}
+              />
+              <MetricCard
+                label="行业执行标准"
+                value={v3.industryProfile.label}
+                note={`${v3.industryProfile.source === "manual" ? "用户选择" : "系统判断"}：${v3.industryProfile.reason}`}
+              />
+              <MetricCard
+                label="综合执行系数"
+                value={`${v3.industryProfile.effectiveMultiplier}倍`}
+                note={`行业 ${v3.industryProfile.riskMultiplier}倍 · 客单价 ${v3.industryProfile.valueMultiplier}倍`}
+              />
+            </View>
+          </View>
+          <View style={styles.insightBox} wrap={false}>
+            <Text style={styles.insightTitle}>下一分与下一档影响</Text>
+            <Text style={styles.insightText}>
+              {v3.difficultyBand.nextScoreImpact
+                ? `${v3.difficultyBand.score}→${v3.difficultyBand.nextScoreImpact.toScore}分：增加 ${v3.difficultyBand.nextScoreImpact.contentDelta} 条内容，稳定成本增加 ${formatMoney(v3.difficultyBand.nextScoreImpact.costDelta)}。`
+                : "当前已到 100 分，采用最高工作量标准。"}
+            </Text>
+            <Text style={styles.insightText}>
+              {v3.difficultyBand.nextLevelTransition
+                ? `${v3.difficultyBand.nextLevelTransition.fromScore}→${v3.difficultyBand.nextLevelTransition.toScore}分跨档：内容量从 ${v3.difficultyBand.nextLevelTransition.fromContent} 条跃升至 ${v3.difficultyBand.nextLevelTransition.toContent} 条，成本增加 ${formatMoney(v3.difficultyBand.nextLevelTransition.costDelta)}。`
+                : "当前为超难档，不再设置更高等级。"}
+            </Text>
+          </View>
+        </>
+      ) : null}
 
       <View style={[styles.table, { marginTop: 16 }]}>
         <View style={[styles.tableRow, styles.tableHeader]}>
@@ -1244,13 +1293,22 @@ function DifficultyContentCostPage({
       </View>
 
       <View style={[styles.section, { marginTop: 16 }]} wrap={false}>
-        <Text style={styles.sectionTitle}>固定测算基准</Text>
-        <View style={styles.metricsGrid}>
-          <MetricCard label="基础建设" value={formatMoney(estimate.foundationCost)} />
-          <MetricCard label="自媒体文章" value={`${Math.round(estimate.contentRatios.selfMediaArticles * 100)}% · ¥${estimate.unitCosts.selfMediaArticle}/篇`} />
-          <MetricCard label="权威媒体" value={`${Math.round(estimate.contentRatios.authorityMediaArticles * 100)}% · ¥${estimate.unitCosts.authorityMediaArticle}/篇`} />
-          <MetricCard label="抖音视频" value={`${Math.round(estimate.contentRatios.douyinVideos * 100)}% · ¥${estimate.unitCosts.douyinVideo}/个`} />
-        </View>
+        <Text style={styles.sectionTitle}>{v3 ? "执行结构与成本基准" : "固定测算基准"}</Text>
+        {v3 ? (
+          <View style={styles.metricsGrid}>
+            <MetricCard label="基础建设" value={formatMoney(v3.foundationCost)} note="官网和第三方站，只计一次" />
+            <MetricCard label="信任与合规准备" value={formatMoney(v3.riskPreparationCost)} note={`调整后基础投入 ${formatMoney(v3.effectiveFoundationCost)}`} />
+            <MetricCard label="当前综合单价" value={`¥${v3.effectiveWeightedUnitCost.toFixed(2)}/条`} note={`基准 ¥${v3.baselineWeightedUnitCost.toFixed(1)}/条`} />
+            <MetricCard label="内容结构" value={`${Math.round(v3.contentRatios.selfMediaArticles * 100)}/${Math.round(v3.contentRatios.authorityMediaArticles * 100)}/${Math.round(v3.contentRatios.douyinVideos * 100)}`} note="自媒体 / 权威媒体 / 视频" />
+          </View>
+        ) : (
+          <View style={styles.metricsGrid}>
+            <MetricCard label="基础建设" value={formatMoney(estimate.foundationCost)} />
+            <MetricCard label="自媒体文章" value={`${Math.round(estimate.contentRatios.selfMediaArticles * 100)}% · ¥${estimate.unitCosts.selfMediaArticle}/篇`} />
+            <MetricCard label="权威媒体" value={`${Math.round(estimate.contentRatios.authorityMediaArticles * 100)}% · ¥${estimate.unitCosts.authorityMediaArticle}/篇`} />
+            <MetricCard label="抖音视频" value={`${Math.round(estimate.contentRatios.douyinVideos * 100)}% · ¥${estimate.unitCosts.douyinVideo}/个`} />
+          </View>
+        )}
       </View>
 
       <View style={[styles.insightBox, { marginTop: 14 }]} wrap={false}>
