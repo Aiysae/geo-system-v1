@@ -5,6 +5,7 @@ import type {
   DifficultyAssessmentResult,
   DifficultyCommercialInput,
   DifficultyGeographicScope,
+  DifficultyIndustryRiskLevel,
   DifficultyProcess,
   DifficultyStageKey,
   DifficultyStageOutput,
@@ -92,6 +93,18 @@ function optionalPositive(value: unknown): number | undefined {
   return Number.isFinite(number) && number > 0 ? number : undefined
 }
 
+function normalizeRiskLevel(value: unknown): DifficultyIndustryRiskLevel {
+  if (
+    value === "standard"
+    || value === "high_trust"
+    || value === "regulated"
+    || value === "strict"
+  ) {
+    return value
+  }
+  return "auto"
+}
+
 function normalizeScope(value: unknown, region: string): DifficultyGeographicScope {
   if (value === "city" || value === "province" || value === "region" || value === "national") {
     return value
@@ -117,6 +130,7 @@ export function normalizeDifficultyInput(value: unknown): DifficultyAssessmentIn
     averageOrderValue: optionalPositive(rawCommercial.averageOrderValue),
     grossMarginRate: optionalPositive(rawCommercial.grossMarginRate),
     annualRepeatPurchases: optionalPositive(rawCommercial.annualRepeatPurchases),
+    riskLevel: normalizeRiskLevel(rawCommercial.riskLevel),
   }
   const hasCommercial = Object.values(commercial).some(value => value !== undefined)
 
@@ -335,6 +349,7 @@ function normalizeResult(
     ? source.dimensions as Record<string, unknown>
     : {}
   const scored = scoreDifficultyV2({
+    industry: context.industry,
     mode: context.mode,
     scope,
     region: context.city,

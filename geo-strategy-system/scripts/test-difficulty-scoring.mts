@@ -13,6 +13,8 @@ const {
   allocateGeoContent,
   estimateGeoContentCost,
   geoContentExecutionCost,
+  isContentVolumeCostEstimate,
+  isContentVolumeV3CostEstimate,
 } = require("../src/lib/difficulty/content-cost-estimate.ts") as typeof ContentCostModule
 type DifficultyScoringSignals = DifficultyScoringModule.DifficultyScoringSignals
 
@@ -21,17 +23,172 @@ const calibratedCost = estimateGeoContentCost({
   confidence: "中",
   scopeLabel: "单省",
   region: "浙江省",
+  industry: "一般消费服务",
+  requestedRiskLevel: "standard",
 })
 const [firstMention, halfStable, stableMention] = calibratedCost.milestones
-assert.deepEqual(firstMention.contentCount, { min: 55, max: 75, recommended: 65 })
-assert.deepEqual(firstMention.days, { min: 22, max: 30 })
-assert.deepEqual(firstMention.cumulativeCost, { min: 2_217, max: 2_479 })
-assert.deepEqual(halfStable.contentCount, { min: 130, max: 175, recommended: 150 })
-assert.deepEqual(halfStable.days, { min: 48, max: 64 })
-assert.deepEqual(halfStable.cumulativeCost, { min: 3_203, max: 3_789 })
-assert.deepEqual(stableMention.contentCount, { min: 215, max: 290, recommended: 250 })
-assert.deepEqual(stableMention.days, { min: 87, max: 117 })
-assert.deepEqual(stableMention.cumulativeCost, { min: 4_313, max: 5_299 })
+assert.equal(calibratedCost.version, "content-volume-v3")
+assert.ok(isContentVolumeCostEstimate(calibratedCost))
+assert.ok(isContentVolumeV3CostEstimate(calibratedCost))
+assert.equal(calibratedCost.difficultyBand.level, "困难")
+assert.equal(calibratedCost.difficultyBand.minScore, 50)
+assert.equal(calibratedCost.difficultyBand.maxScore, 74)
+assert.equal(calibratedCost.difficultyBand.perPointGrowthRate, 0.035)
+assert.equal(firstMention.contentCount.recommended, 169)
+assert.equal(halfStable.contentCount.recommended, 406)
+assert.equal(stableMention.contentCount.recommended, 677)
+assert.equal(firstMention.recommendedCost, 3_714)
+assert.equal(halfStable.recommendedCost, 6_819)
+assert.equal(stableMention.recommendedCost, 10_369)
+assert.equal(calibratedCost.difficultyBand.nextScoreImpact?.toScore, 61)
+assert.equal(calibratedCost.difficultyBand.nextScoreImpact?.contentDelta, 24)
+assert.equal(calibratedCost.difficultyBand.nextScoreImpact?.costDelta, 314)
+assert.deepEqual(calibratedCost.difficultyBand.nextLevelTransition, {
+  fromScore: 74,
+  toScore: 75,
+  fromContent: 1_096,
+  toContent: 1_650,
+  contentDelta: 554,
+  costDelta: 7_257,
+})
+
+const historicalV2Snapshot = {
+  ...calibratedCost,
+  version: "content-volume-v2" as const,
+}
+assert.ok(isContentVolumeCostEstimate(historicalV2Snapshot))
+assert.equal(isContentVolumeV3CostEstimate(historicalV2Snapshot), false)
+
+const expectedBandAnchors = new Map([
+  [0, 60],
+  [24, 97],
+  [25, 150],
+  [49, 305],
+  [50, 480],
+  [60, 677],
+  [70, 955],
+  [74, 1_096],
+  [75, 1_650],
+  [100, 4_399],
+])
+let previousStableContent = 0
+let previousStableCost = 0
+for (let score = 0; score <= 100; score += 1) {
+  const estimate = estimateGeoContentCost({
+    totalScore: score,
+    confidence: "中",
+    scopeLabel: "单省",
+    region: "浙江省",
+    industry: "一般消费服务",
+    requestedRiskLevel: "standard",
+  })
+  const stable = estimate.milestones.find(item => item.key === "stableMention")!
+  assert.equal(
+    stable.contentCount.recommended,
+    expectedBandAnchors.get(score) ?? stable.contentCount.recommended,
+    `${score} 分的四档逐分内容量锚点不正确`,
+  )
+  assert.ok(
+    stable.contentCount.recommended > previousStableContent || score === 0,
+    `${score - 1} 分升到 ${score} 分时，稳定内容量必须严格增加`,
+  )
+  assert.ok(
+    (stable.recommendedCost ?? 0) > previousStableCost || score === 0,
+    `${score - 1} 分升到 ${score} 分时，稳定成本必须严格增加`,
+  )
+  previousStableContent = stable.contentCount.recommended
+  previousStableCost = stable.recommendedCost ?? 0
+}
+
+for (const [score, expected] of [
+  [24, { fromScore: 24, toScore: 25, fromContent: 97, toContent: 150, contentDelta: 53, costDelta: 694 }],
+  [49, { fromScore: 49, toScore: 50, fromContent: 305, toContent: 480, contentDelta: 175, costDelta: 2_292 }],
+  [74, { fromScore: 74, toScore: 75, fromContent: 1_096, toContent: 1_650, contentDelta: 554, costDelta: 7_257 }],
+] as const) {
+  const estimate = estimateGeoContentCost({
+    totalScore: score,
+    confidence: "中",
+    scopeLabel: "单省",
+    region: "浙江省",
+    industry: "一般消费服务",
+    requestedRiskLevel: "standard",
+  })
+  assert.deepEqual(estimate.difficultyBand.nextLevelTransition, expected)
+}
+
+const score70Cost = estimateGeoContentCost({
+  totalScore: 70,
+  confidence: "中",
+  scopeLabel: "单省",
+  region: "浙江省",
+  industry: "一般消费服务",
+  requestedRiskLevel: "standard",
+})
+const score70Stable = score70Cost.milestones.find(item => item.key === "stableMention")!
+assert.equal(score70Stable.contentCount.recommended, 955)
+assert.equal(score70Stable.recommendedCost, 14_011)
+assert.ok(
+  (score70Stable.recommendedCost ?? 0) / (stableMention.recommendedCost ?? 1) > 1.35,
+  "困难档内 60 分升到 70 分时，稳定成本应提升约 35%",
+)
+
+const medicalCost = estimateGeoContentCost({
+  totalScore: 60,
+  confidence: "中",
+  scopeLabel: "全国",
+  region: "全国",
+  industry: "医疗诊疗服务",
+  requestedRiskLevel: "auto",
+  authorityBarrier: 88,
+})
+assert.ok(isContentVolumeV3CostEstimate(medicalCost))
+assert.equal(medicalCost.industryProfile.resolvedLevel, "strict")
+assert.equal(medicalCost.industryProfile.effectiveMultiplier, 2.8)
+assert.deepEqual(medicalCost.contentRatios, {
+  selfMediaArticles: 0.4,
+  authorityMediaArticles: 0.45,
+  douyinVideos: 0.15,
+})
+for (const milestone of medicalCost.milestones) {
+  assert.equal(
+    milestone.allocation.selfMediaArticles
+      + milestone.allocation.authorityMediaArticles
+      + milestone.allocation.douyinVideos,
+    milestone.allocation.total,
+    "严格监管行业的渠道结构分配不能丢失内容数量",
+  )
+}
+assert.equal(
+  medicalCost.milestones.find(item => item.key === "stableMention")?.recommendedCost,
+  29_033,
+)
+
+const highValueCost = estimateGeoContentCost({
+  totalScore: 60,
+  confidence: "高",
+  scopeLabel: "全国",
+  region: "全国",
+  industry: "工业设备",
+  requestedRiskLevel: "standard",
+  averageOrderValue: 1_200_000,
+})
+assert.equal(highValueCost.industryProfile.valueMultiplier, 2.5)
+assert.equal(highValueCost.industryProfile.effectiveMultiplier, 2.5)
+
+const highValueMedicalCost = estimateGeoContentCost({
+  totalScore: 60,
+  confidence: "高",
+  scopeLabel: "全国",
+  region: "全国",
+  industry: "高端医疗服务",
+  requestedRiskLevel: "auto",
+  averageOrderValue: 1_200_000,
+})
+assert.equal(highValueMedicalCost.industryProfile.effectiveMultiplier, 3.325)
+assert.ok(
+  (highValueMedicalCost.milestones[2].recommendedCost ?? 0)
+    > (medicalCost.milestones[2].recommendedCost ?? 0),
+)
 
 for (let total = 0; total <= 500; total++) {
   const allocation = allocateGeoContent(total)
@@ -75,6 +232,7 @@ assert.ok(geographicScopeScore("province", 100) < geographicScopeScore("region",
 assert.ok(geographicScopeScore("region", 100) < geographicScopeScore("national", 0))
 
 const aliasResult = scoreDifficultyV2({
+  industry: "全屋定制",
   mode: "industry",
   scope: "city",
   region: "深圳",
@@ -87,6 +245,7 @@ const aliasResult = scoreDifficultyV2({
 assert.equal(aliasResult.competitorCount, 1, "同一品牌的中英文名和简称必须合并")
 
 const subBrandResult = scoreDifficultyV2({
+  industry: "智能汽车",
   mode: "industry",
   scope: "city",
   region: "北京",
@@ -99,12 +258,14 @@ const subBrandResult = scoreDifficultyV2({
 assert.equal(subBrandResult.competitorCount, 2, "独立子品牌不能仅凭名称包含关系被合并")
 
 const province = scoreDifficultyV2({
+  industry: "除甲醛",
   mode: "industry",
   scope: "province",
   region: "浙江省",
   signals: baseSignals,
 })
 const national = scoreDifficultyV2({
+  industry: "除甲醛",
   mode: "industry",
   scope: "national",
   region: "全国",
@@ -117,6 +278,7 @@ assert.ok(
 )
 
 const lowCommercial = scoreDifficultyV2({
+  industry: "日用消费品",
   mode: "industry",
   scope: "province",
   region: "浙江省",
@@ -129,6 +291,7 @@ const lowCommercial = scoreDifficultyV2({
   },
 })
 const highCommercial = scoreDifficultyV2({
+  industry: "高端企业服务",
   mode: "industry",
   scope: "province",
   region: "浙江省",
@@ -152,6 +315,7 @@ assert.ok(
 )
 
 const brandFewCompetitors = scoreDifficultyV2({
+  industry: "全屋定制",
   mode: "brand",
   scope: "province",
   region: "浙江省",
@@ -166,6 +330,7 @@ const brandFewCompetitors = scoreDifficultyV2({
   },
 })
 const brandManyCompetitors = scoreDifficultyV2({
+  industry: "全屋定制",
   mode: "brand",
   scope: "province",
   region: "浙江省",
@@ -186,6 +351,7 @@ assert.ok(
 assert.ok(brandManyCompetitors.totalScore > brandFewCompetitors.totalScore)
 
 const liquor = scoreDifficultyV2({
+  industry: "白酒",
   mode: "industry",
   scope: "national",
   region: "全国",
@@ -207,4 +373,4 @@ const liquor = scoreDifficultyV2({
 })
 assert.ok(liquor.totalScore >= 75, `全国白酒强竞争样本不应低于超难区间，实际 ${liquor.totalScore}`)
 
-console.log("difficulty scoring v2: all calibration checks passed")
+console.log("difficulty scoring and content cost v3: all calibration checks passed")
