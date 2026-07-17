@@ -17,6 +17,7 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5, compact =
 
   const initialBatch = useMemo(() => items.slice(0, defaultVisible), [items, defaultVisible])
   const extraBatch = useMemo(() => items.slice(defaultVisible), [items, defaultVisible])
+  const compactItems = expanded ? items : initialBatch
   const hasMore = extraBatch.length > 0
   const targetRank = items.find(it => it.isTarget)?.rank ?? null
   // 进度条的"满刻度"参考：用首位提及数。这样最大声量品牌的条占满 100% 视觉宽度。
@@ -47,7 +48,17 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5, compact =
           暂无品牌声量数据
         </div>
       ) : compact ? (
-        <CompactBrandVoiceTable items={items} maxMentions={maxMentions} />
+        <>
+          <CompactBrandVoiceTable items={compactItems} maxMentions={maxMentions} />
+          {hasMore ? (
+            <BrandTableToggle
+              expanded={expanded}
+              total={items.length}
+              visibleCount={defaultVisible}
+              onToggle={() => setExpanded(value => !value)}
+            />
+          ) : null}
+        </>
       ) : (
         <>
           <div className="overflow-x-auto">
@@ -90,30 +101,51 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5, compact =
                 </div>
               </div>
 
-              <div className="flex justify-center border-t border-slate-100 bg-[#F8FAFD]">
-                <button
-                  type="button"
-                  onClick={() => setExpanded(v => !v)}
-                  aria-expanded={expanded}
-                  className="my-1 inline-flex items-center gap-1.5 rounded-md px-4 py-2.5 text-xs font-medium text-[#526A83] transition-colors hover:bg-[#EAF3FF] hover:text-[#0958D9]"
-                >
-                  {expanded ? (
-                    <>
-                      <ChevronUp className="h-3.5 w-3.5" />
-                      收起
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="h-3.5 w-3.5" />
-                      展开全部（共 {items.length} 个）
-                    </>
-                  )}
-                </button>
-              </div>
+              <BrandTableToggle
+                expanded={expanded}
+                total={items.length}
+                visibleCount={defaultVisible}
+                onToggle={() => setExpanded(value => !value)}
+              />
             </>
           )}
         </>
       )}
+    </div>
+  )
+}
+
+function BrandTableToggle({
+  expanded,
+  total,
+  visibleCount,
+  onToggle,
+}: {
+  expanded: boolean
+  total: number
+  visibleCount: number
+  onToggle: () => void
+}) {
+  return (
+    <div className="flex justify-center border-t border-slate-100 bg-[#F8FAFD]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="my-1 inline-flex min-h-9 items-center gap-1.5 rounded-md px-4 py-2 text-xs font-medium text-[#526A83] transition-colors hover:bg-[#EAF3FF] hover:text-[#0958D9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF]/35"
+      >
+        {expanded ? (
+          <>
+            <ChevronUp className="h-3.5 w-3.5" />
+            收起至前 {Math.min(visibleCount, total)} 个
+          </>
+        ) : (
+          <>
+            <ChevronDown className="h-3.5 w-3.5" />
+            展开全部（共 {total} 个）
+          </>
+        )}
+      </button>
     </div>
   )
 }
