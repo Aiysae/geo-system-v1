@@ -1040,23 +1040,23 @@ function MonitoringDashboards({
       </button>
 
       {open && (
-        <div className="grid min-w-0 gap-4 border-t border-slate-100 bg-[#F8FAFD] p-4 xl:grid-cols-2">
+        <div className="min-w-0 space-y-4 border-t border-slate-100 bg-[#F8FAFD] p-4">
           {loading && !voice && !competition && (
-            <div className="py-10 text-center text-sm text-slate-500 xl:col-span-2">聚合中…</div>
+            <div className="py-10 text-center text-sm text-slate-500">聚合中…</div>
           )}
           {error && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 xl:col-span-2">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {error}
             </div>
           )}
           {voice && (
-            <div className="min-h-[360px] min-w-0 overflow-hidden">
-              <BrandShareOfVoice compact items={voice} />
+            <div className="min-w-0 overflow-hidden">
+              <BrandShareOfVoice key={`voice-${cacheKey}`} compact items={voice} />
             </div>
           )}
           {competition && (
-            <div className="min-h-[360px] min-w-0 overflow-hidden">
-              <KeywordCompetition compact items={competition} />
+            <div className="h-[400px] min-w-0 overflow-hidden sm:h-[420px]">
+              <KeywordCompetition key={`competition-${cacheKey}`} compact items={competition} />
             </div>
           )}
         </div>
