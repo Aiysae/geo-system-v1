@@ -62,6 +62,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请至少选择一个模型" }, { status: 400 })
     }
 
+    const currentClient = (await listWorkspaceClients(userGuard.userId))
+      .find(item => item.client.id === clientId)?.client
+    if (!currentClient) {
+      return NextResponse.json({ error: "当前客户不存在或已被删除，请刷新页面后重试" }, { status: 404 })
+    }
+
     const readiness = await Promise.all(requestedModels.map(getPenetrationModelReadiness))
     const activeModels = readiness.filter(item => item.ready).map(item => item.model)
     const skipped = readiness
@@ -91,21 +97,21 @@ export async function POST(req: NextRequest) {
 
     const request: PenetrationJobRequest = {
       clientId,
+      clientName: currentClient.name,
       runId: requestId,
       operation,
       ourBrand,
       brandAliases: stringList(body.brandAliases),
       industry: String(body.industry || "").trim(),
+      website: currentClient.website,
       questions,
       competitors: stringList(body.competitors),
+      selectedModels: requestedModels,
       models: activeModels,
     }
-    let baseResult: PenetrationResult | undefined
-    if (operation === "append") {
-      const currentClient = (await listWorkspaceClients(userGuard.userId))
-        .find(item => item.client.id === clientId)
-      baseResult = currentClient?.client.penetration
-    }
+    const baseResult: PenetrationResult | undefined = operation === "append"
+      ? currentClient.penetration
+      : undefined
     const slotCount = questions.length * activeModels.length
     const credits = estimateFeatureCredits("penetrationSlot", slotCount)
     const creditGuard = await reserveCreditsForUser(userGuard.userId, credits, {

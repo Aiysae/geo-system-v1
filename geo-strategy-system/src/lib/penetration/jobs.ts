@@ -16,9 +16,14 @@ import {
 import { estimateFeatureCredits } from "@/lib/pricing"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
+import {
+  buildPenetrationHistoryRecord,
+  savePenetrationHistoryRecord,
+} from "@/lib/penetration/history-store"
 import type {
   ModelKey,
   PenetrationByModel,
+  PenetrationHistoryStatus,
   PenetrationJobOperation,
   PenetrationJobRecord,
   PenetrationItem,
@@ -28,13 +33,16 @@ import type {
 
 export interface PenetrationJobRequest {
   clientId: string
+  clientName?: string
   runId: string
   operation: PenetrationJobOperation
   ourBrand: string
   brandAliases: string[]
   industry: string
+  website?: string
   questions: string[]
   competitors: string[]
+  selectedModels?: ModelKey[]
   models: ModelKey[]
 }
 
@@ -89,6 +97,7 @@ const memoryJobs = new Map<string, StoredPenetrationJob>()
 const activeJobs = new Set<string>()
 const activeAbortControllers = new Map<string, AbortController>()
 const settlingJobs = new Set<string>()
+const historySavingJobs = new Set<string>()
 const resumeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 const jobKey = (id: string) => `geo:penetration-jobs:${id}`
@@ -311,7 +320,7 @@ async function patchJob(
 ): Promise<StoredPenetrationJob | null> {
   const current = await getStoredJob(id)
   if (!current) return null
-  if (current.status === "cancelled" && patch.status !== "cancelled") return current
+  if (current.status === "cancelled" && patch.status && patch.status !== "cancelled") return current
   const next = { ...current, ...patch, updatedAt: nowIso() }
   await saveJob(next)
   return next
@@ -429,6 +438,100 @@ async function persistJobResultToWorkspace(job: StoredPenetrationJob): Promise<v
   } catch (error) {
     console.error("[penetration-jobs] workspace result persistence failed", job.id, error)
   }
+}
+
+type PenetrationHistoryJobPatch = Pick<
+  PenetrationJobRecord,
+  "historyRecordId" | "historySavedAt" | "historySavePending"
+>
+
+async function persistTerminalHistory(args: {
+  job: StoredPenetrationJob
+  status: PenetrationHistoryStatus
+  error?: string
+  finishedAt: string
+}): Promise<PenetrationHistoryJobPatch> {
+  if (args.job.historySavedAt) {
+    return {
+      historyRecordId: args.job.historyRecordId || args.job.id,
+      historySavedAt: args.job.historySavedAt,
+      historySavePending: false,
+    }
+  }
+  if (historySavingJobs.has(args.job.id)) {
+    return {
+      historyRecordId: args.job.id,
+      historySavePending: true,
+    }
+  }
+
+  historySavingJobs.add(args.job.id)
+  try {
+    const record = buildPenetrationHistoryRecord({
+      id: args.job.id,
+      request: {
+        clientId: args.job.request.clientId,
+        clientName: args.job.request.clientName?.trim()
+          || args.job.request.ourBrand.trim()
+          || args.job.request.clientId,
+        ourBrand: args.job.request.ourBrand,
+        brandAliases: args.job.request.brandAliases,
+        industry: args.job.request.industry,
+        website: args.job.request.website?.trim() || "",
+        questions: args.job.request.questions,
+        competitors: args.job.request.competitors,
+        models: args.job.request.selectedModels || args.job.request.models,
+        activeModels: args.job.request.models,
+        skippedModels: args.job.skipped,
+        operation: args.job.request.operation,
+      },
+      status: args.status,
+      result: args.job.result,
+      error: args.error,
+      completedSlots: args.job.completedSlots,
+      totalSlots: args.job.totalSlots,
+      createdAt: args.job.createdAt,
+      completedAt: args.finishedAt,
+    })
+    await savePenetrationHistoryRecord(args.job.ownerUserId, record)
+    return {
+      historyRecordId: record.id,
+      historySavedAt: nowIso(),
+      historySavePending: false,
+    }
+  } catch (error) {
+    console.error("[penetration-jobs] history persistence failed", args.job.id, error)
+    return {
+      historyRecordId: args.job.id,
+      historySavePending: true,
+    }
+  } finally {
+    historySavingJobs.delete(args.job.id)
+  }
+}
+
+function historyStatusForJob(job: StoredPenetrationJob): PenetrationHistoryStatus | null {
+  if (job.status === "succeeded") return "succeeded"
+  if (job.status === "blocked") return "partial"
+  if (job.status === "cancelled") return "cancelled"
+  if (job.status === "failed") return "failed"
+  return null
+}
+
+async function retryTerminalHistory(job: StoredPenetrationJob): Promise<void> {
+  const status = historyStatusForJob(job)
+  if (!status || job.historySavedAt || historySavingJobs.has(job.id)) return
+  const finishedAt = job.finishedAt || nowIso()
+  const historyPatch = await persistTerminalHistory({
+    job,
+    status,
+    error: job.error,
+    finishedAt,
+  })
+  await patchJob(job.id, {
+    status: job.status,
+    ...historyPatch,
+  })
 }
 
 async function readBatchResponse(response: Response): Promise<PenetrationBatchResponse> {
@@ -682,6 +785,12 @@ async function runJob(jobId: string): Promise<void> {
         await persistJobResultToWorkspace(job)
         const usedSlots = successfulNewSlotCount(job)
         await settleJobCreditsQuietly(job.id, usedSlots)
+        const finishedAt = nowIso()
+        const historyPatch = await persistTerminalHistory({
+          job,
+          status: "succeeded",
+          finishedAt,
+        })
         await patchJob(job.id, {
           status: "succeeded",
           phase: "finalizing",
@@ -691,7 +800,8 @@ async function runJob(jobId: string): Promise<void> {
           blockedSlots: 0,
           modelErrors: {},
           nextRetryAt: undefined,
-          finishedAt: nowIso(),
+          finishedAt,
+          ...historyPatch,
         })
         return
       }
@@ -702,11 +812,20 @@ async function runJob(jobId: string): Promise<void> {
         await persistJobResultToWorkspace(job)
         const usedSlots = successfulNewSlotCount(job)
         await settleJobCreditsQuietly(job.id, usedSlots)
+        const error = `仍有 ${progress.blockedSlots || 0} 个槽位在多轮独立联网补采后未达标。已保留 ${progress.completedSlots} 个完整结果，未达标槽位不计费、不进入渗透率统计。`
+        const finishedAt = nowIso()
+        const historyPatch = await persistTerminalHistory({
+          job,
+          status: "partial",
+          error,
+          finishedAt,
+        })
         await patchJob(job.id, {
           status: "blocked",
-          error: `仍有 ${progress.blockedSlots || 0} 个槽位在多轮独立联网补采后未达标。已保留 ${progress.completedSlots} 个完整结果，未达标槽位不计费、不进入渗透率统计。`,
+          error,
           nextRetryAt: undefined,
-          finishedAt: nowIso(),
+          finishedAt,
+          ...historyPatch,
         })
         return
       }
@@ -730,19 +849,40 @@ async function runJob(jobId: string): Promise<void> {
     await settleJobCreditsQuietly(jobId, usedSlots)
 
     if (isCancelledError(error) || current?.status === "cancelled") {
+      const finishedAt = current?.finishedAt || nowIso()
+      const historyPatch = current
+        ? await persistTerminalHistory({
+            job: current,
+            status: "cancelled",
+            error: PENETRATION_JOB_CANCELLED_MESSAGE,
+            finishedAt,
+          })
+        : { historySavePending: true }
       await patchJob(jobId, {
         status: "cancelled",
         error: PENETRATION_JOB_CANCELLED_MESSAGE,
-        finishedAt: nowIso(),
+        finishedAt,
+        ...historyPatch,
       })
       return
     }
 
     console.error("[penetration-jobs] job failed:", jobId, error)
+    const message = error instanceof Error ? error.message : "疑问句检测后台任务失败"
+    const finishedAt = nowIso()
+    const historyPatch = current
+      ? await persistTerminalHistory({
+          job: current,
+          status: "failed",
+          error: message,
+          finishedAt,
+        })
+      : { historySavePending: true }
     await patchJob(jobId, {
       status: "failed",
-      error: error instanceof Error ? error.message : "疑问句检测后台任务失败",
-      finishedAt: nowIso(),
+      error: message,
+      finishedAt,
+      ...historyPatch,
     })
   } finally {
     activeJobs.delete(jobId)
@@ -804,6 +944,12 @@ export async function getPenetrationJob(
   ) {
     void runJob(job.id)
   }
+  if (
+    ["succeeded", "blocked", "failed", "cancelled"].includes(job.status)
+    && !job.historySavedAt
+  ) {
+    void retryTerminalHistory(job)
+  }
   return toPublicJob(job)
 }
 
@@ -826,5 +972,15 @@ export async function cancelPenetrationJob(
   activeAbortControllers.get(id)?.abort()
   activeAbortControllers.delete(id)
   clearResumeTimer(id)
-  return toPublicJob(cancelled)
+  const historyPatch = await persistTerminalHistory({
+    job: cancelled,
+    status: "cancelled",
+    error: PENETRATION_JOB_CANCELLED_MESSAGE,
+    finishedAt: cancelled.finishedAt || nowIso(),
+  })
+  const saved = await patchJob(id, {
+    status: "cancelled",
+    ...historyPatch,
+  }) || cancelled
+  return toPublicJob(saved)
 }

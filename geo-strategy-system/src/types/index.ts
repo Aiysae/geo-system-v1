@@ -529,6 +529,92 @@ export interface PenetrationJobRecord {
   updatedAt: string
   startedAt?: string
   finishedAt?: string
+  historyRecordId?: string
+  historySavedAt?: string
+  historySavePending?: boolean
+}
+
+export type PenetrationHistoryStatus = "succeeded" | "partial" | "cancelled" | "failed"
+export type PenetrationHistorySource = "job" | "workspace_backfill"
+
+export interface PenetrationHistoryRequestSnapshot {
+  clientId: string
+  clientName: string
+  ourBrand: string
+  brandAliases: string[]
+  industry: string
+  website: string
+  questions: string[]
+  competitors: string[]
+  /** User-selected models before readiness checks. */
+  models: ModelKey[]
+  /** Models that actually entered independent sampling. */
+  activeModels: ModelKey[]
+  skippedModels: string[]
+  operation: PenetrationJobOperation
+}
+
+export interface PenetrationHistoryBrandVoiceItem {
+  rank: number
+  brand: string
+  mentions: number
+  ratio: number
+  penetrationRate: number
+  models: ModelKey[]
+  modelCount: number
+  isTarget: boolean
+}
+
+export interface PenetrationHistoryKeywordCompetitionItem {
+  question: string
+  totalMentions: number
+  participatingModels: number
+  perModelMentions: Partial<Record<ModelKey, number>>
+}
+
+export interface PenetrationHistoryDashboardSnapshot {
+  brandVoice: PenetrationHistoryBrandVoiceItem[]
+  keywordCompetition: PenetrationHistoryKeywordCompetitionItem[]
+}
+
+export interface PenetrationHistorySummary {
+  ourBrand: string
+  industry: string
+  questionCount: number
+  modelCount: number
+  completedSlots: number
+  totalSlots: number
+  penetrationRate: number | null
+  sourceCount: number
+}
+
+export interface PenetrationHistoryListItem {
+  id: string
+  clientId: string
+  clientName: string
+  operation: PenetrationJobOperation
+  status: PenetrationHistoryStatus
+  source: PenetrationHistorySource
+  summary: PenetrationHistorySummary
+  createdAt: string
+  completedAt?: string
+  updatedAt: string
+}
+
+export interface PenetrationHistoryRecord extends PenetrationHistoryListItem {
+  request: PenetrationHistoryRequestSnapshot
+  dashboard: PenetrationHistoryDashboardSnapshot
+  result?: PenetrationResult
+  error?: string
+  schemaVersion: number
+}
+
+export interface PenetrationHistoryListPage {
+  items: PenetrationHistoryListItem[]
+  page: number
+  pageSize: number
+  total: number
+  hasMore: boolean
 }
 
 export type CommercialReportKind = "combined" | "penetration" | "difficulty"

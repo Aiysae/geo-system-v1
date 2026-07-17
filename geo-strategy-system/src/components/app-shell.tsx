@@ -63,6 +63,7 @@ export default function Home({ userId }: { userId: string }) {
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [reportExportPreset, setReportExportPreset] = useState<ReportExportPreset | null>(null)
+  const [reportExportClient, setReportExportClient] = useState<Client | null>(null)
   const [reportHistoryOpen, setReportHistoryOpen] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
   const mainScrollRef = useRef<HTMLElement>(null)
@@ -74,6 +75,7 @@ export default function Home({ userId }: { userId: string }) {
     // 移动端：选中客户后自动收起抽屉，直接进入详情面板
     setSidebarOpen(false)
     setReportExportPreset(null)
+    setReportExportClient(null)
     setReportHistoryOpen(false)
   }, [selectClient])
 
@@ -122,7 +124,10 @@ export default function Home({ userId }: { userId: string }) {
         <StickyHeader
           client={active}
           onOpenSidebar={() => setSidebarOpen(true)}
-          onExportReport={() => setReportExportPreset({})}
+          onExportReport={() => {
+            setReportExportClient(null)
+            setReportExportPreset({})
+          }}
           onOpenReportHistory={() => setReportHistoryOpen(true)}
           syncState={syncState}
           onRetrySync={retry}
@@ -146,7 +151,10 @@ export default function Home({ userId }: { userId: string }) {
             key={active.id}
             client={active}
             onChangeClient={handleChangeClient}
-            onExportReport={setReportExportPreset}
+            onExportReport={preset => {
+              setReportExportClient(null)
+              setReportExportPreset(preset)
+            }}
           />
         )}
         <SiteFooter />
@@ -163,17 +171,25 @@ export default function Home({ userId }: { userId: string }) {
           <ArrowUp className="h-5 w-5" />
         </button>
       ) : null}
-      {active && reportExportPreset && (
+      {(reportExportClient || active) && reportExportPreset && (
         <ReportExportDialog
-          client={active}
+          client={(reportExportClient || active) as Client}
           preset={reportExportPreset}
-          onClose={() => setReportExportPreset(null)}
+          onClose={() => {
+            setReportExportPreset(null)
+            setReportExportClient(null)
+          }}
         />
       )}
       {reportHistoryOpen ? (
         <ReportHistoryDialog
           clients={clients}
           activeClientId={activeId}
+          onExportPenetration={historyClient => {
+            setReportHistoryOpen(false)
+            setReportExportClient(historyClient)
+            setReportExportPreset({ kind: "penetration" })
+          }}
           onClose={() => setReportHistoryOpen(false)}
         />
       ) : null}

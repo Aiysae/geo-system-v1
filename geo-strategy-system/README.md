@@ -24,9 +24,19 @@ Initialize or update the PostgreSQL tables before starting a production release:
 
 ```bash
 npm run db:migrate:workspace
+npm run db:migrate:penetration-history
 ```
 
 The browser cache is namespaced by user and legacy `geo:clients` data is only imported after the signed-in user confirms ownership.
+
+Every terminal penetration run is stored as an immutable history snapshot. The list API reads summaries only, while full model answers, source URLs, and dashboard aggregates are loaded on demand. To preview and then backfill each client's latest pre-history result:
+
+```bash
+npm run penetration-history:backfill
+MIGRATION_CONFIRM=PENETRATION_HISTORY_BACKFILL npm run penetration-history:backfill -- --apply
+```
+
+Production PostgreSQL backups are defined in `deploy/postgres/` and retain 14 days of compressed custom-format dumps.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

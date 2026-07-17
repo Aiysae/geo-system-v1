@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily GEO system PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 03:43:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=geo-postgres-backup.service
+
+[Install]
+WantedBy=timers.target
