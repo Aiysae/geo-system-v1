@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowRight, KeyRound, Loader2, LockKeyhole, Mail, MailCheck, UserRound } from "lucide-react"
@@ -76,20 +77,37 @@ export function LocalAuthForm({
   }
 
   return (
-    <div className="w-full max-w-md rounded-lg bg-white px-7 py-8 shadow-[0_24px_64px_-34px_rgba(0,0,0,0.7)] ring-1 ring-white/30">
-      <div className="mb-7">
-        <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00C8FF] shadow-md shadow-blue-500/20">
-          <LockKeyhole className="h-5 w-5 text-white" />
+    <div className="w-full max-w-[440px] overflow-hidden rounded-lg bg-white/98 shadow-[0_30px_80px_-34px_rgba(0,10,45,0.86)] ring-1 ring-white/35 backdrop-blur-xl">
+      <div className="border-b border-[#E7EEF6] bg-[linear-gradient(135deg,#F7FBFF_0%,#EAF5FF_100%)] px-6 py-5 sm:px-7">
+        <div className="flex items-center gap-3">
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-1.5 shadow-sm ring-1 ring-[#D6E7FF]">
+            <Image
+              src="/brand/shitu-lockup-transparent-v2.png"
+              alt="势途 Logo"
+              width={1173}
+              height={1341}
+              priority
+              className="h-full w-auto object-contain"
+            />
+          </span>
+          <div className="min-w-0">
+            <div className="text-base font-bold text-[#001D66]">SHITU · 势途 GEO</div>
+            <div className="mt-0.5 text-[10px] font-medium text-[#5B7592]">GEO 全链路操作工具</div>
+          </div>
         </div>
-        <h1 className="geo-display-title mt-4 text-3xl text-slate-950">
-          {isSignUp ? "注册势途 GEO" : "登录势途 GEO"}
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-slate-500">
-          {isSignUp ? "验证邮箱后创建账号。" : "使用密码或邮箱验证码进入系统。"}
-        </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="px-6 py-6 sm:px-7 sm:py-7">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-950">
+            {isSignUp ? "注册势途 GEO" : "登录势途 GEO"}
+          </h1>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">
+            {isSignUp ? "验证邮箱后创建账号。" : "使用密码或邮箱验证码进入系统。"}
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
         {!isSignUp && (
           <div className="grid h-10 grid-cols-2 rounded-lg bg-slate-100 p-1" role="tablist" aria-label="登录方式">
             <button
@@ -244,9 +262,9 @@ export function LocalAuthForm({
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
           {isSignUp ? "注册并进入系统" : signInMethod === "code" ? "验证并登录" : "登录"}
         </button>
-      </form>
+        </form>
 
-      <div className="mt-6 text-center text-sm text-slate-500">
+        <div className="mt-6 text-center text-sm text-slate-500">
         {isSignUp ? "已有账号？" : "还没有账号？"}
         <Link
           href={`${isSignUp ? "/sign-in" : "/sign-up"}?redirect_url=${encodeURIComponent(nextUrl)}`}
@@ -254,6 +272,7 @@ export function LocalAuthForm({
         >
           {isSignUp ? "去登录" : "去注册"}
         </Link>
+        </div>
       </div>
     </div>
   )

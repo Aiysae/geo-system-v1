@@ -8,7 +8,7 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "relative overflow-hidden rounded-lg border border-[#D6E7FF] bg-white/97 text-card-foreground shadow-[0_14px_34px_-27px_rgba(9,88,217,0.34)] backdrop-blur-md",
+      "geo-module-surface relative text-card-foreground",
       className
     )}
     {...props}
@@ -22,7 +22,7 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("flex flex-col space-y-1.5 p-4 pb-3 sm:p-5 sm:pb-3.5", className)}
+    className={cn("flex min-h-[68px] flex-col justify-center space-y-1 border-b border-[#E8EEF5] px-4 py-3.5 sm:px-5", className)}
     {...props}
   />
 ))
@@ -44,7 +44,7 @@ const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("p-4 pt-0 sm:p-5 sm:pt-0", className)} {...props} />
+  <div ref={ref} className={cn("p-4 sm:p-5", className)} {...props} />
 ))
 CardContent.displayName = "CardContent"
 

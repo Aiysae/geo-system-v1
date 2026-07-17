@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select } from "@/components/ui/select"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import {
@@ -867,7 +868,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
       <section className="geo-section-panel no-print p-4 sm:p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-3">
           <div className="flex items-center gap-3">
-            <span className="geo-module-icon bg-gradient-to-br from-[#0958D9] to-[#003EB3]">
+            <span className="geo-module-icon">
               <Gauge className="h-5 w-5 text-white" />
             </span>
             <div>
@@ -875,7 +876,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               <div className="mt-0.5 text-[11px] text-slate-500">调研、对比、评分、复核和报告将连续呈现在下方</div>
             </div>
           </div>
-          <div className="grid w-full grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:w-auto sm:min-w-[260px]">
+          <div className="geo-segmented w-full grid-cols-2 sm:w-auto sm:min-w-[260px]">
               <button
                 type="button"
                 onClick={() => switchMode("industry")}
@@ -937,17 +938,16 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             )}
             <div>
               <Label htmlFor="difficulty-scope">覆盖范围</Label>
-              <select
+              <Select
                 id="difficulty-scope"
                 value={scope}
                 onChange={event => changeScope(event.target.value as DifficultyGeographicScope)}
                 disabled={loading}
-                className="flex h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {SCOPE_OPTIONS.map(option => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div>
               <Label htmlFor="difficulty-city">
@@ -963,12 +963,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             </div>
             <div>
               <Label htmlFor="difficulty-model">首选模型</Label>
-              <select
+              <Select
                 id="difficulty-model"
                 value={selectedModel}
                 onChange={event => setSelectedModel(event.target.value as DifficultyModelSelection)}
                 disabled={loading}
-                className="flex h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <option value="auto">自动推荐（失败自动切换）</option>
                 {modelOptions.map(option => (
@@ -976,16 +975,19 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                     {option.label}{option.configured ? "" : "（未配置）"}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
         </div>
 
-        <div className="mt-4 border-t border-slate-200/70 pt-4">
-          <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-700">
+        <details className="mt-4 rounded-lg border border-[#DCE6F2] bg-[#F8FAFD]">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
             <Calculator className="h-4 w-4 text-[#1677FF]" />
             商业参数（可选，留空由系统联网估算）
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <span className="text-[10px] text-[#7E91A7]">客单价、毛利率、复购次数</span>
+          </summary>
+          <div className="grid gap-3 border-t border-[#E8EEF5] p-3 sm:grid-cols-3">
             <div>
               <Label htmlFor="difficulty-aov">平均客单价（元）</Label>
               <Input
@@ -1026,7 +1028,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               />
             </div>
           </div>
-        </div>
+        </details>
 
         {error && (
           <div className="mt-3 flex gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
@@ -1214,7 +1216,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 <CheckCircle2 className="h-4 w-4 text-[#1677FF]" />
                 评估过程证据
               </div>
-              <div className="grid gap-3 lg:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {stages.map((stage, index) => {
                   const item = result.process[stage.key]
                   return (

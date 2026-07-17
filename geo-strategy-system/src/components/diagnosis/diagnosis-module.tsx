@@ -82,10 +82,10 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
       <CardHeader className="pb-4">
         <CardTitle className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:text-base">
           <div className="flex items-center gap-3">
-            <span className="geo-module-icon bg-gradient-to-br from-[#2F54EB] to-[#597EF7]">
+            <span className="geo-module-icon">
               <Radar className="h-5 w-5 text-white" />
             </span>
-            <span className="geo-display-title min-w-0 text-lg leading-snug text-[#1D39C4]">
+            <span className="geo-module-title min-w-0 text-base sm:text-lg">
               多维 AI 诊断面板
             </span>
           </div>
@@ -135,7 +135,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
         )}
 
         {!diag ? (
-          <div className="flex min-h-[200px] items-center justify-center text-center">
+          <div className="geo-empty-state min-h-[160px]">
             <div>
               <div className="text-sm text-slate-500 mb-1">诊断报告待生成</div>
               <div className="text-xs text-slate-400">
@@ -149,16 +149,16 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
           <div className="space-y-6">
             <div className="grid gap-5 md:grid-cols-[260px_1fr]">
               <GemScorePanel score={diag.gemScore} />
-              <div className="rounded-xl border border-slate-200 p-3 bg-white">
-                <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-2 px-2">
+              <div className="geo-panel bg-white p-3">
+                <div className="mb-2 px-2 text-[11px] font-semibold text-[#60758D]">
                   五维诊断雷达图
                 </div>
                 <RadarFiveDim dimensions={diag.dimensions} />
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 p-4 bg-white">
-              <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-3">
+            <div className="geo-panel bg-white p-4">
+              <div className="mb-3 text-[11px] font-semibold text-[#60758D]">
                 国内派系差异化诊断
               </div>
               <ModelTabs data={diag.modelDiagnosis} />

@@ -383,7 +383,9 @@ export default function ArticleMarkdownWorkspace({
   }
 
   return (
-    <section className="flex min-h-[620px] flex-col rounded-xl border border-slate-200/80 bg-white/90 shadow-sm">
+    <section className={`flex flex-col rounded-lg border border-slate-200/80 bg-white/95 shadow-sm ${
+      hasContent ? "min-h-[620px]" : "min-h-[420px]"
+    }`}>
       <div className="flex flex-col gap-3 border-b border-slate-100 px-3 py-3 sm:px-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -453,7 +455,9 @@ export default function ArticleMarkdownWorkspace({
             value={value}
             onChange={event => onChange(event.target.value)}
             placeholder={placeholder}
-            className="h-full min-h-[560px] flex-1 resize-none rounded-none border-0 bg-transparent p-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0"
+            className={`geo-plain-editor h-full flex-1 resize-none rounded-none border-0 bg-transparent p-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0 ${
+              hasContent ? "min-h-[560px]" : "min-h-[360px]"
+            }`}
           />
         </div>
 

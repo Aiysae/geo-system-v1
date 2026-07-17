@@ -45,17 +45,17 @@ function truncate(s: string, n: number): string {
 export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, compact = false }: Props) {
   const [sortOrder, setSortOrder] = useState<SortOrder>("redOcean")
   const mode = sortOrder === "redOcean"
-    ? {
+      ? {
         title: "红海竞争",
-        panel: "from-rose-500/25 via-orange-500/12 to-transparent",
+        panel: "from-rose-50 via-white to-white",
         barFrom: "#F43F5E",
         barMid: "#F97316",
         barTo: "#F59E0B",
         active: "bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow shadow-rose-500/20",
       }
-    : {
+      : {
         title: "蓝海机会",
-        panel: "from-cyan-500/25 via-blue-500/12 to-transparent",
+        panel: "from-cyan-50 via-white to-white",
         barFrom: "#10B981",
         barMid: "#00C8FF",
         barTo: "#00C8FF",
@@ -84,30 +84,30 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, c
   const chartHeight = Math.max(data.length * 34 + 60, 320)
 
   return (
-    <div className={`overflow-hidden rounded-lg bg-slate-950 ring-1 ring-slate-800 shadow-xl shadow-black/25 ${compact ? "flex h-full min-h-[420px] flex-col" : ""}`}>
-      <div className={`${compact ? "px-4 py-3" : "px-5 py-4"} flex items-center justify-between border-b border-white/10 gap-3 bg-gradient-to-r ${mode.panel}`}>
+    <div className={`geo-panel overflow-hidden ${compact ? "flex h-full min-h-[360px] flex-col" : ""}`}>
+      <div className={`${compact ? "px-4 py-3" : "px-5 py-4"} flex items-center justify-between gap-3 border-b border-[#E8EEF5] bg-gradient-to-r ${mode.panel}`}>
         <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/12 ring-1 ring-white/15">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#2F54EB] to-[#1677FF]">
             <Activity className="h-4 w-4 text-white" />
           </span>
           <div>
-            <div className="text-sm font-semibold text-white">关键词竞争热度</div>
-            <div className="mt-0.5 text-[10px] text-white/48">{mode.title}视角</div>
+            <div className="text-sm font-semibold text-[#102A43]">关键词竞争热度</div>
+            <div className="mt-0.5 text-[10px] text-[#7E91A7]">{mode.title}视角</div>
           </div>
           {!compact ? (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 ring-1 ring-slate-700">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
               已过滤 0 参与模型的拒答题
             </span>
           ) : null}
         </div>
 
-        <div className="inline-flex p-0.5 rounded-lg bg-slate-800/80 ring-1 ring-slate-700 text-[11px]">
+        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-[11px] ring-1 ring-slate-200">
           <button
             onClick={() => setSortOrder("redOcean")}
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md transition ${
               sortOrder === "redOcean"
                 ? mode.active
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-500 hover:text-slate-800"
             }`}
           >
             <Flame className="h-3 w-3" />
@@ -118,7 +118,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, c
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md transition ${
               sortOrder === "blueOcean"
                 ? mode.active
-                : "text-slate-400 hover:text-slate-200"
+                : "text-slate-500 hover:text-slate-800"
             }`}
           >
             <Gem className="h-3 w-3" />
@@ -134,7 +134,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, c
       ) : (
         <div className={`${compact ? "flex min-h-0 flex-1 flex-col p-3" : "p-4"}`}>
           <div
-            className={compact ? "min-h-[300px] flex-1" : undefined}
+            className={compact ? "min-h-[250px] flex-1" : undefined}
             style={{ width: "100%", height: compact ? undefined : chartHeight }}
           >
             <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 520, height: 320 }}>
@@ -151,14 +151,14 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, c
                   </linearGradient>
                 </defs>
 
-                <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" horizontal={false} />
+                <CartesianGrid stroke="#E3EBF4" strokeDasharray="3 3" horizontal={false} />
 
                 <XAxis
                   type="number"
                   xAxisId="mentions"
-                  tick={{ fontSize: 11, fill: "#94a3b8" }}
-                  axisLine={{ stroke: "#334155" }}
-                  tickLine={{ stroke: "#334155" }}
+                  tick={{ fontSize: 11, fill: "#71869D" }}
+                  axisLine={{ stroke: "#C8D7E8" }}
+                  tickLine={{ stroke: "#C8D7E8" }}
                   label={{
                     value: "品牌提及总数",
                     position: "insideBottom",
@@ -236,7 +236,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, c
               参与模型数
             </span>
             {items.length > data.length && (
-              <span className="ml-auto text-slate-500">
+            <span className="ml-auto text-slate-400">
                 仅展示 {sortOrder === "redOcean" ? "Top" : "Bottom"} {data.length} / {items.length}
               </span>
             )}
@@ -265,7 +265,7 @@ function CustomYTick({ x = 0, y = 0, payload, fullLabels }: TickProps & { fullLa
         y={0}
         dy={4}
         textAnchor="end"
-        fill="#cbd5e1"
+        fill="#526A83"
         fontSize={11}
         style={{ cursor: "help" }}
       >

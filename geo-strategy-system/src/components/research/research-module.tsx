@@ -243,37 +243,37 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
     <Card>
       <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
-          <span className="geo-module-icon bg-gradient-to-br from-[#13C2C2] to-[#1677FF]">
+          <span className="geo-module-icon">
             <Brain className="h-5 w-5 text-white" />
           </span>
-          <span className="geo-display-title min-w-0 text-lg leading-snug text-[#0958D9]">
+          <span className="geo-module-title min-w-0">
             独立调研 · 豆包深度品牌画像与竞品对比
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-          <section className="geo-section-panel p-4">
+          <section className="geo-panel p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2">
-                <Search className="h-4 w-4 text-emerald-600" />
+                <Search className="h-4 w-4 text-[#1677FF]" />
                 <div>
                   <div className="text-sm font-semibold text-slate-800">品牌 AI 心智调研</div>
                   <div className="text-[11px] text-slate-500">豆包视角 · 与疑问句检测结果独立保存</div>
                 </div>
               </div>
-              <div className="inline-flex rounded-lg bg-white/80 border border-emerald-100 p-1">
+              <div className="geo-segmented inline-grid grid-cols-2">
                 <button
                   type="button"
                   onClick={() => setMode("ai")}
-                  className={`px-3 py-1.5 text-xs rounded-md transition ${mode === "ai" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-emerald-700"}`}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${mode === "ai" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-600 hover:text-[#1677FF]"}`}
                 >
                   AI 调研
                 </button>
                 <button
                   type="button"
                   onClick={() => setMode("hypothesis")}
-                  className={`px-3 py-1.5 text-xs rounded-md transition ${mode === "hypothesis" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-emerald-700"}`}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${mode === "hypothesis" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-600 hover:text-[#1677FF]"}`}
                 >
                   做假设
                 </button>
@@ -311,7 +311,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               <Button
                 onClick={() => runResearch("ai")}
                 disabled={researchLoading || !researchReady}
-                className="gap-1.5 border-[#13C2C2] bg-gradient-to-r from-[#13C2C2] to-[#1677FF] hover:border-[#08979C] hover:from-[#08979C] hover:to-[#0958D9]"
+                className="gap-1.5"
                 size="sm"
               >
                 {researchLoading && mode === "ai" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
@@ -350,7 +350,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             )}
           </section>
 
-          <section className="geo-section-panel p-4">
+          <section className="geo-panel p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
               <div className="flex items-center gap-2">
                 <Swords className="h-4 w-4 text-rose-600" />
@@ -368,7 +368,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                   onClick={runCompare}
                   disabled={compareLoading || !compareReady}
                   size="sm"
-                  className="gap-1.5 border-[#FF5B6E] bg-[#FF5B6E] hover:border-[#E5485A] hover:bg-[#E5485A]"
+                  className="gap-1.5"
                 >
                   {compareLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : compare ? <RefreshCw className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
                   {compareLoading ? "对比中..." : compare ? "重新对比" : "生成对比"}
@@ -381,7 +381,6 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               onChange={updateCompareSourceMode}
               moduleLabel="用渗透率情报竞品"
               manualLabel="手动填竞品"
-              tone="rose"
             />
 
             {compareSourceMode === "manual" && (
@@ -430,30 +429,25 @@ function SourceTabs({
   onChange,
   moduleLabel,
   manualLabel,
-  tone = "emerald",
 }: {
   value: "module" | "manual"
   onChange: (value: "module" | "manual") => void
   moduleLabel: string
   manualLabel: string
-  tone?: "emerald" | "rose"
 }) {
-  const activeClass = tone === "rose" ? "bg-rose-600 text-white shadow-sm" : "bg-emerald-600 text-white shadow-sm"
-  const idleClass = tone === "rose" ? "text-slate-600 hover:text-rose-700" : "text-slate-600 hover:text-emerald-700"
-
   return (
-    <div className="mb-4 inline-flex w-full rounded-lg border border-slate-200 bg-white/85 p-1 sm:w-auto">
+    <div className="geo-segmented mb-4 inline-grid w-full grid-cols-2 sm:w-auto">
       <button
         type="button"
         onClick={() => onChange("module")}
-        className={`flex-1 rounded-md px-3 py-1.5 text-xs transition sm:flex-none ${value === "module" ? activeClass : idleClass}`}
+        className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${value === "module" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-600 hover:text-[#1677FF]"}`}
       >
         {moduleLabel}
       </button>
       <button
         type="button"
         onClick={() => onChange("manual")}
-        className={`flex-1 rounded-md px-3 py-1.5 text-xs transition sm:flex-none ${value === "manual" ? activeClass : idleClass}`}
+        className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${value === "manual" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-600 hover:text-[#1677FF]"}`}
       >
         {manualLabel}
       </button>
@@ -469,7 +463,7 @@ function ManualResearchFields({
   onChange: (field: keyof ResearchManualInput, value: string) => void
 }) {
   return (
-    <div className="mb-4 grid gap-3 rounded-xl border border-emerald-100 bg-white/70 p-3 sm:grid-cols-2">
+    <div className="mb-4 grid gap-3 rounded-lg border border-[#DCE6F2] bg-[#F8FAFD] p-3 sm:grid-cols-2">
       <div>
         <Label className="text-xs text-slate-600 mb-1.5 block">地区</Label>
         <Input
@@ -544,11 +538,11 @@ function CompetitorMultiSelect({
                 disabled={disabled}
                 className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-45 ${
                   checked
-                    ? "border-rose-300 bg-rose-50 text-rose-700"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:bg-rose-50/40"
+                    ? "border-[#69B1FF] bg-[#EEF6FF] text-[#0958D9]"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-[#91CAFF] hover:bg-[#F7FBFF]"
                 }`}
               >
-                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? "border-rose-500 bg-rose-500 text-white" : "border-slate-300 bg-white"}`}>
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? "border-[#1677FF] bg-[#1677FF] text-white" : "border-slate-300 bg-white"}`}>
                   {checked && <CheckCircle2 className="h-3 w-3" />}
                 </span>
                 <span className="min-w-0 break-words">{name}</span>
@@ -600,7 +594,7 @@ function parseLines(value: string): string[] {
 
 function EmptyBlock({ title, text }: { title: string; text: string }) {
   return (
-    <div className="min-h-[220px] flex items-center justify-center text-center">
+    <div className="geo-empty-state min-h-[160px]">
       <div>
         <div className="text-sm text-slate-500 mb-1">{title}</div>
         <div className="text-xs text-slate-400">{text}</div>
@@ -612,15 +606,15 @@ function EmptyBlock({ title, text }: { title: string; text: string }) {
 function ResearchReport({ result }: { result: ResearchResult }) {
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-emerald-100 bg-white/85 p-4">
+      <div className="rounded-lg border border-[#BAE0FF] bg-[#F5F9FF] p-4">
         <div className="flex items-center gap-2 mb-2">
-          <ShieldCheck className="h-4 w-4 text-emerald-600" />
+          <ShieldCheck className="h-4 w-4 text-[#1677FF]" />
           <div className="text-sm font-semibold text-slate-800">
             {result.mode === "hypothesis" ? "假设验证结论" : "深度调研结论"}
           </div>
         </div>
         {result.hypothesis && (
-          <div className="mb-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg p-2">
+          <div className="mb-2 rounded-lg border border-[#BAE0FF] bg-white p-2 text-xs text-[#0958D9]">
             {result.hypothesis}
           </div>
         )}
@@ -638,10 +632,10 @@ function ResearchReport({ result }: { result: ResearchResult }) {
             <div key={item.name} className="rounded-lg border border-slate-200 bg-white/80 p-3">
               <div className="flex items-center justify-between gap-3 mb-2">
                 <div className="text-sm font-medium text-slate-800">{item.name}</div>
-                <div className="font-mono text-sm font-semibold text-emerald-700">{item.score}</div>
+                <div className="font-mono text-sm font-semibold text-[#0958D9]">{item.score}</div>
               </div>
               <div className="h-1.5 rounded-full bg-slate-100 mb-2 overflow-hidden">
-                <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500" style={{ width: `${item.score}%` }} />
+                <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#00C8FF]" style={{ width: `${item.score}%` }} />
               </div>
               <p className="text-xs leading-6 text-slate-600">{item.insight}</p>
               {item.evidence.length > 0 && <InlineList items={item.evidence} tone="slate" />}
@@ -675,9 +669,9 @@ function CompareReport({ result, ourBrand }: { result: CompetitorCompareResult; 
       )}
 
       {comparisons.map(item => (
-        <div key={item.competitor} className="space-y-3 rounded-xl border border-rose-100 bg-white/85 p-3">
-          <div className="rounded-xl border border-rose-100 bg-rose-50/40 p-4">
-            <div className="text-xs text-rose-600 mb-1">
+        <div key={item.competitor} className="space-y-3 rounded-lg border border-[#DCE6F2] bg-white p-3">
+          <div className="rounded-lg border border-[#BAE0FF] bg-[#F5F9FF] p-4">
+            <div className="mb-1 text-xs text-[#0958D9]">
               {ourBrand || "我方品牌"} vs {item.competitor}
             </div>
             <p className="text-sm leading-7 text-slate-700">{item.positioningSummary}</p>

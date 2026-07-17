@@ -44,9 +44,9 @@ export default function ClientSidebar({
 
   return (
     <aside
-      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-64 shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-gradient-to-b from-[#001743] via-[#002C70] to-[#003B8F] text-white h-screen flex flex-col overflow-hidden shadow-[10px_0_36px_-28px_rgba(0,29,102,0.9)]`}
+      className={`no-print fixed md:static z-50 inset-y-0 left-0 w-[232px] shrink-0 transform transition-transform duration-300 ease-out md:translate-x-0 ${drawerClass} bg-gradient-to-b from-[#001743] via-[#002C70] to-[#003B8F] text-white h-screen flex flex-col overflow-hidden shadow-[10px_0_36px_-28px_rgba(0,29,102,0.9)]`}
     >
-      <div className="relative px-5 py-5 border-b border-white/10 backdrop-blur-sm shrink-0 flex items-center justify-between">
+      <div className="relative flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4 backdrop-blur-sm">
         <div className="flex items-center gap-3 min-w-0">
           <Link
             href="/"
@@ -60,12 +60,12 @@ export default function ClientSidebar({
               height={960}
               sizes="36px"
               priority
-              className="h-9 w-auto rounded-md ring-1 ring-white/20"
+              className="h-8 w-auto rounded-md bg-white ring-1 ring-white/20"
             />
           </Link>
           <div className="min-w-0">
-            <div className="geo-brand-title text-lg text-white">势途 GEO</div>
-            <div className="text-[11px] text-white/60 mt-0.5">生成式引擎增长终端</div>
+            <div className="text-sm font-semibold text-white">势途 GEO</div>
+            <div className="mt-0.5 text-[10px] text-white/60">全链路操作工具</div>
           </div>
         </div>
         {onClose && (

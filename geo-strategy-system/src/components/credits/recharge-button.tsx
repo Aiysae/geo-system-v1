@@ -601,7 +601,7 @@ function RechargeDialog({
                     。
                   </p>
 
-                  <div className="sticky bottom-0 -mx-5 mt-6 flex items-center gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
+                  <div className="-mx-5 mt-6 flex items-center gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:sticky sm:bottom-0 sm:-mx-7 sm:px-7">
                     <button
                       type="button"
                       onClick={onClose}
@@ -770,7 +770,7 @@ function RechargeDialog({
                     </div>
                   ) : null}
 
-                  <div className="sticky bottom-0 -mx-5 mt-6 flex gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
+                  <div className="-mx-5 mt-6 flex gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:sticky sm:bottom-0 sm:-mx-7 sm:px-7">
                     <button
                       type="button"
                       onClick={() => setStep("package")}
