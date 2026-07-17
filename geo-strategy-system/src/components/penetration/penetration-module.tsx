@@ -272,10 +272,10 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
-          <span className="geo-module-icon bg-gradient-to-br from-[#1677FF] to-[#00C8FF]">
+          <span className="geo-module-icon">
             <Target className="h-5 w-5 text-white" />
           </span>
-          <span className="geo-display-title min-w-0 text-lg leading-snug text-[#102A43]">
+          <span className="geo-module-title min-w-0 text-base sm:text-lg">
             关键词渗透率与竞品情报
           </span>
         </CardTitle>
@@ -308,7 +308,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
 
         <div className="min-w-0 space-y-4">
             {!pen ? (
-              <div className="flex min-h-[300px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/60 text-center">
+                <div className="geo-empty-state min-h-[180px]">
                 <div>
                   <div className="text-sm text-slate-500 mb-1">情报大盘待生成</div>
                   <div className="text-xs text-slate-400">
@@ -340,7 +340,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                 </div>
 
                 <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-                  <div className="geo-data-panel flex min-w-0 flex-col overflow-hidden rounded-lg p-4 xl:aspect-square">
+                  <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
                     <div className="geo-section-kicker mb-3 shrink-0">
                       全品牌渗透率 Top {topIndustryShare.length}
                     </div>
@@ -355,7 +355,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                   </div>
 
                   {pen.aggregated.perModelRate.length > 0 && (
-                    <div className="geo-data-panel flex min-w-0 flex-col overflow-hidden rounded-lg p-4 xl:aspect-square">
+                    <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
                       <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
                         <div className="geo-section-kicker">
                           各模型渗透率对比 · 趋势图
@@ -1018,10 +1018,10 @@ function MonitoringDashboards({
   }, [penetration.byModel, ourBrand, brandAliases, competitors, cacheKey])
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70">
+    <div className="geo-panel min-w-0 overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
-        className="group flex w-full items-center justify-between gap-4 bg-white px-4 py-3 text-left transition hover:bg-slate-50/80"
+        className="group flex w-full items-center justify-between gap-4 bg-white px-4 py-3 text-left transition hover:bg-[#F7FAFD]"
       >
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] via-[#2F54EB] to-[#00C8FF] shadow-sm transition-transform group-hover:scale-105">
@@ -1040,7 +1040,7 @@ function MonitoringDashboards({
       </button>
 
       {open && (
-        <div className="grid min-w-0 gap-4 border-t border-slate-200 p-4 xl:grid-cols-2">
+        <div className="grid min-w-0 gap-4 border-t border-slate-100 bg-[#F8FAFD] p-4 xl:grid-cols-2">
           {loading && !voice && !competition && (
             <div className="py-10 text-center text-sm text-slate-500 xl:col-span-2">聚合中…</div>
           )}
@@ -1050,12 +1050,12 @@ function MonitoringDashboards({
             </div>
           )}
           {voice && (
-            <div className="min-w-0 overflow-hidden xl:aspect-square">
+            <div className="min-h-[360px] min-w-0 overflow-hidden">
               <BrandShareOfVoice compact items={voice} />
             </div>
           )}
           {competition && (
-            <div className="min-w-0 overflow-hidden xl:aspect-square">
+            <div className="min-h-[360px] min-w-0 overflow-hidden">
               <KeywordCompetition compact items={competition} />
             </div>
           )}

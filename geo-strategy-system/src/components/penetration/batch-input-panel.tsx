@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Field } from "@/components/ui/field"
 import {
   Loader2,
   Play,
@@ -198,60 +199,61 @@ export default function BatchInputPanel({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div>
-          <Label className="mb-1.5 block text-xs text-slate-600">我方品牌名 *</Label>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Field label="我方品牌名" required>
           <Input
             value={client.ourBrand}
             onChange={e => onChangeClient({ ourBrand: e.target.value })}
             placeholder="如：势途"
           />
-        </div>
-        <div>
-          <Label className="mb-1.5 block text-xs text-slate-600">所属行业</Label>
+        </Field>
+        <Field label="所属行业">
           <Input
             value={client.industry}
             onChange={e => onChangeClient({ industry: e.target.value })}
             placeholder="如：B端 AI Agent 工具"
           />
-        </div>
-        <div>
-          <Label className="mb-1.5 block text-xs text-slate-600">
-            品牌别名 <span className="text-slate-400">（每行一个）</span>
-          </Label>
-          <Textarea
-            value={brandAliasesText}
-            onChange={e => {
-              const value = e.target.value
-              setBrandAliasesText(value)
-              onChangeClient({ brandAliases: parseLines(value) })
-            }}
-            rows={2}
-            placeholder={"品牌简称\n英文名 / 公司全称"}
-            className="min-h-[42px] font-mono text-xs"
-          />
-        </div>
-        <div>
-          <Label className="mb-1.5 block text-xs text-slate-600">
-            已知主要竞品 <span className="text-slate-400">（每行一个）</span>
-          </Label>
-          <Textarea
-            value={competitorsText}
-            onChange={e => {
-              const value = e.target.value
-              setCompetitorsText(value)
-              onChangeClient({ competitors: parseLines(value) })
-            }}
-            rows={2}
-            placeholder={"竞品A\n竞品B"}
-            className="min-h-[42px] font-mono text-xs"
-          />
-        </div>
+        </Field>
       </div>
 
-      <p className="text-[11px] leading-relaxed text-slate-400">
-        品牌别名仅用于回答后的品牌识别与统计归一，不会发送给被测模型。
-      </p>
+      <details className="rounded-lg border border-[#DCE6F2] bg-[#F8FAFD]">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold text-[#526A83]">
+          <span>品牌归一与竞品设置</span>
+          <span className="text-[10px] font-normal text-[#7E91A7]">别名、公司全称和已知竞品</span>
+        </summary>
+        <div className="grid gap-3 border-t border-[#E8EEF5] p-3 md:grid-cols-2">
+          <Field
+            label="品牌别名"
+            aside="每行一个"
+            help="只用于回答后的品牌识别与统计归一，不会发送给被测模型。"
+          >
+            <Textarea
+              value={brandAliasesText}
+              onChange={e => {
+                const value = e.target.value
+                setBrandAliasesText(value)
+                onChangeClient({ brandAliases: parseLines(value) })
+              }}
+              rows={2}
+              placeholder={"品牌简称\n英文名 / 公司全称"}
+              className="min-h-[76px] font-mono text-xs"
+            />
+          </Field>
+          <Field label="已知主要竞品" aside="每行一个">
+            <Textarea
+              value={competitorsText}
+              onChange={e => {
+                const value = e.target.value
+                setCompetitorsText(value)
+                onChangeClient({ competitors: parseLines(value) })
+              }}
+              rows={2}
+              placeholder={"竞品 A\n竞品 B"}
+              className="min-h-[76px] font-mono text-xs"
+            />
+          </Field>
+        </div>
+      </details>
 
       <div>
         <div className="flex items-center justify-between mb-2">
@@ -261,13 +263,13 @@ export default function BatchInputPanel({
         </div>
 
         {/* Tabs：手动录入 / AI 智能生成 */}
-        <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 border border-slate-200 mb-3">
+        <div className="geo-segmented mb-3 inline-grid w-full grid-cols-2 sm:w-auto">
           <button
             type="button"
             onClick={() => setInputMode("manual")}
-            className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition font-medium ${
+            className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition ${
               inputMode === "manual"
-                ? "bg-[#1677FF] text-white shadow"
+                ? "bg-white text-[#0958D9] shadow-sm"
                 : "bg-transparent text-slate-600 hover:text-[#1677FF]"
             }`}
           >
@@ -277,15 +279,15 @@ export default function BatchInputPanel({
           <button
             type="button"
             onClick={() => setInputMode("ai")}
-            className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition font-medium ${
+            className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition ${
               inputMode === "ai"
-                ? "bg-gradient-to-r from-orange-500 via-rose-500 to-pink-500 text-white shadow"
-                : "bg-transparent text-slate-600 hover:text-rose-600"
+                ? "bg-white text-[#0958D9] shadow-sm"
+                : "bg-transparent text-slate-600 hover:text-[#0958D9]"
             }`}
           >
             <Sparkles className="h-3.5 w-3.5" />
             AI 智能生成
-            <span className="ml-1 text-[9px] font-medium bg-white/25 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+            <span className="ml-1 hidden whitespace-nowrap rounded-full bg-[#E6F4FF] px-1.5 py-0.5 text-[9px] font-medium text-[#0958D9] sm:inline">
               专属豆包
             </span>
           </button>
@@ -304,7 +306,7 @@ export default function BatchInputPanel({
             className="font-mono text-xs"
           />
         ) : (
-          <div className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50/60 to-rose-50/40 p-3 space-y-3">
+          <div className="space-y-3 rounded-lg border border-[#CFE1F5] bg-[#F5FAFF] p-3">
             <div className="grid gap-3 md:grid-cols-[110px_1fr_auto] md:items-end">
               <div>
                 <Label className="text-[11px] text-slate-600 mb-1.5 block">生成数量</Label>
@@ -332,7 +334,7 @@ export default function BatchInputPanel({
               <Button
                 onClick={runAiGenerate}
                 disabled={!canAiRun}
-                className="gap-2 bg-gradient-to-r from-orange-500 via-rose-500 to-pink-500 hover:shadow-lg hover:shadow-orange-300/40 hover:-translate-y-0.5 transition-all border-0 px-4 py-2.5 text-xs font-medium whitespace-nowrap"
+                className="gap-2 whitespace-nowrap border-0 px-4 py-2.5 text-xs font-medium"
               >
                 {aiLoading ? (
                   <>
@@ -350,9 +352,9 @@ export default function BatchInputPanel({
             <CreditCostBadge featureKey="legacyQueryGenerateUnit" units={aiCount} />
 
             {aiLoading && (
-              <div className="rounded-lg border border-orange-200 bg-white/75 px-3 py-2 text-[11px] leading-5 text-orange-800">
+              <div className="rounded-lg border border-[#BAE0FF] bg-white px-3 py-2 text-[11px] leading-5 text-[#0958D9]">
                 <div className="font-medium">{aiJobState.currentJob?.stage || "疑问句正在转入服务器后台"}</div>
-                <div className="text-orange-700/80">
+                <div className="text-[#526A83]">
                   {aiJobState.connectionNotice || "可以切换客户或刷新页面，生成结果会自动追加到疑问句列表。"}
                 </div>
               </div>
@@ -491,7 +493,7 @@ export default function BatchInputPanel({
           <Button
             onClick={handleRun}
             disabled={!canRun}
-            className="w-full gap-2 border-0 bg-gradient-to-r from-[#003EB3] via-[#1677FF] to-[#00C8FF] px-6 py-5 text-sm font-medium transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-300/40 lg:w-auto lg:min-w-[300px]"
+            className="h-11 w-full gap-2 border-0 px-6 text-sm font-medium lg:w-auto lg:min-w-[300px]"
           >
             <Play className="h-4 w-4" />
             开始多模型检测 ({eligibleSelectedModels.length} × {questionCount})

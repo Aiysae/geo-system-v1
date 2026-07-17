@@ -20,13 +20,16 @@ import {
   CheckCircle2,
   Cloud,
   CloudOff,
+  ChevronDown,
   FileDown,
   FileText,
   Gauge,
+  Grid3X3,
   History,
   ListOrdered,
   LoaderCircle,
   Menu,
+  MoreHorizontal,
   Radar,
   RefreshCw,
   Sparkles,
@@ -200,14 +203,16 @@ function StickyHeader({
   syncState: WorkspaceSyncState
   onRetrySync: () => void
 }) {
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false)
+
   return (
-    <header className="sticky top-0 z-30 border-b border-white/10 bg-[#001D66]/96 text-white shadow-[0_12px_30px_-24px_rgba(0,29,102,0.88)] backdrop-blur-md sticky-header">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 py-2.5 flex flex-wrap items-center gap-2 sm:gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
+    <header className="sticky-header sticky top-0 z-30 border-b border-white/10 bg-[#001D66]/96 text-white shadow-[0_12px_30px_-24px_rgba(0,29,102,0.88)] backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-2 px-3 md:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {/* 移动端汉堡按钮：触发左侧抽屉。md+ 隐藏 */}
           <button
             onClick={onOpenSidebar}
-            className="no-print md:hidden p-2 -ml-1 rounded-lg hover:bg-white/10 transition shrink-0"
+            className="no-print -ml-1 shrink-0 rounded-lg p-2 transition hover:bg-white/10 md:hidden"
             aria-label="打开客户列表"
           >
             <Menu className="h-5 w-5 text-white" />
@@ -224,51 +229,108 @@ function StickyHeader({
               height={960}
               sizes="32px"
               priority
-              className="h-8 w-auto rounded-md ring-1 ring-white/20"
+              className="h-8 w-auto rounded-md bg-white ring-1 ring-white/20"
             />
           </Link>
           <div className="min-w-0">
-            <div className="geo-brand-title max-w-[150px] truncate text-base text-white sm:max-w-none">
-              势途 GEO · 市场情报大盘
+            <div className="truncate text-sm font-semibold text-white sm:text-base">
+              <span className="hidden sm:inline">势途 GEO · </span>
+              {client?.name || "市场情报工作台"}
             </div>
-            {client ? (
-              <div className="text-[11px] text-white/60 truncate">
-                当前客户：<span className="font-medium text-white">{client.name}</span>
-                {client.industry && <span className="text-cyan-100/60"> · {client.industry}</span>}
-              </div>
-            ) : (
-              <div className="text-[11px] text-white/50">
-                请先创建或选择一个客户
-              </div>
-            )}
+            <div className="hidden truncate text-[10px] text-white/58 sm:block">
+              {client?.industry ? `${client.industry} · ` : ""}
+              GEO 全链路操作工具
+            </div>
           </div>
         </div>
-        <div className="no-print order-last flex w-full justify-end gap-2 sm:order-none sm:w-auto sm:justify-start">
+
+        <div className="no-print hidden items-center gap-2 lg:flex">
           <button
             type="button"
             onClick={onOpenReportHistory}
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/16 md:px-3.5"
+            className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/20 bg-white/8 px-3 text-xs font-semibold text-white transition hover:bg-white/14"
             title="查看历史专业报告"
           >
             <History className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">历史报告</span>
-            <span className="sm:hidden">历史</span>
+            历史报告
           </button>
           {client && (
             <button
               onClick={onExportReport}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#69DFFF]/65 bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_-16px_rgba(0,200,255,0.8)] transition-[filter] hover:brightness-105 md:px-3.5"
+              className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#69DFFF]/65 bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white shadow-[0_10px_24px_-16px_rgba(0,200,255,0.8)] transition-[filter] hover:brightness-105"
             >
               <FileDown className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">导出专业报告</span>
-              <span className="sm:hidden">导出</span>
+              导出报告
             </button>
           )}
         </div>
-        <div className="no-print ml-auto shrink-0 flex items-center gap-1.5 sm:gap-2">
-          <WorkspaceSyncIndicator state={syncState} onRetry={onRetrySync} />
+
+        <div className="no-print flex shrink-0 items-center gap-1.5">
+          <div className="hidden xl:block">
+            <WorkspaceSyncIndicator state={syncState} onRetry={onRetrySync} />
+          </div>
           <CreditsPill />
           <RechargeButton />
+          <div className="relative lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileActionsOpen(open => !open)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/18 bg-white/8 text-white transition hover:bg-white/14"
+              aria-label="更多工作台操作"
+              aria-expanded={mobileActionsOpen}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {mobileActionsOpen ? (
+              <>
+                <button
+                  type="button"
+                  className="fixed inset-0 z-40 cursor-default"
+                  aria-label="关闭更多操作"
+                  onClick={() => setMobileActionsOpen(false)}
+                />
+                <div className="absolute right-0 top-11 z-50 w-48 overflow-hidden rounded-lg border border-[#C8D7E8] bg-white p-1.5 text-[#38536E] shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenReportHistory()
+                      setMobileActionsOpen(false)
+                    }}
+                    className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold hover:bg-[#EEF5FC]"
+                  >
+                    <History className="h-4 w-4 text-[#1677FF]" />
+                    历史专业报告
+                  </button>
+                  {client ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onExportReport()
+                        setMobileActionsOpen(false)
+                      }}
+                      className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold hover:bg-[#EEF5FC]"
+                    >
+                      <FileDown className="h-4 w-4 text-[#1677FF]" />
+                      导出专业报告
+                    </button>
+                  ) : null}
+                  {syncState.phase === "error" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onRetrySync()
+                        setMobileActionsOpen(false)
+                      }}
+                      className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      重试云端同步
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+          </div>
           <AccountMenu />
         </div>
       </div>
@@ -491,18 +553,18 @@ function Dashboard({
   const [activeModule, setActiveModule] = useState<DashboardModuleKey>("penetration")
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 py-4 md:py-6 animate-fade-in-up print-container">
-      <header className="geo-client-banner mb-4 overflow-hidden rounded-lg border border-white/12 shadow-[0_16px_36px_-26px_rgba(0,0,0,0.78)] md:mb-5">
-        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-end sm:justify-between md:px-5">
+    <div className="geo-page-wrap animate-fade-in-up py-3 md:py-4 print-container">
+      <header className="geo-client-banner mb-3 hidden overflow-hidden rounded-lg border border-white/12 shadow-[0_16px_36px_-26px_rgba(0,0,0,0.78)] sm:block">
+        <div className="flex min-h-[76px] items-center justify-between gap-4 px-5 py-3">
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase text-cyan-50/65">
+          <div className="mb-1 text-[10px] font-semibold text-cyan-50/65">
             当前客户
           </div>
-          <h1 className="geo-display-title break-words text-3xl text-white md:text-4xl">
+          <h1 className="break-words text-2xl font-semibold text-white">
             {client.name}
           </h1>
           {client.industry && (
-            <span className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-white/18 bg-white/10 px-2.5 py-1 text-xs text-cyan-50 backdrop-blur">
+            <span className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-cyan-50/78">
               <span className="h-1.5 w-1.5 rounded-full bg-[#00C8FF]"></span>
               {client.industry}
             </span>
@@ -516,7 +578,7 @@ function Dashboard({
 
       <ModuleNav active={activeModule} onChange={setActiveModule} />
 
-      <section className="mt-5 md:mt-6">
+      <section className="mt-3 md:mt-4">
         {activeModule === "penetration" && (
           <PenetrationModule
             client={client}
@@ -621,9 +683,59 @@ function ModuleNav({
   active: DashboardModuleKey
   onChange: (key: DashboardModuleKey) => void
 }) {
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const current = DASHBOARD_MODULES.find(item => item.key === active) ?? DASHBOARD_MODULES[0]
+  const CurrentIcon = current.icon
+
   return (
-    <nav className="no-print -mx-1 overflow-x-auto pb-1">
-      <div className="inline-flex min-w-full gap-1 rounded-lg border border-[#D6E7FF] bg-white/96 p-1.5 shadow-[0_12px_30px_-25px_rgba(9,88,217,0.28)] backdrop-blur sm:grid sm:grid-cols-6">
+    <nav className="no-print">
+      <div className="relative md:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileOpen(open => !open)}
+          className="flex h-12 w-full items-center gap-3 rounded-lg border border-[#CFE0F2] bg-white px-3 text-left shadow-[0_10px_28px_-24px_rgba(23,59,102,0.5)]"
+          aria-expanded={mobileOpen}
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-[#1677FF] to-[#00AEEA] text-white">
+            <CurrentIcon className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-[#102A43]">{current.label}</span>
+            <span className="block truncate text-[10px] text-[#7E91A7]">{current.desc}</span>
+          </span>
+          <span className="flex items-center gap-1 text-[11px] font-medium text-[#1677FF]">
+            <Grid3X3 className="h-3.5 w-3.5" />
+            切换
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${mobileOpen ? "rotate-180" : ""}`} />
+          </span>
+        </button>
+        {mobileOpen ? (
+          <div className="absolute inset-x-0 top-14 z-20 grid grid-cols-2 gap-1.5 rounded-lg border border-[#CFE0F2] bg-white p-2 shadow-xl">
+            {DASHBOARD_MODULES.map(item => {
+              const Icon = item.icon
+              const isActive = active === item.key
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => {
+                    onChange(item.key)
+                    setMobileOpen(false)
+                  }}
+                  className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left ${
+                    isActive ? "bg-[#EAF3FF] text-[#0958D9]" : "text-[#526A83] hover:bg-[#F3F7FB]"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate text-xs font-semibold">{item.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="hidden grid-cols-6 gap-1 rounded-lg border border-[#DCE6F2] bg-white p-1 shadow-[0_12px_30px_-25px_rgba(23,59,102,0.28)] md:grid">
         {DASHBOARD_MODULES.map(item => {
           const Icon = item.icon
           const isActive = active === item.key
@@ -632,10 +744,10 @@ function ModuleNav({
               key={item.key}
               type="button"
               onClick={() => onChange(item.key)}
-              className={`flex min-w-[148px] items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors sm:min-w-0 ${
+              className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors ${
                 isActive
-                  ? item.activeClass
-                  : "text-slate-600 hover:bg-[#F0F6FF] hover:text-[#0958D9]"
+                  ? "bg-gradient-to-r from-[#0958D9] to-[#1677FF] text-white shadow-sm"
+                  : "text-[#526A83] hover:bg-[#F0F6FF] hover:text-[#0958D9]"
               }`}
             >
               <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
@@ -644,8 +756,7 @@ function ModuleNav({
                 <Icon className="h-4 w-4" />
               </span>
               <span className="min-w-0">
-                <span className="flex items-center gap-1.5 text-xs font-semibold sm:text-sm">
-                  <span className={`h-1.5 w-1.5 rounded-full ${item.dotClass}`} />
+                <span className="flex items-center gap-1.5 text-xs font-semibold xl:text-sm">
                   <span className="truncate">{item.label}</span>
                 </span>
                 <span className={`block text-[10px] truncate ${isActive ? "text-white/78" : "text-slate-400"}`}>

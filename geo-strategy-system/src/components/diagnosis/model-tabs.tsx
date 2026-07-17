@@ -20,12 +20,12 @@ interface Props {
 export default function ModelTabs({ data }: Props) {
   return (
     <Tabs defaultValue="doubao" className="w-full">
-      <TabsList className="w-full justify-start flex-wrap h-auto gap-1 bg-slate-100 rounded-xl p-1">
+      <TabsList className="geo-segmented h-auto w-full grid-cols-2 justify-start gap-1 md:grid-cols-4">
         {TABS.map(t => (
           <TabsTrigger
             key={t.key}
             value={t.key}
-            className="gap-1.5 text-xs sm:text-sm data-[state=active]:bg-[#003EB3] data-[state=active]:text-white rounded-lg"
+            className="gap-1.5 rounded-md text-xs data-[state=active]:bg-white data-[state=active]:text-[#0958D9] data-[state=active]:shadow-sm sm:text-sm"
           >
             <ModelAvatar model={t.key} size="xs" />
             {t.label}
@@ -37,7 +37,7 @@ export default function ModelTabs({ data }: Props) {
         const d = data[t.key]
         return (
           <TabsContent key={t.key} value={t.key} className="mt-4">
-            <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-3">
+            <div className="mb-3 text-[11px] font-medium text-slate-400">
               {t.hint}
             </div>
             <dl className="space-y-3">

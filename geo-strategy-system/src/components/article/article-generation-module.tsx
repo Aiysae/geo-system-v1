@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import ArticleRewriteBrandMapper from "@/components/article/article-rewrite-brand-mapper"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
@@ -698,18 +699,18 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[#d6e7ff] bg-white/96 shadow-[0_12px_32px_-26px_rgba(8,28,36,0.5)]">
-      <div className="border-b border-[#d6e7ff] bg-white/95 backdrop-blur">
-        <div className="flex flex-col gap-3 px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
+    <div className="geo-module-surface">
+      <div className="geo-module-header">
+        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="geo-module-icon h-9 w-9 bg-gradient-to-br from-[#6C5CE7] to-[#2F54EB]">
+            <div className="geo-module-icon">
               <FileText className="h-4 w-4 text-white" />
             </div>
             <div className="min-w-0">
-              <div className="geo-display-title text-lg text-[#2F54EB]">
+              <div className="geo-module-title">
                 文章生成 · GEO 内容写作台
               </div>
-              <div className="truncate text-[11px] text-slate-500">
+              <div className="geo-module-description truncate">
                 {isBatch ? "批量生成" : isRewrite ? "文章改写" : activePrompt.title} · {article.model || activeProvider?.model || "后台托管模型"}
               </div>
             </div>
@@ -733,14 +734,14 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         </div>
       </div>
 
-      <div className="grid gap-4 p-3 sm:p-5 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)] lg:p-6">
+      <div className="grid items-start gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(340px,0.82fr)_minmax(0,1.18fr)]">
         <div className="space-y-4">
-          <section className="geo-section-panel p-3 sm:p-4">
+          <section className="geo-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-700">
               <WandSparkles className="h-3.5 w-3.5 text-[#1677FF]" />
               生成设置
             </div>
-            <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+            <div className="geo-segmented mb-3 grid-cols-3">
               <button
                 type="button"
                 onClick={() => updateMode("single")}
@@ -778,10 +779,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-xs">
                 <span className="mb-1.5 block font-medium text-slate-500">模型来源</span>
-                <select
+                <Select
                   value={article.modelProvider}
                   onChange={event => updateProvider(event.target.value as ArticleModelProviderKey)}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-blue-100"
                 >
                   {providers.length === 0 && <option value="article">文章生成</option>}
                   {providers.map(provider => (
@@ -789,7 +789,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                       {provider.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <Label className="text-xs">
                 <span className="mb-1.5 block font-medium text-slate-500">模型名 / Endpoint</span>
@@ -808,11 +808,14 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             )}
           </section>
 
-          <section className="geo-section-panel p-3 sm:p-4">
-            <div className="mb-3 text-xs font-semibold text-slate-700">
-              {isRewrite ? "改写模板" : "Prompt 模板"}
+          <section className="geo-panel p-3 sm:p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-xs font-semibold text-slate-700">
+                {isRewrite ? "改写模板" : "Prompt 模板"}
+              </div>
+              <span className="text-[10px] text-slate-400">{visiblePrompts.length} 个模板</span>
             </div>
-            <div className="grid gap-2">
+            <div className="grid max-h-[312px] gap-1.5 overflow-y-auto pr-1">
               {visiblePrompts.map(prompt => {
                 const active = prompt.key === article.promptKey
                 return (
@@ -820,9 +823,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                     key={prompt.key}
                     type="button"
                     onClick={() => updatePrompt(prompt.key)}
-                    className={`rounded-xl border px-3 py-3 text-left transition ${
+                    className={`rounded-lg border px-3 py-2.5 text-left transition ${
                       active
-                        ? "border-[#1677FF] bg-blue-50 text-slate-900 shadow-sm"
+                        ? "border-[#1677FF] bg-[#EEF6FF] text-slate-900 shadow-sm"
                         : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-slate-50"
                     }`}
                   >
@@ -832,7 +835,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                         {prompt.outputType}
                       </span>
                     </span>
-                    <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                    <span className="mt-1 line-clamp-2 block text-[11px] leading-5 text-slate-500">
                       {prompt.description}
                     </span>
                   </button>
@@ -841,7 +844,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           </section>
 
-          <section className="geo-section-panel p-3 sm:p-4">
+          <section className="geo-panel p-3 sm:p-4">
             <div className="grid gap-3">
               {isRewrite ? (
                 <>
@@ -1187,7 +1190,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             <Button
               onClick={runGenerate}
               disabled={!canGenerate}
-              className="h-11 min-w-0 flex-1 gap-2 rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-blue-300/40"
+              className="h-11 min-w-0 flex-1 gap-2 text-sm font-semibold"
             >
               {isGenerating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

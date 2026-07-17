@@ -17,7 +17,7 @@ export default function RootLayout({
       lang="zh-CN"
       className="h-full antialiased"
     >
-      <body className="min-h-full bg-slate-50">
+      <body className="geo-app-surface min-h-full bg-slate-50">
         <CreditsProvider>{children}</CreditsProvider>
       </body>
     </html>

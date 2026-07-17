@@ -1326,23 +1326,23 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       : strategyJobState.connectionNotice
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[#d6e7ff] bg-white/96 shadow-[0_12px_32px_-26px_rgba(8,28,36,0.5)]">
-      <div className="border-b border-[#d6e7ff] bg-white/95 backdrop-blur">
-        <div className="px-3 sm:px-5 lg:px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="geo-module-surface">
+      <div className="geo-module-header">
+        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="geo-module-icon h-9 w-9 bg-gradient-to-br from-[#4096FF] to-[#00C8FF]">
+            <div className="geo-module-icon">
               <Sparkles className="h-4 w-4 text-white" />
             </div>
             <div className="min-w-0">
-              <div className="geo-display-title text-lg text-[#0958D9]">
+              <div className="geo-module-title">
                 关键词策略 · GEO 策略生成工具
               </div>
-              <div className="text-[11px] text-slate-500 truncate">
+              <div className="geo-module-description truncate">
                 当前客户：{client.name}
               </div>
             </div>
           </div>
-          <div className="inline-flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-[#d6e7ff] bg-[#f5f7f6] px-3 py-2 text-xs text-slate-600 sm:w-auto">
+          <div className="inline-flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-[#DCE6F2] bg-[#F8FAFD] px-3 py-2 text-xs text-slate-600 sm:w-auto">
             <span className={`h-2 w-2 rounded-full ${keywordModelConfigured ? "bg-emerald-500" : "bg-amber-500"}`} />
             <span className="font-medium text-slate-700">{keywordModelName}</span>
             <span className="text-slate-400">后台托管</span>
@@ -1350,11 +1350,11 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         </div>
       </div>
 
-        <div className="px-3 sm:px-5 lg:px-6 pt-4 overflow-x-auto">
+        <div className="overflow-x-auto border-b border-[#E8EEF5] bg-[#F8FAFD] px-3 pt-3 sm:px-5 lg:px-6">
           <StepProgress current={ab.step} />
         </div>
 
-        <main className="px-3 sm:px-5 lg:px-6 py-5 md:py-6">
+        <main className="px-3 py-4 sm:px-5 lg:px-6">
           {(extractJobRef || advantagesJobRef || strategyJobRef) && (
             <KeywordBackgroundJobNotice
               label={activeKeywordJobLabel}
@@ -1496,15 +1496,15 @@ function StepProgress({ current }: { current: ToolStep }) {
   const idx = steps.findIndex(s => s.key === current)
 
   return (
-    <div className="flex min-w-[560px] items-center gap-1 mb-2 sm:min-w-0">
+    <div className="mb-3 flex min-w-[520px] items-center gap-1 sm:min-w-0">
       {steps.map((s, i) => (
         <div key={s.key} className="flex items-center gap-1 flex-1">
-          <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full transition-all
-            ${i < idx ? "bg-emerald-100 text-emerald-700" : i === idx ? "bg-[#003EB3] text-white shadow-md" : "bg-slate-100 text-slate-400"}`}>
+          <div className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all
+            ${i < idx ? "bg-[#E6F4FF] text-[#0958D9]" : i === idx ? "bg-[#1677FF] text-white shadow-sm" : "bg-white text-slate-400 ring-1 ring-slate-200"}`}>
             {i < idx ? <Check className="h-3 w-3" /> : <span className="w-3 h-3 rounded-full bg-current flex items-center justify-center text-[8px] font-bold">{i + 1}</span>}
             {s.label}
           </div>
-          {i < steps.length - 1 && <div className={`flex-1 h-px ${i < idx ? "bg-emerald-300" : "bg-slate-200"}`} />}
+          {i < steps.length - 1 && <div className={`h-px flex-1 ${i < idx ? "bg-[#69B1FF]" : "bg-slate-200"}`} />}
         </div>
       ))}
     </div>
@@ -1547,7 +1547,7 @@ function InputStep({
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div>
-        <h1 className="geo-display-title text-3xl text-slate-900">GEO 策略方案生成</h1>
+        <h1 className="geo-display-title text-xl text-slate-900">GEO 策略方案生成</h1>
         <p className="text-sm text-slate-500 mt-1">上传客户资料，填写基础信息，系统将自动抽取结构化数据并生成优化策略</p>
       </div>
 
@@ -1635,7 +1635,7 @@ function InputStep({
 
         {/* Right: Form */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
+          <div className="geo-panel p-4 sm:p-5">
             <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
               <ListOrdered className="h-4 w-4 text-emerald-500" />
               基础信息
@@ -1827,7 +1827,7 @@ function ExtractionStep({
       </div>
 
       {/* Basic fields */}
-      <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-3 sm:p-5">
+      <div className="geo-panel grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
         <div>
           <label className="text-[11px] font-medium text-slate-500">项目名称</label>
           <input value={profile.project_name} onChange={e => updateField("project_name", e.target.value)}
@@ -1857,7 +1857,7 @@ function ExtractionStep({
 
       {/* Array fields */}
       {sections.map(section => (
-        <div key={section.key} className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
+        <div key={section.key} className="geo-panel p-4 sm:p-5">
           <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-sm font-semibold text-slate-700">{section.label}</h2>
             <div className="flex items-center gap-2">
@@ -1919,7 +1919,7 @@ function ExtractionStep({
         </div>
       ))}
 
-      <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
+      <div className="geo-panel p-4 sm:p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -2585,7 +2585,7 @@ function StrategyStep({
       </div>
 
       {/* JSON Preview */}
-      <details className="bg-white/50 backdrop-blur rounded-2xl border border-slate-200/60 shadow-sm">
+      <details className="geo-panel">
         <summary className="px-5 py-3 text-sm font-medium text-slate-500 cursor-pointer hover:text-slate-700 transition select-none">
           JSON 原文预览
         </summary>
@@ -2612,19 +2612,19 @@ function QuestionJobProgressBar({ progress }: { progress: QuestionJobProgress })
     : ""
 
   return (
-    <div className="rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-2.5">
-      <div className="mb-1.5 flex items-center justify-between gap-3 text-[11px] text-violet-700">
+    <div className="rounded-lg border border-[#BAE0FF] bg-[#F5F9FF] px-3 py-2.5">
+      <div className="mb-1.5 flex items-center justify-between gap-3 text-[11px] text-[#0958D9]">
         <span className="font-medium">后台生成中</span>
         <span>{progress.completedCount}/{progress.totalCount} 条 · {batchText}</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-white">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-violet-500 to-purple-600 transition-all"
+          className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#00C8FF] transition-all"
           style={{ width: `${percent}%` }}
         />
       </div>
       {longTaskText && (
-        <div className="mt-1.5 text-[10px] leading-4 text-violet-600">{longTaskText}</div>
+        <div className="mt-1.5 text-[10px] leading-4 text-[#0958D9]">{longTaskText}</div>
       )}
     </div>
   )
@@ -2745,9 +2745,9 @@ function QuestionSettingsPanel({
     <div className="space-y-4">
       <div className="text-xs text-slate-500">策略已生成，可选择生成关键词、劣势、痛点场景三类疑问句。</div>
 
-      <div className="bg-slate-50/80 rounded-xl border border-slate-100 p-4 space-y-3">
+      <div className="space-y-3 rounded-lg border border-[#DCE6F2] bg-[#F8FAFD] p-4">
         <h3 className="text-xs font-semibold text-slate-600">基础设置</h3>
-        <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
           <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-[11px] font-semibold text-slate-600">AI 模型</div>
@@ -2824,7 +2824,7 @@ function QuestionSettingsPanel({
       )}
 
       <div className="space-y-3">
-        <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+        <div className="rounded-lg border border-blue-100 bg-blue-50/40 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
               <input
@@ -2886,7 +2886,7 @@ function QuestionSettingsPanel({
           )}
         </div>
 
-        <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+        <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
               <input
@@ -2951,7 +2951,7 @@ function QuestionSettingsPanel({
           </div>
         </div>
 
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
               <input
@@ -3014,7 +3014,7 @@ function QuestionSettingsPanel({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+      <div className="rounded-lg border border-slate-200 bg-[#F8FAFD] p-4">
         <div className="mb-2 flex items-center justify-between text-xs">
           <span className="font-semibold text-slate-600">本次生成预览</span>
           <span className={`font-bold ${totalTooHigh || noSectionsSelected ? "text-red-600" : "text-slate-800"}`}>
@@ -3080,7 +3080,7 @@ function QuestionSettingsPanel({
       ) : (
         <button onClick={onGenerateQuestions}
           disabled={generateDisabled}
-          className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:shadow-lg hover:shadow-violet-300/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1677FF] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0958D9] disabled:cursor-not-allowed disabled:opacity-50">
           <Sparkles className="h-4 w-4" /> 生成疑问句池
         </button>
       )}
@@ -3188,8 +3188,8 @@ function Card({ title, icon, children, extra }: {
   extra?: React.ReactNode
 }) {
   return (
-    <div className="bg-white/70 backdrop-blur rounded-2xl border border-slate-200/60 p-4 shadow-sm sm:p-5">
-      <div className="flex items-center justify-between mb-4">
+    <div className="geo-panel p-4 sm:p-5">
+      <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2">{icon}{title}</h2>
         {extra}
       </div>

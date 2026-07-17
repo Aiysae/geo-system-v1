@@ -15,8 +15,8 @@ export default async function SignUpPage({
   if (user) redirect("/")
 
   return (
-    <div className="min-h-screen flex flex-col geo-saturated-bg">
-      <main className="flex flex-1 items-center justify-center px-4 py-10">
+    <div className="geo-auth-bg flex min-h-screen flex-col">
+      <main className="flex flex-1 items-center justify-center px-4 py-8 sm:py-10">
         <LocalAuthForm
           mode="sign-up"
           redirectUrl={params.redirect_url}
