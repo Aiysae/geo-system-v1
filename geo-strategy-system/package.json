@@ -67,6 +67,7 @@
     "word-extractor": "^1.0.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^20",
