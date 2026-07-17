@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up GEO system PostgreSQL data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/var/www/geo-strategy-system/geo-system-v1/.env.production
+ExecStart=/usr/local/sbin/geo-postgres-backup

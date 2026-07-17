@@ -7,6 +7,8 @@ import type { PenetrationItem, PenetrationJobRecord } from "../src/types"
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "geo-penetration-job-recovery-"))
 process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = path.join(tempDir, "kv.json")
+process.env.PENETRATION_HISTORY_STORE = "file"
+process.env.PENETRATION_HISTORY_FILE = path.join(tempDir, "penetration-history.json")
 process.env.PORT = "3000"
 
 const originalFetch = globalThis.fetch
@@ -55,6 +57,7 @@ globalThis.fetch = async () => {
 }
 
 const { createPenetrationJob, getPenetrationJob } = await import("../src/lib/penetration/jobs")
+const { getPenetrationHistoryRecord } = await import("../src/lib/penetration/history-store")
 
 async function waitFor(
   predicate: (job: PenetrationJobRecord) => boolean,
@@ -74,13 +77,16 @@ try {
     id: "pjob_recovery_test",
     request: {
       clientId: "client-test",
+      clientName: "测试客户",
       runId,
       operation: "replace",
       ourBrand: "测试品牌",
       brandAliases: [],
       industry: "测试行业",
+      website: "https://example.com",
       questions: [question],
       competitors: [],
+      selectedModels: ["doubao"],
       models: ["doubao"],
     },
     ownerUserId: "test-user",
@@ -111,6 +117,12 @@ try {
   assert.equal(succeeded.result?.byModel.doubao?.length, 1)
   assert.equal(succeeded.result?.byModel.doubao?.[0].answer, "第二次独立联网回答")
   assert.deepEqual(succeeded.result?.byModel.doubao?.[0].providerRequestIds, ["provider-request-2"])
+  assert.equal(succeeded.historyRecordId, "pjob_recovery_test")
+  assert.ok(succeeded.historySavedAt)
+  assert.equal(succeeded.historySavePending, false)
+  const history = await getPenetrationHistoryRecord("test-user", "pjob_recovery_test")
+  assert.equal(history?.status, "succeeded")
+  assert.equal(history?.result?.byModel.doubao?.[0].answer, "第二次独立联网回答")
   assert.equal(attempts, 2)
 
   console.log("Penetration background slot recovery passed.")

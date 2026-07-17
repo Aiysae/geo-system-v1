@@ -118,18 +118,26 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
             setLoading(false)
             setRetestingSampleId(null)
             setProgressLabel("")
+            const historyNotice = job.historySavedAt
+              ? "已保存到检测历史。"
+              : "检测历史正在后台补存。"
             setCompletionNotice(
               job.operation === "append"
-                ? "本题重新检测已完成：新的独立联网回答已追加，旧回答仍然保留。"
+                ? `本题重新检测已完成：新的独立联网回答已追加，旧回答仍然保留。${historyNotice}`
                 : completedQuestions && completedModels
-                ? `疑问句检测已完成：${job.totalSlots} 次独立采样（${completedQuestions} 个不同问题、${completedModels} 个模型）。`
-                : `疑问句检测已完成：${job.completedSlots} 项结果已更新。`,
+                ? `疑问句检测已完成：${job.totalSlots} 次独立采样（${completedQuestions} 个不同问题、${completedModels} 个模型）。${historyNotice}`
+                : `疑问句检测已完成：${job.completedSlots} 项结果已更新。${historyNotice}`,
             )
             return
           }
           if (job.status === "failed") {
             onChangeClient({ penetrationJobId: undefined })
             setError(job.error || "疑问句检测后台任务失败")
+            setCompletionNotice(
+              job.historySavedAt
+                ? "本次失败原因和检测输入已保存到检测历史。"
+                : "本次失败记录正在后台补存。",
+            )
             setLoading(false)
             setRetestingSampleId(null)
             setProgressLabel("")
@@ -141,6 +149,11 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               penetrationJobId: undefined,
             })
             setError(job.error || "部分模型在多轮联网补采后仍不可用，请检查对应模型配置。")
+            setCompletionNotice(
+              job.historySavedAt
+                ? "本次已完成的有效结果已保存到检测历史。"
+                : "本次部分结果正在后台补存。",
+            )
             setLoading(false)
             setRetestingSampleId(null)
             setProgressLabel("")
@@ -152,6 +165,11 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               penetrationJobId: undefined,
             })
             setError(job.result ? "检测已停止，已保留当前完成结果。" : "检测已停止。")
+            setCompletionNotice(
+              job.historySavedAt
+                ? "本次停止前的输入和已完成结果已保存到检测历史。"
+                : "本次停止记录正在后台补存。",
+            )
             setLoading(false)
             setRetestingSampleId(null)
             setProgressLabel("")

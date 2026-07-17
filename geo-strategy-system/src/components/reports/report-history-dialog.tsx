@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom"
 import {
   AlertCircle,
@@ -12,10 +12,12 @@ import {
   FileText,
   History,
   Loader2,
+  Radar,
   RefreshCw,
   Trash2,
   X,
 } from "lucide-react"
+import PenetrationHistoryPanel from "@/components/reports/penetration-history-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import type {
   Client,
@@ -27,6 +29,7 @@ import type {
 type Props = {
   clients: Client[]
   activeClientId: string | null
+  onExportPenetration: (client: Client) => void
   onClose: () => void
 }
 
@@ -46,6 +49,10 @@ const STATUS_META: Record<CommercialReportJobStatus, {
   succeeded: { label: "已完成", className: "bg-emerald-50 text-emerald-700 ring-emerald-200", icon: CheckCircle2 },
   failed: { label: "失败", className: "bg-rose-50 text-rose-700 ring-rose-200", icon: AlertCircle },
 }
+
+const subscribeToClientMount = () => () => undefined
+const clientMountedSnapshot = () => true
+const serverMountedSnapshot = () => false
 
 function formatDate(value: string): string {
   const date = new Date(value)
@@ -75,7 +82,18 @@ function saveBlob(blob: Blob, fileName: string): void {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
 }
 
-export default function ReportHistoryDialog({ clients, activeClientId, onClose }: Props) {
+export default function ReportHistoryDialog({
+  clients,
+  activeClientId,
+  onExportPenetration,
+  onClose,
+}: Props) {
+  const canUseDom = useSyncExternalStore(
+    subscribeToClientMount,
+    clientMountedSnapshot,
+    serverMountedSnapshot,
+  )
+  const [activeTab, setActiveTab] = useState<"penetration" | "pdf">("penetration")
   const [jobs, setJobs] = useState<CommercialReportJobRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -222,7 +240,7 @@ export default function ReportHistoryDialog({ clients, activeClientId, onClose }
       aria-labelledby="report-history-title"
       onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}
     >
-      <div className="ml-auto flex h-full w-full max-w-4xl flex-col bg-white shadow-[-24px_0_70px_-34px_rgba(0,29,102,0.72)]">
+      <div className="ml-auto flex h-full w-full max-w-6xl flex-col bg-white shadow-[-24px_0_70px_-34px_rgba(0,29,102,0.72)]">
         <header className="shrink-0 bg-gradient-to-r from-[#003EB3] via-[#1677FF] to-[#00AEEA] px-4 py-4 text-white sm:px-6">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -243,12 +261,12 @@ export default function ReportHistoryDialog({ clients, activeClientId, onClose }
               )}
               <div className="min-w-0">
                 <h2 id="report-history-title" className="geo-display-title truncate text-xl">
-                  {selectedJob ? "报告在线预览" : "专业报告历史"}
+                  {selectedJob ? "报告在线预览" : "历史报告中心"}
                 </h2>
                 <p className="mt-1 truncate text-xs text-cyan-50/75">
                   {selectedJob
                     ? selectedJob.fileName || KIND_LABELS[selectedJob.kind]
-                    : "私有保存 365 天 · 每个账号最多 100 份"}
+                    : "自动检测快照与专业 PDF 分开保存，换设备登录仍可查看"}
                 </p>
               </div>
             </div>
@@ -278,7 +296,36 @@ export default function ReportHistoryDialog({ clients, activeClientId, onClose }
           </div>
         </header>
 
-        {error ? (
+        {!selectedJob ? (
+          <div className="grid shrink-0 grid-cols-2 border-b border-slate-200 bg-white px-4 pt-2 sm:px-6">
+            <button
+              type="button"
+              onClick={() => setActiveTab("penetration")}
+              className={`inline-flex h-11 items-center justify-center gap-2 border-b-2 text-xs font-semibold transition ${
+                activeTab === "penetration"
+                  ? "border-[#1677FF] text-[#0958D9]"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Radar className="h-4 w-4" />
+              检测记录
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("pdf")}
+              className={`inline-flex h-11 items-center justify-center gap-2 border-b-2 text-xs font-semibold transition ${
+                activeTab === "pdf"
+                  ? "border-[#1677FF] text-[#0958D9]"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <FileText className="h-4 w-4" />
+              专业 PDF
+            </button>
+          </div>
+        ) : null}
+
+        {(activeTab === "pdf" || selectedJob) && error ? (
           <div className="shrink-0 border-b border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700 sm:px-6">
             {error}
           </div>
@@ -305,6 +352,12 @@ export default function ReportHistoryDialog({ clients, activeClientId, onClose }
               </div>
             )}
           </div>
+        ) : activeTab === "penetration" ? (
+          <PenetrationHistoryPanel
+            clients={clients}
+            activeClientId={activeClientId}
+            onExportPenetration={onExportPenetration}
+          />
         ) : (
           <>
             <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:px-6">
@@ -474,5 +527,6 @@ export default function ReportHistoryDialog({ clients, activeClientId, onClose }
     </div>
   )
 
+  if (!canUseDom) return null
   return createPortal(dialog, document.body)
 }
