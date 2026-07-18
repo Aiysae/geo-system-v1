@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Target, ChevronDown, MessageSquare, BarChart3, Globe2, ExternalLink, CheckCircle2, RefreshCw, X } from "lucide-react"
+import { Target, ChevronDown, MessageSquare, Globe2, ExternalLink, CheckCircle2, RefreshCw, X } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
 import PenetrationDonut from "./penetration-donut"
 import IndustryShareChart from "./industry-share-chart"
@@ -394,7 +394,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
                   )}
                 </div>
 
-                <MonitoringDashboards
+                <BrandAndKeywordPanels
                   penetration={pen}
                   ourBrand={client.ourBrand}
                   brandAliases={client.brandAliases ?? []}
@@ -976,7 +976,7 @@ function AnswerItem({
   )
 }
 
-function MonitoringDashboards({
+function BrandAndKeywordPanels({
   penetration,
   ourBrand,
   brandAliases,
@@ -987,7 +987,6 @@ function MonitoringDashboards({
   brandAliases: string[]
   competitors: string[]
 }) {
-  const [open, setOpen] = useState(true)
   const [voice, setVoice] = useState<BrandVoiceItem[] | null>(null)
   const [competition, setCompetition] = useState<KeywordCompetitionItem[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -1036,49 +1035,56 @@ function MonitoringDashboards({
   }, [penetration.byModel, ourBrand, brandAliases, competitors, cacheKey])
 
   return (
-    <div className="geo-panel min-w-0 overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="group flex w-full items-center justify-between gap-4 bg-white px-4 py-3 text-left transition hover:bg-[#F7FAFD]"
-      >
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] via-[#2F54EB] to-[#00C8FF] shadow-sm transition-transform group-hover:scale-105">
-            <BarChart3 className="h-3.5 w-3.5 text-white" />
-          </span>
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-slate-800">监控大盘 · 品牌声量 & 关键词竞争</div>
-            <div className="truncate text-[11px] text-slate-500">
-              基于本次盲测结果服务端聚合，自动过滤拒答 / 0 参与模型的无效问题
-            </div>
-          </div>
+    <div className="min-w-0">
+      {loading && !voice && !competition ? (
+        <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+          <DashboardPanelLoading title="品牌声量表" />
+          <DashboardPanelLoading title="关键词竞争热度" />
         </div>
-        <ChevronDown
-          className={`h-4 w-4 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
+      ) : null}
 
-      {open && (
-        <div className="min-w-0 space-y-4 border-t border-slate-100 bg-[#F8FAFD] p-4">
-          {loading && !voice && !competition && (
-            <div className="py-10 text-center text-sm text-slate-500">聚合中…</div>
-          )}
-          {error && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-              {error}
-            </div>
-          )}
-          {voice && (
-            <div className="min-w-0 overflow-hidden">
-              <BrandShareOfVoice key={`voice-${cacheKey}`} compact items={voice} />
-            </div>
-          )}
-          {competition && (
-            <div className="h-[400px] min-w-0 overflow-hidden sm:h-[420px]">
-              <KeywordCompetition key={`competition-${cacheKey}`} compact items={competition} />
-            </div>
-          )}
+      {error ? (
+        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          {error}
         </div>
-      )}
+      ) : null}
+
+      {voice || competition ? (
+        <div className="grid min-w-0 gap-4 xl:grid-cols-2 xl:items-start">
+          {voice ? (
+            <section
+              aria-label="品牌声量表"
+              className="min-h-[360px] min-w-0 overflow-hidden xl:aspect-square xl:min-h-0"
+            >
+              <BrandShareOfVoice key={`voice-${cacheKey}`} compact items={voice} />
+            </section>
+          ) : null}
+          {competition ? (
+            <section
+              aria-label="关键词竞争热度"
+              className="min-h-[360px] min-w-0 overflow-hidden xl:aspect-square xl:min-h-0"
+            >
+              <KeywordCompetition key={`competition-${cacheKey}`} compact items={competition} />
+            </section>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function DashboardPanelLoading({ title }: { title: string }) {
+  return (
+    <div
+      className="geo-panel flex min-h-[360px] min-w-0 items-center justify-center overflow-hidden xl:aspect-square xl:min-h-0"
+      role="status"
+      aria-label={`${title}聚合中`}
+    >
+      <div className="text-center">
+        <span className="mx-auto block h-6 w-6 animate-spin rounded-full border-2 border-[#D6E8FF] border-t-[#1677FF]" />
+        <div className="mt-3 text-sm font-medium text-slate-600">{title}</div>
+        <div className="mt-1 text-xs text-slate-400">正在聚合本次盲测结果</div>
+      </div>
     </div>
   )
 }
