@@ -32,7 +32,23 @@ export function isCompletePenetrationItem(item: PenetrationItem | undefined): it
   return getPenetrationSlotValidationError(item) === null
 }
 
-export function nextPenetrationRetryAt(attempts: number, fromMs = Date.now()): string | null {
+function deterministicRetryJitter(delayMs: number, seed: string): number {
+  let hash = 2166136261
+  for (let index = 0; index < seed.length; index++) {
+    hash ^= seed.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  const ratio = 0.1 + ((hash >>> 0) % 2001) / 10_000
+  return Math.floor(delayMs * ratio)
+}
+
+export function nextPenetrationRetryAt(
+  attempts: number,
+  fromMs = Date.now(),
+  jitterSeed?: string,
+): string | null {
   const delay = PENETRATION_SLOT_RETRY_DELAYS_MS[attempts - 1]
-  return delay === undefined ? null : new Date(fromMs + delay).toISOString()
+  if (delay === undefined) return null
+  const jitter = jitterSeed ? deterministicRetryJitter(delay, jitterSeed) : 0
+  return new Date(fromMs + delay + jitter).toISOString()
 }

@@ -36,6 +36,13 @@ npm run penetration-history:backfill
 MIGRATION_CONFIRM=PENETRATION_HISTORY_BACKFILL npm run penetration-history:backfill -- --apply
 ```
 
+Penetration detection uses a user-fair persistent queue. Pending job IDs and job
+leases are stored in the configured KV backend, and `src/instrumentation.ts`
+recovers unfinished jobs when the Node.js server starts. Provider and judge
+concurrency can be tuned with the `PENETRATION_*_CONCURRENCY` variables in
+`.env.production.example`; keep one PM2 web process unless all workers share
+the same distributed concurrency controls.
+
 Production PostgreSQL backups are defined in `deploy/postgres/` and retain 14 days of compressed custom-format dumps.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
