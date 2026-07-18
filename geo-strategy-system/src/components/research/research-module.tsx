@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
+import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
 import type { BackgroundJobKind, BackgroundJobRef, Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import {
   BarChart3,
@@ -36,6 +37,9 @@ interface Props {
 }
 
 export default function ResearchModule({ client, onChangeClient }: Props) {
+  const subjectType = getClientSubjectType(client)
+  const subjectCopy = getSubjectCopy(subjectType)
+  const isPerson = subjectType === "person"
   const [mode, setMode] = useState<ResearchMode>("ai")
   const [researchSourceMode, setResearchSourceMode] = useState<ResearchSourceMode>(() => client.researchSourceMode ?? "module")
   const [manualInput, setManualInput] = useState<ResearchManualInput>(() => ({
@@ -96,6 +100,8 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
       website: researchSourceMode === "manual" ? "" : client.website,
       competitors: researchSourceMode === "manual" ? [] : client.competitors,
       penetration: researchSourceMode === "module" ? client.penetration : undefined,
+      subjectType,
+      personProfile: client.personProfile,
     }
   }
 
@@ -112,6 +118,8 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
       competitors: allCompetitors,
       selectedCompetitors: activeSelectedCompetitors,
       penetration: compareSourceMode === "module" ? client.penetration : undefined,
+      subjectType,
+      personProfile: client.personProfile,
     }
   }
 
@@ -247,7 +255,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             <Brain className="h-5 w-5 text-white" />
           </span>
           <span className="geo-module-title min-w-0">
-            独立调研 · 豆包深度品牌画像与竞品对比
+            独立调研 · 豆包深度{isPerson ? "个人 IP 画像与同行对比" : "品牌画像与竞品对比"}
           </span>
         </CardTitle>
       </CardHeader>
@@ -258,7 +266,9 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               <div className="flex items-center gap-2">
                 <Search className="h-4 w-4 text-[#1677FF]" />
                 <div>
-                  <div className="text-sm font-semibold text-slate-800">品牌 AI 心智调研</div>
+                  <div className="text-sm font-semibold text-slate-800">
+                    {isPerson ? "个人 IP · AI 心智调研" : "品牌 AI 心智调研"}
+                  </div>
                   <div className="text-[11px] text-slate-500">豆包视角 · 与疑问句检测结果独立保存</div>
                 </div>
               </div>
@@ -291,6 +301,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               <ManualResearchFields
                 value={manualInput}
                 onChange={updateManualInput}
+                subjectType={subjectType}
               />
             )}
 
@@ -301,7 +312,9 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                   value={hypothesis}
                   onChange={event => setHypothesis(event.target.value)}
                   rows={4}
-                  placeholder="例如：豆包不推荐我们，是因为缺少第三方测评和行业榜单信源。"
+                  placeholder={isPerson
+                    ? "例如：豆包很少提及这位专家，是因为缺少权威资料页和专业案例信源。"
+                    : "例如：豆包不推荐我们，是因为缺少第三方测评和行业榜单信源。"}
                   className="bg-white/80 text-xs"
                 />
               </div>
@@ -344,9 +357,14 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             {researchError && <ErrorBox message={researchError} />}
 
             {!research ? (
-              <EmptyBlock title="调研报告待生成" text={researchSourceMode === "module" ? "会结合渗透率检测结果做深度分析" : "填写地区、行业、品牌全称和别名后即可独立调研"} />
+              <EmptyBlock
+                title="调研报告待生成"
+                text={researchSourceMode === "module"
+                  ? "会结合渗透率检测结果做深度分析"
+                  : `填写地区、行业、${subjectCopy.subjectShortLabel}和别名后即可独立调研`}
+              />
             ) : (
-              <ResearchReport result={research} />
+              <ResearchReport result={research} subjectType={subjectType} />
             )}
           </section>
 
@@ -355,8 +373,12 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               <div className="flex items-center gap-2">
                 <Swords className="h-4 w-4 text-rose-600" />
                 <div>
-                  <div className="text-sm font-semibold text-slate-800">竞品优劣势对比</div>
-                  <div className="text-[11px] text-slate-500">基于检测竞品与豆包心智生成对比报告</div>
+                  <div className="text-sm font-semibold text-slate-800">
+                    {isPerson ? "同行人物对比" : "竞品优劣势对比"}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    基于检测{isPerson ? "同行人物" : "竞品"}与豆包心智生成对比报告
+                  </div>
                 </div>
               </div>
               <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -379,18 +401,22 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             <SourceTabs
               value={compareSourceMode}
               onChange={updateCompareSourceMode}
-              moduleLabel="用渗透率情报竞品"
-              manualLabel="手动填竞品"
+              moduleLabel={`用渗透率情报${isPerson ? "同行人物" : "竞品"}`}
+              manualLabel={`手动填${isPerson ? "同行人物" : "竞品"}`}
             />
 
             {compareSourceMode === "manual" && (
               <div className="mb-4">
-                <Label className="text-xs text-slate-600 mb-1.5 block">自定义竞品名单</Label>
+                <Label className="text-xs text-slate-600 mb-1.5 block">
+                  自定义{isPerson ? "同行人物" : "竞品"}名单
+                </Label>
                 <Textarea
                   value={customCompetitorsText}
                   onChange={event => updateCustomCompetitors(event.target.value)}
                   rows={4}
-                  placeholder={"每行一个竞品名称\n竞品 A\n竞品 B"}
+                  placeholder={isPerson
+                    ? "每行一个同行人物姓名\n同行人物 A\n同行人物 B"
+                    : "每行一个竞品名称\n竞品 A\n竞品 B"}
                   className="bg-white text-xs"
                 />
               </div>
@@ -400,6 +426,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               options={compareOptions}
               selected={activeSelectedCompetitors}
               onToggle={toggleCompetitor}
+              subjectType={subjectType}
             />
 
             {compareLoading && (
@@ -413,9 +440,18 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             {compareError && <ErrorBox message={compareError} />}
 
             {!compare ? (
-              <EmptyBlock title="对比报告待生成" text={compareOptions.length ? "最多选择 5 个竞品，同时生成优劣势对比" : "渗透率检测完成后会自动带出同行竞品，也可以切换为手动填写"} />
+              <EmptyBlock
+                title="对比报告待生成"
+                text={compareOptions.length
+                  ? `最多选择 5 个${isPerson ? "同行人物" : "竞品"}，同时生成对比`
+                  : `渗透率检测完成后会自动带出${isPerson ? "同行人物" : "同行竞品"}，也可以切换为手动填写`}
+              />
             ) : (
-              <CompareReport result={compare} ourBrand={client.ourBrand || manualInput.fullName} />
+              <CompareReport
+                result={compare}
+                ourBrand={client.ourBrand || manualInput.fullName}
+                subjectType={subjectType}
+              />
             )}
           </section>
         </div>
@@ -458,10 +494,13 @@ function SourceTabs({
 function ManualResearchFields({
   value,
   onChange,
+  subjectType = "brand",
 }: {
   value: ResearchManualInput
   onChange: (field: keyof ResearchManualInput, value: string) => void
+  subjectType?: "brand" | "person"
 }) {
+  const isPerson = subjectType === "person"
   return (
     <div className="mb-4 grid gap-3 rounded-lg border border-[#DCE6F2] bg-[#F8FAFD] p-3 sm:grid-cols-2">
       <div>
@@ -483,16 +522,20 @@ function ManualResearchFields({
         />
       </div>
       <div>
-        <Label className="text-xs text-slate-600 mb-1.5 block">品牌全称</Label>
+        <Label className="text-xs text-slate-600 mb-1.5 block">
+          {isPerson ? "人物姓名" : "品牌全称"}
+        </Label>
         <Input
           value={value.fullName}
           onChange={event => onChange("fullName", event.target.value)}
-          placeholder="请输入公司/品牌/产品全称"
+          placeholder={isPerson ? "请输入需要调研的人物姓名" : "请输入公司/品牌/产品全称"}
           className="bg-white text-xs"
         />
       </div>
       <div>
-        <Label className="text-xs text-slate-600 mb-1.5 block">别名</Label>
+        <Label className="text-xs text-slate-600 mb-1.5 block">
+          {isPerson ? "姓名别名" : "别名"}
+        </Label>
         <Input
           value={value.aliases}
           onChange={event => onChange("aliases", event.target.value)}
@@ -508,22 +551,25 @@ function CompetitorMultiSelect({
   options,
   selected,
   onToggle,
+  subjectType = "brand",
 }: {
   options: string[]
   selected: string[]
   onToggle: (name: string) => void
+  subjectType?: "brand" | "person"
 }) {
+  const noun = subjectType === "person" ? "同行人物" : "竞品"
   return (
     <div className="mb-4">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <Label className="text-xs text-slate-600">选择对比竞品</Label>
+        <Label className="text-xs text-slate-600">选择对比{noun}</Label>
         <span className={`text-[11px] ${selected.length >= 5 ? "text-rose-500" : "text-slate-400"}`}>
           已选 {selected.length}/5
         </span>
       </div>
       {options.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-400">
-          暂无竞品，请先运行渗透率情报或切换为手动填写。
+          暂无{noun}，请先运行渗透率情报或切换为手动填写。
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
@@ -603,7 +649,13 @@ function EmptyBlock({ title, text }: { title: string; text: string }) {
   )
 }
 
-function ResearchReport({ result }: { result: ResearchResult }) {
+function ResearchReport({
+  result,
+  subjectType,
+}: {
+  result: ResearchResult
+  subjectType: "brand" | "person"
+}) {
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-[#BAE0FF] bg-[#F5F9FF] p-4">
@@ -622,7 +674,7 @@ function ResearchReport({ result }: { result: ResearchResult }) {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <MiniPanel title="品牌形象" text={result.brandImage} />
+        <MiniPanel title={subjectType === "person" ? "个人 IP 形象" : "品牌形象"} text={result.brandImage} />
         <MiniPanel title="模型心智" text={result.modelMentality} />
       </div>
 
@@ -659,29 +711,42 @@ function ResearchReport({ result }: { result: ResearchResult }) {
   )
 }
 
-function CompareReport({ result, ourBrand }: { result: CompetitorCompareResult; ourBrand: string }) {
+function CompareReport({
+  result,
+  ourBrand,
+  subjectType,
+}: {
+  result: CompetitorCompareResult
+  ourBrand: string
+  subjectType: "brand" | "person"
+}) {
   const comparisons = getComparisons(result)
+  const targetLabel = ourBrand || (subjectType === "person" ? "目标人物" : "我方品牌")
 
   return (
     <div className="space-y-4">
       {result.ourWeaknessSummary && result.ourWeaknessSummary.length > 0 && (
-        <ListPanel title={`${ourBrand || "我方品牌"}对标所选竞品的劣势汇总`} items={result.ourWeaknessSummary} tone="amber" />
+        <ListPanel
+          title={`${targetLabel}对标所选${subjectType === "person" ? "同行人物" : "竞品"}的劣势汇总`}
+          items={result.ourWeaknessSummary}
+          tone="amber"
+        />
       )}
 
       {comparisons.map(item => (
         <div key={item.competitor} className="space-y-3 rounded-lg border border-[#DCE6F2] bg-white p-3">
           <div className="rounded-lg border border-[#BAE0FF] bg-[#F5F9FF] p-4">
             <div className="mb-1 text-xs text-[#0958D9]">
-              {ourBrand || "我方品牌"} vs {item.competitor}
+              {targetLabel} vs {item.competitor}
             </div>
             <p className="text-sm leading-7 text-slate-700">{item.positioningSummary}</p>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
-            <ListPanel title="我方优势" items={item.ourAdvantages} tone="emerald" />
-            <ListPanel title="竞品优势" items={item.competitorAdvantages} tone="rose" />
-            <ListPanel title="我方短板" items={item.ourWeaknesses} tone="amber" />
-            <ListPanel title="竞品短板" items={item.competitorWeaknesses} tone="slate" />
+            <ListPanel title={subjectType === "person" ? "目标人物优势" : "我方优势"} items={item.ourAdvantages} tone="emerald" />
+            <ListPanel title={subjectType === "person" ? "同行人物优势" : "竞品优势"} items={item.competitorAdvantages} tone="rose" />
+            <ListPanel title={subjectType === "person" ? "目标人物短板" : "我方短板"} items={item.ourWeaknesses} tone="amber" />
+            <ListPanel title={subjectType === "person" ? "同行人物短板" : "竞品短板"} items={item.competitorWeaknesses} tone="slate" />
           </div>
           <ListPanel title="差异化叙事" items={item.differentiators} tone="blue" />
           <ListPanel title="用户选择因素" items={item.userChoiceDrivers} tone="cyan" />

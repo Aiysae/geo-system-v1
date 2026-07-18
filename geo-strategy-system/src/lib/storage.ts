@@ -1,6 +1,7 @@
 "use client"
 
-import type { Client, ModelKey } from "@/types"
+import type { AnalysisSubjectType, Client, ModelKey } from "@/types"
+import { createEmptyPersonSubjectProfile } from "@/lib/analysis-subject"
 
 const LEGACY_CLIENTS_KEY = "geo:clients"
 const LEGACY_ACTIVE_KEY = "geo:activeClientId"
@@ -96,7 +97,10 @@ function getDeviceId(): string {
 
 const DEFAULT_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
 
-export function createClient(name: string): Client {
+export function createClient(
+  name: string,
+  subjectType: AnalysisSubjectType = "brand",
+): Client {
   const now = new Date().toISOString()
   const id = typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -104,6 +108,10 @@ export function createClient(name: string): Client {
   return {
     id,
     name,
+    subjectType,
+    personProfile: subjectType === "person"
+      ? createEmptyPersonSubjectProfile()
+      : undefined,
     ourBrand: "",
     brandAliases: [],
     industry: "",

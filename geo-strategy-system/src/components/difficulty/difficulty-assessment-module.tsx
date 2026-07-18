@@ -20,6 +20,7 @@ import {
   Table2,
   TrendingUp,
   Trash2,
+  UserRound,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -51,6 +52,7 @@ import type {
   DifficultyStageKey,
 } from "@/types"
 import { MODEL_LABELS } from "@/lib/model-labels"
+import { getClientSubjectType } from "@/lib/analysis-subject"
 
 const DifficultyDimensionsRadial = dynamic(
   () => import("@/components/difficulty/difficulty-dimensions-radial"),
@@ -80,6 +82,14 @@ const BRAND_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string
   { key: "scoring", title: "竞品指标审计", desc: "差距和商业指标复核" },
   { key: "review", title: "复核", desc: "置信度和资料缺口" },
   { key: "report", title: "路径报告", desc: "突破入口和动作" },
+]
+
+const PERSON_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string }> = [
+  { key: "research", title: "行业与同行调研", desc: "问题样本与同行人物占位" },
+  { key: "comparison", title: "个人 IP 现状", desc: "可见度和专业信任资产" },
+  { key: "scoring", title: "同行指标审计", desc: "人物机构分离与指标复核" },
+  { key: "review", title: "个人 IP 复核", desc: "同名歧义、置信度和资料缺口" },
+  { key: "report", title: "突破路径报告", desc: "个人 IP 内容和信源动作" },
 ]
 
 const DIFFICULTY_MODELS: ModelKey[] = ["qwen", "deepseek", "doubao", "kimi", "ernie", "hunyuan"]
@@ -507,16 +517,44 @@ function formatMoneyRange(range: { min: number; max: number }): string {
   return `\u00a5${formatMoney(range.min)}-${formatMoney(range.max)}`
 }
 
-function stagesForMode(mode: DifficultyAssessmentMode) {
+function stagesForMode(
+  mode: DifficultyAssessmentMode,
+  subjectType: Client["subjectType"] = "brand",
+) {
+  if (mode === "brand" && subjectType === "person") return PERSON_STAGES
   return mode === "brand" ? BRAND_STAGES : INDUSTRY_STAGES
 }
 
-function scoreStandardsForMode(mode: DifficultyAssessmentMode) {
-  return mode === "brand" ? BRAND_SCORE_STANDARDS : INDUSTRY_SCORE_STANDARDS
+function scoreStandardsForMode(
+  mode: DifficultyAssessmentMode,
+  subjectType: Client["subjectType"] = "brand",
+) {
+  if (mode !== "brand") return INDUSTRY_SCORE_STANDARDS
+  if (subjectType !== "person") return BRAND_SCORE_STANDARDS
+  return BRAND_SCORE_STANDARDS.map(item => ({
+    ...item,
+    name: item.name
+      .replace("目标品牌", "目标人物")
+      .replace("品牌", "个人 IP"),
+    easy: item.easy.replace("竞品", "同行人物"),
+    medium: item.medium.replace("竞品", "同行人物"),
+    hard: item.hard.replace("竞品", "同行人物"),
+    super: item.super.replace("竞品", "同行人物"),
+  }))
 }
 
-function totalStandardsForMode(mode: DifficultyAssessmentMode) {
-  return mode === "brand" ? BRAND_TOTAL_STANDARDS : TOTAL_STANDARDS
+function totalStandardsForMode(
+  mode: DifficultyAssessmentMode,
+  subjectType: Client["subjectType"] = "brand",
+) {
+  if (mode !== "brand") return TOTAL_STANDARDS
+  if (subjectType !== "person") return BRAND_TOTAL_STANDARDS
+  return BRAND_TOTAL_STANDARDS.map(item => ({
+    ...item,
+    desc: item.desc
+      .replaceAll("品牌", "个人 IP")
+      .replaceAll("头部答案", "头部同行答案"),
+  }))
 }
 
 function sampleForMode(mode: DifficultyAssessmentMode): DifficultyAssessmentResult {
@@ -529,13 +567,18 @@ function modeForEntry(entry: DifficultyAssessmentEntry | null | undefined): Diff
 
 function formatEntryTitle(entry: DifficultyAssessmentEntry): string {
   if (modeForEntry(entry) === "brand") {
-    return `${entry.city} · ${entry.industry} · ${entry.targetBrand || entry.result.targetBrand || "未命名品牌"}`
+    const fallback = entry.subjectType === "person" || entry.result.subjectType === "person"
+      ? "未命名人物"
+      : "未命名品牌"
+    return `${entry.city} · ${entry.industry} · ${entry.targetBrand || entry.result.targetBrand || fallback}`
   }
   return `${entry.city} · ${entry.industry}`
 }
 
 function createEntry(args: {
   mode: DifficultyAssessmentMode
+  subjectType?: Client["subjectType"]
+  personProfile?: Client["personProfile"]
   industry: string
   city: string
   scope?: DifficultyGeographicScope
@@ -552,6 +595,8 @@ function createEntry(args: {
   return {
     id,
     mode: args.mode,
+    subjectType: args.subjectType,
+    personProfile: args.personProfile,
     industry: args.industry,
     city: args.city,
     scope: args.scope ?? args.result.scope,
@@ -562,6 +607,8 @@ function createEntry(args: {
     result: {
       ...args.result,
       mode: args.result.mode ?? args.mode,
+      subjectType: args.result.subjectType ?? args.subjectType,
+      personProfile: args.result.personProfile ?? args.personProfile,
       scope: args.result.scope ?? args.scope,
       region: args.result.region ?? args.city,
       targetBrand: args.result.targetBrand ?? args.targetBrand,
@@ -572,7 +619,9 @@ function createEntry(args: {
 }
 
 export default function DifficultyAssessmentModule({ client, onChangeClient, onExportReport }: Props) {
-  const [mode, setMode] = useState<DifficultyAssessmentMode>("industry")
+  const subjectType = getClientSubjectType(client)
+  const isPerson = subjectType === "person"
+  const [mode, setMode] = useState<DifficultyAssessmentMode>(() => isPerson ? "brand" : "industry")
   const [industry, setIndustry] = useState(() => client.industry || "")
   const [scope, setScope] = useState<DifficultyGeographicScope>("national")
   const [city, setCity] = useState("全国")
@@ -597,9 +646,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
   const history = useMemo(() => client.difficultyAssessments ?? [], [client.difficultyAssessments])
   const result = activeEntry?.result ?? sampleForMode(mode)
   const reportMode = activeEntry ? modeForEntry(activeEntry) : result.mode ?? mode
-  const stages = stagesForMode(reportMode)
-  const scoreStandards = scoreStandardsForMode(reportMode)
-  const totalStandards = totalStandardsForMode(reportMode)
+  const reportSubjectType = activeEntry?.subjectType ?? result.subjectType ?? subjectType
+  const reportIsPerson = reportMode === "brand" && reportSubjectType === "person"
+  const stages = stagesForMode(reportMode, reportSubjectType)
+  const scoreStandards = scoreStandardsForMode(reportMode, reportSubjectType)
+  const totalStandards = totalStandardsForMode(reportMode, reportSubjectType)
   const dimensions = useMemo(() => Object.values(result.dimensions), [result.dimensions])
   const costEstimate = result.costEstimate
 
@@ -650,7 +701,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           setLoading(job.status === "queued" || job.status === "running")
           setProgressPercent(job.progressPercent || 0)
           const stageTitle = job.currentStage
-            ? stagesForMode(job.mode).find(stage => stage.key === job.currentStage)?.title
+            ? stagesForMode(job.mode, job.subjectType).find(stage => stage.key === job.currentStage)?.title
             : undefined
           const modelLabel = job.currentModel ? MODEL_LABELS[job.currentModel] : ""
           setProgressLabel(
@@ -663,6 +714,8 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             const entry: DifficultyAssessmentEntry = {
               ...createEntry({
                 mode: job.mode,
+                subjectType: job.subjectType,
+                personProfile: job.personProfile,
                 industry: job.industry,
                 city: job.city,
                 scope: job.scope ?? job.result.scope,
@@ -747,6 +800,8 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
     const brandName = targetBrand.trim() || client.ourBrand || sample.targetBrand || "净居家"
     const entry = createEntry({
       mode,
+      subjectType,
+      personProfile: client.personProfile,
       industry: targetIndustry,
       city: scope === "national" ? "全国" : city.trim() || "未指定地区",
       scope,
@@ -773,7 +828,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
       return
     }
     if (mode === "brand" && !brandName) {
-      setError("请先填写要评估的品牌名称。")
+      setError(isPerson ? "请先填写要评估的人物姓名。" : "请先填写要评估的品牌名称。")
       return
     }
 
@@ -789,6 +844,8 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
         payload: {
           clientId: client.id,
           mode,
+          subjectType,
+          personProfile: client.personProfile,
           industry: targetIndustry,
           city: targetCity,
           scope,
@@ -906,8 +963,8 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                     : "text-slate-500 hover:text-slate-800"
                 }`}
               >
-                <Building2 className="h-4 w-4" />
-                品牌评估
+                {isPerson ? <UserRound className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+                {isPerson ? "个人 IP 评估" : "品牌评估"}
               </button>
           </div>
         </div>
@@ -925,21 +982,25 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             {mode === "brand" && (
               <>
                 <div>
-                  <Label htmlFor="difficulty-brand">查询品牌</Label>
+                  <Label htmlFor="difficulty-brand">
+                    {isPerson ? "查询人物" : "查询品牌"}
+                  </Label>
                   <Input
                     id="difficulty-brand"
                     value={targetBrand}
                     onChange={event => setTargetBrand(event.target.value)}
-                    placeholder="输入要评估的品牌名"
+                    placeholder={isPerson ? "输入要评估的人物姓名" : "输入要评估的品牌名"}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="difficulty-website">官网/资料</Label>
+                  <Label htmlFor="difficulty-website">
+                    {isPerson ? "个人主页/资料" : "官网/资料"}
+                  </Label>
                   <Input
                     id="difficulty-website"
                     value={website}
                     onChange={event => setWebsite(event.target.value)}
-                    placeholder="官网、案例页或资料链接，可选"
+                    placeholder={isPerson ? "个人主页、机构资料页或案例链接，可选" : "官网、案例页或资料链接，可选"}
                   />
                 </div>
               </>
@@ -1152,10 +1213,12 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-[#1677FF]">
-                    {activeEntry?.source ?? "示例"} · {reportMode === "brand" ? "Brand GEO difficulty" : "GEO/AEO monopoly score"}
+                    {activeEntry?.source ?? "示例"} · {reportIsPerson
+                      ? "Personal IP GEO difficulty"
+                      : reportMode === "brand" ? "Brand GEO difficulty" : "GEO/AEO monopoly score"}
                   </span>
                   <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">
-                    {reportMode === "brand" ? "品牌报告" : "行业报告"}
+                    {reportIsPerson ? "个人 IP 报告" : reportMode === "brand" ? "品牌报告" : "行业报告"}
                   </span>
                   <span className="rounded-full border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-[11px] font-medium text-cyan-700">
                     {result.scoreVersion === "v2" ? "V2 固定公式" : "V1 历史报告"}
@@ -1167,7 +1230,9 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 <CardTitle className="geo-display-title text-2xl leading-tight text-slate-900 md:text-3xl">
                   {activeEntry
                     ? formatEntryTitle(activeEntry)
-                    : reportMode === "brand" ? "品牌 GEO 难度测评示例" : "GEO 难度测评示例"}
+                    : reportIsPerson
+                      ? "个人 IP GEO 难度测评示例"
+                      : reportMode === "brand" ? "品牌 GEO 难度测评示例" : "GEO 难度测评示例"}
                 </CardTitle>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
                   {result.summary}
@@ -1176,7 +1241,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               <div className="flex shrink-0 items-end gap-4">
                 <div className="text-right">
                   <div className="text-[11px] text-slate-400">
-                    {reportMode === "brand" ? "品牌难度分" : "垄断总分"}
+                    {reportIsPerson ? "个人 IP 难度分" : reportMode === "brand" ? "品牌难度分" : "垄断总分"}
                   </div>
                   <div className="geo-data-number text-5xl font-bold text-[#1677FF]">
                     {result.totalScore}
@@ -1195,7 +1260,12 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               </div>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <Metric label={reportMode === "brand" ? "品牌稳定提及周期" : "被 AI 稳定提及周期"} value={result.stableMentionPeriod} />
+              <Metric
+                label={reportIsPerson
+                  ? "个人 IP 稳定提及周期"
+                  : reportMode === "brand" ? "品牌稳定提及周期" : "被 AI 稳定提及周期"}
+                value={result.stableMentionPeriod}
+              />
               <Metric label={`${dimensions.length}维合计`} value={`${dimensions.reduce((sum, item) => sum + item.score, 0)}/100`} />
               <Metric label="报告时间" value={formatDate(result.generatedAt)} />
             </div>

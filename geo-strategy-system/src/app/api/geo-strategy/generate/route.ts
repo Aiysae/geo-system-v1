@@ -21,13 +21,13 @@ export const dynamic = "force-dynamic"
 const FEATURE_KEY = "keywordStrategyGenerate"
 const CREDIT_COST = estimateFeatureCredits(FEATURE_KEY)
 
-const SYSTEM_PROMPT = `你是一个资深 GEO（生成式引擎优化）策略顾问，服务对象是帮助企业提升在 ChatGPT、DeepSeek、豆包、Kimi、通义等生成式引擎中的被理解、被引用和被推荐概率。
+const SYSTEM_PROMPT = `你是一个资深 GEO（生成式引擎优化）策略顾问，服务对象包括企业品牌、产品、专业服务者和个人 IP，目标是提升其在 ChatGPT、DeepSeek、豆包、Kimi、通义等生成式引擎中的被理解、被引用和被推荐概率。
 
 你需要基于客户资料、调研报告、AI 提及检测报告、截图 OCR 文本和用户补充说明，生成可直接交付给客户的 GEO 优化策略方案。
 
 必须遵守：
 1. GEO 策略分为官网/第三方网站和自媒体内容两条主线。
-2. 官网是第一事实源，必须先给出官网建设策略；第三方网站负责信息包围、劣势转优势和交叉验证。
+2. 官网或个人官方资料主阵地是第一事实源，必须先给出建设策略；第三方网站负责信息包围、劣势转优势和交叉验证。
 3. 自媒体内容负责关键词、疑问句和目标客户真实提问方式覆盖。
 4. 关键词按痛点/优势、主要劣势、客户场景需求三类制定。
 5. 疑问句采用两层挖掘法，第二层比例受控。
@@ -40,6 +40,7 @@ function buildUserPrompt(
   profile: Record<string, unknown>,
   sourcePlatformSnapshot?: SourcePlatformSnapshot,
 ): string {
+  const isPerson = profile.subject_type === "person"
   const sourcePlatforms = sourcePlatformPromptContext(sourcePlatformSnapshot)
   const sections: string[] = [
     "请基于以下“已确认的结构化客户资料”和规则引擎草稿，生成一份完整、具体、可交付的 GEO 优化策略 JSON。",
@@ -89,6 +90,12 @@ function buildUserPrompt(
     "要求：",
     "- 不要把 OCR 噪声、评分表、页码、模型名错误拼进策略。",
     "- 不要编造无法从资料推断的硬事实。",
+    isPerson
+      ? "- 本项目是个人 IP：必须把人物与所在医院、律所、公司、学校、协会等机构分开；competitors 只填写具名同行人物，不得把机构、职称或普通词当作同行。"
+      : "- 本项目是品牌/产品：竞品应按真实经营主体及其明确别名归并。",
+    isPerson
+      ? "- 个人 IP 的策略要覆盖个人官方资料页、专业履历/资质、案例或作品、公开观点、媒体/机构背书和同名消歧；不得编造人物经历。"
+      : "- 品牌策略要覆盖官网事实页、产品/服务、案例、资质、第三方验证和品牌别名一致性。",
     "- 可以基于资料做策略推断，但表达要具体。",
     "- 将优势内容转化为 GEO 可信事实资产：围绕优势中的具体数字，规划官网/第三方/自媒体的引用布局。",
     "- official_site_strategy 必须是“官网建设策略”，并且排在第三方网站策略之前。至少包含：首页信任首屏、产品/服务详情页、优势数据页、案例/口碑页、FAQ/对比页、结构化数据与 About/品牌事实页。",
@@ -103,7 +110,7 @@ function buildUserPrompt(
     "- 检测命中平台的 source_origin 填 penetration_detected；自行补充的平台填 system_recommended。",
     "- platform_type 只能使用 self_media、industry_vertical、authority_media、government_association、brand_official、other。",
     "- 可以补充资料和检测结果之外的适配平台，但必须排在检测命中平台之后，并明确标为 system_recommended。",
-    "- geo_monitoring_plan 至少包含品牌主动提及率、引用/事实一致性、第三方交叉验证覆盖、疑问句内容覆盖率。",
+    `- geo_monitoring_plan 至少包含${isPerson ? "人物主动提及率、同名身份准确率" : "品牌主动提及率"}、引用/事实一致性、第三方交叉验证覆盖、疑问句内容覆盖率。`,
     "- execution_roadmap 至少包含第1周、第2-3周、第3-5周、持续执行。",
     "",
     "输出 JSON Schema：",
@@ -111,6 +118,8 @@ function buildUserPrompt(
   "project_name": "",
   "summary": "",
   "profile": {
+    "subject_type": "${isPerson ? "person" : "brand"}",
+    "person_profile": ${isPerson ? JSON.stringify(profile.person_profile || {}) : "null"},
     "brand_or_product": "", "industry": "", "audience": "",
     "product_description": "", "business_goals": "",
     "competitors": [], "terms": [],
@@ -264,6 +273,16 @@ async function handler(req: NextRequest) {
       userPrompt,
       timeoutSec,
     })
+    generatedStrategy.profile.subject_type = profile.subject_type === "person" ? "person" : "brand"
+    if (generatedStrategy.profile.subject_type === "person") {
+      generatedStrategy.profile.person_profile = (
+        profile.person_profile
+        && typeof profile.person_profile === "object"
+        && !Array.isArray(profile.person_profile)
+      )
+        ? profile.person_profile as GeoStrategyPlan["profile"]["person_profile"]
+        : undefined
+    }
     const strategy = linkStrategyToSourcePlatforms(generatedStrategy, sourcePlatformSnapshot)
 
     reservation = null

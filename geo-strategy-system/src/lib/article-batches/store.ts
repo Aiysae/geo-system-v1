@@ -4,6 +4,7 @@ import { createHash } from "crypto"
 import { Pool } from "pg"
 import { kv } from "@/lib/kv"
 import type {
+  AnalysisSubjectType,
   ArticleBatchItemRecord,
   ArticleBatchRecord,
   ArticleGenerationState,
@@ -26,6 +27,8 @@ export type ArticleBatchBasePayload = Pick<
 > & {
   clientName: string
   brandName: string
+  subjectType: AnalysisSubjectType
+  subjectContext: string
   industry: string
   website: string
 }

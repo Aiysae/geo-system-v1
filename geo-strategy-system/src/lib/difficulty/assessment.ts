@@ -1,6 +1,7 @@
 import "server-only"
 
 import type {
+  AnalysisSubjectType,
   DifficultyAssessmentMode,
   DifficultyAssessmentResult,
   DifficultyCommercialInput,
@@ -10,6 +11,7 @@ import type {
   DifficultyStageKey,
   DifficultyStageOutput,
   ModelKey,
+  PersonSubjectProfile,
 } from "@/types"
 import { ADAPTERS, MODEL_LABELS } from "@/lib/llm"
 import { parseJsonStrict } from "@/lib/score-utils"
@@ -17,6 +19,11 @@ import {
   scoreDifficultyV2,
   type DifficultyScoringSignals,
 } from "@/lib/difficulty/scoring-v2"
+import {
+  formatPersonSubjectContext,
+  normalizeAnalysisSubjectType,
+  normalizePersonSubjectProfile,
+} from "@/lib/analysis-subject"
 
 export const DIFFICULTY_MODEL_ORDER: ModelKey[] = [
   "qwen",
@@ -29,6 +36,8 @@ export const DIFFICULTY_MODEL_ORDER: ModelKey[] = [
 
 export type DifficultyAssessmentInput = {
   mode: DifficultyAssessmentMode
+  subjectType?: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   industry: string
   city: string
   scope: DifficultyGeographicScope
@@ -67,6 +76,8 @@ const BRAND_STAGES: Array<{
 
 export type DifficultyStageContext = {
   mode: DifficultyAssessmentMode
+  subjectType: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   industry: string
   city: string
   scope: DifficultyGeographicScope
@@ -118,6 +129,10 @@ function normalizeScope(value: unknown, region: string): DifficultyGeographicSco
 export function normalizeDifficultyInput(value: unknown): DifficultyAssessmentInput {
   const source = value && typeof value === "object" ? value as Record<string, unknown> : {}
   const mode: DifficultyAssessmentMode = source.mode === "brand" ? "brand" : "industry"
+  const subjectType = normalizeAnalysisSubjectType(source.subjectType)
+  const personProfile = subjectType === "person"
+    ? normalizePersonSubjectProfile(source.personProfile)
+    : undefined
   const industry = text(source.industry)
   const city = text(source.region ?? source.city, "全国")
   const scope = normalizeScope(source.scope, city)
@@ -135,10 +150,14 @@ export function normalizeDifficultyInput(value: unknown): DifficultyAssessmentIn
   const hasCommercial = Object.values(commercial).some(value => value !== undefined)
 
   if (!industry) throw new Error("请填写行业/赛道名称")
-  if (mode === "brand" && !targetBrand) throw new Error("请填写要评估的品牌名称")
+  if (mode === "brand" && !targetBrand) {
+    throw new Error(subjectType === "person" ? "请填写要评估的人物姓名" : "请填写要评估的品牌名称")
+  }
 
   return {
     mode,
+    subjectType,
+    personProfile,
     industry,
     city,
     scope,
@@ -151,6 +170,7 @@ export function normalizeDifficultyInput(value: unknown): DifficultyAssessmentIn
 export function createDifficultyStageContext(input: DifficultyAssessmentInput): DifficultyStageContext {
   return {
     ...input,
+    subjectType: normalizeAnalysisSubjectType(input.subjectType),
     target: input.mode === "brand"
       ? `${input.city !== "全国" ? input.city : "全国"} · ${input.industry} · ${input.targetBrand}`
       : input.city !== "全国" ? `${input.city}${input.industry}` : input.industry,
@@ -351,6 +371,7 @@ function normalizeResult(
   const scored = scoreDifficultyV2({
     industry: context.industry,
     mode: context.mode,
+    subjectType: context.subjectType,
     scope,
     region: context.city,
     commercial: context.commercial,
@@ -371,7 +392,7 @@ function normalizeResult(
     ...normalizedProcess.scoring,
     summary: `V2 评分由后端固定公式计算，总分 ${scored.totalScore}/100；大模型只负责联网取证和提取原始指标。`,
     evidence: [
-      `品牌别名合并后按 ${scored.competitorCount} 个有效竞争主体计分`,
+      `${context.subjectType === "person" ? "同行人物去重" : "品牌别名合并"}后按 ${scored.competitorCount} 个有效竞争主体计分`,
       `${context.city}按${scope}地域层级进入固定递增区间`,
       `商业价值与预算竞争指数 ${scored.commercialPressureIndex}/100`,
       ...normalizedProcess.scoring.evidence,
@@ -382,6 +403,8 @@ function normalizeResult(
   return {
     scoreVersion: "v2",
     mode: context.mode,
+    subjectType: context.subjectType,
+    personProfile: context.personProfile,
     scope,
     region: context.city,
     targetBrand: context.targetBrand,
@@ -662,6 +685,178 @@ dimension7 AI 答案进入门槛，满分10
   }
 }
 
+function buildPersonStagePrompt(
+  stageKey: DifficultyStageKey,
+  context: DifficultyStageContext,
+  system: string,
+  common: string,
+  prior: string,
+): { system: string; user: string } {
+  const person = context.targetBrand || "目标人物"
+  const profileContext = formatPersonSubjectContext(context.personProfile)
+  const websiteLine = context.website
+    ? `个人主页/机构资料页：${context.website}`
+    : "个人主页/机构资料页：未提供，需要在报告中提示补充可核验资料页、案例或资质材料。"
+  const personIndicatorRules = `
+【个人 IP 指标口径】
+1. indicators.competitor_brands 沿用兼容字段名，但数组中只能放具名同行人物，不得放医院、律所、公司、学校、协会、平台、职称或普通形容词。
+2. 同行必须与目标人物在职业、专业方向、服务地区或用户问题场景上存在直接竞争；仅在同一篇文章出现不等于同行。
+3. 只合并同一人物的全名、带职称写法和用户明确提供的别名；不得因同姓、包含关系或名字相似而合并不同人物。
+4. 机构可以作为信任资产和来源证据单独分析，但绝不能计入 estimated_competitor_count。`
+
+  if (stageKey === "research") {
+    return {
+      system,
+      user: `${common}
+${websiteLine}
+【目标人物身份资料】
+${profileContext}
+阶段1：行业与同行调研。
+请联网评估「${context.industry}」领域中目标人物「${person}」的 AI 搜索环境，至少核验 6 个可访问的具体网页并保留完整网址。
+请完成：
+1. 生成 8-12 个用户真实会问的问题，覆盖专业能力、地区服务、场景需求、口碑、选择和风险。
+2. 识别这些问题中可能被 AI 推荐的具名同行人物；机构、平台和榜单必须另列，不能混入人物。
+3. 判断主要信源渠道和目标人物进入答案的行业阻力。
+4. 识别有效同行人数、头部专家占位、商业价值、市场规模与同行内容投入强度。
+${personIndicatorRules}
+${V2_INDICATOR_CONTRACT}
+返回 JSON：
+{
+  "summary": "行业与同行调研摘要，120字左右",
+  "questions": ["问题1", "问题2"],
+  "top_answer_candidates": ["只填写具名同行人物"],
+  "institutions": ["相关机构、医院、律所、公司或平台"],
+  "source_channels": ["主要渠道"],
+  "brand_entry_risks": ["目标人物进入答案的阻力"],
+  "evidence": ["证据摘要1", "证据摘要2", "证据摘要3"],
+  "tags": ["个人IP调研", "同行人物"]
+}`,
+    }
+  }
+
+  if (stageKey === "comparison") {
+    return {
+      system,
+      user: `${common}
+${websiteLine}
+【目标人物身份资料】
+${profileContext}
+阶段2：个人 IP 现状识别。
+上一阶段 JSON：
+${prior}
+请围绕目标人物「${person}」判断其当前做 GEO 的基础。优先复用上一阶段联网证据，必要时继续联网补证；同名身份不能确认时必须标记歧义。
+请完成：
+1. 判断公开可见度、专业可信资产、内容资产、地区和场景覆盖。
+2. 与头部同行人物通常具备的专业资料页、案例、资质、媒体、学术/行业内容和第三方提及对比。
+3. 找出最短突围入口，如地区词、专业方向词、问题场景词和同行对比词。
+4. 输出可见度、信任资产、内容资产、本地资源和商业预算差距的原始指标。
+${personIndicatorRules}
+${V2_INDICATOR_CONTRACT}
+返回 JSON：
+{
+  "summary": "个人 IP 现状摘要，120字左右",
+  "brand_visibility": "高/中/低/未知，并说明原因",
+  "trust_assets": ["已有或应补充的专业信任资产"],
+  "content_assets": ["已有或应补充的内容资产"],
+  "gap_against_top_brands": ["与头部同行人物的差距"],
+  "entry_openings": ["可优先切入的入口"],
+  "uncertainties": ["同名歧义或需要人工补充的资料"],
+  "evidence": ["人物现状证据1", "人物现状证据2", "人物现状证据3"],
+  "tags": ["个人IP现状", "标签2"]
+}`,
+    }
+  }
+
+  if (stageKey === "scoring") {
+    return {
+      system,
+      user: `${common}
+${websiteLine}
+阶段3：同行与信源指标审计。
+上一阶段 JSON：
+${prior}
+最终分数由后端固定公式计算，你不能输出或修改最终分数。请逐项审计证据和原始指标，确保同行人物与机构分离，不把同姓、近似姓名或包含关系误合并。
+${personIndicatorRules}
+${V2_INDICATOR_CONTRACT}
+返回 JSON：
+{
+  "summary": "个人 IP 指标审计摘要，120字左右",
+  "dimension_evidence": {"dimension1": ["证据"], "dimension2": ["证据"], "dimension3": ["证据"], "dimension4": ["证据"], "dimension5": ["证据"], "dimension6": ["证据"], "dimension7": ["证据"]},
+  "priority_openings": ["优先突破入口1", "入口2"],
+  "evidence": ["指标证据1", "指标证据2", "指标证据3"],
+  "tags": ["指标审计", "人物机构分离"]
+}`,
+    }
+  }
+
+  if (stageKey === "review") {
+    return {
+      system,
+      user: `${common}
+${websiteLine}
+阶段4：个人 IP 难度复核。
+上一阶段 JSON：
+${prior}
+请检查调研、人物现状、同行信源对比和原始指标是否一致，重点核验：
+1. 是否因缺少人物资料而过度推断或发生同名串人。
+2. 原始指标是否与目标人物「${person}」的证据匹配。
+3. 是否把机构、职称、普通词或无直接竞争关系的人计入同行。
+4. 哪些结论需要补充个人资料页、资质、案例、媒体稿或公开作品后复测。
+${personIndicatorRules}
+${V2_INDICATOR_CONTRACT}
+返回 JSON：
+{
+  "summary": "复核结论，120字左右",
+  "confidence": "高/中高/中/低",
+  "adjustments": [{"dimension": "维度名", "before": "原判断", "after": "建议调整", "reason": "原因"}],
+  "warnings": ["同名歧义、低置信度或需人工验证的点"],
+  "evidence": ["复核证据1", "复核证据2", "复核证据3"],
+  "tags": ["个人IP复核", "标签2"]
+}`,
+    }
+  }
+
+  return {
+    system,
+    user: `${common}
+${websiteLine}
+阶段5：个人 IP 突破路径报告。
+上一阶段 JSON：
+${prior}
+请基于前四步生成最终报告。最终分数和成本由后端固定公式计算，你只负责根据联网证据撰写七个维度的分析、洞察和建议，不要自行打分。
+维度名称必须保持：
+dimension1 行业竞争与头部封锁，满分15
+dimension2 目标人物可见度差距，满分15
+dimension3 信任资产差距，满分15
+dimension4 内容矩阵缺口，满分15
+dimension5 地域覆盖与本地资源差距，满分15
+dimension6 商业预算竞争压力，满分15
+dimension7 AI 答案进入门槛，满分10
+返回 JSON：
+{
+  "dimensions": {
+    "dimension1": {"analysis": "行业与头部同行竞争分析，100字左右"},
+    "dimension2": {"analysis": "目标人物可见度差距分析"},
+    "dimension3": {"analysis": "专业信任资产差距分析"},
+    "dimension4": {"analysis": "个人 IP 内容矩阵缺口分析"},
+    "dimension5": {"analysis": "地域覆盖与本地资源差距分析"},
+    "dimension6": {"analysis": "商业预算竞争压力分析"},
+    "dimension7": {"analysis": "AI 答案进入门槛分析"}
+  },
+  "summary": "整体评估总结，200字左右，必须说明该人物为什么是这个难度",
+  "insights": ["个人IP短板1", "机会点2", "风险3"],
+  "suggestions": ["优先内容动作1", "信源建设动作2", "复测动作3"],
+  "process": {
+    "report": {
+      "summary": "最终报告如何由前四步得出，100字左右",
+      "evidence": ["报告依据1", "报告依据2", "报告依据3"],
+      "tags": ["个人IP路径", "置信度"]
+    }
+  }
+}`,
+  }
+}
+
 function buildStagePrompt(stageKey: DifficultyStageKey, context: DifficultyStageContext): { system: string; user: string } {
   const system = "你是严格的 JSON 输出器，也是 AI 搜索/GEO 商业难度评估专家。调研阶段必须使用可用的联网工具核验公开网页；不确定的数据必须标成估算或 null。只返回一个 JSON 对象，不返回 Markdown、解释文字或代码块。"
   const scope = normalizeScope(context.scope, context.city)
@@ -678,12 +873,17 @@ function buildStagePrompt(stageKey: DifficultyStageKey, context: DifficultyStage
 地域层级：${scope}
 用户填写的商业参数：${commercialInput}
 当前客户已有渗透率证据：${penetrationEvidence}
-评估模式：${context.mode === "brand" ? "品牌 GEO 难度评估" : "行业 GEO 难度评估"}
-${context.targetBrand ? `目标品牌：${context.targetBrand}` : ""}
+评估模式：${context.mode === "brand"
+    ? context.subjectType === "person" ? "个人 IP GEO 难度评估" : "品牌 GEO 难度评估"
+    : "行业 GEO 难度评估"}
+${context.targetBrand ? `${context.subjectType === "person" ? "目标人物" : "目标品牌"}：${context.targetBrand}` : ""}
 输出要求：只返回 JSON 对象。`
   const prior = compactPriorContext(context)
 
   if (context.mode === "brand") {
+    if (context.subjectType === "person") {
+      return buildPersonStagePrompt(stageKey, context, system, common, prior)
+    }
     return buildBrandStagePrompt(stageKey, context, system, common, prior)
   }
 

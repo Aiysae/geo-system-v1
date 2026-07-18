@@ -19,6 +19,10 @@ import { listWorkspaceClients } from "@/lib/workspace-store"
 import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
 import type { ModelKey, PenetrationJobOperation, PenetrationResult } from "@/types"
 import { resolveWorkspaceAccess } from "@/lib/client-accounts"
+import {
+  normalizeAnalysisSubjectType,
+  normalizePersonSubjectProfile,
+} from "@/lib/analysis-subject"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -45,6 +49,8 @@ export async function POST(req: NextRequest) {
     )
     const questions = stringList(body.questions)
     const requestedOurBrand = String(body.ourBrand || "").trim()
+    const requestedSubjectType = normalizeAnalysisSubjectType(body.subjectType)
+    const requestedPersonProfile = normalizePersonSubjectProfile(body.personProfile)
     const clientId = String(body.clientId || "").trim()
     const requestId = normalizeJobRequestId(body.requestId)
     const jobId = jobIdFromRequest("pjob", userGuard.userId, requestId)
@@ -77,7 +83,18 @@ export async function POST(req: NextRequest) {
     const ourBrand = access.mode === "client"
       ? currentClient.ourBrand.trim()
       : requestedOurBrand
-    if (!ourBrand) return NextResponse.json({ error: "请填写我方品牌名" }, { status: 400 })
+    const subjectType = access.mode === "client"
+      ? normalizeAnalysisSubjectType(currentClient.subjectType)
+      : requestedSubjectType
+    const personProfile = access.mode === "client"
+      ? normalizePersonSubjectProfile(currentClient.personProfile)
+      : requestedPersonProfile
+    if (!ourBrand) {
+      return NextResponse.json(
+        { error: subjectType === "person" ? "请填写目标人物姓名" : "请填写我方品牌名" },
+        { status: 400 },
+      )
+    }
     const brandAliases = access.mode === "client"
       ? currentClient.brandAliases ?? []
       : stringList(body.brandAliases)
@@ -120,6 +137,8 @@ export async function POST(req: NextRequest) {
       clientName: currentClient.name,
       runId: requestId,
       operation,
+      subjectType,
+      personProfile: subjectType === "person" ? personProfile : undefined,
       ourBrand,
       brandAliases,
       industry,
@@ -144,6 +163,7 @@ export async function POST(req: NextRequest) {
         modelCount: activeModels.length,
         questionCount: questions.length,
         slotCount,
+        subjectType,
       },
     })
     if (!creditGuard.ok) {

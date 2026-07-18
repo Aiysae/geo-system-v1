@@ -1,7 +1,9 @@
 import { isUsableBrandName, normalizeBrandKey } from "@/lib/brand-canonicalization"
+import { isUsablePersonName, normalizePersonKey } from "@/lib/subject-canonicalization"
 import { estimateGeoContentCost } from "@/lib/difficulty/content-cost-estimate"
 import type {
   DifficultyAssessmentMode,
+  AnalysisSubjectType,
   DifficultyCommercialInput,
   DifficultyContentCostEstimate,
   DifficultyDimensionResult,
@@ -34,6 +36,7 @@ export interface DifficultyScoringSignals {
 export interface DifficultyScoringV2Input {
   industry: string
   mode: DifficultyAssessmentMode
+  subjectType?: AnalysisSubjectType
   scope: DifficultyGeographicScope
   region: string
   commercial?: DifficultyCommercialInput
@@ -147,7 +150,21 @@ export function geographicScopeScore(
   return rounded(min + (max - min) * clamp(complexity, 0, 100, 50) / 100)
 }
 
-function canonicalCompetitors(values: string[]): string[] {
+function canonicalCompetitors(
+  values: string[],
+  subjectType: AnalysisSubjectType = "brand",
+): string[] {
+  if (subjectType === "person") {
+    const people = new Map<string, string>()
+    for (const value of values) {
+      const display = value.trim()
+      const key = normalizePersonKey(display)
+      if (!key || !isUsablePersonName(display) || people.has(key)) continue
+      people.set(key, display)
+    }
+    return Array.from(people.values())
+  }
+
   const filtered = values
     .map(value => value.trim())
     .filter(value => value && isUsableBrandName(value))
@@ -356,28 +373,31 @@ function brandDimensions(args: {
   const scopeBase = geographicScopeScore(input.scope, signals.geographicComplexity)
   const localGap = clamp(signals.localResourceGap, 0, 100, 50)
   const geographyIndex = Math.min(15, scopeBase * 0.68 + localGap / 100 * 15 * 0.32)
+  const isPerson = input.subjectType === "person"
+  const targetNoun = isPerson ? "目标人物" : "目标品牌"
+  const competitorNoun = isPerson ? "同行人物" : "竞品"
 
   return {
     dimension1: dimension(
-      "行业竞争与头部封锁",
+      isPerson ? "同行竞争与头部人物封锁" : "行业竞争与头部封锁",
       competitionIndex / 100 * 15,
       15,
-      `头部集中度按 ${rounded(concentration)}% 计，识别 ${giantCount} 个强势主体和 ${competitorCount} 个有效竞争主体；竞品越多、头部锁定越强，该项得分越高。`,
+      `头部集中度按 ${rounded(concentration)}% 计，识别 ${giantCount} 个强势主体和 ${competitorCount} 个有效${competitorNoun}；${competitorNoun}越多、头部锁定越强，该项得分越高。`,
     ),
     dimension2: dimension(
-      "目标品牌可见度差距",
+      `${targetNoun}可见度差距`,
       clamp(signals.targetVisibilityGap, 0, 100, 55) / 100 * 15,
       15,
-      "对比目标品牌与头部竞品在搜索结果、AI 提及、官网收录和第三方引用上的差距，差距越大得分越高。",
+      `对比${targetNoun}与头部${competitorNoun}在搜索结果、AI 提及、资料页收录和第三方引用上的差距，差距越大得分越高。`,
     ),
     dimension3: dimension(
-      "信任资产差距",
+      isPerson ? "个人信任资产差距" : "信任资产差距",
       clamp(signals.trustAssetGap, 0, 100, 55) / 100 * 15,
       15,
-      "按资质、真实案例、客户评价、媒体和第三方验证与头部竞品的差距折算。",
+      `按资质、真实案例、用户评价、媒体和第三方验证与头部${competitorNoun}的差距折算。`,
     ),
     dimension4: dimension(
-      "内容矩阵缺口",
+      isPerson ? "个人内容矩阵缺口" : "内容矩阵缺口",
       clamp(signals.contentAssetGap, 0, 100, 55) / 100 * 15,
       15,
       "按官网、问答、案例、对比、场景和区域内容的完整度反向计分，缺口越大，前期建设量越高。",
@@ -386,7 +406,9 @@ function brandDimensions(args: {
       "地域覆盖与本地资源差距",
       geographyIndex,
       15,
-      `本次范围为${SCOPE_LABELS[input.scope]}（${input.region || "未指定具体地区"}），同时计入地图、门店、本地案例和区域媒体等资源差距。`,
+      isPerson
+        ? `本次范围为${SCOPE_LABELS[input.scope]}（${input.region || "未指定具体地区"}），同时计入人物资料页、任职机构、本地案例和区域媒体等资源差距。`
+        : `本次范围为${SCOPE_LABELS[input.scope]}（${input.region || "未指定具体地区"}），同时计入地图、门店、本地案例和区域媒体等资源差距。`,
     ),
     dimension6: dimension(
       "商业预算竞争压力",
@@ -398,13 +420,13 @@ function brandDimensions(args: {
       "AI 答案进入门槛",
       clamp(signals.aiEntryBarrier, 0, 100, 55) / 100 * 10,
       10,
-      "衡量目标品牌从可检索到被稳定引用、再到进入推荐答案的综合门槛。",
+      `衡量${targetNoun}从可检索到被稳定引用、再到进入推荐答案的综合门槛。`,
     ),
   }
 }
 
 export function scoreDifficultyV2(input: DifficultyScoringV2Input): DifficultyScoringV2Result {
-  const canonical = canonicalCompetitors(input.signals.competitorBrands)
+  const canonical = canonicalCompetitors(input.signals.competitorBrands, input.subjectType)
   const estimatedCount = rounded(clamp(input.signals.estimatedCompetitorCount, 0, 500, canonical.length))
   const competitorCount = Math.max(canonical.length, estimatedCount)
   const commercial = commercialPressure(input.signals, input.commercial)

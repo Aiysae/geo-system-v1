@@ -21,6 +21,7 @@ import {
   savePenetrationHistoryRecord,
 } from "@/lib/penetration/history-store"
 import type {
+  AnalysisSubjectType,
   ModelKey,
   PenetrationByModel,
   PenetrationHistoryStatus,
@@ -29,6 +30,7 @@ import type {
   PenetrationItem,
   PenetrationModelProgress,
   PenetrationResult,
+  PersonSubjectProfile,
 } from "@/types"
 
 export interface PenetrationJobRequest {
@@ -36,6 +38,8 @@ export interface PenetrationJobRequest {
   clientName?: string
   runId: string
   operation: PenetrationJobOperation
+  subjectType: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   ourBrand: string
   brandAliases: string[]
   industry: string
@@ -479,6 +483,8 @@ async function persistTerminalHistory(args: {
         clientName: args.job.request.clientName?.trim()
           || args.job.request.ourBrand.trim()
           || args.job.request.clientId,
+        subjectType: args.job.request.subjectType || "brand",
+        personProfile: args.job.request.personProfile,
         ourBrand: args.job.request.ourBrand,
         brandAliases: args.job.request.brandAliases,
         industry: args.job.request.industry,
@@ -740,6 +746,7 @@ async function processDueBatch(
         ourBrand: job.request.ourBrand,
         brandAliases: job.request.brandAliases,
         competitors: job.request.competitors,
+        subjectType: job.request.subjectType || "brand",
         generatedAt,
       })
     : job.result

@@ -108,6 +108,7 @@ const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你的�
 7. top10Eligible 只在问题会自然触发“多个候选/推荐名单/TOP/有哪些选择”时为 true；brandMentionEligible 在答案中自然可能提及目标品牌或目标服务时为 true。
 8. question 字段必须简短，最多 ${MAX_QUESTION_TEXT_LENGTH} 个字符；不要枚举整串目标客户、人群、渠道或卖点。
 9. 输出必须是严格 JSON，不要 Markdown 代码块，不要解释文本。
+10. 当 profile.subject_type 为 person 时，“品牌认知型”是兼容字段，实际含义为“人物认知型”；目标名称是人物姓名，competitors 是同行人物，机构不得当成人物。
 
 每条问题必须同时兼容旧字段和新字段，包含：
 id、category、difficulty、keyword、question、intent、content_angle、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible。`
@@ -216,6 +217,9 @@ function buildReasonedQuestionPrompt(
   startId: number,
 ): string {
   const profile = (strategy.profile || {}) as Record<string, unknown>
+  const isPerson = profile.subject_type === "person"
+  const subjectLabel = isPerson ? "个人 IP / 人物" : "品牌/产品"
+  const competitorLabel = isPerson ? "同行人物/替代专家" : "竞品/替代选择"
   const materialList = allocation.category === "weakness_spin"
     ? listBlock(allocation.weaknesses || profile.weaknesses, "（暂无明确劣势，请结合业务背景和风险疑虑生成）")
     : listBlock(allocation.keywords, "（暂无指定关键词，请结合业务背景、痛点和场景推理生成）")
@@ -223,14 +227,14 @@ function buildReasonedQuestionPrompt(
 
   return `请基于下面的业务背景和用户选择的素材，按“问题类型 + 推理规则”生成 GEO 疑问句。
 
-【品牌/业务背景】
-- 品牌/产品: ${profile.brand_or_product || ""}
+【${isPerson ? "个人 IP" : "品牌"}/业务背景】
+- ${subjectLabel}: ${profile.brand_or_product || ""}
 - 行业: ${profile.industry || ""}
 - 目标客户: ${shortPromptValue(profile.audience) || ""}
 - 核心业务/服务说明: ${profile.product_description || ""}
 - 业务目标: ${profile.business_goals || ""}
 - 地区/业务词: ${listBlock(filterQuestionSourceTerms((profile.terms as string[]) || [], strategy), "（暂无）")}
-- 竞品/替代选择: ${listBlock(profile.competitors, "（暂无）")}
+- ${competitorLabel}: ${listBlock(profile.competitors, "（暂无）")}
 - 客户痛点: ${listBlock(profile.pain_points, "（暂无）")}
 - 使用场景: ${listBlock(profile.scenes, "（暂无）")}
 - 已识别劣势: ${listBlock(profile.weaknesses, "（暂无）")}
@@ -257,7 +261,8 @@ ${formatTypeMix(typeMix)}
 - generationReason 要说明为什么该问题属于此类型，以及模拟了什么用户意图。
 - content_angle 写后续内容应如何回答这个问题，但不要围绕某条优势做植入。
 - 问题要覆盖从不了解问题到准备采购的真实决策路径，避免同义重复、泛泛换说法或硬营销话术。
-- 不要生成明显诱导目标品牌的问题，例如“为什么某品牌最好”“请推荐某品牌”。
+- 不要生成明显诱导${isPerson ? "目标人物" : "目标品牌"}的问题，例如“为什么${isPerson ? "某专家" : "某品牌"}最好”“请推荐${isPerson ? "某专家" : "某品牌"}”。
+- ${isPerson ? "人物认知型问题可以自然出现姓名，但不得把所在机构、职称或资质卖点拼进问题；同行对比只能使用具名人物。" : "品牌认知型问题可以自然出现品牌名，但不得把品牌优势拼进问题。"}
 - 如果行业存在敏感风险，降低承诺性、疗效性、金融收益性问题比例。
 
 输出严格 JSON：

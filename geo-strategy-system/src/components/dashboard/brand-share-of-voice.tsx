@@ -4,15 +4,22 @@ import { useMemo, useState } from "react"
 import { AudioLines, ChevronDown, ChevronUp, HelpCircle } from "lucide-react"
 import type { BrandVoiceItem } from "@/lib/dashboard-aggregations"
 import ModelAvatar from "@/components/model-avatar"
+import type { AnalysisSubjectType } from "@/types"
 
 interface Props {
   items: BrandVoiceItem[]
   /** 折叠态默认展示的条数（默认 5） */
   defaultVisible?: number
   compact?: boolean
+  subjectType?: AnalysisSubjectType
 }
 
-export default function BrandShareOfVoice({ items, defaultVisible = 5, compact = false }: Props) {
+export default function BrandShareOfVoice({
+  items,
+  defaultVisible = 5,
+  compact = false,
+  subjectType = "brand",
+}: Props) {
   const [expanded, setExpanded] = useState(false)
 
   const initialBatch = useMemo(() => items.slice(0, defaultVisible), [items, defaultVisible])
@@ -30,7 +37,9 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5, compact =
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00C8FF]">
             <AudioLines className="h-4 w-4 text-white" />
           </span>
-          <div className="text-sm font-semibold text-[#102A43]">品牌声量表</div>
+          <div className="text-sm font-semibold text-[#102A43]">
+            {subjectType === "person" ? "人物声量表" : "品牌声量表"}
+          </div>
           {targetRank && (
             <span className="ml-2 rounded-full bg-[#E6F4FF] px-2 py-0.5 text-[10px] text-[#0958D9] ring-1 ring-[#BAE0FF]">
               我方排名 #{targetRank}
@@ -39,17 +48,21 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5, compact =
         </div>
         <div className="flex items-center gap-1.5 text-xs text-[#7E91A7]">
           <HelpCircle className="h-3.5 w-3.5" />
-          <span>{items.length} 个品牌</span>
+          <span>{items.length} 个{subjectType === "person" ? "同行人物" : "品牌"}</span>
         </div>
       </div>
 
       {items.length === 0 ? (
         <div className="flex flex-1 items-center justify-center px-5 py-10 text-center text-sm text-slate-500">
-          暂无品牌声量数据
+          暂无{subjectType === "person" ? "人物" : "品牌"}声量数据
         </div>
       ) : compact ? (
         <>
-          <CompactBrandVoiceTable items={compactItems} maxMentions={maxMentions} />
+          <CompactBrandVoiceTable
+            items={compactItems}
+            maxMentions={maxMentions}
+            subjectType={subjectType}
+          />
           {hasMore ? (
             <BrandTableToggle
               expanded={expanded}
@@ -65,7 +78,7 @@ export default function BrandShareOfVoice({ items, defaultVisible = 5, compact =
             <div className="min-w-[780px]">
                 <div className="grid grid-cols-[60px_1fr_minmax(140px,2fr)_70px_70px_70px_60px] items-center gap-4 bg-[#F5F8FC] px-5 py-2.5 text-[11px] text-[#60758D]">
                 <div>排名</div>
-                <div>品牌</div>
+                <div>{subjectType === "person" ? "人物" : "品牌"}</div>
                 <div>声量强度</div>
                 <div className="text-right">渗透率</div>
                 <div className="text-right">声量占比</div>
@@ -176,12 +189,20 @@ function rankToneFor(item: BrandVoiceItem) {
           }
 }
 
-function CompactBrandVoiceTable({ items, maxMentions }: { items: BrandVoiceItem[]; maxMentions: number }) {
+function CompactBrandVoiceTable({
+  items,
+  maxMentions,
+  subjectType,
+}: {
+  items: BrandVoiceItem[]
+  maxMentions: number
+  subjectType: AnalysisSubjectType
+}) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="grid grid-cols-[36px_minmax(0,1fr)_minmax(72px,1fr)_56px_38px] items-center gap-2 bg-[#F5F8FC] px-3 py-2 text-[9px] text-[#60758D]">
         <div>排名</div>
-        <div>品牌</div>
+        <div>{subjectType === "person" ? "人物" : "品牌"}</div>
         <div>声量</div>
         <div className="text-right">渗透率</div>
         <div className="text-right">提及</div>

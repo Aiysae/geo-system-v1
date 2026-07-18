@@ -3,13 +3,14 @@
 import { Trophy, TrendingDown } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
-import type { PerModelRate } from "@/types"
+import type { AnalysisSubjectType, PerModelRate } from "@/types"
 
 interface Props {
   ranking: number | null
   totalBrands: number
   perModelRate: PerModelRate[]
   topCompetitors: string[]
+  subjectType?: AnalysisSubjectType
 }
 
 const MODEL_BAR: Record<string, string> = {
@@ -26,6 +27,7 @@ export default function BrandRankingCard({
   totalBrands,
   perModelRate,
   topCompetitors,
+  subjectType = "brand",
 }: Props) {
   const inIndustry = ranking != null
   return (
@@ -34,7 +36,8 @@ export default function BrandRankingCard({
         {inIndustry ? (
           <>
             <div className="flex items-center justify-center gap-2 text-xs text-cyan-100/70 mb-1">
-              <Trophy className="h-3.5 w-3.5" /> 行业实时排位
+              <Trophy className="h-3.5 w-3.5" />
+              {subjectType === "person" ? "同行人物实时排位" : "行业实时排位"}
             </div>
             <div className="text-5xl font-bold text-white">
               第 {ranking} <span className="text-2xl text-cyan-100/45">/ {totalBrands}</span>
@@ -43,7 +46,8 @@ export default function BrandRankingCard({
         ) : (
           <>
             <div className="flex items-center justify-center gap-2 text-xs text-amber-600 mb-1">
-              <TrendingDown className="h-3.5 w-3.5" /> 未进入行业推荐
+              <TrendingDown className="h-3.5 w-3.5" />
+              {subjectType === "person" ? "未进入同行人物推荐" : "未进入行业推荐"}
             </div>
             <div className="text-3xl font-bold text-white/60">未上榜</div>
           </>
@@ -86,7 +90,7 @@ export default function BrandRankingCard({
       {topCompetitors.length > 0 && (
         <div>
           <div className="geo-section-kicker mb-2">
-            主要竞品 Top {topCompetitors.length}
+            {subjectType === "person" ? "主要同行人物" : "主要竞品"} Top {topCompetitors.length}
           </div>
           <div className="flex flex-wrap gap-1.5">
             {topCompetitors.map(c => (

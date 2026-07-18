@@ -64,6 +64,10 @@ export async function POST(req: NextRequest) {
     try {
       const workspaceClient = (await listWorkspaceClients(userGuard.userId))
         .find(item => item.client.id === clientId)?.client
+      if (workspaceClient) {
+        request.subjectType = workspaceClient.subjectType
+        request.personProfile = workspaceClient.personProfile
+      }
       const penetration = workspaceClient?.penetration
       if (penetration) {
         request.penetrationEvidence = {
@@ -121,6 +125,7 @@ export async function POST(req: NextRequest) {
       metadata: {
         clientId,
         mode: request.mode,
+        subjectType: request.subjectType,
         requestedModel: selected,
       },
     })

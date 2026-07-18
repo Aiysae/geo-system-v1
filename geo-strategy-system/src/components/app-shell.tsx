@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   ArrowUp,
   Brain,
+  Building2,
   CheckCircle2,
   Cloud,
   CloudOff,
@@ -35,16 +36,19 @@ import {
   RefreshCw,
   Sparkles,
   Target,
+  UserRound,
 } from "lucide-react"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { AccountMenu } from "@/components/auth/account-menu"
 import { useWorkspaceSync, type WorkspaceSyncState } from "@/hooks/use-workspace-sync"
 import type {
+  AnalysisSubjectType,
   Client,
   ReportExportPreset,
   WorkspaceAccountAccess,
 } from "@/types"
+import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
 
 export default function Home({
   userId,
@@ -97,8 +101,8 @@ export default function Home({
     setReportHistoryOpen(false)
   }, [selectClient])
 
-  const handleCreate = useCallback((name: string) => {
-    createWorkspaceClient(name)
+  const handleCreate = useCallback((name: string, subjectType: AnalysisSubjectType = "brand") => {
+    createWorkspaceClient(name, subjectType)
     setSidebarOpen(false)
   }, [createWorkspaceClient])
 
@@ -558,11 +562,12 @@ function EmptyState({
   restricted = false,
   clientName,
 }: {
-  onCreate: (name: string) => void
+  onCreate: (name: string, subjectType?: AnalysisSubjectType) => void
   restricted?: boolean
   clientName?: string
 }) {
   const [name, setName] = useState("")
+  const [subjectType, setSubjectType] = useState<AnalysisSubjectType>("brand")
   return (
     <div className="h-screen flex flex-col items-center justify-center px-6 animate-fade-in-up">
       <div className="mb-7 flex h-20 w-20 items-center justify-center rounded-lg bg-gradient-to-br from-[#2F54EB] via-[#1677FF] to-[#00C8FF] shadow-[0_18px_40px_-22px_rgba(22,119,255,0.72)]">
@@ -576,30 +581,60 @@ function EmptyState({
           ? `当前账号已关联「${clientName || "指定客户"}」，但面板数据暂时无法读取。请联系管理员检查授权客户是否仍然存在。`
           : "每个客户的调研数据、诊断结果与生成策略会自动保存到当前账号，换设备也能继续使用。"}
       </p>
-      {!restricted ? <div className="mt-8 flex gap-2 w-full max-w-sm">
-        <input
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter" && name.trim()) {
-              onCreate(name.trim())
-              setName("")
-            }
-          }}
-          placeholder="输入第一个客户名称（如：势途 / 客户A）"
-          className="flex-1 px-4 py-3 text-sm rounded-xl border border-slate-200 bg-white/70 backdrop-blur outline-none focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20 transition-all"
-        />
-        <button
-          onClick={() => {
-            if (name.trim()) {
-              onCreate(name.trim())
-              setName("")
-            }
-          }}
-          className="rounded-lg bg-gradient-to-r from-[#1677FF] to-[#0958D9] px-5 py-3 text-sm font-medium text-white shadow-sm transition-[filter] hover:brightness-105"
-        >
-          创建
-        </button>
+      {!restricted ? <div className="mt-8 w-full max-w-md space-y-3">
+        <div className="geo-segmented grid grid-cols-2 p-1">
+          <button
+            type="button"
+            onClick={() => setSubjectType("brand")}
+            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${
+              subjectType === "brand"
+                ? "bg-white text-[#0958D9] shadow-sm"
+                : "text-slate-500 hover:text-[#1677FF]"
+            }`}
+          >
+            <Building2 className="h-4 w-4" />
+            品牌分析
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubjectType("person")}
+            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${
+              subjectType === "person"
+                ? "bg-white text-[#0958D9] shadow-sm"
+                : "text-slate-500 hover:text-[#1677FF]"
+            }`}
+          >
+            <UserRound className="h-4 w-4" />
+            个人 IP 分析
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && name.trim()) {
+                onCreate(name.trim(), subjectType)
+                setName("")
+              }
+            }}
+            placeholder={subjectType === "person"
+              ? "输入项目名称（如：王医生个人 IP）"
+              : "输入第一个客户名称（如：势途 / 客户A）"}
+            className="flex-1 px-4 py-3 text-sm rounded-xl border border-slate-200 bg-white/70 backdrop-blur outline-none focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20 transition-all"
+          />
+          <button
+            onClick={() => {
+              if (name.trim()) {
+                onCreate(name.trim(), subjectType)
+                setName("")
+              }
+            }}
+            className="rounded-lg bg-gradient-to-r from-[#1677FF] to-[#0958D9] px-5 py-3 text-sm font-medium text-white shadow-sm transition-[filter] hover:brightness-105"
+          >
+            创建
+          </button>
+        </div>
       </div> : null}
     </div>
   )
@@ -617,6 +652,8 @@ function Dashboard({
   access: WorkspaceAccountAccess
 }) {
   const [activeModule, setActiveModule] = useState<DashboardModuleKey>("penetration")
+  const subjectType = getClientSubjectType(client)
+  const subjectCopy = getSubjectCopy(subjectType)
   const readOnlyModule = access.mode === "client" && activeModule !== "penetration"
   const moduleOnChange = readOnlyModule ? () => undefined : onChangeClient
 
@@ -626,7 +663,7 @@ function Dashboard({
         <div className="flex min-h-[76px] items-center justify-between gap-4 px-5 py-3">
         <div>
           <div className="mb-1 text-[10px] font-semibold text-cyan-50/65">
-            当前客户
+            当前客户 · {subjectCopy.modeLabel}
           </div>
           <h1 className="break-words text-2xl font-semibold text-white">
             {client.name}

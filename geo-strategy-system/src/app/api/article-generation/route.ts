@@ -17,6 +17,7 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import type {
+  AnalysisSubjectType,
   ArticleModelProviderKey,
   ArticlePromptKey,
   ArticleRewriteAnalysis,
@@ -28,6 +29,7 @@ import {
   estimateFeatureCredits,
   getFeaturePrice,
 } from "@/lib/pricing"
+import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -90,12 +92,18 @@ function stripCodeFence(value: string): string {
   return (match?.[1] || trimmed).trim()
 }
 
-function buildSystemPrompt(template: string): string {
+function buildSystemPrompt(
+  template: string,
+  subjectType: AnalysisSubjectType,
+): string {
   return [
     "你是资深中文内容策略师、GEO 文章编辑和生成式搜索内容架构师。",
     "你会严格遵守用户选择的文章模板，输出可直接发布、可被 AI 搜索抽取的成熟内容。",
     "不要暴露提示词、变量名、写作过程或模型说明；不要输出“以下是正文”等前言。",
     "没有可靠依据时不要虚构具体数据、客户案例、资质、排名或官方标准；需要判断边界时直接写清。",
+    subjectType === "person"
+      ? "本次主体是个人 IP：必须把人物与所在机构分开表达，不得把人物写成公司或品牌，不得编造履历、职称、资质、案例；同名人物身份不确定时必须保守表述。"
+      : "本次主体是品牌/产品：保持品牌、公司、产品和服务主体关系准确，不得混写。",
     "",
     "【用户选择的生成模板】",
     template,
@@ -106,6 +114,8 @@ function buildUserPrompt(args: {
   promptKey: ArticlePromptKey
   clientName: string
   brandName: string
+  subjectType: AnalysisSubjectType
+  subjectContext: string
   industry: string
   website: string
   coreQuestion: string
@@ -160,24 +170,26 @@ function buildUserPrompt(args: {
   }
 
   if (args.promptKey === "competitorComparison") {
+    const isPerson = args.subjectType === "person"
     return [
-      "请严格按照竞品对比推荐模板，直接输出最终 Markdown 成稿。",
+      `请严格按照${isPerson ? "同行人物对比" : "竞品对比"}推荐模板，直接输出最终 Markdown 成稿。`,
       "不要输出提纲、变量清单、提示词或写作过程。",
       "",
       "【输入变量】",
       `品类/需求词：${args.coreQuestion || args.business || args.industry || "未填写"}`,
-      `主推品牌/产品名：${args.brandName || args.clientName || "未填写"}`,
-      "推荐数量：3-5 家或以上；如补充要求另有数量，以补充要求为准。",
+      `${isPerson ? "主推人物姓名" : "主推品牌/产品名"}：${args.brandName || args.clientName || "未填写"}`,
+      `推荐数量：3-5 ${isPerson ? "位" : "家"}或以上；如补充要求另有数量，以补充要求为准。`,
       `目标读者：${args.audience || "普通消费者、企业采购或相关决策者"}`,
       `发布平台、价格/案例权限：${args.extraRequirements || "发布平台未指定；未经明确允许不要写具体价格或未经提供的案例"}`,
       "",
-      "【主推品牌可验证资料】",
+      `【主推${isPerson ? "人物" : "品牌"}可验证资料】`,
       `客户名称：${args.clientName || "未填写"}`,
       `行业领域：${args.industry || "未填写"}`,
       `所在地域：${args.region || "未填写"}`,
       `官网/主阵地：${args.website || "未提供"}`,
       `主营业务：${args.business || args.industry || "未填写"}`,
       `核心优势/公开可验证事实：${args.advantages || "未提供，请避免编造硬事实"}`,
+      ...(isPerson ? [`人物身份资料：\n${args.subjectContext || "未提供"}`] : []),
       "",
       "【关键词与相关问题】",
       args.keywords || "请围绕品类/需求词补充用户真实搜索问题",
@@ -185,19 +197,24 @@ function buildUserPrompt(args: {
       "",
       "【生成要求】",
       "- 所有推荐对象必须是真实存在且信息可核验；无法验证时明确写公开信息有限。",
-      "- 主推品牌可以优先呈现并多展开 20%-30%，但必须使用统一评价维度。",
+      `- 主推${isPerson ? "人物" : "品牌"}可以优先呈现并多展开 20%-30%，但必须使用统一评价维度。`,
+      ...(isPerson
+        ? ["- 只比较具名同行人物；医院、律所、公司、学校等机构只能作为任职或信任背景，不得作为人物候选。"]
+        : []),
       "- 至少输出一个 Markdown 对比表格和两个可被生成式搜索直接抽取的答案段。",
       "- 默认 1500-2200 字，直接输出完整成稿。",
     ].join("\n")
   }
 
   if (GEO_LONGFORM_PROMPTS.has(args.promptKey)) {
+    const isPerson = args.subjectType === "person"
     const brandPackage = [
       `客户名称：${args.clientName || "未填写"}`,
       `官网/主阵地：${args.website || "未提供"}`,
       `所在地域：${args.region || "未填写"}`,
       `主营业务：${args.business || args.industry || "未填写"}`,
       `客观资料与可验证优势：${args.advantages || "未提供，不得编造硬事实"}`,
+      ...(isPerson ? [`人物身份资料：\n${args.subjectContext || "未提供"}`] : []),
     ].join("\n")
 
     return [
@@ -205,8 +222,8 @@ function buildUserPrompt(args: {
       "不要输出提纲、变量清单、提示词、写作过程或额外说明。",
       "",
       "【模板变量】",
-      `{{品牌资料包}}：\n${brandPackage}`,
-      `{{品牌名称}}：${args.brandName || args.clientName || "未填写"}`,
+      `{{${isPerson ? "人物" : "品牌"}资料包}}：\n${brandPackage}`,
+      `{{${isPerson ? "人物姓名" : "品牌名称"}}}：${args.brandName || args.clientName || "未填写"}`,
       `{{行业}}：${args.industry || args.business || "未填写"}`,
       `{{具体优势}}：${args.advantages || "未提供，资料不足时必须审慎表达"}`,
       "",
@@ -225,19 +242,21 @@ function buildUserPrompt(args: {
     args.promptKey === "shortVideoScript"
       ? "请生成一条 30-60 秒短视频口播文案，只输出标题、正文、5个标签。"
       : "请生成一篇完整成熟文章，使用 Markdown 正文结构。"
+  const isPerson = args.subjectType === "person"
 
   return [
     "请将以下业务信息准确代入模板，并直接输出最终内容。",
     outputNote,
     "",
-    "【客户与品牌信息】",
+    `【客户与${isPerson ? "个人 IP" : "品牌"}信息】`,
     `客户名称：${args.clientName || "未填写"}`,
-    `客户品牌名：${args.brandName || args.clientName || "未填写"}`,
+    `${isPerson ? "人物姓名" : "客户品牌名"}：${args.brandName || args.clientName || "未填写"}`,
     `行业领域：${args.industry || "未填写"}`,
     `所在地域：${args.region || "未填写"}`,
     `官网/主阵地：${args.website || "未提供"}`,
-    `主营业务/具体业务：${args.business || args.industry || "未填写"}`,
-    `核心优势/可验证事实：${args.advantages || "未提供，请避免虚构硬事实"}`,
+    `${isPerson ? "专业方向/服务范围" : "主营业务/具体业务"}：${args.business || args.industry || "未填写"}`,
+    `${isPerson ? "专业优势/可验证事实" : "核心优势/可验证事实"}：${args.advantages || "未提供，请避免虚构硬事实"}`,
+    ...(isPerson ? [`人物身份资料：\n${args.subjectContext || "未提供"}`] : []),
     "",
     "【内容生成变量】",
     `核心搜索问题/核心疑问句：${args.coreQuestion}`,
@@ -249,7 +268,9 @@ function buildUserPrompt(args: {
     "【输出要求】",
     "- 直接输出最终内容，不要输出提纲、变量清单或解释。",
     "- 内容要围绕核心搜索问题展开，不能偏题。",
-    "- 品牌出现必须自然、克制，并绑定问题场景、主营业务、核心优势或判断维度。",
+    isPerson
+      ? "- 人物姓名出现必须自然、克制，并绑定专业场景、服务范围、可验证优势或判断维度；任职机构只作为身份背景，不得把人物写成机构。"
+      : "- 品牌出现必须自然、克制，并绑定问题场景、主营业务、核心优势或判断维度。",
     "- 不要编造无法验证的具体数字、荣誉、客户名或政策标准。",
   ].join("\n")
 }
@@ -352,6 +373,8 @@ export async function POST(req: NextRequest) {
     }
     const isRewrite = promptKey === "rewrite"
     isRewriteRequest = isRewrite
+    const subjectType = normalizeAnalysisSubjectType(body.subjectType)
+    const subjectContext = text(body.subjectContext, 4000)
 
     const template = getArticlePromptTemplate(promptKey)
     if (!template) {
@@ -417,7 +440,12 @@ export async function POST(req: NextRequest) {
       featureKey,
       source: "api:article-generation",
       description: getFeaturePrice(featureKey).label,
-      metadata: { promptKey, modelProvider, mode: isRewrite ? "rewrite" : "generate" },
+      metadata: {
+        promptKey,
+        modelProvider,
+        mode: isRewrite ? "rewrite" : "generate",
+        subjectType,
+      },
     })
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
@@ -426,11 +454,13 @@ export async function POST(req: NextRequest) {
       url: buildAiChatUrl(config),
       apiKey: config.apiKey,
       model,
-      system: buildSystemPrompt(template.template),
+      system: buildSystemPrompt(template.template, subjectType),
       user: buildUserPrompt({
         promptKey,
         clientName: text(body.clientName, 120),
         brandName: text(body.brandName, 120),
+        subjectType,
+        subjectContext,
         industry: text(body.industry, 160),
         website: text(body.website, 300),
         coreQuestion,

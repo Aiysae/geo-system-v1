@@ -146,12 +146,14 @@ export function buildPenetrationHistoryRecord(
           input.request.ourBrand,
           input.request.brandAliases,
           input.request.competitors,
+          input.request.subjectType || "brand",
         ),
         keywordCompetition: computeKeywordCompetition(
           result.byModel,
           input.request.ourBrand,
           input.request.brandAliases,
           input.request.competitors,
+          input.request.subjectType || "brand",
         ),
       }
     : { brandVoice: [], keywordCompetition: [] }
@@ -167,6 +169,7 @@ export function buildPenetrationHistoryRecord(
     source: input.source || "job",
     request: input.request,
     summary: {
+      subjectType: input.request.subjectType || "brand",
       ourBrand: input.request.ourBrand,
       industry: input.request.industry,
       questionCount: input.request.questions.length,
@@ -179,7 +182,7 @@ export function buildPenetrationHistoryRecord(
     dashboard,
     result,
     error: input.error?.trim() || undefined,
-    schemaVersion: 1,
+    schemaVersion: 2,
     createdAt: input.createdAt,
     completedAt: input.completedAt,
     updatedAt,

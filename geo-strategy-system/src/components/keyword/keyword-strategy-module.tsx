@@ -40,6 +40,7 @@ import {
   SOURCE_PLATFORM_CATEGORY_LABELS,
 } from "@/lib/source-platform-intelligence"
 import { SourcePlatformAdoptionChart } from "@/components/keyword/source-platform-adoption-chart"
+import { getClientSubjectType } from "@/lib/analysis-subject"
 
 // ==================== Brand Data ====================
 
@@ -599,6 +600,7 @@ interface Props {
 }
 
 export default function KeywordStrategyModule({ client, onChangeClient }: Props) {
+  const subjectType = getClientSubjectType(client)
   const [activeBrand, setActiveBrand] = useState<BrandData>(() => createBrandFromClient(client))
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [questionPollRetryKey, setQuestionPollRetryKey] = useState(0)
@@ -684,6 +686,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     pain_points_raw: activeBrand.painPointsRaw,
     competitors_raw: activeBrand.competitorsRaw,
     geo_goals: activeBrand.geoGoals,
+    subject_type: subjectType,
+    person_profile: JSON.stringify(client.personProfile || {}),
   }
   const extractPayload = {
     files: activeBrand.uploadedFiles.map(file => ({
@@ -699,7 +703,13 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     count: 10,
   }
   const strategyPayload = {
-    profile: activeBrand.extractedProfile,
+    profile: activeBrand.extractedProfile
+      ? {
+          ...activeBrand.extractedProfile,
+          subject_type: subjectType,
+          person_profile: client.personProfile,
+        }
+      : null,
     sourcePlatformContext: compactSourcePlatformSnapshot(sourcePlatformSnapshot),
   }
 
@@ -1366,6 +1376,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           {/* Step 1: Input */}
           {(ab.step === "input") && (
             <InputStep
+              subjectType={subjectType}
               projectName={ab.projectName}
               onProjectNameChange={v => setBrandField("projectName", v)}
               industry={ab.industry}
@@ -1399,6 +1410,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           {/* Step 2: Extraction Review */}
           {(ab.step === "extraction") && ab.extractedProfile && (
             <ExtractionStep
+              subjectType={subjectType}
               profile={ab.extractedProfile}
               onProfileChange={p => setBrandField("extractedProfile", p)}
               onBack={() => updateBrand({ step: "input" })}
@@ -1417,6 +1429,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           {/* Step 3: Strategy Result */}
           {(ab.step === "strategy") && ab.strategyPlan && (
             <StrategyStep
+              subjectType={subjectType}
               plan={ab.strategyPlan}
               sourcePlatformSnapshot={sourcePlatformSnapshot}
               clientId={client.id}
@@ -1514,6 +1527,7 @@ function StepProgress({ current }: { current: ToolStep }) {
 // ==================== Step 1: Input ====================
 
 function InputStep({
+  subjectType,
   projectName, onProjectNameChange,
   industry, onIndustryChange,
   audience, onAudienceChange,
@@ -1528,6 +1542,7 @@ function InputStep({
   extracting, extractionError, onExtract,
   modelConfigured, modelName,
 }: {
+  subjectType: "brand" | "person"
   projectName: string; onProjectNameChange: (v: string) => void
   industry: string; onIndustryChange: (v: string) => void
   audience: string; onAudienceChange: (v: string) => void
@@ -1544,6 +1559,7 @@ function InputStep({
   modelConfigured: boolean
   modelName: string
 }) {
+  const isPerson = subjectType === "person"
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div>
@@ -1606,15 +1622,17 @@ function InputStep({
           <div className="geo-section-panel p-4 sm:p-5">
             <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
               <Search className="h-4 w-4 text-purple-500" />
-              竞争与目标
+              {isPerson ? "同行与目标" : "竞争与目标"}
             </h2>
             <div className="space-y-3">
               <div>
-                <label className="text-[11px] font-medium text-slate-500">竞品/替代方案</label>
+                <label className="text-[11px] font-medium text-slate-500">
+                  {isPerson ? "同行人物/替代专家" : "竞品/替代方案"}
+                </label>
                 <textarea
                   value={competitorsRaw}
                   onChange={e => onCompetitorsRawChange(e.target.value)}
-                  placeholder="竞品名称，每行一个"
+                  placeholder={isPerson ? "同行人物姓名，每行一个" : "竞品名称，每行一个"}
                   className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200/40 transition resize-none"
                   rows={3}
                 />
@@ -1624,7 +1642,9 @@ function InputStep({
                 <textarea
                   value={geoGoals}
                   onChange={e => onGeoGoalsChange(e.target.value)}
-                  placeholder="例如：提高在豆包/DeepSeek中的品牌提及率、覆盖用户疑问句等"
+                  placeholder={isPerson
+                    ? "例如：提高在豆包/DeepSeek 中的人物提及率、覆盖用户疑问句等"
+                    : "例如：提高在豆包/DeepSeek中的品牌提及率、覆盖用户疑问句等"}
                   className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200/40 transition resize-none"
                   rows={2}
                 />
@@ -1642,16 +1662,20 @@ function InputStep({
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
-                <label className="text-[11px] font-medium text-slate-500">客户/项目名称</label>
+                <label className="text-[11px] font-medium text-slate-500">
+                  {isPerson ? "人物姓名/项目名称" : "客户/项目名称"}
+                </label>
                 <input
                   value={projectName}
                   onChange={e => onProjectNameChange(e.target.value)}
-                  placeholder="例：贵竹风 GEO 优化"
+                  placeholder={isPerson ? "例：张医生个人 IP GEO 优化" : "例：贵竹风 GEO 优化"}
                   className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200/40 transition"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-slate-500">行业/品类</label>
+                <label className="text-[11px] font-medium text-slate-500">
+                  {isPerson ? "行业/专业领域" : "行业/品类"}
+                </label>
                 <input
                   value={industry}
                   onChange={e => onIndustryChange(e.target.value)}
@@ -1678,11 +1702,13 @@ function InputStep({
                 />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-slate-500">产品/服务说明</label>
+                <label className="text-[11px] font-medium text-slate-500">
+                  {isPerson ? "专业服务/个人介绍" : "产品/服务说明"}
+                </label>
                 <input
                   value={productDesc}
                   onChange={e => onProductDescChange(e.target.value)}
-                  placeholder="主要产品或服务"
+                  placeholder={isPerson ? "专业方向、服务内容或个人介绍" : "主要产品或服务"}
                   className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200/40 transition"
                 />
               </div>
@@ -1754,10 +1780,12 @@ function InputStep({
 // ==================== Step 2: Extraction Review ====================
 
 function ExtractionStep({
+  subjectType,
   profile, onProfileChange, onBack, onGenerate, generating, strategyError,
   advantageStatus, advantageError, onGenerateAdvantages,
   reExtracting, onReExtract, sourcePlatformSnapshot,
 }: {
+  subjectType: "brand" | "person"
   profile: ExtractedProfile
   onProfileChange: (p: ExtractedProfile) => void
   onBack: () => void
@@ -1771,6 +1799,7 @@ function ExtractionStep({
   onReExtract: () => void
   sourcePlatformSnapshot: SourcePlatformSnapshot
 }) {
+  const isPerson = subjectType === "person"
   const updateItem = useCallback((field: keyof ExtractedProfile, index: number, patch: Partial<ExtractedItem>) => {
     onProfileChange({
       ...profile,
@@ -1802,7 +1831,7 @@ function ExtractionStep({
     { key: "pain_points", label: "痛点", color: "rose" },
     { key: "advantages", label: "优势", color: "emerald" },
     { key: "weaknesses", label: "劣势", color: "amber" },
-    { key: "competitors", label: "竞品", color: "violet" },
+    { key: "competitors", label: isPerson ? "同行人物" : "竞品", color: "violet" },
     { key: "scenes", label: "场景", color: "cyan" },
   ]
   const linkedContentPlatforms = sourcePlatformSnapshot.platforms.filter(platform =>
@@ -1849,7 +1878,9 @@ function ExtractionStep({
             className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 transition" />
         </div>
         <div className="sm:col-span-2">
-          <label className="text-[11px] font-medium text-slate-500">产品说明</label>
+          <label className="text-[11px] font-medium text-slate-500">
+            {isPerson ? "专业服务/个人介绍" : "产品说明"}
+          </label>
           <textarea value={profile.product_description} onChange={e => updateField("product_description", e.target.value)}
             className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 transition resize-none" rows={2} />
         </div>
@@ -1997,6 +2028,7 @@ function ExtractionStep({
 // ==================== Step 3: Strategy ====================
 
 function StrategyStep({
+  subjectType,
   plan, sourcePlatformSnapshot, clientId, websitePromptJobRef, onChangeWebsitePromptJob,
   questions, questionStatus, questionError,
   questionJobProgress,
@@ -2006,6 +2038,7 @@ function StrategyStep({
   onExportJson, onExportMarkdown, onExportWord, onExportQuestionsCsv, onExportQuestionsWord, onBack,
   hasQuestions,
 }: {
+  subjectType: "brand" | "person"
   plan: GeoStrategyPlan
   sourcePlatformSnapshot: SourcePlatformSnapshot
   clientId: string
@@ -2040,6 +2073,7 @@ function StrategyStep({
   onBack: () => void
   hasQuestions: boolean
 }) {
+  const isPerson = subjectType === "person"
   const [showJson, setShowJson] = useState(false)
   const [showQuestionSettings, setShowQuestionSettings] = useState(false)
   const [activePromptKey, setActivePromptKey] = useState<string | null>(null)
@@ -2232,10 +2266,10 @@ function StrategyStep({
       {plan.profile && (
         <Card title="客户画像" icon={<Search className="h-4 w-4 text-purple-500" />}>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-            <ProfileField label="品牌/产品" value={plan.profile.brand_or_product} />
+            <ProfileField label={isPerson ? "个人 IP / 人物" : "品牌/产品"} value={plan.profile.brand_or_product} />
             <ProfileField label="行业" value={plan.profile.industry} />
             <ProfileField label="目标受众" value={plan.profile.audience} />
-            <ProfileField label="产品说明" value={plan.profile.product_description} className="sm:col-span-2 md:col-span-3" />
+            <ProfileField label={isPerson ? "专业服务/个人介绍" : "产品说明"} value={plan.profile.product_description} className="sm:col-span-2 md:col-span-3" />
             <ProfileField label="商业目标" value={plan.profile.business_goals} className="sm:col-span-2 md:col-span-3" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
@@ -2264,7 +2298,7 @@ function StrategyStep({
             <div className="min-w-0">
               <div className="text-sm font-semibold text-slate-700">完整官网建设 Prompt</div>
               <div className="mt-1 text-xs leading-relaxed text-slate-500">
-                通义千问会把下方全部建议合并为一个可直接建站的完整 Prompt，品牌资料由你另外提供。
+                通义千问会把下方全部建议合并为一个可直接建站的完整 Prompt，{isPerson ? "人物资料" : "品牌资料"}由你另外提供。
               </div>
             </div>
             <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end">
@@ -2560,7 +2594,9 @@ function StrategyStep({
                   <div className="flex-1 min-w-0">
                     <div className="text-slate-700">{q.question}</div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-slate-400">{q.category}</span>
+                      <span className="text-slate-400">
+                        {isPerson && q.category === "品牌认知型" ? "人物认知型" : q.category}
+                      </span>
                       <span className="text-slate-400">·</span>
                       <span className="text-slate-400">{q.keyword}</span>
                     </div>

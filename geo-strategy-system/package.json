@@ -30,6 +30,7 @@
     "test:penetration-strict": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-strict-completion.mts",
     "test:penetration-recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-job-recovery.mts",
     "test:penetration-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-history.mts",
+    "test:person-subject": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-person-subject.mts",
     "test:source-platforms": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-source-platform-intelligence.mts",
     "smoke:penetration-live": "NODE_OPTIONS=--conditions=react-server tsx scripts/smoke-penetration-live.mts",
     "stress:penetration-live": "NODE_OPTIONS=--conditions=react-server tsx scripts/stress-penetration-live.mts",

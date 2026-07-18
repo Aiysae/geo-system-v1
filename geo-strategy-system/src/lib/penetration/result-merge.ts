@@ -1,5 +1,6 @@
 import { aggregatePenetration } from "@/lib/score-utils"
 import type {
+  AnalysisSubjectType,
   ModelKey,
   PenetrationByModel,
   PenetrationItem,
@@ -38,6 +39,7 @@ export function buildPenetrationBatchResult(args: {
   ourBrand: string
   brandAliases: string[]
   competitors: string[]
+  subjectType?: AnalysisSubjectType
   generatedAt: string
 }): PenetrationResult {
   const existingByModel = args.currentResult?.byModel
@@ -51,6 +53,7 @@ export function buildPenetrationBatchResult(args: {
       args.ourBrand,
       args.brandAliases,
       args.competitors,
+      args.subjectType || "brand",
     ),
     generatedAt: args.generatedAt,
   }

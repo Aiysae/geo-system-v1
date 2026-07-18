@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts"
-import type { DiagnosisDimensions } from "@/types"
+import type { AnalysisSubjectType, DiagnosisDimensions } from "@/types"
 
 const DIM_LABELS: Record<keyof DiagnosisDimensions, string> = {
   authority: "信源权威性",
@@ -24,9 +24,10 @@ const BASELINE = 60
 
 interface Props {
   dimensions: DiagnosisDimensions
+  subjectType?: AnalysisSubjectType
 }
 
-export default function RadarFiveDim({ dimensions }: Props) {
+export default function RadarFiveDim({ dimensions, subjectType = "brand" }: Props) {
   const data = (Object.keys(DIM_LABELS) as Array<keyof DiagnosisDimensions>).map(k => ({
     subject: DIM_LABELS[k],
     score: dimensions[k],
@@ -82,9 +83,9 @@ export default function RadarFiveDim({ dimensions }: Props) {
             isAnimationActive={false}
           />
 
-          {/* 当前品牌得分层 */}
+          {/* 当前分析主体得分层 */}
           <Radar
-            name="我方得分"
+            name={subjectType === "person" ? "个人 IP 得分" : "我方得分"}
             dataKey="score"
             stroke="url(#radarMainStroke)"
             strokeWidth={2.5}

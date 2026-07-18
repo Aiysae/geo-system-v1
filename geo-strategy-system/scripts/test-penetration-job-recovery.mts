@@ -80,6 +80,7 @@ try {
       clientName: "测试客户",
       runId,
       operation: "replace",
+      subjectType: "brand",
       ourBrand: "测试品牌",
       brandAliases: [],
       industry: "测试行业",

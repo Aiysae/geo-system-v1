@@ -10,19 +10,34 @@ import {
   Loader2,
   Play,
   AlertTriangle,
+  Building2,
   XCircle,
   Sparkles,
   Pencil,
   X,
   Globe2,
   RefreshCw,
+  UserRound,
 } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
-import type { BackgroundJobRef, Client, ModelKey, PenetrationModelProgress } from "@/types"
+import {
+  EMPTY_PERSON_SUBJECT_PROFILE,
+  getClientSubjectType,
+  getSubjectCopy,
+  normalizePersonSubjectProfile,
+} from "@/lib/analysis-subject"
+import type {
+  AnalysisSubjectType,
+  BackgroundJobRef,
+  Client,
+  ModelKey,
+  PenetrationModelProgress,
+  PersonSubjectProfile,
+} from "@/types"
 
 const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
 
@@ -70,11 +85,24 @@ export default function BatchInputPanel({
   const [aiKeywords, setAiKeywords] = useState("")
   const [aiToast, setAiToast] = useState<string | null>(null)
   const [modelReadiness, setModelReadiness] = useState<ModelReadiness>({})
+  const subjectType = getClientSubjectType(client)
+  const subjectCopy = getSubjectCopy(subjectType)
+  const personProfile = normalizePersonSubjectProfile(client.personProfile)
+  const subjectModeLocked = Boolean(
+    client.penetration
+      || client.research
+      || client.diagnosis
+      || client.keywordStrategy
+      || client.difficultyAssessments?.length
+      || client.articleGeneration?.generatedAt,
+  )
   const aiJobRef = identityReadOnly ? undefined : client.backgroundJobs?.queryGeneration
   const aiLoading = Boolean(aiJobRef)
   const aiPayload = {
     industry: client.industry,
     brand: client.ourBrand,
+    subjectType,
+    personProfile: subjectType === "person" ? personProfile : undefined,
     count: aiCount,
     keywords: aiKeywords,
   }
@@ -173,6 +201,26 @@ export default function BatchInputPanel({
     onChangeClient({ selectedModels: ALL_MODELS.filter(k => set.has(k)) })
   }
 
+  function changeSubjectType(nextType: AnalysisSubjectType) {
+    if (identityReadOnly || subjectModeLocked || nextType === subjectType) return
+    onChangeClient({
+      subjectType: nextType,
+      personProfile: nextType === "person"
+        ? normalizePersonSubjectProfile(client.personProfile || EMPTY_PERSON_SUBJECT_PROFILE)
+        : client.personProfile,
+    })
+  }
+
+  function updatePersonProfile(patch: Partial<PersonSubjectProfile>) {
+    if (identityReadOnly) return
+    onChangeClient({
+      personProfile: {
+        ...personProfile,
+        ...patch,
+      },
+    })
+  }
+
   function handleRun() {
     const questions = parseLines(questionsText)
     const brandAliases = identityReadOnly
@@ -210,38 +258,163 @@ export default function BatchInputPanel({
       {identityReadOnly ? (
         <div className="flex items-start gap-2 rounded-lg border border-[#91CAFF] bg-[#EAF5FF] px-3 py-2.5 text-xs leading-5 text-[#0958D9]">
           <Globe2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          品牌、行业、别名和竞品由管理员统一维护。你可以编辑疑问句、选择模型并独立发起联网检测。
+          {subjectType === "person"
+            ? "人物身份、专业领域、姓名别名和同行名单由管理员统一维护。你可以编辑疑问句、选择模型并独立发起联网检测。"
+            : "品牌、行业、别名和竞品由管理员统一维护。你可以编辑疑问句、选择模型并独立发起联网检测。"}
         </div>
       ) : null}
+      <div className="flex flex-col gap-2 rounded-lg border border-[#CFE1F5] bg-[#F5FAFF] p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-xs font-semibold text-[#17324D]">分析主体</div>
+          <div className="mt-0.5 text-[10px] leading-4 text-[#6F8296]">
+            {subjectModeLocked
+              ? "当前项目已有分析结果，模式已锁定；如需分析另一类主体，请新建客户项目。"
+              : "选择后，识别对象、同行判断、图表和报告会使用对应规则。"}
+          </div>
+        </div>
+        <div className="geo-segmented grid shrink-0 grid-cols-2 p-1">
+          {([
+            { value: "brand", label: "品牌", icon: Building2 },
+            { value: "person", label: "个人 IP", icon: UserRound },
+          ] as const).map(option => {
+            const Icon = option.icon
+            const active = subjectType === option.value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                disabled={identityReadOnly || subjectModeLocked}
+                onClick={() => changeSubjectType(option.value)}
+                className={`inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  active
+                    ? "bg-white text-[#0958D9] shadow-sm"
+                    : "text-[#60758A] hover:text-[#1677FF]"
+                } disabled:cursor-not-allowed disabled:opacity-70`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Field label="我方品牌名" required>
+        <Field label={subjectCopy.subjectLabel} required>
           <Input
             value={client.ourBrand}
             onChange={e => onChangeClient({ ourBrand: e.target.value })}
-            placeholder="如：势途"
+            placeholder={subjectType === "person" ? "如：张三" : "如：势途"}
             disabled={identityReadOnly}
           />
         </Field>
-        <Field label="所属行业">
+        <Field label={subjectCopy.industryLabel}>
           <Input
             value={client.industry}
             onChange={e => onChangeClient({ industry: e.target.value })}
-            placeholder="如：B端 AI Agent 工具"
+            placeholder={subjectType === "person" ? "如：医疗 / 心血管内科" : "如：B端 AI Agent 工具"}
             disabled={identityReadOnly}
           />
         </Field>
       </div>
 
+      {subjectType === "person" ? (
+        <div className="rounded-lg border border-[#B8D8FA] bg-white">
+          <div className="flex items-center gap-2 border-b border-[#E1ECF7] px-3 py-2.5">
+            <UserRound className="h-4 w-4 text-[#1677FF]" />
+            <div>
+              <div className="text-xs font-semibold text-[#17324D]">个人 IP 身份卡</div>
+              <div className="mt-0.5 text-[10px] text-[#7A8EA3]">
+                用于区分同名人物、判断真正同行；不会写入被测模型的盲测问题。
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
+            <Field label="职业 / 身份" required>
+              <Input
+                value={personProfile.profession}
+                onChange={event => updatePersonProfile({ profession: event.target.value })}
+                placeholder="如：医生、律师、财经博主"
+                disabled={identityReadOnly}
+              />
+            </Field>
+            <Field label="所属机构">
+              <Input
+                value={personProfile.organization}
+                onChange={event => updatePersonProfile({ organization: event.target.value })}
+                placeholder="医院、律所、公司或工作室"
+                disabled={identityReadOnly}
+              />
+            </Field>
+            <Field label="职称 / 公开身份">
+              <Input
+                value={personProfile.title}
+                onChange={event => updatePersonProfile({ title: event.target.value })}
+                placeholder="如：主任医师、创始人"
+                disabled={identityReadOnly}
+              />
+            </Field>
+            <Field label="主要地区">
+              <Input
+                value={personProfile.region}
+                onChange={event => updatePersonProfile({ region: event.target.value })}
+                placeholder="如：杭州 / 全国"
+                disabled={identityReadOnly}
+              />
+            </Field>
+            <Field label="专业方向" aside="每行一个">
+              <Textarea
+                value={personProfile.specialties.join("\n")}
+                onChange={event => updatePersonProfile({ specialties: parseLines(event.target.value) })}
+                rows={2}
+                placeholder={"冠心病诊疗\n心脏介入"}
+                disabled={identityReadOnly}
+                className="min-h-[76px] text-xs"
+              />
+            </Field>
+            <Field label="资质 / 代表性身份" aside="每行一个">
+              <Textarea
+                value={personProfile.credentials.join("\n")}
+                onChange={event => updatePersonProfile({ credentials: parseLines(event.target.value) })}
+                rows={2}
+                placeholder={"主任医师\n某专业委员会委员"}
+                disabled={identityReadOnly}
+                className="min-h-[76px] text-xs"
+              />
+            </Field>
+            <div className="md:col-span-2 xl:col-span-3">
+              <Field
+                label="公开主页链接"
+                aside="每行一个"
+                help="可填写医院主页、律所主页、百科或认证社交账号，用于后续身份消歧。"
+              >
+                <Textarea
+                  value={personProfile.profileUrls.join("\n")}
+                  onChange={event => updatePersonProfile({ profileUrls: parseLines(event.target.value) })}
+                  rows={2}
+                  placeholder={"https://example.com/profile\nhttps://example.com/homepage"}
+                  disabled={identityReadOnly}
+                  className="min-h-[72px] font-mono text-xs"
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <details className="rounded-lg border border-[#DCE6F2] bg-[#F8FAFD]">
         <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold text-[#526A83]">
-          <span>品牌归一与竞品设置</span>
-          <span className="text-[10px] font-normal text-[#7E91A7]">别名、公司全称和已知竞品</span>
+          <span>{subjectType === "person" ? "姓名归一与同行设置" : "品牌归一与竞品设置"}</span>
+          <span className="text-[10px] font-normal text-[#7E91A7]">
+            {subjectType === "person" ? "姓名变体、公开称呼和已知同行" : "别名、公司全称和已知竞品"}
+          </span>
         </summary>
         <div className="grid gap-3 border-t border-[#E8EEF5] p-3 md:grid-cols-2">
           <Field
-            label="品牌别名"
+            label={subjectCopy.aliasesLabel}
             aside="每行一个"
-            help="只用于回答后的品牌识别与统计归一，不会发送给被测模型。"
+            help={subjectType === "person"
+              ? "只用于回答后的同名消歧与姓名归一，不会发送给被测模型。"
+              : "只用于回答后的品牌识别与统计归一，不会发送给被测模型。"}
           >
             <Textarea
               value={brandAliasesText}
@@ -252,11 +425,13 @@ export default function BatchInputPanel({
                 onChangeClient({ brandAliases: parseLines(value) })
               }}
               rows={2}
-              placeholder={"品牌简称\n英文名 / 公司全称"}
+              placeholder={subjectType === "person"
+                ? "英文名 / 曾用名\n带职称的公开称呼"
+                : "品牌简称\n英文名 / 公司全称"}
               className="min-h-[76px] font-mono text-xs"
             />
           </Field>
-          <Field label="已知主要竞品" aside="每行一个">
+          <Field label={subjectCopy.competitorsLabel} aside="每行一个">
             <Textarea
               value={competitorsText}
               disabled={identityReadOnly}
@@ -266,7 +441,9 @@ export default function BatchInputPanel({
                 onChangeClient({ competitors: parseLines(value) })
               }}
               rows={2}
-              placeholder={"竞品 A\n竞品 B"}
+              placeholder={subjectType === "person"
+                ? "同行人物 A\n同行人物 B"
+                : "竞品 A\n竞品 B"}
               className="min-h-[76px] font-mono text-xs"
             />
           </Field>
@@ -380,7 +557,7 @@ export default function BatchInputPanel({
 
             {!client.industry.trim() && !client.ourBrand.trim() && (
               <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                请先在上方填写「我方品牌名」或「所属行业」，豆包需要据此推演消费者疑问句。
+                请先在上方填写「{subjectCopy.subjectShortLabel}」或「{subjectCopy.industryLabel}」，豆包需要据此推演用户疑问句。
               </div>
             )}
 
