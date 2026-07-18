@@ -7,6 +7,10 @@ import type {
   ArticleModelProviderKey,
   ArticlePromptKey,
 } from "@/types"
+import {
+  requireStandardAccountMode,
+  resolveWorkspaceAccess,
+} from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -38,7 +42,11 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return auth.response
   const clientId = text(req.nextUrl.searchParams.get("clientId"), 200)
   if (!clientId) return NextResponse.json({ error: "客户标识缺失" }, { status: 400 })
-  const batches = await listArticleBatches(auth.userId, clientId)
+  const access = await resolveWorkspaceAccess(auth.userId, clientId)
+  if (!access.ok) {
+    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+  }
+  const batches = await listArticleBatches(access.ownerUserId, clientId)
   return NextResponse.json({ batches }, {
     headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
   })
@@ -48,6 +56,13 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUserId()
     if (!auth.ok) return auth.response
+    const accountAccess = await requireStandardAccountMode(auth.userId)
+    if (!accountAccess.ok) {
+      return NextResponse.json(
+        { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+        { status: 403 },
+      )
+    }
     const body = record(await req.json())
     const base = record(body.basePayload)
     const requestId = text(body.requestId, 160)

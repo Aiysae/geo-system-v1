@@ -28,6 +28,10 @@ import type {
   DifficultyAssessmentEntry,
   PenetrationResult,
 } from "@/types"
+import {
+  requireStandardAccountMode,
+  resolveWorkspaceAccess,
+} from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -143,8 +147,13 @@ export async function GET(req: NextRequest) {
   const days = Math.max(0, Math.min(365, Number(params.get("days") || 0)))
   const cutoff = days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0
 
-  let jobs = await listCommercialReportJobs(userGuard.userId)
-  if (clientId) jobs = jobs.filter(job => job.clientId === clientId)
+  const access = await resolveWorkspaceAccess(userGuard.userId, clientId || undefined)
+  if (!access.ok) {
+    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+  }
+  let jobs = await listCommercialReportJobs(access.ownerUserId)
+  const scopedClientId = access.mode === "client" ? access.clientId : clientId
+  if (scopedClientId) jobs = jobs.filter(job => job.clientId === scopedClientId)
   if (REPORT_KINDS.has(kind as CommercialReportKind)) jobs = jobs.filter(job => job.kind === kind)
   if (["queued", "running", "succeeded", "failed"].includes(status)) {
     jobs = jobs.filter(job => job.status === status)
@@ -164,6 +173,13 @@ export async function POST(req: NextRequest) {
   try {
     const userGuard = await requireUserId()
     if (!userGuard.ok) return userGuard.response
+    const accountAccess = await requireStandardAccountMode(userGuard.userId)
+    if (!accountAccess.ok) {
+      return NextResponse.json(
+        { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+        { status: 403 },
+      )
+    }
 
     const contentLength = Number(req.headers.get("content-length") || 0)
     if (contentLength > MAX_REPORT_PAYLOAD_BYTES) {

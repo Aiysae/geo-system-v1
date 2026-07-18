@@ -22,6 +22,7 @@ import type {
 
 export type PenetrationHistoryBuildInput = {
   id: string
+  actorUserId?: string
   request: PenetrationHistoryRequestSnapshot
   status: PenetrationHistoryStatus
   source?: PenetrationHistorySource
@@ -54,6 +55,7 @@ type FileHistoryState = {
 
 type HistoryRow = {
   id: string
+  actor_user_id?: string | null
   client_id: string
   client_name: string
   operation: PenetrationJobOperation
@@ -157,6 +159,7 @@ export function buildPenetrationHistoryRecord(
 
   return {
     id: input.id,
+    actorUserId: input.actorUserId,
     clientId: input.request.clientId,
     clientName: input.request.clientName,
     operation: input.request.operation,
@@ -234,7 +237,7 @@ export async function getPenetrationHistoryRecord(
   if (backend() === "postgres") {
     await ensurePenetrationHistorySchema()
     const result = await pool().query<HistoryRow>(
-      `SELECT id, client_id, client_name, operation, status, source,
+      `SELECT id, actor_user_id, client_id, client_name, operation, status, source,
               request_snapshot, summary, dashboard_snapshot, result, error,
               schema_version, created_at, completed_at, updated_at
        FROM geo_penetration_history_v1
@@ -281,16 +284,17 @@ async function savePostgresRecord(
   await ensurePenetrationHistorySchema()
   await pool().query(
     `INSERT INTO geo_penetration_history_v1 (
-       owner_user_id, id, client_id, client_name, operation, status, source,
+       owner_user_id, actor_user_id, id, client_id, client_name, operation, status, source,
        request_snapshot, summary, dashboard_snapshot, result, error,
        schema_version, created_at, completed_at, updated_at
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7,
-       $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12,
-       $13, $14::timestamptz, $15::timestamptz, $16::timestamptz
+       $1, $2, $3, $4, $5, $6, $7, $8,
+       $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13,
+       $14, $15::timestamptz, $16::timestamptz, $17::timestamptz
      )
      ON CONFLICT (owner_user_id, id) DO UPDATE SET
        client_id = EXCLUDED.client_id,
+       actor_user_id = EXCLUDED.actor_user_id,
        client_name = EXCLUDED.client_name,
        operation = EXCLUDED.operation,
        status = EXCLUDED.status,
@@ -305,6 +309,7 @@ async function savePostgresRecord(
        updated_at = EXCLUDED.updated_at`,
     [
       ownerUserId,
+      record.actorUserId || ownerUserId,
       record.id,
       record.clientId,
       record.clientName,
@@ -367,7 +372,7 @@ async function listPostgresRecords(
   const offset = (filters.page - 1) * filters.pageSize
   const listValues = [...values, filters.pageSize, offset]
   const rows = await pool().query<HistoryRow>(
-    `SELECT id, client_id, client_name, operation, status, source,
+    `SELECT id, actor_user_id, client_id, client_name, operation, status, source,
             summary, created_at, completed_at, updated_at
      FROM geo_penetration_history_v1
      WHERE ${where}
@@ -409,6 +414,7 @@ function toIso(value: string | Date | null | undefined): string | undefined {
 function listItemFromRow(row: HistoryRow): PenetrationHistoryListItem {
   return {
     id: row.id,
+    actorUserId: row.actor_user_id || undefined,
     clientId: row.client_id,
     clientName: row.client_name,
     operation: row.operation,
@@ -435,6 +441,7 @@ function fullRecordFromRow(row: HistoryRow): PenetrationHistoryRecord {
 function toListItem(record: PenetrationHistoryRecord): PenetrationHistoryListItem {
   return {
     id: record.id,
+    actorUserId: record.actorUserId,
     clientId: record.clientId,
     clientName: record.clientName,
     operation: record.operation,

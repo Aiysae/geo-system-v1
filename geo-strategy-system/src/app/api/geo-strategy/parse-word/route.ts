@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import WordExtractor from "word-extractor"
 import { requireUserId } from "@/lib/with-credits"
+import { requireStandardAccountMode } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -43,6 +44,13 @@ function friendlyParseError(error: unknown): string {
 export async function POST(req: NextRequest) {
   const guard = await requireUserId()
   if (!guard.ok) return guard.response
+  const accountAccess = await requireStandardAccountMode(guard.userId)
+  if (!accountAccess.ok) {
+    return NextResponse.json(
+      { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+      { status: 403 },
+    )
+  }
 
   try {
     const formData = await req.formData()

@@ -52,6 +52,22 @@ export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "huny
 
 export type LlmMode = "consumer" | "judge"
 
+export type WorkspaceAccountMode = "standard" | "client"
+export type ClientAccountStatus = "active" | "suspended"
+
+export interface WorkspaceAccountAccess {
+  mode: WorkspaceAccountMode
+  status: "active" | "suspended"
+  clientId?: string
+  clientName?: string
+  monthlyCredits?: number
+  canCreateClients: boolean
+  canManageClientIdentity: boolean
+  canRunPenetration: boolean
+  canRunOtherModules: boolean
+  canCreateReports: boolean
+}
+
 export type ArticlePromptKey =
   | "thirdPartyObservation"
   | "pitfallGuide"
@@ -659,6 +675,7 @@ export interface PenetrationHistorySummary {
 
 export interface PenetrationHistoryListItem {
   id: string
+  actorUserId?: string
   clientId: string
   clientName: string
   operation: PenetrationJobOperation

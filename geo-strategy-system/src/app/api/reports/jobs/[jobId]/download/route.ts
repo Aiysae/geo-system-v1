@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getCommercialReportFile } from "@/lib/reports/report-jobs"
+import { getCommercialReportFile, getCommercialReportJob } from "@/lib/reports/report-jobs"
 import { requireUserId } from "@/lib/with-credits"
+import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -13,7 +14,15 @@ export async function GET(
   const userGuard = await requireUserId()
   if (!userGuard.ok) return userGuard.response
   const { jobId } = await context.params
-  const report = await getCommercialReportFile(jobId, userGuard.userId)
+  const access = await resolveWorkspaceAccess(userGuard.userId)
+  if (!access.ok) {
+    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+  }
+  const job = await getCommercialReportJob(jobId, access.ownerUserId)
+  if (!job || (access.mode === "client" && job.clientId !== access.clientId)) {
+    return NextResponse.json({ error: "报告尚未生成、已过期或无权访问" }, { status: 404 })
+  }
+  const report = await getCommercialReportFile(jobId, access.ownerUserId)
   if (!report) {
     return NextResponse.json({ error: "报告尚未生成、已过期或无权访问" }, { status: 404 })
   }

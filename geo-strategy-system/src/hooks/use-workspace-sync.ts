@@ -43,11 +43,35 @@ type WorkspaceImportSummary = {
 
 const SAVE_DELAY_MS = 800
 const REFRESH_INTERVAL_MS = 30_000
+const CLIENT_ACCOUNT_PATCH_FIELDS = new Set<keyof Client>([
+  "questions",
+  "selectedModels",
+  "penetration",
+  "penetrationJobId",
+])
 
-export function useWorkspaceSync(userId: string) {
-  const [clients, setClients] = useState<Client[]>(() => listCachedClients(userId))
-  const [activeId, setActiveIdState] = useState<string | null>(() => {
+export function useWorkspaceSync(
+  userId: string,
+  options: { restrictedClientId?: string } = {},
+) {
+  const restrictedClientId = options.restrictedClientId
+  const filterRestrictedClients = useCallback(
+    (values: Client[]) => restrictedClientId
+      ? values.filter(client => client.id === restrictedClientId)
+      : values,
+    [restrictedClientId],
+  )
+  const [clients, setClients] = useState<Client[]>(() => {
     const cached = listCachedClients(userId)
+    return restrictedClientId
+      ? cached.filter(client => client.id === restrictedClientId)
+      : cached
+  })
+  const [activeId, setActiveIdState] = useState<string | null>(() => {
+    const allCached = listCachedClients(userId)
+    const cached = restrictedClientId
+      ? allCached.filter(client => client.id === restrictedClientId)
+      : allCached
     const preferred = getActiveId(userId)
     return preferred && cached.some(client => client.id === preferred) ? preferred : cached[0]?.id || null
   })
@@ -71,8 +95,11 @@ export function useWorkspaceSync(userId: string) {
   const conflictRef = useRef<WorkspaceConflict | null>(null)
 
   const applySyncedClients = useCallback((records: SyncedClient[]) => {
-    const nextClients = records.map(record => record.client)
-    versionsRef.current = Object.fromEntries(records.map(record => [record.client.id, record.versions]))
+    const scopedRecords = restrictedClientId
+      ? records.filter(record => record.client.id === restrictedClientId)
+      : records
+    const nextClients = filterRestrictedClients(scopedRecords.map(record => record.client))
+    versionsRef.current = Object.fromEntries(scopedRecords.map(record => [record.client.id, record.versions]))
     clientsRef.current = nextClients
     setClients(nextClients)
     saveCachedClients(userId, nextClients)
@@ -84,7 +111,7 @@ export function useWorkspaceSync(userId: string) {
       persistActiveId(userId, resolved)
       return resolved
     })
-  }, [userId])
+  }, [filterRestrictedClients, restrictedClientId, userId])
 
   const fetchCloudClients = useCallback(async (silent = false): Promise<SyncedClient[]> => {
     const response = await fetch("/api/workspace/clients", {
@@ -123,6 +150,7 @@ export function useWorkspaceSync(userId: string) {
 
       if (
         !cancelled
+        && !restrictedClientId
         && !isLegacyMigrationComplete(userId)
         && canClaimLegacyWorkspace(userId)
       ) {
@@ -137,7 +165,7 @@ export function useWorkspaceSync(userId: string) {
     return () => {
       cancelled = true
     }
-  }, [applySyncedClients, fetchCloudClients, userId])
+  }, [applySyncedClients, fetchCloudClients, restrictedClientId, userId])
 
   useEffect(() => {
     clientsRef.current = clients
@@ -263,14 +291,16 @@ export function useWorkspaceSync(userId: string) {
   }, [userId])
 
   const handleCreate = useCallback((name: string) => {
+    if (restrictedClientId) return
     const client = createClient(name)
     setClients(previous => [client, ...previous])
     setActiveIdState(client.id)
     persistActiveId(userId, client.id)
     void persistCreate(client)
-  }, [persistCreate, userId])
+  }, [persistCreate, restrictedClientId, userId])
 
   const handleDelete = useCallback((id: string) => {
+    if (restrictedClientId) return
     const snapshot = clientsRef.current
     const next = snapshot.filter(client => client.id !== id)
     setClients(next)
@@ -297,19 +327,27 @@ export function useWorkspaceSync(userId: string) {
         setSyncState({ phase: "error", message: error instanceof Error ? error.message : "删除失败" })
       }
     })()
-  }, [activeId, userId])
+  }, [activeId, restrictedClientId, userId])
 
   const handleChangeClient = useCallback((patch: Partial<Client>) => {
     if (!activeId) return
     const clientId = activeId
-    const localPatch = { ...patch, updatedAt: new Date().toISOString() }
+    const scopedPatch = restrictedClientId
+      ? Object.fromEntries(
+          Object.entries(patch).filter(([field]) =>
+            CLIENT_ACCOUNT_PATCH_FIELDS.has(field as keyof Client)
+          ),
+        ) as Partial<Client>
+      : patch
+    if (Object.keys(scopedPatch).length === 0) return
+    const localPatch = { ...scopedPatch, updatedAt: new Date().toISOString() }
     setClients(previous => previous.map(client => client.id === clientId ? { ...client, ...localPatch } : client))
     pendingPatchesRef.current[clientId] = {
       ...(pendingPatchesRef.current[clientId] || {}),
-      ...patch,
+      ...scopedPatch,
     }
     scheduleSave(clientId)
-  }, [activeId, scheduleSave])
+  }, [activeId, restrictedClientId, scheduleSave])
 
   const refresh = useCallback(async () => {
     if (

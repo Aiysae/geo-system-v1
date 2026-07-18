@@ -9,6 +9,7 @@ import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { hitRateLimit } from "@/lib/rate-limit"
 import { requireUserId } from "@/lib/with-credits"
 import type { ArticleModelProviderKey } from "@/types"
+import { requireStandardAccountMode } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -81,6 +82,13 @@ export async function POST(req: NextRequest) {
   try {
     const userGuard = await requireUserId()
     if (!userGuard.ok) return userGuard.response
+    const accountAccess = await requireStandardAccountMode(userGuard.userId)
+    if (!accountAccess.ok) {
+      return NextResponse.json(
+        { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+        { status: 403 },
+      )
+    }
     const limited = await hitRateLimit("article:rewrite-brand-analysis", userGuard.userId, 12, 10 * 60)
     if (!limited.ok) {
       return NextResponse.json(

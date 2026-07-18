@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { cancelBackgroundJob, getBackgroundJob } from "@/lib/background-jobs"
 import { requireUserId } from "@/lib/with-credits"
+import { requireStandardAccountMode } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -28,6 +29,13 @@ export async function PATCH(
 ) {
   const userGuard = await requireUserId()
   if (!userGuard.ok) return userGuard.response
+  const accountAccess = await requireStandardAccountMode(userGuard.userId)
+  if (!accountAccess.ok) {
+    return NextResponse.json(
+      { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+      { status: 403 },
+    )
+  }
   const { jobId } = await context.params
   const job = await cancelBackgroundJob(jobId, userGuard.userId)
   if (!job) {

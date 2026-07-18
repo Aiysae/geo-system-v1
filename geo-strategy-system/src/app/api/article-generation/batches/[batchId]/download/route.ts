@@ -3,6 +3,7 @@ import JSZip from "jszip"
 import { getArticleBatch, getArticleBatchDownloadItems } from "@/lib/article-batches/manager"
 import { sanitizeArticleFileName } from "@/lib/article-batches/docx"
 import { requireUserId } from "@/lib/with-credits"
+import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -19,10 +20,17 @@ export async function GET(
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   const { batchId } = await context.params
+  const access = await resolveWorkspaceAccess(auth.userId)
+  if (!access.ok) {
+    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+  }
   const [batch, files] = await Promise.all([
-    getArticleBatch(batchId, auth.userId),
-    getArticleBatchDownloadItems(batchId, auth.userId),
+    getArticleBatch(batchId, access.ownerUserId),
+    getArticleBatchDownloadItems(batchId, access.ownerUserId),
   ])
+  if (batch && access.mode === "client" && batch.clientId !== access.clientId) {
+    return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
+  }
   if (!batch || !files) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
   if (files.length === 0) return NextResponse.json({ error: "当前还没有可下载的 Word 文档" }, { status: 409 })
 

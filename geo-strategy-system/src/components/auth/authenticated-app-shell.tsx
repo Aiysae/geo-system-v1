@@ -1,9 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
+import { LockKeyhole } from "lucide-react"
 import AppShell from "@/components/app-shell"
+import { AccountMenu } from "@/components/auth/account-menu"
 import { useCredits } from "@/components/credits/credits-provider"
 import type { PublicUser } from "@/lib/auth"
+import type { WorkspaceAccountAccess } from "@/types"
 
 type AuthState = "checking" | "authenticated" | "error"
 
@@ -11,6 +15,7 @@ export function AuthenticatedAppShell() {
   const [state, setState] = useState<AuthState>("checking")
   const [message, setMessage] = useState("")
   const [user, setUser] = useState<PublicUser | null>(null)
+  const [access, setAccess] = useState<WorkspaceAccountAccess | null>(null)
   const { refresh } = useCredits()
 
   useEffect(() => {
@@ -24,9 +29,21 @@ export function AuthenticatedAppShell() {
         })
         if (cancelled) return
         if (res.ok) {
-          const body = await res.json() as { user?: PublicUser }
+          const body = await res.json() as {
+            user?: PublicUser
+            access?: WorkspaceAccountAccess
+          }
           if (!body.user?.id) throw new Error("登录账号信息不完整")
           setUser(body.user)
+          setAccess(body.access || {
+            mode: "standard",
+            status: "active",
+            canCreateClients: true,
+            canManageClientIdentity: true,
+            canRunPenetration: true,
+            canRunOtherModules: true,
+            canCreateReports: true,
+          })
           setState("authenticated")
           void refresh()
           return
@@ -50,7 +67,33 @@ export function AuthenticatedAppShell() {
     }
   }, [refresh])
 
-  if (state === "authenticated" && user) return <AppShell userId={user.id} />
+  if (state === "authenticated" && user && access) {
+    if (access.mode === "client" && access.status === "suspended") {
+      return (
+        <div className="flex min-h-screen items-center justify-center geo-saturated-bg px-4">
+          <div className="w-full max-w-lg rounded-xl bg-white/95 p-6 text-center shadow-2xl ring-1 ring-white/80 sm:p-8">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-amber-50 text-amber-600 ring-1 ring-amber-200">
+              <LockKeyhole className="h-7 w-7" />
+            </span>
+            <h1 className="mt-5 text-xl font-semibold text-slate-900">客户专属账号已暂停</h1>
+            <p className="mt-3 text-sm leading-7 text-slate-500">
+              当前账号关联的「{access.clientName || "客户面板"}」已暂停使用。历史数据不会删除，请联系管理员恢复授权。
+            </p>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <Link
+                href="/billing"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-[#EAF3FF] px-4 text-xs font-semibold text-[#0958D9] ring-1 ring-[#B7D9FF] transition hover:bg-[#DCEEFF]"
+              >
+                查看账单
+              </Link>
+              <AccountMenu />
+            </div>
+          </div>
+        </div>
+      )
+    }
+    return <AppShell userId={user.id} access={access} />
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center geo-saturated-bg px-4">

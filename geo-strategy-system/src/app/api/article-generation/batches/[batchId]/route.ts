@@ -5,6 +5,10 @@ import {
   retryFailedArticleBatchItems,
 } from "@/lib/article-batches/manager"
 import { requireUserId } from "@/lib/with-credits"
+import {
+  requireStandardAccountMode,
+  resolveWorkspaceAccess,
+} from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -17,7 +21,14 @@ export async function GET(
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   const { batchId } = await context.params
-  const batch = await getArticleBatch(batchId, auth.userId)
+  const access = await resolveWorkspaceAccess(auth.userId)
+  if (!access.ok) {
+    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+  }
+  const batch = await getArticleBatch(batchId, access.ownerUserId)
+  if (batch && access.mode === "client" && batch.clientId !== access.clientId) {
+    return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
+  }
   if (!batch) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
   return NextResponse.json(batch, {
     headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
@@ -30,6 +41,13 @@ export async function PATCH(
 ) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
+  const accountAccess = await requireStandardAccountMode(auth.userId)
+  if (!accountAccess.ok) {
+    return NextResponse.json(
+      { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+      { status: 403 },
+    )
+  }
   const { batchId } = await context.params
   const body = await req.json().catch(() => ({})) as { action?: string }
   if (body.action === "cancel") {

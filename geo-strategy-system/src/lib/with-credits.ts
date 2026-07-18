@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server"
-import { addCreditsBy, decrCreditsBy, getCredits, refundCreditsOnce, reserveCreditsBy } from "./credits"
+import {
+  decrCreditsBy,
+  getCredits,
+  refundCreditReservationBreakdown,
+  refundCreditsOnce,
+  reserveCreditsBy,
+} from "./credits"
 import { getCurrentUser, getUserById, type PublicUser } from "./auth"
 import { isAdminUser } from "./admin"
 import type { CreditLedgerContext } from "./credit-ledger"
 import { getInternalApiUserId } from "./internal-api"
+import { canRunBillableFeature } from "./client-accounts"
 
 type UserIdGuard =
   | { ok: true; userId: string }
@@ -17,6 +24,9 @@ export type CreditReservation = {
   userId: string
   amount: number
   balanceAfterReserve: number
+  permanentReserved?: number
+  monthlyReserved?: number
+  monthlyPeriod?: string
   ledgerContext?: CreditLedgerContext
 }
 
@@ -104,6 +114,16 @@ export async function reserveCreditsForUser(
   | { ok: false; response: Response }
 > {
   const need = Math.max(1, Math.floor(Number.isFinite(required) ? required : 1))
+  const featureAccess = await canRunBillableFeature(userId, context?.featureKey)
+  if (!featureAccess.ok) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: featureAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+        { status: 403 },
+      ),
+    }
+  }
   if (await hasUnlimitedCreditAccessByUserId(userId)) {
     return {
       ok: true,
@@ -135,6 +155,9 @@ export async function reserveCreditsForUser(
       userId,
       amount: need,
       balanceAfterReserve: reserved.balance,
+      permanentReserved: reserved.permanentReserved,
+      monthlyReserved: reserved.monthlyReserved,
+      monthlyPeriod: reserved.monthlyPeriod,
       ledgerContext: context,
     },
   }
@@ -191,12 +214,18 @@ export async function authAndReserveCreditsForRequest(
 
 export async function refundReservedCredits(reservation: CreditReservation): Promise<void> {
   if (reservation.amount <= 0) return
-  await addCreditsBy(reservation.userId, reservation.amount, {
-    ...reservation.ledgerContext,
-    type: "usage_refund",
-    description: reservation.ledgerContext?.description
-      ? `${reservation.ledgerContext.description} · 失败退回`
-      : "任务失败退回预扣积分",
+  await refundCreditReservationBreakdown({
+    userId: reservation.userId,
+    permanentCredits: reservation.permanentReserved ?? reservation.amount,
+    monthlyCredits: reservation.monthlyReserved ?? 0,
+    monthlyPeriod: reservation.monthlyPeriod,
+    context: {
+      ...reservation.ledgerContext,
+      type: "usage_refund",
+      description: reservation.ledgerContext?.description
+        ? `${reservation.ledgerContext.description} · 失败退回`
+        : "任务失败退回预扣积分",
+    },
   })
 }
 
@@ -238,18 +267,32 @@ export async function settleReservedCredits(
   if (reservation.amount <= 0) return
 
   const usedAmount = Math.max(0, Math.floor(Number.isFinite(used) ? used : 0))
-  const refund = reservation.amount - Math.min(reservation.amount, usedAmount)
+  const settledAmount = Math.min(reservation.amount, usedAmount)
+  const monthlyReserved = reservation.monthlyReserved ?? 0
+  const permanentReserved = reservation.permanentReserved
+    ?? Math.max(0, reservation.amount - monthlyReserved)
+  const usedMonthly = Math.min(monthlyReserved, settledAmount)
+  const usedPermanent = Math.max(0, settledAmount - usedMonthly)
+  const refundMonthly = Math.max(0, monthlyReserved - usedMonthly)
+  const refundPermanent = Math.max(0, permanentReserved - usedPermanent)
+  const refund = refundMonthly + refundPermanent
   if (refund > 0) {
-    await addCreditsBy(reservation.userId, refund, {
-      ...reservation.ledgerContext,
-      type: "usage_refund",
-      description: reservation.ledgerContext?.description
-        ? `${reservation.ledgerContext.description} · 未使用退回`
-        : "未使用预扣积分退回",
-      metadata: {
-        ...reservation.ledgerContext?.metadata,
-        reserved: reservation.amount,
-        used: usedAmount,
+    await refundCreditReservationBreakdown({
+      userId: reservation.userId,
+      permanentCredits: refundPermanent,
+      monthlyCredits: refundMonthly,
+      monthlyPeriod: reservation.monthlyPeriod,
+      context: {
+        ...reservation.ledgerContext,
+        type: "usage_refund",
+        description: reservation.ledgerContext?.description
+          ? `${reservation.ledgerContext.description} · 未使用退回`
+          : "未使用预扣积分退回",
+        metadata: {
+          ...reservation.ledgerContext?.metadata,
+          reserved: reservation.amount,
+          used: usedAmount,
+        },
       },
     })
   }

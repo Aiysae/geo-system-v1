@@ -94,6 +94,7 @@ try {
   const owner = "history-owner"
   const record = buildPenetrationHistoryRecord({
     id: "pjob_history_main",
+    actorUserId: "history-client-actor",
     request,
     status: "succeeded",
     result,
@@ -112,11 +113,13 @@ try {
   const firstPage = await listPenetrationHistoryRecords(owner)
   assert.equal(firstPage.total, 1, "same job id must upsert instead of duplicating")
   assert.equal(firstPage.items[0]?.summary.sourceCount, 2)
+  assert.equal(firstPage.items[0]?.actorUserId, "history-client-actor")
   assert.equal("result" in firstPage.items[0]!, false, "list endpoint must omit full result")
   assert.equal((await listPenetrationHistoryRecords("different-owner")).total, 0)
   assert.equal(await getPenetrationHistoryRecord("different-owner", record.id), null)
 
   const detail = await getPenetrationHistoryRecord(owner, record.id)
+  assert.equal(detail?.actorUserId, "history-client-actor")
   assert.equal(detail?.result?.byModel.doubao?.[0]?.answer, result.byModel.doubao?.[0]?.answer)
   assert.equal(detail?.dashboard.brandVoice[0]?.brand, "势途")
   assert.equal(detail?.dashboard.keywordCompetition.length, 1)

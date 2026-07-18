@@ -7,6 +7,8 @@ import { PRICING_VERSION, type FeaturePriceKey } from "@/lib/pricing"
 export type CreditLedgerType =
   | "trial_grant"
   | "bootstrap_grant"
+  | "client_monthly_grant"
+  | "client_monthly_adjust"
   | "recharge_requested"
   | "recharge_approved"
   | "recharge_rejected"

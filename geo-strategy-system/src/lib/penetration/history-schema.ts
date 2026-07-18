@@ -1,6 +1,7 @@
 export const PENETRATION_HISTORY_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS geo_penetration_history_v1 (
   owner_user_id TEXT NOT NULL,
+  actor_user_id TEXT,
   id TEXT NOT NULL,
   client_id TEXT NOT NULL,
   client_name TEXT NOT NULL,
@@ -19,6 +20,9 @@ CREATE TABLE IF NOT EXISTS geo_penetration_history_v1 (
   deleted_at TIMESTAMPTZ,
   PRIMARY KEY (owner_user_id, id)
 );
+
+ALTER TABLE geo_penetration_history_v1
+  ADD COLUMN IF NOT EXISTS actor_user_id TEXT;
 
 CREATE INDEX IF NOT EXISTS geo_penetration_history_owner_completed_idx
   ON geo_penetration_history_v1 (owner_user_id, completed_at DESC, created_at DESC)

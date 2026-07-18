@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireUserId } from "@/lib/with-credits"
 import { importLegacyWorkspaceClients } from "@/lib/workspace-store"
 import { WorkspaceValidationError } from "@/lib/workspace-sync"
+import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -12,6 +13,18 @@ const MAX_BODY_BYTES = 25 * 1024 * 1024
 export async function POST(request: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
+  const access = await resolveWorkspaceAccess(auth.userId)
+  if (!access.ok || access.mode === "client") {
+    return noStore(NextResponse.json(
+      {
+        error: access.ok
+          ? "客户专属账号不能导入其他客户"
+          : access.message,
+        code: "CLIENT_ACCOUNT_READ_ONLY",
+      },
+      { status: 403 },
+    ))
+  }
   if (Number(request.headers.get("content-length") || 0) > MAX_BODY_BYTES) {
     return noStore(NextResponse.json({ error: "本机历史数据超过单次导入限制" }, { status: 413 }))
   }
@@ -21,7 +34,7 @@ export async function POST(request: NextRequest) {
       throw new WorkspaceValidationError("本机历史数据超过单次导入限制")
     }
     const result = await importLegacyWorkspaceClients(
-      auth.userId,
+      access.ownerUserId,
       String(body.importId || ""),
       Array.isArray(body.clients) ? body.clients : [],
     )

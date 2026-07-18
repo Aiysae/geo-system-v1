@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
-import { CREDITS_INITIAL, getCredits } from "@/lib/credits"
+import { CREDITS_INITIAL, getCreditBalanceSnapshot } from "@/lib/credits"
 import { hasUnlimitedCreditAccess, UNLIMITED_CREDITS_BALANCE } from "@/lib/with-credits"
 import { getMembershipWithPaymentRepair } from "@/lib/membership"
 
@@ -20,12 +20,24 @@ export async function GET() {
       initial: CREDITS_INITIAL,
       unlimited: true,
       membership,
+      permanentCredits: UNLIMITED_CREDITS_BALANCE,
+      monthlyCredits: 0,
     }, { headers: { "Cache-Control": "private, no-store" } })
   }
 
-  const credits = await getCredits(user.id)
+  const balance = await getCreditBalanceSnapshot(user.id)
   return NextResponse.json(
-    { credits, initial: CREDITS_INITIAL, unlimited: false, membership },
+    {
+      credits: balance.total,
+      permanentCredits: balance.permanent,
+      monthlyCredits: balance.monthly,
+      monthlyAllowance: balance.monthlyAllowance,
+      monthlyPeriod: balance.monthlyPeriod,
+      renewsAt: balance.renewsAt,
+      initial: CREDITS_INITIAL,
+      unlimited: false,
+      membership,
+    },
     { headers: { "Cache-Control": "private, no-store" } },
   )
 }
