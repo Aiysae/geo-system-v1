@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { Plus, Trash2, Users, Database, X } from "lucide-react"
+import { Plus, Trash2, Users, Database, X, ShieldCheck } from "lucide-react"
 import type { Client } from "@/types"
 
 interface Props {
@@ -16,6 +16,9 @@ interface Props {
   open?: boolean
   /** 仅在移动端：抽屉关闭回调。桌面端不会触发。 */
   onClose?: () => void
+  restricted?: boolean
+  monthlyCredits?: number
+  monthlyAllowance?: number
 }
 
 export default function ClientSidebar({
@@ -26,6 +29,9 @@ export default function ClientSidebar({
   onDelete,
   open = false,
   onClose,
+  restricted = false,
+  monthlyCredits = 0,
+  monthlyAllowance = 0,
 }: Props) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState("")
@@ -81,18 +87,23 @@ export default function ClientSidebar({
 
       <div className="relative flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/60 font-semibold">
-          <Users className="h-3.5 w-3.5" /> 客户列表
+          {restricted
+            ? <ShieldCheck className="h-3.5 w-3.5" />
+            : <Users className="h-3.5 w-3.5" />}
+          {restricted ? "授权品牌" : "客户列表"}
         </div>
         <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] text-cyan-100 ring-1 ring-white/10">
           {clients.length}
         </span>
-        <button
-          onClick={() => setAdding(true)}
-          className="p-1 rounded hover:bg-white/10 transition"
-          aria-label="新增客户"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
+        {!restricted ? (
+          <button
+            onClick={() => setAdding(true)}
+            className="p-1 rounded hover:bg-white/10 transition"
+            aria-label="新增客户"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
       {adding && (
@@ -123,9 +134,8 @@ export default function ClientSidebar({
       <nav className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-4 space-y-1">
         {clients.length === 0 && !adding && (
           <p className="px-3 py-8 text-xs text-white/40 text-center leading-relaxed">
-            暂无客户
-            <br />
-            点击右上 + 创建
+            {restricted ? "授权客户面板暂不可用" : "暂无客户"}
+            {!restricted ? <><br />点击右上 + 创建</> : null}
           </p>
         )}
         {clients.map(c => (
@@ -142,23 +152,49 @@ export default function ClientSidebar({
               <span className={`h-2 w-2 shrink-0 rounded-full ${activeId === c.id ? "bg-white" : "bg-cyan-300/45"}`} />
               <span className="truncate">{c.name}</span>
             </span>
-            <button
-              onClick={e => {
-                e.stopPropagation()
-                if (confirm(`确定删除客户「${c.name}」?`)) onDelete(c.id)
-              }}
-              className="opacity-0 group-hover:opacity-100 transition p-1 hover:bg-white/10 rounded"
-              aria-label="删除"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            {!restricted ? (
+              <button
+                onClick={e => {
+                  e.stopPropagation()
+                  if (confirm(`确定删除客户「${c.name}」?`)) onDelete(c.id)
+                }}
+                className="opacity-0 group-hover:opacity-100 transition p-1 hover:bg-white/10 rounded"
+                aria-label="删除"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </div>
         ))}
       </nav>
 
-      <div className="relative px-4 py-3 border-t border-white/10 text-[11px] text-white/45 flex items-center gap-1.5 shrink-0">
-        <Database className="h-3 w-3" />
-        云端同步 · 多设备可用
+      <div className="relative shrink-0 border-t border-white/10 px-4 py-3 text-[11px] text-white/55">
+        {restricted ? (
+          <>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span>本月专属额度</span>
+              <span className="font-mono font-semibold text-cyan-100">
+                {monthlyCredits}/{monthlyAllowance || 0}
+              </span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#00C8FF] to-[#69E3E0]"
+                style={{
+                  width: `${monthlyAllowance > 0
+                    ? Math.min(100, Math.max(0, monthlyCredits / monthlyAllowance * 100))
+                    : 0}%`,
+                }}
+              />
+            </div>
+            <div className="mt-1.5 text-[9px] text-white/38">每月 1 日刷新 · 当月未用额度不结转</div>
+          </>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <Database className="h-3 w-3" />
+            云端同步 · 多设备可用
+          </div>
+        )}
       </div>
     </aside>
   )

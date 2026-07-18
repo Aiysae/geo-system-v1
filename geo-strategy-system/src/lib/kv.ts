@@ -135,6 +135,12 @@ class LocalFileKv implements KvClient {
     if (script.includes("admin_adjustment_v1")) {
       return this.evalAdminAdjustment(keys, args) as TResult
     }
+    if (script.includes("client_monthly_reserve_v1")) {
+      return this.evalClientMonthlyReserve(keys, args) as TResult
+    }
+    if (script.includes("client_monthly_adjust_v1")) {
+      return this.evalClientMonthlyAdjust(keys, args) as TResult
+    }
     if (script.includes('redis.call("INCR"')) {
       return this.evalRateLimit(keys[0], args) as TResult
     }
@@ -245,6 +251,80 @@ class LocalFileKv implements KvClient {
     this.state[key] = { type: "value", value: next }
     this.persist()
     return [1, next]
+  }
+
+  private evalClientMonthlyReserve<TData>(
+    keys: string[],
+    args: TData[],
+  ): [number, number, number, number, number, number] {
+    const [permanentKey, monthlyCreditsKey] = keys
+    const initial = Number(args[0] ?? 0)
+    const amount = Number(args[1] ?? 0)
+    const permanentEntry = this.getEntry(permanentKey)
+    const monthlyEntry = this.getEntry(monthlyCreditsKey)
+    const permanentValue = permanentEntry?.type === "value"
+      ? Number(permanentEntry.value)
+      : initial
+    const monthlyValue = monthlyEntry?.type === "value"
+      ? Number(monthlyEntry.value)
+      : 0
+    const permanent = Number.isFinite(permanentValue) ? permanentValue : 0
+    const monthly = Number.isFinite(monthlyValue) ? monthlyValue : 0
+    const total = permanent + monthly
+
+    if (!permanentEntry) {
+      this.state[permanentKey] = { type: "value", value: permanent }
+      this.persist()
+    }
+    if (amount <= 0) return [1, total, permanent, monthly, 0, 0]
+    if (total < amount) return [0, total, permanent, monthly, 0, 0]
+
+    const monthlyUsed = Math.min(monthly, amount)
+    const permanentUsed = amount - monthlyUsed
+    const nextMonthly = monthly - monthlyUsed
+    const nextPermanent = permanent - permanentUsed
+    this.state[permanentKey] = { type: "value", value: nextPermanent }
+    this.state[monthlyCreditsKey] = {
+      type: "value",
+      value: nextMonthly,
+      expiresAt: monthlyEntry?.expiresAt,
+    }
+    this.persist()
+    return [
+      1,
+      nextPermanent + nextMonthly,
+      nextPermanent,
+      nextMonthly,
+      permanentUsed,
+      monthlyUsed,
+    ]
+  }
+
+  private evalClientMonthlyAdjust<TData>(
+    keys: string[],
+    args: TData[],
+  ): [number, number, number] {
+    const [monthlyCreditsKey] = keys
+    const target = Math.max(0, Number(args[0] ?? 0))
+    const previousAllowance = Math.max(0, Number(args[1] ?? 0))
+    const ttlSeconds = Math.max(1, Number(args[2] ?? 1))
+    const current = this.getEntry(monthlyCreditsKey)
+    const existed = current?.type === "value" ? 1 : 0
+    const priorValue = current?.type === "value" ? Number(current.value) : 0
+    const prior = Number.isFinite(priorValue) ? Math.max(0, priorValue) : 0
+    const next = existed
+      ? Math.min(
+          target,
+          Math.max(0, previousAllowance > 0 ? prior + target - previousAllowance : Math.min(prior, target)),
+        )
+      : target
+    this.state[monthlyCreditsKey] = {
+      type: "value",
+      value: next,
+      expiresAt: Date.now() + ttlSeconds * 1000,
+    }
+    this.persist()
+    return [existed, prior, next]
   }
 
   private evalAdminAdjustment<TData>(keys: string[], args: TData[]): [number, number | string] {

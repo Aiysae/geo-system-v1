@@ -21,6 +21,8 @@ const TYPE_LABEL: Record<CreditLedgerEntry["type"], string> = {
   usage_reserved: "功能扣费",
   usage_refund: "积分退回",
   usage_extra: "超额结算",
+  client_monthly_grant: "客户月度额度",
+  client_monthly_adjust: "客户额度调整",
 }
 
 const TYPE_CLASS: Record<CreditLedgerEntry["type"], string> = {
@@ -33,6 +35,8 @@ const TYPE_CLASS: Record<CreditLedgerEntry["type"], string> = {
   usage_reserved: "bg-orange-50 text-orange-700 ring-orange-200",
   usage_refund: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   usage_extra: "bg-violet-50 text-violet-700 ring-violet-200",
+  client_monthly_grant: "bg-cyan-50 text-cyan-700 ring-cyan-200",
+  client_monthly_adjust: "bg-sky-50 text-sky-700 ring-sky-200",
 }
 
 function formatTime(value: number): string {

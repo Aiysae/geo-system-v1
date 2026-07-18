@@ -49,7 +49,9 @@ export interface PenetrationJobRequest {
 type StoredPenetrationJob = PenetrationJobRecord & {
   request: PenetrationJobRequest
   ownerUserId: string
+  workspaceOwnerUserId: string
   reservedCredits: number
+  creditReservation?: CreditReservation
   batchBaseUrls: string[]
   baseResult?: PenetrationResult
   creditsSettledAt?: string
@@ -110,7 +112,9 @@ function toPublicJob(job: StoredPenetrationJob): PenetrationJobRecord {
   const publicJob: Partial<StoredPenetrationJob> = { ...job }
   delete publicJob.request
   delete publicJob.ownerUserId
+  delete publicJob.workspaceOwnerUserId
   delete publicJob.reservedCredits
+  delete publicJob.creditReservation
   delete publicJob.batchBaseUrls
   delete publicJob.baseResult
   delete publicJob.creditsSettledAt
@@ -385,7 +389,7 @@ async function settleJobCredits(id: string, usedSlots: number): Promise<void> {
   try {
     const job = await getStoredJob(id)
     if (!job || job.creditsSettledAt) return
-    const reservation: CreditReservation = {
+    const reservation: CreditReservation = job.creditReservation || {
       userId: job.ownerUserId,
       amount: job.reservedCredits,
       balanceAfterReserve: 0,
@@ -422,7 +426,7 @@ async function persistJobResultToWorkspace(job: StoredPenetrationJob): Promise<v
   if (!job.result) return
   try {
     const saved = await mutateWorkspaceClientLatest({
-      userId: job.ownerUserId,
+      userId: job.workspaceOwnerUserId || job.ownerUserId,
       clientId: job.clientId,
       mutate: current => {
         if (current.penetrationJobId && current.penetrationJobId !== job.id) return null
@@ -469,6 +473,7 @@ async function persistTerminalHistory(args: {
   try {
     const record = buildPenetrationHistoryRecord({
       id: args.job.id,
+      actorUserId: args.job.ownerUserId,
       request: {
         clientId: args.job.request.clientId,
         clientName: args.job.request.clientName?.trim()
@@ -493,7 +498,10 @@ async function persistTerminalHistory(args: {
       createdAt: args.job.createdAt,
       completedAt: args.finishedAt,
     })
-    await savePenetrationHistoryRecord(args.job.ownerUserId, record)
+    await savePenetrationHistoryRecord(
+      args.job.workspaceOwnerUserId || args.job.ownerUserId,
+      record,
+    )
     return {
       historyRecordId: record.id,
       historySavedAt: nowIso(),
@@ -894,6 +902,7 @@ export async function createPenetrationJob(args: {
   id?: string
   request: PenetrationJobRequest
   ownerUserId: string
+  workspaceOwnerUserId?: string
   reservation: CreditReservation
   skipped: string[]
   baseResult?: PenetrationResult
@@ -919,7 +928,9 @@ export async function createPenetrationJob(args: {
     updatedAt: now,
     request: args.request,
     ownerUserId: args.ownerUserId,
+    workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
     reservedCredits: args.reservation.amount,
+    creditReservation: args.reservation,
     batchBaseUrls: buildBatchBaseUrls(),
     baseResult: args.request.operation === "append" ? args.baseResult : undefined,
   }
@@ -933,10 +944,13 @@ export async function createPenetrationJob(args: {
 
 export async function getPenetrationJob(
   id: string,
-  ownerUserId: string,
+  requesterUserId: string,
 ): Promise<PenetrationJobRecord | null> {
   const job = await getStoredJob(id)
-  if (!job || job.ownerUserId !== ownerUserId) return null
+  if (
+    !job
+    || (job.ownerUserId !== requesterUserId && job.workspaceOwnerUserId !== requesterUserId)
+  ) return null
   if (
     (job.status === "queued" || job.status === "running")
     && !activeJobs.has(job.id)
@@ -955,10 +969,13 @@ export async function getPenetrationJob(
 
 export async function cancelPenetrationJob(
   id: string,
-  ownerUserId: string,
+  requesterUserId: string,
 ): Promise<PenetrationJobRecord | null> {
   const job = await getStoredJob(id)
-  if (!job || job.ownerUserId !== ownerUserId) return null
+  if (
+    !job
+    || (job.ownerUserId !== requesterUserId && job.workspaceOwnerUserId !== requesterUserId)
+  ) return null
   if (["succeeded", "blocked", "failed", "cancelled"].includes(job.status)) return toPublicJob(job)
 
   const usedSlots = successfulNewSlotCount(job)

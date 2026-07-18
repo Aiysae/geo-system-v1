@@ -1,17 +1,32 @@
 import { notFound, redirect } from "next/navigation"
-import { Crown, ReceiptText, ShieldCheck, UserRound, WalletCards } from "lucide-react"
+import {
+  Building2,
+  CalendarClock,
+  Crown,
+  ReceiptText,
+  ShieldCheck,
+  UserRound,
+  WalletCards,
+} from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
-import { getCurrentUser, getUserById } from "@/lib/auth"
-import { getCredits } from "@/lib/credits"
+import { getCurrentUser, getUserById, listUsers } from "@/lib/auth"
+import { getCreditBalanceSnapshot } from "@/lib/credits"
 import { getMembershipWithPaymentRepair } from "@/lib/membership"
 import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-ledger"
 import { formatYuan, getFeaturePrice } from "@/lib/pricing"
 import { listRequestsForUser, type RechargeRequest } from "@/lib/recharge"
+import {
+  getClientAccountLink,
+  listClientAccountAudit,
+  type ClientAccountAuditAction,
+} from "@/lib/client-accounts"
+import { listWorkspaceClients } from "@/lib/workspace-store"
 import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "../../credits-adjust-form"
 import { UserStatusForm } from "../../user-status-form"
 import { AdminHeader } from "@/components/admin/admin-header"
+import { ClientAccountForm } from "../../client-account-form"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -42,6 +57,16 @@ const LEDGER_LABEL: Record<CreditLedgerEntry["type"], string> = {
   usage_reserved: "功能扣费",
   usage_refund: "积分退回",
   usage_extra: "超额结算",
+  client_monthly_grant: "客户月度额度",
+  client_monthly_adjust: "客户额度调整",
+}
+
+const CLIENT_AUDIT_LABEL: Record<ClientAccountAuditAction, string> = {
+  linked: "创建授权",
+  updated: "更新授权",
+  activated: "恢复授权",
+  suspended: "暂停授权",
+  unlinked: "解除授权",
 }
 
 function formatTime(value?: number | string): string {
@@ -77,12 +102,33 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
   const user = await getUserById(userId)
   if (!user) notFound()
 
-  const [credits, recharges, ledger, membership] = await Promise.all([
-    getCredits(user.id),
+  const [creditBalance, recharges, ledger, membership, clientLink, clientAudit, allUsers] = await Promise.all([
+    getCreditBalanceSnapshot(user.id),
     listRequestsForUser(user.id, 100),
     listCreditLedgerForUser(user.id, 150),
     getMembershipWithPaymentRepair(user.id),
+    getClientAccountLink(user.id),
+    listClientAccountAudit(user.id, 12),
+    listUsers(),
   ])
+  const ownerRows = await Promise.all(
+    allUsers
+      .filter(owner => owner.id !== user.id)
+      .map(async owner => ({
+        owner,
+        clients: await listWorkspaceClients(owner.id),
+      })),
+  )
+  const clientOptions = ownerRows.flatMap(({ owner, clients }) =>
+    clients.map(record => ({
+      value: `${owner.id}::${record.client.id}`,
+      clientName: record.client.name,
+      industry: record.client.industry || "",
+      ownerName: owner.name,
+      ownerEmail: owner.email,
+    })),
+  )
+  const credits = creditBalance.total
   const totalRechargeCredits = recharges
     .filter(item => item.status === "approved")
     .reduce((sum, item) => sum + (item.credits ?? item.amount), 0)
@@ -109,6 +155,11 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
             </div>
             <div className="mt-2 text-3xl font-bold text-slate-900">{unlimited ? "无限" : credits}</div>
             {unlimited && <div className="mt-1 font-mono text-[10px] text-slate-400">账面余额 {credits}</div>}
+            {!unlimited && clientLink ? (
+              <div className="mt-1 text-[10px] leading-4 text-slate-400">
+                本月额度 {creditBalance.monthly} · 充值积分 {creditBalance.permanent}
+              </div>
+            ) : null}
           </div>
           <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-emerald-700">累计充值到账</div>
@@ -140,14 +191,83 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
         </section>
 
         <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Building2 className="h-4 w-4 text-[#1677FF]" />
+                客户专属账号授权
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                将该登录账号绑定到一个现有客户面板；每个自然月自动刷新专属检测额度，不结转到下月。
+              </p>
+            </div>
+            {clientLink ? (
+              <span className={`inline-flex w-fit rounded-lg px-2.5 py-1 text-xs font-semibold ring-1 ${
+                clientLink.status === "active"
+                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  : "bg-amber-50 text-amber-700 ring-amber-200"
+              }`}>
+                {clientLink.status === "active" ? "专属账号正常" : "专属账号已暂停"}
+              </span>
+            ) : (
+              <span className="inline-flex w-fit rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
+                普通账号
+              </span>
+            )}
+          </div>
+          <ClientAccountForm
+            userId={user.id}
+            options={clientOptions}
+            currentLink={clientLink ? {
+              ownerUserId: clientLink.ownerUserId,
+              clientId: clientLink.clientId,
+              clientName: clientLink.clientName,
+              monthlyCredits: clientLink.monthlyCredits,
+              status: clientLink.status,
+            } : null}
+            disabled={isAdminUser(user)}
+          />
+          {clientAudit.length > 0 ? (
+            <div className="mt-5 border-t border-slate-100 pt-4">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                <CalendarClock className="h-3.5 w-3.5 text-[#1677FF]" />
+                最近授权记录
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {clientAudit.slice(0, 6).map(entry => (
+                  <div key={entry.id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs ring-1 ring-slate-100">
+                    <div className="font-medium text-slate-700">
+                      {CLIENT_AUDIT_LABEL[entry.action]}
+                      {entry.after?.clientName || entry.before?.clientName
+                        ? ` · ${entry.after?.clientName || entry.before?.clientName}`
+                        : ""}
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-400">
+                      {formatTime(entry.createdAt)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-900">
             <ShieldCheck className="h-4 w-4 text-[#1677FF]" />
             账号管理
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
-              <div className="mb-2 text-xs font-medium text-slate-500">积分手动调整</div>
+              <div className="mb-2 text-xs font-medium text-slate-500">
+                {clientLink ? "充值 / 永久积分调整" : "积分手动调整"}
+              </div>
               <CreditsAdjustForm userId={user.id} disabled={unlimited} />
+              {clientLink ? (
+                <p className="mt-2 text-[10px] leading-4 text-slate-400">
+                  此处只调整可长期保留的充值积分，不改变每月专属额度。
+                </p>
+              ) : null}
             </div>
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">账号状态</div>

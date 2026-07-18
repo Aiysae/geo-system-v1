@@ -27,6 +27,7 @@ import {
   Grid3X3,
   History,
   ListOrdered,
+  LockKeyhole,
   LoaderCircle,
   Menu,
   MoreHorizontal,
@@ -39,9 +40,24 @@ import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { AccountMenu } from "@/components/auth/account-menu"
 import { useWorkspaceSync, type WorkspaceSyncState } from "@/hooks/use-workspace-sync"
-import type { Client, ReportExportPreset } from "@/types"
+import type {
+  Client,
+  ReportExportPreset,
+  WorkspaceAccountAccess,
+} from "@/types"
 
-export default function Home({ userId }: { userId: string }) {
+export default function Home({
+  userId,
+  access,
+}: {
+  userId: string
+  access: WorkspaceAccountAccess
+}) {
+  const restricted = access.mode === "client"
+  const {
+    monthlyBalance,
+    monthlyAllowance,
+  } = useCredits()
   const {
     clients,
     activeId,
@@ -59,7 +75,9 @@ export default function Home({ userId }: { userId: string }) {
     dismissMigration,
     loadCloudConflictVersion,
     overwriteCloudConflictVersion,
-  } = useWorkspaceSync(userId)
+  } = useWorkspaceSync(userId, {
+    restrictedClientId: restricted ? access.clientId : undefined,
+  })
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [reportExportPreset, setReportExportPreset] = useState<ReportExportPreset | null>(null)
@@ -115,6 +133,9 @@ export default function Home({ userId }: { userId: string }) {
         onSelect={handleSelect}
         onCreate={handleCreate}
         onDelete={handleDelete}
+        restricted={restricted}
+        monthlyCredits={monthlyBalance}
+        monthlyAllowance={monthlyAllowance}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -131,6 +152,7 @@ export default function Home({ userId }: { userId: string }) {
           onOpenReportHistory={() => setReportHistoryOpen(true)}
           syncState={syncState}
           onRetrySync={retry}
+          access={access}
         />
         {conflict ? (
           <WorkspaceConflictNotice
@@ -143,7 +165,11 @@ export default function Home({ userId }: { userId: string }) {
             加载中...
           </div>
         ) : !active ? (
-          <EmptyState onCreate={handleCreate} />
+          <EmptyState
+            onCreate={handleCreate}
+            restricted={restricted}
+            clientName={access.clientName}
+          />
         ) : (
           // key={active.id}：切换客户时强制 Dashboard 整子树重挂载，
           // 彻底清空各 Module 内的 isDetecting/loading/progress 等运行时状态，根治状态泄露。
@@ -151,6 +177,7 @@ export default function Home({ userId }: { userId: string }) {
             key={active.id}
             client={active}
             onChangeClient={handleChangeClient}
+            access={access}
             onExportReport={preset => {
               setReportExportClient(null)
               setReportExportPreset(preset)
@@ -171,7 +198,7 @@ export default function Home({ userId }: { userId: string }) {
           <ArrowUp className="h-5 w-5" />
         </button>
       ) : null}
-      {(reportExportClient || active) && reportExportPreset && (
+      {access.canCreateReports && (reportExportClient || active) && reportExportPreset && (
         <ReportExportDialog
           client={(reportExportClient || active) as Client}
           preset={reportExportPreset}
@@ -211,6 +238,7 @@ function StickyHeader({
   onOpenReportHistory,
   syncState,
   onRetrySync,
+  access,
 }: {
   client: Client | null
   onOpenSidebar: () => void
@@ -218,6 +246,7 @@ function StickyHeader({
   onOpenReportHistory: () => void
   syncState: WorkspaceSyncState
   onRetrySync: () => void
+  access: WorkspaceAccountAccess
 }) {
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false)
 
@@ -254,8 +283,9 @@ function StickyHeader({
               {client?.name || "市场情报工作台"}
             </div>
             <div className="hidden truncate text-[10px] text-white/58 sm:block">
-              {client?.industry ? `${client.industry} · ` : ""}
-              GEO 全链路操作工具
+              {access.mode === "client"
+                ? "客户专属工作台 · GEO 全链路操作工具"
+                : `${client?.industry ? `${client.industry} · ` : ""}GEO 全链路操作工具`}
             </div>
           </div>
         </div>
@@ -270,7 +300,7 @@ function StickyHeader({
             <History className="h-3.5 w-3.5" />
             历史报告
           </button>
-          {client && (
+          {client && access.canCreateReports && (
             <button
               onClick={onExportReport}
               className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#69DFFF]/65 bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white shadow-[0_10px_24px_-16px_rgba(0,200,255,0.8)] transition-[filter] hover:brightness-105"
@@ -317,7 +347,7 @@ function StickyHeader({
                     <History className="h-4 w-4 text-[#1677FF]" />
                     历史专业报告
                   </button>
-                  {client ? (
+                  {client && access.canCreateReports ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -500,11 +530,19 @@ function LegacyMigrationDialog({
 }
 
 function CreditsPill() {
-  const { balance, unlimited } = useCredits()
+  const {
+    balance,
+    unlimited,
+    monthlyBalance,
+    monthlyAllowance,
+    permanentBalance,
+  } = useCredits()
   return (
     <div
       className="inline-flex items-center gap-1.5 rounded-lg bg-[#FFB020]/16 px-2.5 py-1.5 text-[11px] font-medium text-white ring-1 ring-[#FFB020]/35"
-      title="体验算力积分余额"
+      title={monthlyAllowance > 0
+        ? `本月专属额度 ${monthlyBalance}/${monthlyAllowance}，充值积分 ${permanentBalance ?? 0}`
+        : "体验算力积分余额"}
     >
       <Sparkles className="h-3.5 w-3.5 text-amber-300" />
       <span className="hidden sm:inline text-white/60">积分</span>
@@ -515,7 +553,15 @@ function CreditsPill() {
   )
 }
 
-function EmptyState({ onCreate }: { onCreate: (name: string) => void }) {
+function EmptyState({
+  onCreate,
+  restricted = false,
+  clientName,
+}: {
+  onCreate: (name: string) => void
+  restricted?: boolean
+  clientName?: string
+}) {
   const [name, setName] = useState("")
   return (
     <div className="h-screen flex flex-col items-center justify-center px-6 animate-fade-in-up">
@@ -523,12 +569,14 @@ function EmptyState({ onCreate }: { onCreate: (name: string) => void }) {
         <Sparkles className="h-12 w-12 text-white" />
       </div>
       <h2 className="geo-display-title text-3xl text-slate-900">
-        欢迎使用势途 GEO 市场情报终端
+        {restricted ? "客户面板暂不可用" : "欢迎使用势途 GEO 市场情报终端"}
       </h2>
       <p className="text-sm text-slate-500 mt-3 max-w-md text-center leading-relaxed">
-        每个客户的调研数据、诊断结果与生成策略会自动保存到当前账号，换设备也能继续使用。
+        {restricted
+          ? `当前账号已关联「${clientName || "指定客户"}」，但面板数据暂时无法读取。请联系管理员检查授权客户是否仍然存在。`
+          : "每个客户的调研数据、诊断结果与生成策略会自动保存到当前账号，换设备也能继续使用。"}
       </p>
-      <div className="mt-8 flex gap-2 w-full max-w-sm">
+      {!restricted ? <div className="mt-8 flex gap-2 w-full max-w-sm">
         <input
           value={name}
           onChange={e => setName(e.target.value)}
@@ -552,7 +600,7 @@ function EmptyState({ onCreate }: { onCreate: (name: string) => void }) {
         >
           创建
         </button>
-      </div>
+      </div> : null}
     </div>
   )
 }
@@ -561,12 +609,16 @@ function Dashboard({
   client,
   onChangeClient,
   onExportReport,
+  access,
 }: {
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
   onExportReport: (preset: ReportExportPreset) => void
+  access: WorkspaceAccountAccess
 }) {
   const [activeModule, setActiveModule] = useState<DashboardModuleKey>("penetration")
+  const readOnlyModule = access.mode === "client" && activeModule !== "penetration"
+  const moduleOnChange = readOnlyModule ? () => undefined : onChangeClient
 
   return (
     <div className="geo-page-wrap animate-fade-in-up py-3 md:py-4 print-container">
@@ -585,6 +637,12 @@ function Dashboard({
               {client.industry}
             </span>
           )}
+          {access.mode === "client" ? (
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-cyan-50 ring-1 ring-white/15">
+              <LockKeyhole className="h-3 w-3" />
+              客户专属授权
+            </span>
+          ) : null}
         </div>
         <div className="text-xs text-white/55">
           创建于 {new Date(client.createdAt).toLocaleDateString("zh-CN")}
@@ -592,34 +650,59 @@ function Dashboard({
         </div>
       </header>
 
-      <ModuleNav active={activeModule} onChange={setActiveModule} />
+      <ModuleNav
+        active={activeModule}
+        onChange={setActiveModule}
+        restricted={access.mode === "client"}
+      />
 
       <section className="mt-3 md:mt-4">
+        {readOnlyModule ? (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-[#91CAFF] bg-[#EAF5FF] px-3 py-2.5 text-xs leading-5 text-[#0958D9] no-print">
+            <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            当前为客户专属账号，本模块展示关联品牌的现有数据，仅渗透率情报支持操作。
+          </div>
+        ) : null}
+        <fieldset
+          disabled={readOnlyModule}
+          aria-disabled={readOnlyModule}
+          className={readOnlyModule ? "min-w-0 opacity-[0.92]" : "min-w-0"}
+          onClickCapture={event => {
+            if (!readOnlyModule) return
+            const target = event.target as HTMLElement
+            if (target.closest("a,button,input,textarea,select,[role='button']")) {
+              event.preventDefault()
+              event.stopPropagation()
+            }
+          }}
+        >
         {activeModule === "penetration" && (
           <PenetrationModule
             client={client}
             onChangeClient={onChangeClient}
+            identityReadOnly={!access.canManageClientIdentity}
           />
         )}
         {activeModule === "research" && (
-          <ResearchModule client={client} onChangeClient={onChangeClient} />
+          <ResearchModule client={client} onChangeClient={moduleOnChange} />
         )}
         {activeModule === "diagnosis" && (
-          <DiagnosisModule client={client} onChangeClient={onChangeClient} />
+          <DiagnosisModule client={client} onChangeClient={moduleOnChange} />
         )}
         {activeModule === "difficulty" && (
           <DifficultyAssessmentModule
             client={client}
-            onChangeClient={onChangeClient}
+            onChangeClient={moduleOnChange}
             onExportReport={onExportReport}
           />
         )}
         {activeModule === "keyword" && (
-          <KeywordStrategyModule client={client} onChangeClient={onChangeClient} />
+          <KeywordStrategyModule client={client} onChangeClient={moduleOnChange} />
         )}
         {activeModule === "article" && (
-          <ArticleGenerationModule client={client} onChangeClient={onChangeClient} />
+          <ArticleGenerationModule client={client} onChangeClient={moduleOnChange} />
         )}
+        </fieldset>
       </section>
     </div>
   )
@@ -695,9 +778,11 @@ const DASHBOARD_MODULES: Array<{
 function ModuleNav({
   active,
   onChange,
+  restricted = false,
 }: {
   active: DashboardModuleKey
   onChange: (key: DashboardModuleKey) => void
+  restricted?: boolean
 }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const current = DASHBOARD_MODULES.find(item => item.key === active) ?? DASHBOARD_MODULES[0]
@@ -744,6 +829,9 @@ function ModuleNav({
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   <span className="truncate text-xs font-semibold">{item.label}</span>
+                  {restricted && item.key !== "penetration" ? (
+                    <LockKeyhole className="h-3 w-3 shrink-0 opacity-55" />
+                  ) : null}
                 </button>
               )
             })}
@@ -774,6 +862,9 @@ function ModuleNav({
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5 text-xs font-semibold xl:text-sm">
                   <span className="truncate">{item.label}</span>
+                  {restricted && item.key !== "penetration" ? (
+                    <LockKeyhole className="h-3 w-3 shrink-0 opacity-55" />
+                  ) : null}
                 </span>
                 <span className={`block text-[10px] truncate ${isActive ? "text-white/78" : "text-slate-400"}`}>
                   {item.desc}

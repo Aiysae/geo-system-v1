@@ -7,6 +7,7 @@ import {
 } from "@/lib/reports/report-branding-store"
 import { getReportBrandingAccess } from "@/lib/report-access"
 import { requireUserId } from "@/lib/with-credits"
+import { requireStandardAccountMode } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -34,6 +35,13 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
+  const accountAccess = await requireStandardAccountMode(auth.userId)
+  if (!accountAccess.ok) {
+    return noStore(
+      { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+      { status: 403 },
+    )
+  }
   try {
     const contentLength = Number(req.headers.get("content-length") || 0)
     if (contentLength > MAX_SETTINGS_PAYLOAD_BYTES) {

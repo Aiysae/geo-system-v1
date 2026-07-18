@@ -45,6 +45,7 @@ interface Props {
   modelErrors?: Partial<Record<ModelKey, string>>
   modelProgress?: Partial<Record<ModelKey, PenetrationModelProgress>>
   progressLabel?: string
+  identityReadOnly?: boolean
 }
 
 export default function BatchInputPanel({
@@ -58,6 +59,7 @@ export default function BatchInputPanel({
   modelErrors,
   modelProgress,
   progressLabel,
+  identityReadOnly = false,
 }: Props) {
   const [questionsText, setQuestionsText] = useState(() => client.questions.join("\n"))
   const [brandAliasesText, setBrandAliasesText] = useState(() => (client.brandAliases ?? []).join("\n"))
@@ -68,7 +70,7 @@ export default function BatchInputPanel({
   const [aiKeywords, setAiKeywords] = useState("")
   const [aiToast, setAiToast] = useState<string | null>(null)
   const [modelReadiness, setModelReadiness] = useState<ModelReadiness>({})
-  const aiJobRef = client.backgroundJobs?.queryGeneration
+  const aiJobRef = identityReadOnly ? undefined : client.backgroundJobs?.queryGeneration
   const aiLoading = Boolean(aiJobRef)
   const aiPayload = {
     industry: client.industry,
@@ -173,9 +175,15 @@ export default function BatchInputPanel({
 
   function handleRun() {
     const questions = parseLines(questionsText)
-    const brandAliases = parseLines(brandAliasesText)
-    const competitors = parseLines(competitorsText)
-    onChangeClient({ questions, brandAliases, competitors })
+    const brandAliases = identityReadOnly
+      ? client.brandAliases ?? []
+      : parseLines(brandAliasesText)
+    const competitors = identityReadOnly
+      ? client.competitors
+      : parseLines(competitorsText)
+    onChangeClient(identityReadOnly
+      ? { questions }
+      : { questions, brandAliases, competitors })
     onRun({ questions, models: eligibleSelectedModels, brandAliases, competitors })
   }
 
@@ -199,12 +207,19 @@ export default function BatchInputPanel({
 
   return (
     <div className="space-y-4">
+      {identityReadOnly ? (
+        <div className="flex items-start gap-2 rounded-lg border border-[#91CAFF] bg-[#EAF5FF] px-3 py-2.5 text-xs leading-5 text-[#0958D9]">
+          <Globe2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          品牌、行业、别名和竞品由管理员统一维护。你可以编辑疑问句、选择模型并独立发起联网检测。
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label="我方品牌名" required>
           <Input
             value={client.ourBrand}
             onChange={e => onChangeClient({ ourBrand: e.target.value })}
             placeholder="如：势途"
+            disabled={identityReadOnly}
           />
         </Field>
         <Field label="所属行业">
@@ -212,6 +227,7 @@ export default function BatchInputPanel({
             value={client.industry}
             onChange={e => onChangeClient({ industry: e.target.value })}
             placeholder="如：B端 AI Agent 工具"
+            disabled={identityReadOnly}
           />
         </Field>
       </div>
@@ -229,6 +245,7 @@ export default function BatchInputPanel({
           >
             <Textarea
               value={brandAliasesText}
+              disabled={identityReadOnly}
               onChange={e => {
                 const value = e.target.value
                 setBrandAliasesText(value)
@@ -242,6 +259,7 @@ export default function BatchInputPanel({
           <Field label="已知主要竞品" aside="每行一个">
             <Textarea
               value={competitorsText}
+              disabled={identityReadOnly}
               onChange={e => {
                 const value = e.target.value
                 setCompetitorsText(value)
@@ -263,7 +281,7 @@ export default function BatchInputPanel({
         </div>
 
         {/* Tabs：手动录入 / AI 智能生成 */}
-        <div className="geo-segmented mb-3 inline-grid w-full grid-cols-2 sm:w-auto">
+        <div className={`geo-segmented mb-3 inline-grid w-full ${identityReadOnly ? "grid-cols-1" : "grid-cols-2"} sm:w-auto`}>
           <button
             type="button"
             onClick={() => setInputMode("manual")}
@@ -276,7 +294,7 @@ export default function BatchInputPanel({
             <Pencil className="h-3.5 w-3.5" />
             手动录入
           </button>
-          <button
+          {!identityReadOnly ? <button
             type="button"
             onClick={() => setInputMode("ai")}
             className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition ${
@@ -290,10 +308,10 @@ export default function BatchInputPanel({
             <span className="ml-1 hidden whitespace-nowrap rounded-full bg-[#E6F4FF] px-1.5 py-0.5 text-[9px] font-medium text-[#0958D9] sm:inline">
               专属豆包
             </span>
-          </button>
+          </button> : null}
         </div>
 
-        {inputMode === "manual" ? (
+        {inputMode === "manual" || identityReadOnly ? (
           <Textarea
             value={questionsText}
             onChange={e => {

@@ -9,6 +9,10 @@ import type { MembershipSnapshot } from "@/types"
 
 type CreditsContextValue = {
   balance: number | null
+  permanentBalance: number | null
+  monthlyBalance: number
+  monthlyAllowance: number
+  renewsAt?: string
   unlimited: boolean
   membership: MembershipSnapshot
   refresh: () => Promise<void>
@@ -31,6 +35,10 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
     || pathname === "/billing"
     || pathname.startsWith("/admin")
   const [balance, setBalance] = useState<number | null>(null)
+  const [permanentBalance, setPermanentBalance] = useState<number | null>(null)
+  const [monthlyBalance, setMonthlyBalance] = useState(0)
+  const [monthlyAllowance, setMonthlyAllowance] = useState(0)
+  const [renewsAt, setRenewsAt] = useState<string>()
   const [unlimited, setUnlimited] = useState(false)
   const [membership, setMembership] = useState<MembershipSnapshot>({ tier: "free", active: false })
   const [modal, setModal] = useState<ModalState>(null)
@@ -46,12 +54,20 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json()
         if (typeof data?.credits === "number") setBalance(data.credits)
+        if (typeof data?.permanentCredits === "number") setPermanentBalance(data.permanentCredits)
+        setMonthlyBalance(typeof data?.monthlyCredits === "number" ? data.monthlyCredits : 0)
+        setMonthlyAllowance(typeof data?.monthlyAllowance === "number" ? data.monthlyAllowance : 0)
+        setRenewsAt(typeof data?.renewsAt === "string" ? data.renewsAt : undefined)
         setUnlimited(data?.unlimited === true)
         setMembership(data?.membership?.active === true
           ? data.membership as MembershipSnapshot
           : { tier: "free", active: false })
       } else if (res.status === 401) {
         setBalance(null)
+        setPermanentBalance(null)
+        setMonthlyBalance(0)
+        setMonthlyAllowance(0)
+        setRenewsAt(undefined)
         setUnlimited(false)
         setMembership({ tier: "free", active: false })
       }
@@ -98,7 +114,16 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
   }, [refresh])
 
   return (
-    <CreditsContext.Provider value={{ balance, unlimited, membership, refresh }}>
+    <CreditsContext.Provider value={{
+      balance,
+      permanentBalance,
+      monthlyBalance,
+      monthlyAllowance,
+      renewsAt,
+      unlimited,
+      membership,
+      refresh,
+    }}>
       {children}
       {modal && (
         <InsufficientCreditsModal

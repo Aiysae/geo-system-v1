@@ -15,6 +15,7 @@ import { createBrandResolver } from "@/lib/brand-canonicalization"
 import {
   authAndReserveCredits,
   refundReservedCreditsQuietly,
+  requireUserId,
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
@@ -27,6 +28,8 @@ import {
 } from "@/lib/penetration/provider-errors"
 import { isCompletePenetrationItem } from "@/lib/penetration/slot-policy"
 import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
+import { resolveWorkspaceAccess } from "@/lib/client-accounts"
+import { listWorkspaceClients } from "@/lib/workspace-store"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -788,7 +791,7 @@ async function handler(req: NextRequest) {
   try {
     const internalJobRequest = isInternalApiRequest(req, "penetration-job")
     const body = await req.json()
-    const ourBrand = String(body.ourBrand || "").trim()
+    let ourBrand = String(body.ourBrand || "").trim()
     const questions: string[] = Array.isArray(body.questions)
       ? body.questions.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
@@ -803,10 +806,10 @@ async function handler(req: NextRequest) {
       question,
       sampleIndex: sampleStart + index,
     }))
-    const competitors: string[] = Array.isArray(body.competitors)
+    let competitors: string[] = Array.isArray(body.competitors)
       ? body.competitors.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
-    const brandAliases: string[] = Array.isArray(body.brandAliases)
+    let brandAliases: string[] = Array.isArray(body.brandAliases)
       ? body.brandAliases.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
     const models: ModelKey[] = Array.isArray(body.models)
@@ -814,6 +817,26 @@ async function handler(req: NextRequest) {
           typeof m === "string" && m in ADAPTERS
         )
       : []
+
+    if (!internalJobRequest) {
+      const userGuard = await requireUserId()
+      if (!userGuard.ok) return userGuard.response
+      const clientId = String(body.clientId || "").trim()
+      const access = await resolveWorkspaceAccess(userGuard.userId, clientId || undefined)
+      if (!access.ok) {
+        return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+      }
+      if (access.mode === "client") {
+        const client = (await listWorkspaceClients(access.ownerUserId))
+          .find(record => record.client.id === access.clientId)?.client
+        if (!client) {
+          return NextResponse.json({ error: "已授权的客户面板不存在，请联系管理员" }, { status: 404 })
+        }
+        ourBrand = client.ourBrand.trim()
+        brandAliases = client.brandAliases ?? []
+        competitors = client.competitors
+      }
+    }
 
     if (!ourBrand) {
       return NextResponse.json({ error: "请填写我方品牌名" }, { status: 400 })

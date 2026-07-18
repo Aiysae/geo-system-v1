@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireUserId } from "@/lib/with-credits"
 import { createWorkspaceClient, listWorkspaceClients } from "@/lib/workspace-store"
 import { WorkspaceValidationError } from "@/lib/workspace-sync"
+import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -13,7 +14,17 @@ export async function GET() {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
-    const clients = await listWorkspaceClients(auth.userId)
+    const access = await resolveWorkspaceAccess(auth.userId)
+    if (!access.ok) {
+      return noStore(NextResponse.json(
+        { error: access.message, code: access.code },
+        { status: 403 },
+      ))
+    }
+    let clients = await listWorkspaceClients(access.ownerUserId)
+    if (access.mode === "client") {
+      clients = clients.filter(record => record.client.id === access.clientId)
+    }
     return noStore(NextResponse.json({ clients }))
   } catch (error) {
     console.error("[workspace-clients] list failed", error)
@@ -24,6 +35,18 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
+  const access = await resolveWorkspaceAccess(auth.userId)
+  if (!access.ok || access.mode === "client") {
+    return noStore(NextResponse.json(
+      {
+        error: access.ok
+          ? "客户专属账号不能新建其他客户"
+          : access.message,
+        code: "CLIENT_ACCOUNT_READ_ONLY",
+      },
+      { status: 403 },
+    ))
+  }
   if (requestTooLarge(request)) {
     return noStore(NextResponse.json({ error: "客户数据超过单次上传限制" }, { status: 413 }))
   }
@@ -32,7 +55,7 @@ export async function POST(request: NextRequest) {
     if (Buffer.byteLength(JSON.stringify(body)) > MAX_BODY_BYTES) {
       throw new WorkspaceValidationError("客户数据超过单次上传限制")
     }
-    const synced = await createWorkspaceClient(auth.userId, body.client)
+    const synced = await createWorkspaceClient(access.ownerUserId, body.client)
     return noStore(NextResponse.json(synced, { status: 201 }))
   } catch (error) {
     if (error instanceof WorkspaceValidationError || error instanceof SyntaxError) {

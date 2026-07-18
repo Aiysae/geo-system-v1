@@ -40,6 +40,7 @@ import type {
 interface Props {
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
+  identityReadOnly?: boolean
 }
 
 type PenetrationRunParams = {
@@ -51,7 +52,11 @@ type PenetrationRunParams = {
   retestSampleId?: string
 }
 
-export default function PenetrationModule({ client, onChangeClient }: Props) {
+export default function PenetrationModule({
+  client,
+  onChangeClient,
+  identityReadOnly = false,
+}: Props) {
   const [loading, setLoading] = useState(Boolean(client.penetrationJobId))
   const [error, setError] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
@@ -228,11 +233,13 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
       setError(null)
       setSkipped(job.skipped || [])
       setProgressLabel(`后台检测 0/${job.totalSlots}`)
-      onChangeClient({
-        brandAliases: params.brandAliases,
-        competitors: params.competitors,
-        penetrationJobId: job.id,
-      })
+      onChangeClient(identityReadOnly
+        ? { penetrationJobId: job.id }
+        : {
+            brandAliases: params.brandAliases,
+            competitors: params.competitors,
+            penetrationJobId: job.id,
+          })
     } catch (e) {
       setError(e instanceof Error ? e.message : "未知错误")
       setLoading(false)
@@ -321,6 +328,7 @@ export default function PenetrationModule({ client, onChangeClient }: Props) {
               modelErrors={modelErrors}
               modelProgress={modelProgress}
               progressLabel={progressLabel}
+              identityReadOnly={identityReadOnly}
             />
         </div>
 

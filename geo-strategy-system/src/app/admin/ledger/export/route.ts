@@ -15,6 +15,8 @@ const TYPE_LABEL: Record<CreditLedgerEntry["type"], string> = {
   usage_reserved: "功能扣费",
   usage_refund: "积分退回",
   usage_extra: "超额结算",
+  client_monthly_grant: "客户月度额度",
+  client_monthly_adjust: "客户额度调整",
 }
 
 function csvCell(value: unknown): string {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { cancelQuestionJob, getQuestionJob } from "@/lib/geo-strategy/question-jobs"
 import { requireUserId } from "@/lib/with-credits"
+import { requireStandardAccountMode } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -12,7 +13,6 @@ export async function GET(
 ) {
   const userGuard = await requireUserId()
   if (!userGuard.ok) return userGuard.response
-
   const { jobId } = await ctx.params
   const job = await getQuestionJob(jobId, userGuard.userId)
 
@@ -29,6 +29,13 @@ export async function PATCH(
 ) {
   const userGuard = await requireUserId()
   if (!userGuard.ok) return userGuard.response
+  const accountAccess = await requireStandardAccountMode(userGuard.userId)
+  if (!accountAccess.ok) {
+    return NextResponse.json(
+      { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+      { status: 403 },
+    )
+  }
 
   const { jobId } = await ctx.params
   const job = await cancelQuestionJob(jobId, userGuard.userId)

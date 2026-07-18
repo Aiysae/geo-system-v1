@@ -6,6 +6,7 @@ import type {
   PenetrationHistoryStatus,
   PenetrationJobOperation,
 } from "@/types"
+import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -36,8 +37,12 @@ export async function GET(req: NextRequest) {
   const pageSize = Math.max(1, Math.min(50, Math.floor(Number(params.get("pageSize")) || 20)))
   const daysValue = Math.floor(Number(params.get("days")) || 0)
 
-  const history = await listPenetrationHistoryRecords(userGuard.userId, {
-    clientId: clientId || undefined,
+  const access = await resolveWorkspaceAccess(userGuard.userId, clientId || undefined)
+  if (!access.ok) {
+    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+  }
+  const history = await listPenetrationHistoryRecords(access.ownerUserId, {
+    clientId: access.mode === "client" ? access.clientId : clientId || undefined,
     status: HISTORY_STATUSES.has(statusValue) ? statusValue : undefined,
     operation: HISTORY_OPERATIONS.has(operationValue) ? operationValue : undefined,
     source: HISTORY_SOURCES.has(sourceValue) ? sourceValue : undefined,
