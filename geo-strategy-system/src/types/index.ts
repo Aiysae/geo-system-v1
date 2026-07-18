@@ -54,6 +54,17 @@ export type LlmMode = "consumer" | "judge"
 
 export type WorkspaceAccountMode = "standard" | "client"
 export type ClientAccountStatus = "active" | "suspended"
+export type AnalysisSubjectType = "brand" | "person"
+
+export interface PersonSubjectProfile {
+  profession: string
+  specialties: string[]
+  organization: string
+  region: string
+  title: string
+  credentials: string[]
+  profileUrls: string[]
+}
 
 export interface WorkspaceAccountAccess {
   mode: WorkspaceAccountMode
@@ -433,6 +444,8 @@ export interface DifficultyDimensionResult {
 export interface DifficultyAssessmentResult {
   scoreVersion?: "v1" | "v2"
   mode?: DifficultyAssessmentMode
+  subjectType?: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   scope?: DifficultyGeographicScope
   region?: string
   targetBrand?: string
@@ -453,6 +466,8 @@ export interface DifficultyAssessmentResult {
 export interface DifficultyAssessmentEntry {
   id: string
   mode?: DifficultyAssessmentMode
+  subjectType?: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   industry: string
   city: string
   scope?: DifficultyGeographicScope
@@ -472,6 +487,8 @@ export interface DifficultyJobRecord {
   clientId: string
   status: DifficultyJobStatus
   mode: DifficultyAssessmentMode
+  subjectType?: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   industry: string
   city: string
   scope?: DifficultyGeographicScope
@@ -520,6 +537,16 @@ export type PenetrationPromptPurity =
   | "search_context_augmented"
   | "unknown"
 
+export type PenetrationEntityKind = "person" | "organization" | "brand" | "product"
+
+export interface PenetrationMentionedEntity {
+  name: string
+  kind: PenetrationEntityKind
+  isPeer?: boolean
+  profession?: string
+  organization?: string
+}
+
 export interface PenetrationItem {
   /** Identifies this exact model invocation, even when the question text is repeated. */
   sampleId?: string
@@ -527,6 +554,7 @@ export interface PenetrationItem {
   question: string
   answer: string
   mentionedBrands: string[]
+  mentionedEntities?: PenetrationMentionedEntity[]
   topRecommended: string | null
   searchSources?: PenetrationSource[]
   sourceDomains?: SourceDomainCount[]
@@ -566,6 +594,7 @@ export interface PenetrationAggregated {
   ourMentions: number
   totalSlots: number
   industryShare: IndustryShareItem[]
+  institutionShare?: IndustryShareItem[]
   ourRanking: number | null
   perModelRate: PerModelRate[]
   missedQuestions: string[]
@@ -625,6 +654,8 @@ export type PenetrationHistorySource = "job" | "workspace_backfill"
 export interface PenetrationHistoryRequestSnapshot {
   clientId: string
   clientName: string
+  subjectType?: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   ourBrand: string
   brandAliases: string[]
   industry: string
@@ -663,6 +694,7 @@ export interface PenetrationHistoryDashboardSnapshot {
 }
 
 export interface PenetrationHistorySummary {
+  subjectType?: AnalysisSubjectType
   ourBrand: string
   industry: string
   questionCount: number
@@ -727,6 +759,8 @@ export interface CommercialReportInput {
   client: {
     id: string
     name: string
+    subjectType?: AnalysisSubjectType
+    personProfile?: PersonSubjectProfile
     ourBrand: string
     brandAliases: string[]
     industry: string
@@ -860,6 +894,8 @@ export interface CompetitorCompareResult extends CompetitorComparison {
 export interface Client {
   id: string
   name: string
+  subjectType: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   ourBrand: string
   brandAliases?: string[]
   industry: string

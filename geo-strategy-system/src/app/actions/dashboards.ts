@@ -1,7 +1,7 @@
 "use server"
 
 import { cache } from "react"
-import type { PenetrationByModel } from "@/types"
+import type { AnalysisSubjectType, PenetrationByModel } from "@/types"
 import {
   computeBrandVoice,
   computeKeywordCompetition,
@@ -19,9 +19,10 @@ const _voiceCached = cache(
     ourBrand: string,
     brandAliases: string[],
     competitors: string[],
+    subjectType: AnalysisSubjectType,
   ): BrandVoiceItem[] => {
     void key
-    return computeBrandVoice(byModel, ourBrand, brandAliases, competitors)
+    return computeBrandVoice(byModel, ourBrand, brandAliases, competitors, subjectType)
   },
 )
 
@@ -32,9 +33,10 @@ const _competitionCached = cache(
     ourBrand: string,
     brandAliases: string[],
     competitors: string[],
+    subjectType: AnalysisSubjectType,
   ): KeywordCompetitionItem[] => {
     void key
-    return computeKeywordCompetition(byModel, ourBrand, brandAliases, competitors)
+    return computeKeywordCompetition(byModel, ourBrand, brandAliases, competitors, subjectType)
   },
 )
 
@@ -43,6 +45,7 @@ export interface DashboardPayload {
   ourBrand: string
   brandAliases?: string[]
   competitors?: string[]
+  subjectType?: AnalysisSubjectType
   /** 用 penetration.generatedAt 等稳定字符串做 cache key，方便跨 action 命中同请求缓存 */
   cacheKey: string
 }
@@ -56,6 +59,7 @@ export async function getBrandVoiceAction(
     payload.ourBrand,
     payload.brandAliases ?? [],
     payload.competitors ?? [],
+    payload.subjectType || "brand",
   )
 }
 
@@ -68,5 +72,6 @@ export async function getKeywordCompetitionAction(
     payload.ourBrand,
     payload.brandAliases ?? [],
     payload.competitors ?? [],
+    payload.subjectType || "brand",
   )
 }

@@ -28,6 +28,7 @@ import ModelRateTrend from "@/components/penetration/model-rate-trend"
 import PenetrationDonut from "@/components/penetration/penetration-donut"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { MODEL_LABELS } from "@/lib/model-labels"
+import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
 import type {
   Client,
   ModelKey,
@@ -94,6 +95,8 @@ function historyClient(record: PenetrationHistoryRecord): Client {
   return {
     id: record.request.clientId,
     name: record.request.clientName || record.clientName,
+    subjectType: record.request.subjectType || "brand",
+    personProfile: record.request.personProfile,
     ourBrand: record.request.ourBrand,
     brandAliases: record.request.brandAliases,
     industry: record.request.industry,
@@ -453,6 +456,7 @@ function HistoryRow({
   onDelete: () => void
 }) {
   const status = STATUS_META[record.status]
+  const subjectType = normalizeAnalysisSubjectType(record.summary.subjectType)
   const StatusIcon = status.icon
   return (
     <article className="group px-4 py-4 transition hover:bg-sky-50/45 sm:px-6">
@@ -469,7 +473,9 @@ function HistoryRow({
           <div className="flex flex-wrap items-start justify-between gap-2">
             <button type="button" onClick={onOpen} className="min-w-0 text-left">
               <h3 className="truncate text-sm font-semibold text-slate-900">
-                {record.clientName} · {record.summary.ourBrand || "未填写品牌"}
+                {record.clientName} · {record.summary.ourBrand || (
+                  subjectType === "person" ? "未填写人物姓名" : "未填写品牌"
+                )}
               </h3>
               <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
                 <span>{record.summary.industry || "未填写行业"}</span>
@@ -488,7 +494,10 @@ function HistoryRow({
             onClick={onOpen}
             className="mt-3 grid w-full grid-cols-2 gap-2 text-left sm:grid-cols-4"
           >
-            <SummaryCell label="渗透率" value={percent(record.summary.penetrationRate)} />
+            <SummaryCell
+              label={subjectType === "person" ? "个人 IP 可见率" : "渗透率"}
+              value={percent(record.summary.penetrationRate)}
+            />
             <SummaryCell label="有效采样" value={`${record.summary.completedSlots}/${record.summary.totalSlots}`} />
             <SummaryCell label="问题 / 模型" value={`${record.summary.questionCount} / ${record.summary.modelCount}`} />
             <SummaryCell label="信源链接" value={`${record.summary.sourceCount}`} />
@@ -526,6 +535,7 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
 
 function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
   const result = record.result
+  const subjectType = normalizeAnalysisSubjectType(record.request.subjectType)
   const status = STATUS_META[record.status]
   const StatusIcon = status.icon
 
@@ -535,10 +545,12 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
         <div className="bg-gradient-to-r from-[#001D66] via-[#003EB3] to-[#00AEEA] px-4 py-4 text-white sm:px-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold text-cyan-100/70">渗透率检测历史快照</div>
+              <div className="text-[11px] font-semibold text-cyan-100/70">
+                {subjectType === "person" ? "个人 IP 检测历史快照" : "渗透率检测历史快照"}
+              </div>
               <h3 className="mt-1 text-lg font-semibold">{record.clientName}</h3>
               <p className="mt-1 text-xs text-cyan-50/75">
-                {record.request.ourBrand || "未填写品牌"} · {record.request.industry || "未填写行业"}
+                {record.request.ourBrand || (subjectType === "person" ? "未填写人物姓名" : "未填写品牌")} · {record.request.industry || "未填写行业"}
               </p>
             </div>
             <span className={`inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1.5 text-[11px] font-semibold ring-1 ring-inset ${status.className}`}>
@@ -574,7 +586,9 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
         <>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2">
             <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-1 text-[11px] font-semibold text-[#1677FF]">渗透率</div>
+              <div className="mb-1 text-[11px] font-semibold text-[#1677FF]">
+                {subjectType === "person" ? "个人 IP 可见率" : "渗透率"}
+              </div>
               <PenetrationDonut
                 rate={result.aggregated.penetrationRate}
                 mentions={result.aggregated.ourMentions}
@@ -587,6 +601,7 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
                 totalBrands={result.aggregated.industryShare.length}
                 perModelRate={result.aggregated.perModelRate}
                 topCompetitors={result.aggregated.topCompetitors}
+                subjectType={subjectType}
               />
             </section>
           </div>
@@ -594,7 +609,7 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
           <div className="grid min-w-0 gap-4 xl:grid-cols-2">
             <section className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-3 text-[11px] font-semibold text-[#1677FF]">
-                全品牌渗透率 Top {Math.min(10, result.aggregated.industryShare.length)}
+                {subjectType === "person" ? "同行人物可见度" : "全品牌渗透率"} Top {Math.min(10, result.aggregated.industryShare.length)}
               </div>
               <div className="min-h-0 flex-1">
                 <IndustryShareChart
@@ -602,6 +617,7 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
                   items={result.aggregated.industryShare.slice(0, 10)}
                   ourBrand={record.request.ourBrand}
                   totalSlots={result.aggregated.totalSlots}
+                  subjectType={subjectType}
                 />
               </div>
             </section>
@@ -617,15 +633,38 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
             </section>
           </div>
 
+          {subjectType === "person" && (result.aggregated.institutionShare?.length || 0) > 0 ? (
+            <section className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-3 text-[11px] font-semibold text-[#1677FF]">
+                关联机构提及 Top {Math.min(10, result.aggregated.institutionShare?.length || 0)}
+              </div>
+              <div className="min-h-0 flex-1">
+                <IndustryShareChart
+                  compact
+                  items={(result.aggregated.institutionShare || []).slice(0, 10)}
+                  ourBrand=""
+                  totalSlots={result.aggregated.totalSlots}
+                  subjectType="person"
+                  entityLabel="关联机构"
+                  highlightTarget={false}
+                />
+              </div>
+            </section>
+          ) : null}
+
           <section className="min-w-0">
             <BrandShareOfVoice
               items={record.dashboard.brandVoice}
               defaultVisible={8}
+              subjectType={subjectType}
             />
           </section>
 
           <section className="min-w-0">
-            <KeywordCompetition items={record.dashboard.keywordCompetition} />
+            <KeywordCompetition
+              items={record.dashboard.keywordCompetition}
+              subjectType={subjectType}
+            />
           </section>
 
           {result.aggregated.missedQuestions.length > 0 ? (
@@ -657,6 +696,8 @@ function SnapshotMeta({ label, value }: { label: string; value: string }) {
 
 function RequestSnapshot({ record }: { record: PenetrationHistoryRecord }) {
   const [open, setOpen] = useState(false)
+  const subjectType = normalizeAnalysisSubjectType(record.request.subjectType)
+  const profile = record.request.personProfile
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <button
@@ -674,10 +715,29 @@ function RequestSnapshot({ record }: { record: PenetrationHistoryRecord }) {
       </button>
       {open ? (
         <div className="grid gap-4 border-t border-slate-100 bg-slate-50/50 px-4 py-4 text-xs sm:grid-cols-2 sm:px-5">
-          <SnapshotField label="品牌名称" value={record.request.ourBrand || "-"} />
+          <SnapshotField
+            label={subjectType === "person" ? "人物姓名" : "品牌名称"}
+            value={record.request.ourBrand || "-"}
+          />
           <SnapshotField label="行业" value={record.request.industry || "-"} />
-          <SnapshotField label="品牌别名" value={record.request.brandAliases.join("、") || "-"} />
-          <SnapshotField label="竞品" value={record.request.competitors.join("、") || "-"} />
+          <SnapshotField
+            label={subjectType === "person" ? "姓名别名" : "品牌别名"}
+            value={record.request.brandAliases.join("、") || "-"}
+          />
+          <SnapshotField
+            label={subjectType === "person" ? "已知同行人物" : "竞品"}
+            value={record.request.competitors.join("、") || "-"}
+          />
+          {subjectType === "person" ? (
+            <>
+              <SnapshotField label="职业 / 身份" value={profile?.profession || "-"} />
+              <SnapshotField label="所属机构" value={profile?.organization || "-"} />
+              <SnapshotField label="职称 / 公开身份" value={profile?.title || "-"} />
+              <SnapshotField label="主要地区" value={profile?.region || "-"} />
+              <SnapshotField label="专业方向" value={profile?.specialties.join("、") || "-"} />
+              <SnapshotField label="资质" value={profile?.credentials.join("、") || "-"} />
+            </>
+          ) : null}
           <SnapshotField
             label="选择的模型"
             value={record.request.models.map(model => MODEL_LABELS[model]).join("、") || "-"}

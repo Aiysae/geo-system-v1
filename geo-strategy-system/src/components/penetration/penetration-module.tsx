@@ -19,12 +19,15 @@ import {
   getBrandVoiceAction,
   getKeywordCompetitionAction,
 } from "@/app/actions/dashboards"
-import { aggregatePenetration, isSameBrand } from "@/lib/score-utils"
+import { aggregatePenetration } from "@/lib/score-utils"
+import { getClientSubjectType } from "@/lib/analysis-subject"
+import { isSameSubject } from "@/lib/subject-canonicalization"
 import type {
   BrandVoiceItem,
   KeywordCompetitionItem,
 } from "@/lib/dashboard-aggregations"
 import type {
+  AnalysisSubjectType,
   Client,
   ModelKey,
   PenetrationItem,
@@ -57,6 +60,7 @@ export default function PenetrationModule({
   onChangeClient,
   identityReadOnly = false,
 }: Props) {
+  const subjectType = getClientSubjectType(client)
   const [loading, setLoading] = useState(Boolean(client.penetrationJobId))
   const [error, setError] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
@@ -215,6 +219,8 @@ export default function PenetrationModule({
         label: "疑问句检测任务创建",
         payload: {
           clientId: client.id,
+          subjectType,
+          personProfile: client.personProfile,
           ourBrand: client.ourBrand,
           brandAliases: params.brandAliases,
           industry: client.industry,
@@ -288,9 +294,16 @@ export default function PenetrationModule({
         client.ourBrand,
         client.brandAliases ?? [],
         client.competitors,
+        subjectType,
       ),
     }
-  }, [client.penetration, client.ourBrand, client.brandAliases, client.competitors])
+  }, [
+    client.penetration,
+    client.ourBrand,
+    client.brandAliases,
+    client.competitors,
+    subjectType,
+  ])
   const topIndustryShare = pen?.aggregated.industryShare.slice(0, 10) ?? []
 
   return (
@@ -301,7 +314,7 @@ export default function PenetrationModule({
             <Target className="h-5 w-5 text-white" />
           </span>
           <span className="geo-module-title min-w-0 text-base sm:text-lg">
-            关键词渗透率与竞品情报
+            {subjectType === "person" ? "个人 IP 可见度与同行情报" : "关键词渗透率与竞品情报"}
           </span>
         </CardTitle>
       </CardHeader>
@@ -347,7 +360,7 @@ export default function PenetrationModule({
                 <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                   <div className="geo-data-panel min-w-0 rounded-lg p-4">
                     <div className="geo-section-kicker mb-1">
-                      渗透率
+                      {subjectType === "person" ? "个人 IP 可见率" : "渗透率"}
                     </div>
                     <PenetrationDonut
                       rate={pen.aggregated.penetrationRate}
@@ -361,6 +374,7 @@ export default function PenetrationModule({
                       totalBrands={pen.aggregated.industryShare.length}
                       perModelRate={pen.aggregated.perModelRate}
                       topCompetitors={pen.aggregated.topCompetitors}
+                      subjectType={subjectType}
                     />
                   </div>
                 </div>
@@ -368,7 +382,7 @@ export default function PenetrationModule({
                 <div className="grid min-w-0 gap-4 xl:grid-cols-2">
                   <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
                     <div className="geo-section-kicker mb-3 shrink-0">
-                      全品牌渗透率 Top {topIndustryShare.length}
+                      {subjectType === "person" ? "同行人物可见度" : "全品牌渗透率"} Top {topIndustryShare.length}
                     </div>
                     <div className="min-h-0 flex-1">
                       <IndustryShareChart
@@ -376,6 +390,7 @@ export default function PenetrationModule({
                         items={topIndustryShare}
                         ourBrand={client.ourBrand}
                         totalSlots={pen.aggregated.totalSlots}
+                        subjectType={subjectType}
                       />
                     </div>
                   </div>
@@ -400,6 +415,25 @@ export default function PenetrationModule({
                       </div>
                     </div>
                   )}
+
+                  {subjectType === "person" && (pen.aggregated.institutionShare?.length || 0) > 0 ? (
+                    <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
+                      <div className="geo-section-kicker mb-3 shrink-0">
+                        关联机构提及 Top {Math.min(10, pen.aggregated.institutionShare?.length || 0)}
+                      </div>
+                      <div className="min-h-0 flex-1">
+                        <IndustryShareChart
+                          compact
+                          items={(pen.aggregated.institutionShare || []).slice(0, 10)}
+                          ourBrand=""
+                          totalSlots={pen.aggregated.totalSlots}
+                          subjectType="person"
+                          entityLabel="关联机构"
+                          highlightTarget={false}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <BrandAndKeywordPanels
@@ -407,6 +441,7 @@ export default function PenetrationModule({
                   ourBrand={client.ourBrand}
                   brandAliases={client.brandAliases ?? []}
                   competitors={client.competitors}
+                  subjectType={getClientSubjectType(client)}
                 />
 
                 {pen.aggregated.missedQuestions.length > 0 && (
@@ -434,6 +469,7 @@ export default function PenetrationModule({
                   onRetest={handleRetest}
                   retestingSampleId={retestingSampleId}
                   retestDisabled={loading}
+                  subjectType={subjectType}
                 />
 
                 <div className="text-[11px] text-slate-400 text-right">
@@ -493,6 +529,7 @@ function RawAnswersPanel({
   onRetest,
   retestingSampleId,
   retestDisabled,
+  subjectType,
 }: {
   byModel: PenetrationResult["byModel"]
   ourBrand: string
@@ -500,17 +537,18 @@ function RawAnswersPanel({
   onRetest: (model: ModelKey, item: PenetrationItem, sampleKey: string) => void
   retestingSampleId: string | null
   retestDisabled: boolean
+  subjectType: AnalysisSubjectType
 }) {
   const models = (Object.keys(byModel) as ModelKey[]).filter(m => byModel[m]?.length)
   const [open, setOpen] = useState(false)
   const [activeModel, setActive] = useState<ModelKey | null>(models[0] ?? null)
   const currentModel = activeModel && models.includes(activeModel) ? activeModel : models[0] ?? null
-  const targetBrandNames = [ourBrand, ...brandAliases].map(name => name.trim()).filter(Boolean)
+  const targetSubjectNames = [ourBrand, ...brandAliases].map(name => name.trim()).filter(Boolean)
 
   if (models.length === 0 || !currentModel) return null
 
-  function isTargetBrand(brand: string): boolean {
-    return targetBrandNames.some(name => isSameBrand(brand, name))
+  function isTargetSubject(subject: string): boolean {
+    return targetSubjectNames.some(name => isSameSubject(subject, name, subjectType))
   }
 
   function highlight(text: string, brand: string): React.ReactNode {
@@ -658,7 +696,7 @@ function RawAnswersPanel({
                 typeof it.hitOur === "boolean"
                   ? it.hitOur
                   : ourBrand
-                    ? it.mentionedBrands.some(b => isTargetBrand(b))
+                    ? it.mentionedBrands.some(b => isTargetSubject(b))
                     : false
               return (
                 <div key={i} className="px-4 py-3 hover:bg-slate-50/50 transition">
@@ -708,9 +746,12 @@ function RawAnswersPanel({
                   <AnswerAuditBadges item={it} />
                   <SourceAuditSnippet item={it} />
                   {it.mentionedBrands.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pl-7">
+                    <div className="flex flex-wrap items-center gap-1 pl-7">
+                      <span className="mr-1 text-[10px] text-slate-400">
+                        {subjectType === "person" ? "同行人物" : "识别品牌"}
+                      </span>
                       {it.mentionedBrands.map((b, j) => {
-                        const isOur = isTargetBrand(b)
+                        const isOur = isTargetSubject(b)
                         return (
                           <span
                             key={j}
@@ -726,6 +767,21 @@ function RawAnswersPanel({
                       })}
                     </div>
                   )}
+                  {subjectType === "person" && (it.mentionedEntities || []).some(entity => entity.kind === "organization") ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-1 pl-7">
+                      <span className="mr-1 text-[10px] text-slate-400">关联机构</span>
+                      {(it.mentionedEntities || [])
+                        .filter(entity => entity.kind === "organization")
+                        .map(entity => (
+                          <span
+                            key={`${entity.kind}-${entity.name}`}
+                            className="rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] text-cyan-800 ring-1 ring-cyan-100"
+                          >
+                            {entity.name}
+                          </span>
+                        ))}
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
@@ -989,11 +1045,13 @@ function BrandAndKeywordPanels({
   ourBrand,
   brandAliases,
   competitors,
+  subjectType,
 }: {
   penetration: PenetrationResult
   ourBrand: string
   brandAliases: string[]
   competitors: string[]
+  subjectType: "brand" | "person"
 }) {
   const [voice, setVoice] = useState<BrandVoiceItem[] | null>(null)
   const [competition, setCompetition] = useState<KeywordCompetitionItem[] | null>(null)
@@ -1015,6 +1073,7 @@ function BrandAndKeywordPanels({
         ourBrand,
         brandAliases,
         competitors,
+        subjectType,
         cacheKey,
       }),
       getKeywordCompetitionAction({
@@ -1022,6 +1081,7 @@ function BrandAndKeywordPanels({
         ourBrand,
         brandAliases,
         competitors,
+        subjectType,
         cacheKey,
       }),
     ])
@@ -1040,13 +1100,13 @@ function BrandAndKeywordPanels({
     return () => {
       cancelled = true
     }
-  }, [penetration.byModel, ourBrand, brandAliases, competitors, cacheKey])
+  }, [penetration.byModel, ourBrand, brandAliases, competitors, subjectType, cacheKey])
 
   return (
     <div className="min-w-0">
       {loading && !voice && !competition ? (
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-          <DashboardPanelLoading title="品牌声量表" />
+          <DashboardPanelLoading title={subjectType === "person" ? "人物声量表" : "品牌声量表"} />
           <DashboardPanelLoading title="关键词竞争热度" />
         </div>
       ) : null}
@@ -1061,10 +1121,15 @@ function BrandAndKeywordPanels({
         <div className="grid min-w-0 gap-4 xl:grid-cols-2 xl:items-start">
           {voice ? (
             <section
-              aria-label="品牌声量表"
+              aria-label={subjectType === "person" ? "人物声量表" : "品牌声量表"}
               className="min-h-[360px] min-w-0 overflow-hidden xl:aspect-square xl:min-h-0"
             >
-              <BrandShareOfVoice key={`voice-${cacheKey}`} compact items={voice} />
+              <BrandShareOfVoice
+                key={`voice-${cacheKey}`}
+                compact
+                items={voice}
+                subjectType={subjectType}
+              />
             </section>
           ) : null}
           {competition ? (
@@ -1072,7 +1137,12 @@ function BrandAndKeywordPanels({
               aria-label="关键词竞争热度"
               className="min-h-[360px] min-w-0 overflow-hidden xl:aspect-square xl:min-h-0"
             >
-              <KeywordCompetition key={`competition-${cacheKey}`} compact items={competition} />
+              <KeywordCompetition
+                key={`competition-${cacheKey}`}
+                compact
+                items={competition}
+                subjectType={subjectType}
+              />
             </section>
           ) : null}
         </div>

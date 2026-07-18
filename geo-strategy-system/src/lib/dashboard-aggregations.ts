@@ -1,9 +1,9 @@
-import type { ModelKey, PenetrationByModel } from "@/types"
+import type { AnalysisSubjectType, ModelKey, PenetrationByModel } from "@/types"
 import {
-  collectObservedBrands,
-  createBrandResolver,
-  type CanonicalBrand,
-} from "@/lib/brand-canonicalization"
+  collectObservedSubjects,
+  createSubjectResolver,
+} from "@/lib/subject-canonicalization"
+import type { CanonicalBrand } from "@/lib/brand-canonicalization"
 
 export interface BrandVoiceItem {
   rank: number
@@ -45,12 +45,14 @@ export function computeBrandVoice(
   ourBrand: string,
   brandAliases: string[] = [],
   competitors: string[] = [],
+  subjectType: AnalysisSubjectType = "brand",
 ): BrandVoiceItem[] {
-  const resolver = createBrandResolver({
+  const resolver = createSubjectResolver({
+    subjectType,
     ourBrand,
     brandAliases,
     competitors,
-    observedBrands: collectObservedBrands(byModel),
+    observedBrands: collectObservedSubjects(byModel, subjectType),
   })
   // brandKey → { display, mentions, modelSet }
   const acc = new Map<
@@ -114,12 +116,14 @@ export function computeKeywordCompetition(
   ourBrand = "",
   brandAliases: string[] = [],
   competitors: string[] = [],
+  subjectType: AnalysisSubjectType = "brand",
 ): KeywordCompetitionItem[] {
-  const resolver = createBrandResolver({
+  const resolver = createSubjectResolver({
+    subjectType,
     ourBrand,
     brandAliases,
     competitors,
-    observedBrands: collectObservedBrands(byModel),
+    observedBrands: collectObservedSubjects(byModel, subjectType),
   })
   // question → per-model brand-mention count
   const agg = new Map<

@@ -72,6 +72,7 @@ function formatList(items?: string[]): string {
 
 function buildOfficialGenerationContext(plan: GeoStrategyPlan): string {
   const profile = plan.profile
+  const isPerson = profile?.subject_type === "person"
   const keywords = collectKeywords(plan)
 
   const officialStrategy = (plan.official_site_strategy || []).map((item, index) => ({
@@ -85,11 +86,18 @@ function buildOfficialGenerationContext(plan: GeoStrategyPlan): string {
     "请根据以下已确认的官网策略上下文，生成一段完整、可复制、可直接执行的整站建设 Prompt。",
     "",
     "【项目基本信息】",
-    `项目名称：${plan.project_name || profile?.brand_or_product || "目标品牌官网"}`,
-    `品牌/产品：${profile?.brand_or_product || "由用户另行提供"}`,
+    `项目名称：${plan.project_name || profile?.brand_or_product || (isPerson ? "目标人物个人主页" : "目标品牌官网")}`,
+    `${isPerson ? "个人 IP / 人物" : "品牌/产品"}：${profile?.brand_or_product || "由用户另行提供"}`,
     `行业：${profile?.industry || "由用户另行提供"}`,
     `目标受众：${profile?.audience || "由用户另行提供"}`,
-    `官网建设目标：${profile?.business_goals || plan.summary || "建设可信、可引用、利于生成式引擎理解和抓取的品牌官网"}`,
+    `官网建设目标：${profile?.business_goals || plan.summary || `建设可信、可引用、利于生成式引擎理解和抓取的${isPerson ? "个人官方资料主阵地" : "品牌官网"}`}`,
+    ...(isPerson
+      ? [
+          "人物身份资料：",
+          JSON.stringify(profile.person_profile || {}, null, 2),
+          "必须要求人物与所在机构分开建模，并用 Person Schema 做同名消歧；不得编造履历、职称、资质或案例。",
+        ]
+      : []),
     "",
     "【需要合并进整站任务的官网策略】",
     JSON.stringify(officialStrategy, null, 2),
@@ -107,7 +115,8 @@ function buildOfficialGenerationContext(plan: GeoStrategyPlan): string {
 
 function buildThirdPartyGenerationContext(plan: GeoStrategyPlan, site: ThirdPartySite, index: number): string {
   const profile = plan.profile
-  const brand = profile?.brand_or_product || plan.project_name || "目标品牌"
+  const isPerson = profile?.subject_type === "person"
+  const brand = profile?.brand_or_product || plan.project_name || (isPerson ? "目标人物" : "目标品牌")
   const keywords = collectKeywords(plan)
 
   return [
@@ -115,12 +124,12 @@ function buildThirdPartyGenerationContext(plan: GeoStrategyPlan, site: ThirdPart
     "",
     "【项目基本信息】",
     `项目名称：${plan.project_name || brand}`,
-    `品牌/产品：${brand}`,
+    `${isPerson ? "个人 IP / 人物" : "品牌/产品"}：${brand}`,
     `行业：${profile?.industry || "由用户另行提供"}`,
     `目标受众：${profile?.audience || "由用户另行提供"}`,
     `产品说明：${profile?.product_description || "由用户另行提供"}`,
     `商业目标：${profile?.business_goals || plan.summary || "提升生成式引擎中的可信理解、交叉验证和推荐概率"}`,
-    `竞品：${formatList(profile?.competitors)}`,
+    `${isPerson ? "同行人物" : "竞品"}：${formatList(profile?.competitors)}`,
     `核心术语：${formatList(profile?.terms)}`,
     `痛点：${formatList(profile?.pain_points)}`,
     `优势：${formatList(profile?.advantages)}`,
@@ -146,7 +155,10 @@ function buildThirdPartyGenerationContext(plan: GeoStrategyPlan, site: ThirdPart
     "- 输出必须是一段完整的第三方验证网站建设 Prompt，不要生成网站代码。",
     "- Prompt 要明确页面清单、组件与功能、证据链内容结构、技术交付顺序、移动端验收标准和 GEO 验收清单。",
     "- Prompt 要要求生成真实完整代码，并在最后输出 llms.txt、robots.txt、sitemap.xml 及关键 Schema JSON-LD。",
-    "- 品牌资料由用户执行 Prompt 时另行提供；缺失数据必须用清晰占位符，不得编造。",
+    `- ${isPerson ? "人物" : "品牌"}资料由用户执行 Prompt 时另行提供；缺失数据必须用清晰占位符，不得编造。`,
+    ...(isPerson
+      ? ["- 必须区分人物与机构，使用 Person Schema 和 sameAs 做身份消歧，机构只能作为 affiliation，不得当作同行人物。"]
+      : []),
   ].join("\n")
 }
 

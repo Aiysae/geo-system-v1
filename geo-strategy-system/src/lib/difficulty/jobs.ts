@@ -175,6 +175,8 @@ function difficultyEntry(job: StoredDifficultyJob): DifficultyAssessmentEntry | 
   return {
     id: `difficulty_${job.id}`,
     mode: job.mode,
+    subjectType: job.subjectType,
+    personProfile: job.personProfile,
     industry: job.industry,
     city: job.city,
     scope: job.scope ?? job.result.scope,
@@ -185,6 +187,8 @@ function difficultyEntry(job: StoredDifficultyJob): DifficultyAssessmentEntry | 
     result: {
       ...job.result,
       mode: job.result.mode ?? job.mode,
+      subjectType: job.result.subjectType ?? job.subjectType,
+      personProfile: job.result.personProfile ?? job.personProfile,
       scope: job.result.scope ?? job.scope,
       region: job.result.region ?? job.city,
       targetBrand: job.result.targetBrand ?? job.targetBrand,
@@ -395,6 +399,8 @@ export async function createDifficultyJob(args: {
     clientId: args.clientId,
     status: "queued",
     mode: args.request.mode,
+    subjectType: args.request.subjectType,
+    personProfile: args.request.personProfile,
     industry: args.request.industry,
     city: args.request.city,
     scope: args.request.scope,

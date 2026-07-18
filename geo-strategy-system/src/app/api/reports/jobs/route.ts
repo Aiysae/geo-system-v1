@@ -32,6 +32,10 @@ import {
   requireStandardAccountMode,
   resolveWorkspaceAccess,
 } from "@/lib/client-accounts"
+import {
+  normalizeAnalysisSubjectType,
+  normalizePersonSubjectProfile,
+} from "@/lib/analysis-subject"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -111,6 +115,8 @@ function parseInput(value: unknown): CommercialReportInput | null {
   const client = {
     id: limitedString(value.client.id, 160),
     name: limitedString(value.client.name, 160),
+    subjectType: normalizeAnalysisSubjectType(value.client.subjectType),
+    personProfile: normalizePersonSubjectProfile(value.client.personProfile),
     ourBrand: limitedString(value.client.ourBrand, 160),
     brandAliases: stringList(value.client.brandAliases, 100, 160),
     industry: limitedString(value.client.industry, 240),

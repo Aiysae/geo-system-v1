@@ -1,4 +1,5 @@
 import type {
+  AnalysisSubjectType,
   IndustryShareItem,
   ModelKey,
   PenetrationAggregated,
@@ -6,15 +7,15 @@ import type {
   PerModelRate,
 } from "@/types"
 import {
-  areBrandVariants,
-  collectObservedBrands,
-  createBrandResolver,
-} from "@/lib/brand-canonicalization"
+  collectObservedSubjects,
+  createSubjectResolver,
+  isSameSubject,
+} from "@/lib/subject-canonicalization"
 
 // 宽松匹配：把空格/大小写差异都抹掉后，任一方包含另一方即视为同一品牌
 // 例：用户填 "势途"、模型返回 "势途GEO" / "势途 GEO" → 都识别为我方
 export function isSameBrand(a: string, b: string): boolean {
-  return areBrandVariants(a, b)
+  return isSameSubject(a, b, "brand")
 }
 
 export function aggregatePenetration(
@@ -22,12 +23,14 @@ export function aggregatePenetration(
   ourBrand: string,
   brandAliases: string[] = [],
   competitors: string[] = [],
+  subjectType: AnalysisSubjectType = "brand",
 ): PenetrationAggregated {
-  const resolver = createBrandResolver({
+  const resolver = createSubjectResolver({
+    subjectType,
     ourBrand,
     brandAliases,
     competitors,
-    observedBrands: collectObservedBrands(byModel),
+    observedBrands: collectObservedSubjects(byModel, subjectType),
   })
   const brandCount = new Map<string, { displayName: string; count: number }>()
   const perModelRate: PerModelRate[] = []
@@ -100,11 +103,42 @@ export function aggregatePenetration(
     .slice(0, 3)
     .map(s => s.brand)
 
+  const institutionCount = new Map<string, { displayName: string; count: number }>()
+  if (subjectType === "person") {
+    for (const items of Object.values(byModel)) {
+      for (const item of items || []) {
+        if (!item.answer?.trim()) continue
+        const seen = new Set<string>()
+        for (const entity of item.mentionedEntities || []) {
+          if (entity.kind !== "organization") continue
+          const displayName = entity.name.trim()
+          const key = displayName.toLowerCase().replace(/[\s　]+/gu, "")
+          if (!key || seen.has(key)) continue
+          seen.add(key)
+          const current = institutionCount.get(key)
+          if (current) current.count += 1
+          else institutionCount.set(key, { displayName, count: 1 })
+        }
+      }
+    }
+  }
+  const institutionMentions = Array.from(institutionCount.values())
+    .reduce((sum, value) => sum + value.count, 0)
+  const institutionShare = Array.from(institutionCount.values())
+    .map(value => ({
+      brand: value.displayName,
+      count: value.count,
+      ratio: institutionMentions ? value.count / institutionMentions : 0,
+      penetrationRate: totalSlots ? value.count / totalSlots : 0,
+    }))
+    .sort((left, right) => right.count - left.count)
+
   return {
     penetrationRate: totalSlots ? ourMentions / totalSlots : 0,
     ourMentions,
     totalSlots,
     industryShare,
+    institutionShare: subjectType === "person" ? institutionShare : undefined,
     ourRanking,
     perModelRate,
     missedQuestions,

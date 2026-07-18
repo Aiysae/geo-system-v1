@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
-import type { ResearchDimension, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
+import type {
+  AnalysisSubjectType,
+  ResearchDimension,
+  ResearchMode,
+  ResearchResult,
+  ResearchSourceMode,
+} from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonStrict } from "@/lib/score-utils"
+import {
+  formatPersonSubjectContext,
+  normalizeAnalysisSubjectType,
+  normalizePersonSubjectProfile,
+} from "@/lib/analysis-subject"
 import {
   authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
@@ -33,7 +44,10 @@ function text(value: unknown, fallback = ""): string {
   return s || fallback
 }
 
-function buildPenetrationContext(penetration: unknown): string {
+function buildPenetrationContext(
+  penetration: unknown,
+  subjectType: AnalysisSubjectType = "brand",
+): string {
   if (!penetration || typeof penetration !== "object") return "暂无疑问句检测数据。"
   const p = penetration as {
     aggregated?: {
@@ -50,6 +64,7 @@ function buildPenetrationContext(penetration: unknown): string {
   }
   const agg = p.aggregated
   if (!agg) return "暂无疑问句检测数据。"
+  const isPerson = subjectType === "person"
 
   const sampleAnswers = Object.entries(p.byModel ?? {})
     .flatMap(([model, items]) =>
@@ -65,10 +80,10 @@ function buildPenetrationContext(penetration: unknown): string {
 
   return `【疑问句检测摘要】
 - 综合渗透率：${typeof agg.penetrationRate === "number" ? `${(agg.penetrationRate * 100).toFixed(1)}%` : "未知"}（${agg.ourMentions ?? 0}/${agg.totalSlots ?? 0}）
-- 行业排位：${agg.ourRanking ? `第 ${agg.ourRanking} 名` : "未上榜"}
-- Top 竞品：${(agg.topCompetitors || []).join("、") || "暂无"}
+- ${isPerson ? "同行人物" : "行业"}排位：${agg.ourRanking ? `第 ${agg.ourRanking} 名` : "未上榜"}
+- Top ${isPerson ? "同行人物" : "竞品"}：${(agg.topCompetitors || []).join("、") || "暂无"}
 - 未命中问题：${(agg.missedQuestions || []).slice(0, 8).join("；") || "暂无"}
-- 行业占有率：${(agg.industryShare || []).slice(0, 8).map(i => `${i.brand}(${i.count})`).join("、") || "暂无"}
+- ${isPerson ? "人物可见度" : "行业占有率"}：${(agg.industryShare || []).slice(0, 8).map(i => `${i.brand}(${i.count})`).join("、") || "暂无"}
 - 各模型提及率：${(agg.perModelRate || []).map(i => `${i.model}:${typeof i.rate === "number" ? `${(i.rate * 100).toFixed(0)}%` : "?"}`).join("、") || "暂无"}
 
 【AI 回答样本】
@@ -86,19 +101,26 @@ function buildPrompt(args: {
   aliases: string[]
   hypothesis: string
   penetrationContext: string
+  subjectType: AnalysisSubjectType
+  personProfileContext: string
 }): { system: string; user: string } {
-  const system = `你是一个做 GEO / AI 搜索心智研究的资深品牌研究员。你只使用豆包视角进行深度调研：目标不是泛泛介绍品牌，而是判断"当用户在豆包里问相关问题时，这个品牌在模型心智里的形象、可信度、推荐概率、短板和可优化空间"。
+  const isPerson = args.subjectType === "person"
+  const subjectNoun = isPerson ? "个人 IP / 专业人物" : "品牌"
+  const peerNoun = isPerson ? "同行人物" : "竞品"
+  const system = `你是一个做 GEO / AI 搜索心智研究的资深${isPerson ? "个人 IP" : "品牌"}研究员。你只使用豆包视角进行深度调研：目标不是泛泛介绍${subjectNoun}，而是判断"当用户在豆包里问相关问题时，这个${subjectNoun}在模型心智里的形象、可信度、推荐概率、短板和可优化空间"。
 
 【研究要求】
 1. 必须基于公开可验证信息、用户给定数据、疑问句检测样本进行推断；不确定处要写成"证据不足/需要验证"，禁止编造事实。
-2. ${args.mode === "hypothesis" ? "用户会提供一个假设。请围绕这个假设做验证式研究：哪些现象支持它、哪些现象反驳它、需要补哪些证据。" : "请做 AI 深度调研：完整刻画品牌在豆包里的心智位置、用户感知、信任信号、风险与机会。"}
-3. 结论要能指导后续内容、官网、第三方信源、问答和竞品拦截策略。
+2. ${args.mode === "hypothesis" ? "用户会提供一个假设。请围绕这个假设做验证式研究：哪些现象支持它、哪些现象反驳它、需要补哪些证据。" : `请做 AI 深度调研：完整刻画${subjectNoun}在豆包里的心智位置、用户感知、信任信号、风险与机会。`}
+3. 结论要能指导后续内容、官网或个人资料页、第三方信源、问答和${peerNoun}对比策略。
+${isPerson ? `4. 必须把人物与所在医院、律所、公司、学校、协会等机构分开；只把同职业、同专业方向、同地区或同类服务场景中的具名人物视作同行，不得把机构名、职称或普通形容词当成人名。
+5. 人物姓名相同但身份无法确认时必须提示同名歧义；不得凭姓名自行补造履历、资质、职称、案例或任职机构。` : ""}
 
 【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止额外文字】
 {
   "executiveSummary": "150-220 字总体结论",
-  "brandImage": "豆包可能形成的品牌总体形象",
-  "modelMentality": "模型为什么会/不会推荐该品牌的机制性解释",
+  "brandImage": "豆包可能形成的${isPerson ? "个人 IP" : "品牌"}总体形象",
+  "modelMentality": "模型为什么会/不会推荐该${isPerson ? "人物" : "品牌"}的机制性解释",
   "dimensions": [
     { "name": "认知清晰度", "score": 0-100, "insight": "具体洞察", "evidence": ["证据或样本1", "证据或样本2"] },
     { "name": "可信度", "score": 0-100, "insight": "具体洞察", "evidence": ["..."] },
@@ -106,7 +128,7 @@ function buildPrompt(args: {
     { "name": "推荐友好度", "score": 0-100, "insight": "具体洞察", "evidence": ["..."] },
     { "name": "风险暴露", "score": 0-100, "insight": "分数越高风险越低", "evidence": ["..."] }
   ],
-  "audiencePerception": ["目标用户可能如何理解这个品牌，4-6 条"],
+  "audiencePerception": ["目标用户可能如何理解这个${isPerson ? "人物" : "品牌"}，4-6 条"],
   "trustSignals": ["豆包可抓取/可采信的信任信号，4-6 条"],
   "evidenceGaps": ["证据缺口，4-6 条"],
   "risks": ["AI 回答中可能出现的不利形象，4-6 条"],
@@ -115,18 +137,19 @@ function buildPrompt(args: {
 }`
 
   const sourceNote = args.sourceMode === "manual"
-    ? "本次使用用户手动填写的地区、行业、品牌全称和别名作为独立调研输入，不依赖渗透率检测结果。"
-    : "本次优先使用渗透率情报中的品牌、行业、官网、竞品和疑问句检测结果作为独立调研输入。"
+    ? `本次使用用户手动填写的地区、行业、${isPerson ? "人物姓名和姓名别名" : "品牌全称和别名"}作为独立调研输入，不依赖渗透率检测结果。`
+    : `本次优先使用渗透率情报中的${isPerson ? "人物、职业、资料页、同行人物" : "品牌、行业、官网、竞品"}和疑问句检测结果作为独立调研输入。`
 
-  const user = `请对以下品牌做${args.mode === "hypothesis" ? "假设验证式" : "AI 深度"}调研：
+  const user = `请对以下${subjectNoun}做${args.mode === "hypothesis" ? "假设验证式" : "AI 深度"}调研：
 
 数据来源：${sourceNote}
-品牌名：${args.ourBrand}
-品牌别名：${args.aliases.join("、") || "未提供"}
+${isPerson ? "人物姓名" : "品牌名"}：${args.ourBrand}
+${isPerson ? "姓名别名" : "品牌别名"}：${args.aliases.join("、") || "未提供"}
 地区：${args.region || "未指定"}
 行业：${args.industry || "未指定"}
-官网：${args.website || "未提供"}
-已知竞品：${args.competitors.join("、") || "未提供"}
+官网/主阵地：${args.website || "未提供"}
+已知${peerNoun}：${args.competitors.join("、") || "未提供"}
+${isPerson ? `\n【人物身份资料】\n${args.personProfileContext}` : ""}
 调研模式：${args.mode === "hypothesis" ? "假设验证" : "AI 深度调研"}
 用户假设：${args.mode === "hypothesis" ? args.hypothesis || "未填写具体假设，请自行提出可验证假设并评估。" : "无"}
 
@@ -192,12 +215,18 @@ async function handler(req: NextRequest) {
     const region = String(body.region || "").trim()
     const mode = body.mode === "hypothesis" ? "hypothesis" : "ai"
     const hypothesis = String(body.hypothesis || "").trim()
+    const subjectType = normalizeAnalysisSubjectType(body.subjectType)
+    const personProfile = normalizePersonSubjectProfile(body.personProfile)
     const competitors: string[] = Array.isArray(body.competitors)
       ? body.competitors.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 20)
       : []
 
     if (!ourBrand) {
-      return NextResponse.json({ error: sourceMode === "manual" ? "请填写品牌全称" : "请填写我方品牌名" }, { status: 400 })
+      return NextResponse.json({
+        error: subjectType === "person"
+          ? "请填写目标人物姓名"
+          : sourceMode === "manual" ? "请填写品牌全称" : "请填写我方品牌名",
+      }, { status: 400 })
     }
     if (sourceMode === "manual" && !industry) {
       return NextResponse.json({ error: "请填写行业" }, { status: 400 })
@@ -215,7 +244,7 @@ async function handler(req: NextRequest) {
       featureKey,
       source: "api:research",
       description: getFeaturePrice(featureKey).label,
-      metadata: { mode, sourceMode },
+      metadata: { mode, sourceMode, subjectType },
     })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
@@ -230,7 +259,9 @@ async function handler(req: NextRequest) {
       region,
       aliases,
       hypothesis,
-      penetrationContext: buildPenetrationContext(body.penetration),
+      penetrationContext: buildPenetrationContext(body.penetration, subjectType),
+      subjectType,
+      personProfileContext: formatPersonSubjectContext(personProfile),
     })
 
     const raw = await ADAPTERS.doubao.chat({

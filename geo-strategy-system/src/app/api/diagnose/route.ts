@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
-import type { Diagnosis } from "@/types"
+import type { AnalysisSubjectType, Diagnosis } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { parseJsonLoose } from "@/lib/score-utils"
+import {
+  formatPersonSubjectContext,
+  normalizeAnalysisSubjectType,
+  normalizePersonSubjectProfile,
+} from "@/lib/analysis-subject"
 import {
   authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
@@ -25,10 +30,15 @@ function buildPrompt(args: {
   industry: string
   website: string
   penetrationContext: string
+  subjectType: AnalysisSubjectType
+  personProfileContext: string
 }): { system: string; user: string } {
+  const isPerson = args.subjectType === "person"
+  const subjectNoun = isPerson ? "个人 IP / 专业人物" : "品牌"
   const system = `你是国内 GEO（生成式引擎优化）领域的资深审计专家，熟悉豆包(字节)、通义千问(阿里)、DeepSeek、Kimi(Moonshot)四大主流国内大模型的内容抓取与推荐偏好。
 
-你的任务：基于用户提供的品牌信息和（可选的）渗透率检测结果，对该品牌做一次"多维 AI 诊断"。
+你的任务：基于用户提供的${subjectNoun}信息和（可选的）渗透率检测结果，对该${subjectNoun}做一次"多维 AI 诊断"。
+${isPerson ? "个人 IP 模式下必须区分人物与机构，只评估该人物的公开可见度、专业可信度、内容资产和 AI 推荐心智；不得把所在机构当作人物，也不得编造履历、职称、资质或案例。" : ""}
 
 【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止额外文字】
 {
@@ -42,7 +52,7 @@ function buildPrompt(args: {
   },
   "modelDiagnosis": {
     "doubao":   { "preference": "豆包的抓取偏好（如：偏好头条号、稀土掘金、抖音图文）",
-                  "weakness":   "我方在豆包派系中的核心失分项（具体）",
+                  "weakness":   "${isPerson ? "目标人物" : "我方"}在豆包派系中的核心失分项（具体）",
                   "fix":        "对应修复动作（可执行）" },
     "qwen":     { "preference": "...", "weakness": "...", "fix": "..." },
     "deepseek": { "preference": "...", "weakness": "...", "fix": "..." },
@@ -53,14 +63,15 @@ function buildPrompt(args: {
 诊断要求：
 1. weakness 必须具体（例："缺乏知乎高赞回答 / 没有第三方评测站交叉验证 / 官网未做 FAQ Schema"）
 2. fix 必须是可立即执行的动作，不要泛泛而谈
-3. 如果没有渗透率数据，根据品牌信息和行业常识合理推断分数（保守一些）
+3. 如果没有渗透率数据，根据${subjectNoun}信息和行业常识合理推断分数（保守一些）
 4. 严格只输出 JSON，不要写其他文字`
 
-  const user = `请对以下品牌做多维 AI 诊断：
+  const user = `请对以下${subjectNoun}做多维 AI 诊断：
 
-品牌名：${args.ourBrand}
+${isPerson ? "人物姓名" : "品牌名"}：${args.ourBrand}
 行业：${args.industry || "未指定"}
-官网：${args.website || "未提供"}
+官网/主阵地：${args.website || "未提供"}
+${isPerson ? `\n【人物身份资料】\n${args.personProfileContext}` : ""}
 
 ${args.penetrationContext || "（暂无渗透率检测数据，请基于品牌+行业常识保守评估。）"}`
 
@@ -75,18 +86,23 @@ async function handler(req: NextRequest) {
     const industry = String(body.industry || "").trim()
     const website = String(body.website || "").trim()
     const penetration = body.penetration
+    const subjectType = normalizeAnalysisSubjectType(body.subjectType)
+    const personProfile = normalizePersonSubjectProfile(body.personProfile)
 
     if (!ourBrand) {
-      return NextResponse.json({ error: "请填写我方品牌名" }, { status: 400 })
+      return NextResponse.json({
+        error: subjectType === "person" ? "请填写目标人物姓名" : "请填写我方品牌名",
+      }, { status: 400 })
     }
 
     let penetrationContext = ""
     if (penetration?.aggregated) {
       const agg = penetration.aggregated
+      const isPerson = subjectType === "person"
       penetrationContext = `【渗透率检测结果摘要】
 - 综合渗透率: ${(agg.penetrationRate * 100).toFixed(1)}%（${agg.ourMentions}/${agg.totalSlots}）
-- 行业排位: ${agg.ourRanking ? `第 ${agg.ourRanking} 名` : "未上榜"}
-- 主要竞品: ${agg.topCompetitors.join("、") || "无"}
+- ${isPerson ? "同行人物" : "行业"}排位: ${agg.ourRanking ? `第 ${agg.ourRanking} 名` : "未上榜"}
+- 主要${isPerson ? "同行人物" : "竞品"}: ${agg.topCompetitors.join("、") || "无"}
 - 未被任一模型提及的问题数: ${agg.missedQuestions.length}
 - 各模型提及率: ${agg.perModelRate
         .map((p: { model: string; rate: number }) => `${p.model}=${(p.rate * 100).toFixed(0)}%`)
@@ -115,11 +131,19 @@ async function handler(req: NextRequest) {
       featureKey,
       source: "api:diagnose",
       description: getFeaturePrice(featureKey).label,
+      metadata: { subjectType },
     })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
-    const { system, user } = buildPrompt({ ourBrand, industry, website, penetrationContext })
+    const { system, user } = buildPrompt({
+      ourBrand,
+      industry,
+      website,
+      penetrationContext,
+      subjectType,
+      personProfileContext: formatPersonSubjectContext(personProfile),
+    })
     const raw = await ADAPTERS[picked].chat({
       system,
       user,

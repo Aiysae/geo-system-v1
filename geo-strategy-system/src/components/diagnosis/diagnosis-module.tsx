@@ -12,6 +12,7 @@ import ModelTabs from "./model-tabs"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
+import { getClientSubjectType } from "@/lib/analysis-subject"
 import type { BackgroundJobRef, Client, Diagnosis } from "@/types"
 
 interface Props {
@@ -20,6 +21,8 @@ interface Props {
 }
 
 export default function DiagnosisModule({ client, onChangeClient }: Props) {
+  const subjectType = getClientSubjectType(client)
+  const isPerson = subjectType === "person"
   const [error, setError] = useState<string | null>(null)
   const jobRef = client.backgroundJobs?.diagnosis
   const loading = Boolean(jobRef)
@@ -28,6 +31,8 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
     industry: client.industry,
     website: client.website,
     penetration: client.penetration,
+    subjectType,
+    personProfile: client.personProfile,
   }
 
   function backgroundJobsWith(ref?: BackgroundJobRef) {
@@ -86,7 +91,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
               <Radar className="h-5 w-5 text-white" />
             </span>
             <span className="geo-module-title min-w-0 text-base sm:text-lg">
-              多维 AI 诊断面板
+              {isPerson ? "个人 IP 多维 AI 诊断面板" : "多维 AI 诊断面板"}
             </span>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -110,7 +115,9 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
       </CardHeader>
       <CardContent>
         <div className="mb-5">
-          <Label className="text-xs text-slate-600 mb-1.5 block">官网/品牌主阵地 URL（可选）</Label>
+          <Label className="text-xs text-slate-600 mb-1.5 block">
+            {isPerson ? "个人主页/机构资料页 URL（可选）" : "官网/品牌主阵地 URL（可选）"}
+          </Label>
           <Input
             value={client.website}
             onChange={e => onChangeClient({ website: e.target.value })}
@@ -153,7 +160,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
                 <div className="mb-2 px-2 text-[11px] font-semibold text-[#60758D]">
                   五维诊断雷达图
                 </div>
-                <RadarFiveDim dimensions={diag.dimensions} />
+                <RadarFiveDim dimensions={diag.dimensions} subjectType={subjectType} />
               </div>
             </div>
 

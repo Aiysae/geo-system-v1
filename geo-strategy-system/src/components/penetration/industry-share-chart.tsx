@@ -10,14 +10,17 @@ import {
   ResponsiveContainer,
   LabelList,
 } from "recharts"
-import type { IndustryShareItem } from "@/types"
-import { isSameBrand } from "@/lib/score-utils"
+import type { AnalysisSubjectType, IndustryShareItem } from "@/types"
+import { isSameSubject } from "@/lib/subject-canonicalization"
 
 interface Props {
   items: IndustryShareItem[]
   ourBrand: string
   totalSlots: number
   compact?: boolean
+  subjectType?: AnalysisSubjectType
+  entityLabel?: string
+  highlightTarget?: boolean
 }
 
 const TOP_RANK_GRADIENTS = [
@@ -26,7 +29,16 @@ const TOP_RANK_GRADIENTS = [
   { from: "#2F54EB", to: "#7B8CFF" },
 ]
 
-export default function IndustryShareChart({ items, ourBrand, totalSlots, compact = false }: Props) {
+export default function IndustryShareChart({
+  items,
+  ourBrand,
+  totalSlots,
+  compact = false,
+  subjectType = "brand",
+  entityLabel,
+  highlightTarget = true,
+}: Props) {
+  const resolvedEntityLabel = entityLabel || (subjectType === "person" ? "同行人物" : "品牌")
   const data = items.map((it, index) => ({
     brand: it.brand,
     count: it.count,
@@ -35,7 +47,7 @@ export default function IndustryShareChart({ items, ourBrand, totalSlots, compac
       Math.round(
         (it.penetrationRate ?? (totalSlots > 0 ? it.count / totalSlots : 0)) * 1000
       ) / 10,
-    isOur: isSameBrand(it.brand, ourBrand),
+    isOur: highlightTarget && isSameSubject(it.brand, ourBrand, subjectType),
     rankIndex: index,
   }))
 
@@ -96,7 +108,9 @@ export default function IndustryShareChart({ items, ourBrand, totalSlots, compac
               )?.payload
               const ratio = payload?.ratio ?? 0
               const count = payload?.count ?? 0
-              const label = payload?.isOur ? "我方品牌渗透率" : "品牌渗透率"
+              const label = payload?.isOur
+                ? subjectType === "person" ? "目标人物可见率" : "我方品牌渗透率"
+                : `${resolvedEntityLabel}提及率`
               return [`${value}% · ${count} 次提及 · 声量占比 ${ratio}%`, label]
             }}
           />

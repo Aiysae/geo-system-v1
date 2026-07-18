@@ -628,13 +628,40 @@ function distinctQuestions(answers: FlattenedAnswer[]): number {
   return new Set(answers.map(({ item }) => item.question.trim()).filter(Boolean)).size
 }
 
+function isPersonReport(input: CommercialReportInput): boolean {
+  return input.client.subjectType === "person"
+}
+
+function reportVocabulary(input: CommercialReportInput) {
+  return isPersonReport(input)
+    ? {
+        subject: "人物",
+        target: "目标人物",
+        visibility: "个人 IP 可见率",
+        ranking: "同行人物声量排名",
+        competitors: "同行人物",
+        assets: "专业身份与内容资产",
+      }
+    : {
+        subject: "品牌",
+        target: "目标品牌",
+        visibility: "品牌渗透率",
+        ranking: "品牌声量排名",
+        competitors: "竞品",
+        assets: "品牌资产",
+      }
+}
+
 function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer[]): string {
   const sections: string[] = []
   const penetration = input.penetration?.aggregated
   if (penetration) {
-    const rank = penetration.ourRanking ? `行业声量位列第 ${penetration.ourRanking}` : "当前未进入行业品牌声量排名"
+    const terms = reportVocabulary(input)
+    const rank = penetration.ourRanking
+      ? `${terms.ranking}位列第 ${penetration.ourRanking}`
+      : `当前未进入${terms.ranking}`
     sections.push(
-      `本次多模型检测覆盖 ${distinctQuestions(answers)} 条疑问句、${penetration.perModelRate.length} 个模型和 ${penetration.totalSlots} 个检测槽位；我方品牌渗透率为 ${percent(penetration.penetrationRate)}，${rank}。`,
+      `本次多模型检测覆盖 ${distinctQuestions(answers)} 条疑问句、${penetration.perModelRate.length} 个模型和 ${penetration.totalSlots} 个检测槽位；${terms.visibility}为 ${percent(penetration.penetrationRate)}，${rank}。`,
     )
   }
   if (input.difficulty) {
@@ -669,7 +696,11 @@ function actionItems(input: CommercialReportInput): string[] {
   }
   const topCompetitor = input.penetration?.aggregated.topCompetitors?.[0]
   if (topCompetitor && actions.length < 8) {
-    actions.push(`针对高频竞品“${topCompetitor}”建立差异化证据页，明确可验证的产品、案例和服务边界。`)
+    actions.push(
+      isPersonReport(input)
+        ? `针对高频同行人物“${topCompetitor}”建立差异化专业证据页，明确可验证的资历、专长、案例与服务边界。`
+        : `针对高频竞品“${topCompetitor}”建立差异化证据页，明确可验证的产品、案例和服务边界。`,
+    )
   }
   if (actions.length === 0) actions.push("完成更多疑问句检测和难度测评后，再形成分阶段 GEO 行动路线。")
   return actions.slice(0, 8)
@@ -847,6 +878,7 @@ function PublisherLockup({ branding }: { branding: ReportBrandingSettings }) {
 
 function CoverPage({ input }: { input: CommercialReportInput }) {
   const branding = brandingForInput(input)
+  const terms = reportVocabulary(input)
   const kindLabel = input.kind === "combined"
     ? "GEO 综合商业洞察报告"
     : input.kind === "penetration"
@@ -863,10 +895,14 @@ function CoverPage({ input }: { input: CommercialReportInput }) {
         <View style={styles.coverSignal} />
         <Text style={styles.coverKicker}>GEO INTELLIGENCE REPORT</Text>
         <Text style={styles.coverTitle}>{kindLabel}</Text>
-        <Text style={styles.coverSubtitle}>AI 心智占位 · 品牌可见度 · 竞争难度 · 行动路径</Text>
+        <Text style={styles.coverSubtitle}>
+          {isPersonReport(input)
+            ? "AI 专业认知 · 个人 IP 可见度 · 同行竞争 · 行动路径"
+            : "AI 心智占位 · 品牌可见度 · 竞争难度 · 行动路径"}
+        </Text>
         <View style={styles.coverMeta}>
           <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>客户</Text><Text style={styles.coverMetaValue}>{input.client.name}</Text></View>
-          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>目标品牌</Text><Text style={styles.coverMetaValue}>{input.client.ourBrand || "未填写"}</Text></View>
+          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>{terms.target}</Text><Text style={styles.coverMetaValue}>{input.client.ourBrand || "未填写"}</Text></View>
           <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>行业</Text><Text style={styles.coverMetaValue}>{input.client.industry || "未填写"}</Text></View>
           <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>报告版本</Text><Text style={styles.coverMetaValue}>{input.detail === "full" ? "审计附录版" : "精简决策版"}</Text></View>
           <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>生成时间</Text><Text style={styles.coverMetaValue}>{formatDate(new Date().toISOString())}</Text></View>
@@ -886,13 +922,20 @@ function CoverPage({ input }: { input: CommercialReportInput }) {
 function SummaryPage({ input, answers, sources }: { input: CommercialReportInput; answers: FlattenedAnswer[]; sources: PenetrationSource[] }) {
   const penetration = input.penetration?.aggregated
   const difficulty = input.difficulty?.result
+  const terms = reportVocabulary(input)
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="EXECUTIVE VIEW" title="管理层摘要" intro="把复杂模型检测压缩为可决策的品牌心智信号。" />
+      <ChapterTitle
+        kicker="EXECUTIVE VIEW"
+        title="管理层摘要"
+        intro={isPersonReport(input)
+          ? "把复杂模型检测压缩为可决策的个人专业认知与同行竞争信号。"
+          : "把复杂模型检测压缩为可决策的品牌心智信号。"}
+      />
       <View style={styles.metricsGrid}>
-        <MetricCard label="品牌渗透率" value={penetration ? percent(penetration.penetrationRate) : "未检测"} note={penetration ? `${penetration.ourMentions}/${penetration.totalSlots} 个槽位命中` : undefined} />
-        <MetricCard label="品牌声量排名" value={penetration?.ourRanking ? `第 ${penetration.ourRanking}` : "未上榜"} note={penetration ? `共识别 ${penetration.industryShare.length} 个品牌` : undefined} />
+        <MetricCard label={terms.visibility} value={penetration ? percent(penetration.penetrationRate) : "未检测"} note={penetration ? `${penetration.ourMentions}/${penetration.totalSlots} 个槽位命中` : undefined} />
+        <MetricCard label={terms.ranking} value={penetration?.ourRanking ? `第 ${penetration.ourRanking}` : "未上榜"} note={penetration ? `共识别 ${penetration.industryShare.length} 个${terms.subject}` : undefined} />
         <MetricCard label="联网可验证率" value={answers.length ? percent(verifiedRate(answers)) : "无数据"} note={`${sources.length} 条去重信源`} />
         <MetricCard label="GEO 难度" value={difficulty ? `${difficulty.totalScore} 分` : "未测评"} note={difficulty ? `${difficulty.level} · ${concisePeriod(difficulty.stableMentionPeriod)}` : undefined} />
       </View>
@@ -924,27 +967,34 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
 function PenetrationPage({ input, answers }: { input: CommercialReportInput; answers: FlattenedAnswer[] }) {
   const penetration = input.penetration!
   const brands = penetration.aggregated.industryShare.slice(0, 10)
+  const terms = reportVocabulary(input)
   const maxBrandRate = Math.max(0.01, ...brands.map(item => item.penetrationRate))
   const rankColors = [COLORS.amber, COLORS.silver, COLORS.bronze]
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="VISIBILITY INTELLIGENCE" title="渗透率与竞品情报" intro={`覆盖 ${distinctQuestions(answers)} 条疑问句和 ${penetration.aggregated.perModelRate.length} 个模型，统计口径为模型回答中的品牌真实提及。`} />
+      <ChapterTitle
+        kicker="VISIBILITY INTELLIGENCE"
+        title={isPersonReport(input) ? "个人 IP 可见度与同行情报" : "渗透率与竞品情报"}
+        intro={`覆盖 ${distinctQuestions(answers)} 条疑问句和 ${penetration.aggregated.perModelRate.length} 个模型，统计口径为模型回答中的${terms.subject}真实提及。`}
+      />
       <View style={styles.penetrationHero} wrap={false}>
         <DonutChart
           value={penetration.aggregated.penetrationRate}
           display={percent(penetration.aggregated.penetrationRate)}
-          label="品牌渗透率"
+          label={terms.visibility}
         />
         <View style={styles.heroMetrics}>
-          <HeroMetric label="品牌命中" value={`${penetration.aggregated.ourMentions}/${penetration.aggregated.totalSlots}`} />
-          <HeroMetric label="行业声量排名" value={penetration.aggregated.ourRanking ? `第 ${penetration.aggregated.ourRanking}` : "未上榜"} />
+          <HeroMetric label={`${terms.target}命中`} value={`${penetration.aggregated.ourMentions}/${penetration.aggregated.totalSlots}`} />
+          <HeroMetric label={terms.ranking} value={penetration.aggregated.ourRanking ? `第 ${penetration.aggregated.ourRanking}` : "未上榜"} />
           <HeroMetric label="检测问题" value={`${distinctQuestions(answers)} 条`} />
-          <HeroMetric label="识别品牌" value={`${penetration.aggregated.industryShare.length} 个`} />
+          <HeroMetric label={`识别${terms.subject}`} value={`${penetration.aggregated.industryShare.length} 个`} />
         </View>
       </View>
       <View style={styles.section} wrap={false}>
-        <Text style={styles.sectionTitle}>全品牌渗透率 Top {brands.length}</Text>
+        <Text style={styles.sectionTitle}>
+          {isPersonReport(input) ? "同行人物可见度" : "全品牌渗透率"} Top {brands.length}
+        </Text>
         {brands.map((item, index) => (
           <HorizontalBar
             key={item.brand}
@@ -956,7 +1006,11 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
         ))}
       </View>
       <View style={styles.methodology}>
-        <Text>统计说明：目标品牌全称及已配置别名在回答原文中通过字面校验后才计为命中。失败或空回答不会被包装成成功结果。</Text>
+        <Text>
+          {isPersonReport(input)
+            ? "统计说明：目标人物姓名及已配置别名在回答原文中通过字面校验后才计为命中；同行人物由独立裁判结合职业、专业方向与回答上下文判定，机构不计入人物排名。失败或空回答不会被包装成成功结果。"
+            : "统计说明：目标品牌全称及已配置别名在回答原文中通过字面校验后才计为命中。失败或空回答不会被包装成成功结果。"}
+        </Text>
       </View>
     </Page>
   )
@@ -965,18 +1019,26 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
 function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
   const penetration = input.penetration!
   const brands = penetration.aggregated.industryShare.slice(0, 10)
+  const institutions = (penetration.aggregated.institutionShare || []).slice(0, 8)
+  const terms = reportVocabulary(input)
   const models = penetration.aggregated.perModelRate
   const rankColors = [COLORS.amber, COLORS.silver, COLORS.bronze]
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="DATA TABLES" title="品牌与模型数据表" intro="把图表中的相对位置还原为可复核的次数、比例与模型覆盖口径。" />
+      <ChapterTitle
+        kicker="DATA TABLES"
+        title={`${terms.subject}与模型数据表`}
+        intro="把图表中的相对位置还原为可复核的次数、比例与模型覆盖口径。"
+      />
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>全品牌渗透率 Top {brands.length}</Text>
+        <Text style={styles.sectionTitle}>
+          {isPersonReport(input) ? "同行人物可见度" : "全品牌渗透率"} Top {brands.length}
+        </Text>
         <View style={styles.table}>
           <View style={[styles.tableRow, styles.tableHeader]}>
             <TableCell width="10%" header>排名</TableCell>
-            <TableCell width="44%" header>品牌</TableCell>
+            <TableCell width="44%" header>{terms.subject}</TableCell>
             <TableCell width="20%" header>提及次数</TableCell>
             <TableCell width="26%" header>渗透率</TableCell>
           </View>
@@ -993,7 +1055,7 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
         </View>
       </View>
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>各模型目标品牌命中率</Text>
+        <Text style={styles.sectionTitle}>各模型{terms.target}命中率</Text>
         <View style={styles.table}>
           <View style={[styles.tableRow, styles.tableHeader]}>
             <TableCell width="34%" header>模型</TableCell>
@@ -1012,12 +1074,34 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
         </View>
         <Text style={styles.tableNote}>说明：同一疑问句由多个模型分别回答，因此模型表中的回答数与“检测问题数”不是同一口径。</Text>
       </View>
+      {isPersonReport(input) && institutions.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>关联机构提及 Top {institutions.length}</Text>
+          <View style={styles.table}>
+            <View style={[styles.tableRow, styles.tableHeader]}>
+              <TableCell width="12%" header>排名</TableCell>
+              <TableCell width="50%" header>机构</TableCell>
+              <TableCell width="18%" header>提及</TableCell>
+              <TableCell width="20%" header>提及率</TableCell>
+            </View>
+            {institutions.map((item, index) => (
+              <View key={item.brand} style={[styles.tableRow, index === institutions.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+                <TableCell width="12%">{index + 1}</TableCell>
+                <TableCell width="50%" strong>{item.brand}</TableCell>
+                <TableCell width="18%">{item.count} 次</TableCell>
+                <TableCell width="20%">{percent(item.penetrationRate)}</TableCell>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
     </Page>
   )
 }
 
 function QuestionCoveragePages({ input, answers }: { input: CommercialReportInput; answers: FlattenedAnswer[] }) {
   const rows = questionCoverageRows(answers)
+  const terms = reportVocabulary(input)
   const limit = input.detail === "full" ? 80 : 20
   const pages = paginateQuestionRows(rows.slice(0, limit))
   return pages.map((pageRows, pageIndex) => (
@@ -1026,13 +1110,13 @@ function QuestionCoveragePages({ input, answers }: { input: CommercialReportInpu
       <ChapterTitle
         kicker="QUESTION COVERAGE"
         title={pageIndex === 0 ? "疑问句覆盖明细" : "疑问句覆盖明细（续）"}
-        intro="逐题汇总目标品牌命中、联网可验证回答和信源数量，便于定位优先补强的问题。"
+        intro={`逐题汇总${terms.target}命中、联网可验证回答和信源数量，便于定位优先补强的问题。`}
       />
       <Text style={styles.continuationLabel}>第 {pageIndex + 1} 组 · 共 {Math.min(rows.length, limit)} 条问题</Text>
       <View style={styles.table}>
         <View style={[styles.tableRow, styles.tableHeader]}>
           <TableCell width="58%" header>疑问句</TableCell>
-          <TableCell width="14%" header>品牌命中</TableCell>
+          <TableCell width="14%" header>{terms.subject}命中</TableCell>
           <TableCell width="16%" header>联网验证</TableCell>
           <TableCell width="12%" header>信源</TableCell>
         </View>
@@ -1054,6 +1138,7 @@ function QuestionCoveragePages({ input, answers }: { input: CommercialReportInpu
 
 function PenetrationOpportunityPage({ input }: { input: CommercialReportInput }) {
   const penetration = input.penetration!
+  const terms = reportVocabulary(input)
   const competitors = (penetration.aggregated.topCompetitors || []).slice(0, 8)
     .map(item => `${item} 在本轮回答中形成较高频的模型心智占位。`)
   const missed = (penetration.aggregated.missedQuestions || []).slice(0, 14)
@@ -1061,16 +1146,22 @@ function PenetrationOpportunityPage({ input }: { input: CommercialReportInput })
   return (
     <Page size="A4" style={styles.page} wrap>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="GAP ANALYSIS" title="竞争与问题缺口" intro="把品牌声量差距转化为可执行的竞品对照与疑问句补强清单。" />
+      <ChapterTitle
+        kicker="GAP ANALYSIS"
+        title="竞争与问题缺口"
+        intro={isPersonReport(input)
+          ? "把人物声量差距转化为可执行的同行对照与疑问句补强清单。"
+          : "把品牌声量差距转化为可执行的竞品对照与疑问句补强清单。"}
+      />
       {competitors.length > 0 ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>主要竞品</Text>
+          <Text style={styles.sectionTitle}>主要{terms.competitors}</Text>
           <NumberedList items={competitors} />
         </View>
       ) : null}
       {missed.length > 0 ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>目标品牌未覆盖疑问句</Text>
+          <Text style={styles.sectionTitle}>{terms.target}未覆盖疑问句</Text>
           <NumberedList items={missed} />
         </View>
       ) : null}
@@ -1435,10 +1526,11 @@ function DifficultyInsightsPages({ input }: { input: CommercialReportInput }) {
 }
 
 function ActionPage({ input }: { input: CommercialReportInput }) {
+  const terms = reportVocabulary(input)
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="ACTION ROADMAP" title="行动路线与方法说明" intro="把报告结论转化为可执行的内容、信源和品牌资产建设任务。" />
+      <ChapterTitle kicker="ACTION ROADMAP" title="行动路线与方法说明" intro={`把报告结论转化为可执行的内容、信源和${terms.assets}建设任务。`} />
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>建议优先级</Text>
         <NumberedList items={actionItems(input)} />
@@ -1446,7 +1538,11 @@ function ActionPage({ input }: { input: CommercialReportInput }) {
       <View style={styles.methodology}>
         <Text>方法说明</Text>
         <Text style={{ marginTop: 5 }}>1. 渗透率来自所选模型对真实疑问句的独立回答，模型回答与信源按原始结果保存。</Text>
-        <Text>2. 品牌识别在回答生成后完成，不把目标品牌和优势信息注入被测问题。</Text>
+        <Text>
+          {isPersonReport(input)
+            ? "2. 人物识别与同行判定在回答生成后完成，不把目标人物、同行名单或身份资料注入被测问题。"
+            : "2. 品牌识别在回答生成后完成，不把目标品牌和优势信息注入被测问题。"}
+        </Text>
         <Text>3. 难度测评来自系统保存的五步评估结果，报告不额外调用 AI，也不补写未提供的事实。</Text>
         <Text>4. 本报告用于 GEO 策略与内容决策，不构成法律、财务或绝对排名承诺。</Text>
       </View>
@@ -1507,8 +1603,16 @@ function ClosingPage({ input }: { input: CommercialReportInput }) {
       <View style={styles.closingContent}>
         <PublisherLockup branding={branding} />
         <View>
-          <Text style={styles.closingTitle}>以真实回答为起点，持续校准品牌在 AI 中的位置。</Text>
-          <Text style={styles.closingText}>本报告反映生成时点的模型回答、联网信源和评分证据。建议在关键内容、信源和品牌动作上线后定期复测。</Text>
+          <Text style={styles.closingTitle}>
+            {isPersonReport(input)
+              ? "以真实回答为起点，持续校准个人 IP 在 AI 搜索中的专业位置。"
+              : "以真实回答为起点，持续校准品牌在 AI 中的位置。"}
+          </Text>
+          <Text style={styles.closingText}>
+            {isPersonReport(input)
+              ? "本报告反映生成时点的模型回答、联网信源和人物识别证据，不代表对个人专业能力的绝对评价。建议在关键专业内容与公开信源上线后定期复测。"
+              : "本报告反映生成时点的模型回答、联网信源和评分证据。建议在关键内容、信源和品牌动作上线后定期复测。"}
+          </Text>
           {branding.website ? <Link src={branding.website} style={styles.closingWebsite}>{displayWebsite(branding.website)}</Link> : null}
         </View>
         <Text style={styles.closingFooter}>CONFIDENTIAL · {reportId(input)}</Text>

@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from "next/server"
 import type {
+  AnalysisSubjectType,
   ModelKey,
   PenetrationByModel,
+  PenetrationMentionedEntity,
   PenetrationItem,
   PenetrationPromptPurity,
   PenetrationSource,
   PenetrationSearchMode,
   SourceDomainCount,
+  PersonSubjectProfile,
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import { aggregatePenetration, isSameBrand, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
-import { createBrandResolver } from "@/lib/brand-canonicalization"
+import {
+  createSubjectResolver,
+  isSameSubject,
+  isUsablePersonName,
+} from "@/lib/subject-canonicalization"
+import {
+  normalizeAnalysisSubjectType,
+  normalizePersonSubjectProfile,
+} from "@/lib/analysis-subject"
 import {
   authAndReserveCredits,
   refundReservedCreditsQuietly,
@@ -81,7 +92,42 @@ function blindQueryMaxTokens(model: ModelKey): number {
 // ============================================================================
 
 // ---------- Stage B · 裁判 System Prompt ----------
-function buildJudgeSystemPrompt(): string {
+function buildJudgeSystemPrompt(
+  subjectType: AnalysisSubjectType,
+): string {
+  if (subjectType === "person") {
+    return `你是一个严谨的"人物实体识别与同行判定引擎"。你的唯一任务是逐条审阅 AI 回答原文，抽取其中明确出现的具名人物与机构，并判断人物是否属于目标人物的直接同行。
+
+【硬性纪律 — 严禁幻觉】
+1. 只输出回答原文中确实出现的完整姓名和机构名，保持原文写法；不得补全姓氏、猜测身份或添加原文外的人物。
+2. 姓名必须能指向具体人物。严禁把"医生、律师、专家、主任、教授、博主、创始人、业内人士、某医生"等职业或泛称当作姓名。
+3. 人物与机构必须分开：医院、律所、公司、学校、协会、平台和媒体只能进入 mentionedOrganizations，不能当作人物。
+4. isPeer 表示该人物与目标人物处于同一用户选择集合，需综合职业、专业方向、服务地区和回答上下文判断；不能仅按姓名出现次数判断。
+5. 同行业但职业不同、仅被引用的作者/记者/患者、历史人物、平台创始人或机构负责人，如不是问题中的直接替代选择，isPeer 必须为 false。
+6. 已知同行名单只用于帮助识别，原文未出现就绝不能输出。
+7. 不确定是否是姓名或是否属于直接同行时，宁可不输出或将 isPeer 设为 false。
+8. 每个输入 id 必须且只能对应一个输出项，不得遗漏或新增 id。
+
+【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止任何额外文字】
+{
+  "items": [
+    {
+      "id": "输入中的 id",
+      "mentionedPeople": [
+        {
+          "name": "原文中的完整姓名",
+          "profession": "原文可确认的职业；无法确认则空字符串",
+          "organization": "原文可确认的所属机构；无法确认则空字符串",
+          "isPeer": true
+        }
+      ],
+      "mentionedOrganizations": ["原文中确实出现的医院、律所、公司、学校或协会；去重"],
+      "topRecommended": "原文明确排第一或最被推荐的同行人物姓名；没有明确倾向则空字符串"
+    }
+  ]
+}`
+  }
+
   return `你是一个严谨的"品牌识别引擎"。你的唯一任务是逐条审阅一组 AI 回答原文，从中客观抽取被提到的具体品牌、公司、产品或服务商名称。
 
 【硬性纪律 — 严禁幻觉】
@@ -115,9 +161,31 @@ function buildJudgeSystemPrompt(): string {
 }
 
 function buildJudgeUserPrompt(args: {
+  subjectType: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   competitors: string[]
   entries: Array<{ id: string; answer: string }>
 }): string {
+  if (args.subjectType === "person") {
+    const profile = normalizePersonSubjectProfile(args.personProfile)
+    const peerLine = args.competitors.length > 0
+      ? `【已知同行人物参考清单 — 仅供识别，原文没出现就不能输出】\n${args.competitors.join("、")}\n\n`
+      : ""
+    return `【目标人物同行判定基准】
+${JSON.stringify({
+  profession: profile.profession,
+  specialties: profile.specialties,
+  organization: profile.organization,
+  region: profile.region,
+  title: profile.title,
+})}
+
+${peerLine}【待审阅回答列表】
+${JSON.stringify(args.entries)}
+
+请逐条抽取具名人物与机构，并严格按 system 规定返回 JSON。`
+  }
+
   const compLine =
     args.competitors.length > 0
       ? `【已知主要竞品参考清单 — 仅供识别，原文没出现就不能输出】\n${args.competitors.join("、")}\n\n`
@@ -211,6 +279,31 @@ function isGenericBrandCandidate(brand: string, ourBrand: string): boolean {
   return /^(?:深圳|香港|深港|本地|附近|全国|海外)?(?:高端|性价比|靠谱|可靠|专业|优质|环保|进口|国产)?(?:全屋定制|整装|装修|家装|家居|家具|设计|施工|木作|衣柜|橱柜|公司|品牌|服务商|供应商|厂家|商家|门店|工厂|团队|机构|平台)+$/u.test(
     value
   )
+}
+
+function isGenericSubjectCandidate(
+  value: string,
+  ourBrand: string,
+  subjectType: AnalysisSubjectType,
+): boolean {
+  return subjectType === "person"
+    ? !isUsablePersonName(value)
+    : isGenericBrandCandidate(value, ourBrand)
+}
+
+function dedupeMentionedEntities(
+  entities: PenetrationMentionedEntity[],
+): PenetrationMentionedEntity[] {
+  const seen = new Set<string>()
+  const result: PenetrationMentionedEntity[] = []
+  for (const entity of entities) {
+    const name = entity.name.trim()
+    const key = `${entity.kind}:${normalize(name)}`
+    if (!name || seen.has(key)) continue
+    seen.add(key)
+    result.push({ ...entity, name })
+  }
+  return result
 }
 
 function dedupeSources(sources: PenetrationSource[]): PenetrationSource[] {
@@ -508,19 +601,22 @@ async function blindQuery(
 interface BatchJudgeItem {
   id: string
   mentionedBrands: string[]
+  mentionedEntities: PenetrationMentionedEntity[]
   topRecommended: string | null
 }
 
 async function judgeAnswersBatch(
   judgeModel: ModelKey,
   args: {
+    subjectType: AnalysisSubjectType
+    personProfile?: PersonSubjectProfile
     competitors: string[]
     entries: Array<{ id: string; answer: string }>
   }
 ): Promise<{ items: BatchJudgeItem[]; error?: string }> {
   if (args.entries.length === 0) return { items: [] }
   const adapter = ADAPTERS[judgeModel]
-  const sys = buildJudgeSystemPrompt()
+  const sys = buildJudgeSystemPrompt(args.subjectType)
   const user = buildJudgeUserPrompt(args)
   const t0 = Date.now()
 
@@ -544,18 +640,55 @@ async function judgeAnswersBatch(
         const item = value as {
           id?: unknown
           mentionedBrands?: unknown
+          mentionedPeople?: unknown
+          mentionedOrganizations?: unknown
           topRecommended?: unknown
         }
         const id = typeof item.id === "string" ? item.id.trim() : ""
         if (!id) return null
-        const mentionedBrands = Array.isArray(item.mentionedBrands)
-          ? item.mentionedBrands.map(x => String(x).trim()).filter(Boolean)
-          : []
+        const mentionedEntities: PenetrationMentionedEntity[] = []
+        let mentionedBrands: string[] = []
+        if (args.subjectType === "person") {
+          const people = Array.isArray(item.mentionedPeople) ? item.mentionedPeople : []
+          for (const value of people) {
+            if (!value || typeof value !== "object") continue
+            const person = value as Record<string, unknown>
+            const name = String(person.name || "").trim()
+            if (!name) continue
+            const isPeer = person.isPeer === true
+            mentionedEntities.push({
+              name,
+              kind: "person",
+              isPeer,
+              profession: String(person.profession || "").trim() || undefined,
+              organization: String(person.organization || "").trim() || undefined,
+            })
+            if (isPeer) mentionedBrands.push(name)
+          }
+          const organizations = Array.isArray(item.mentionedOrganizations)
+            ? item.mentionedOrganizations
+            : []
+          for (const value of organizations) {
+            const name = typeof value === "string"
+              ? value.trim()
+              : value && typeof value === "object"
+                ? String((value as Record<string, unknown>).name || "").trim()
+                : ""
+            if (name) mentionedEntities.push({ name, kind: "organization" })
+          }
+        } else {
+          mentionedBrands = Array.isArray(item.mentionedBrands)
+            ? item.mentionedBrands.map(x => String(x).trim()).filter(Boolean)
+            : []
+          mentionedEntities.push(
+            ...mentionedBrands.map(name => ({ name, kind: "brand" as const })),
+          )
+        }
         const topRecommended =
           typeof item.topRecommended === "string" && item.topRecommended.trim()
             ? item.topRecommended.trim()
             : null
-        return { id, mentionedBrands, topRecommended }
+        return { id, mentionedBrands, mentionedEntities, topRecommended }
       })
       .filter((item): item is BatchJudgeItem => !!item)
   }
@@ -595,6 +728,8 @@ async function processSlot(args: {
   ourBrand: string
   brandAliases: string[]
   competitors: string[]
+  subjectType: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
   auditProfile: PenetrationAuditProfile
 }): Promise<PenetrationItem & { error?: string; judgeError?: string }> {
   const blind = await blindQuery(args.model, args.question, args.sampleId, args.auditProfile)
@@ -607,6 +742,7 @@ async function processSlot(args: {
       question: args.question,
       answer: "",
       mentionedBrands: [],
+      mentionedEntities: [],
       topRecommended: null,
       searchSources: blind.searchSources,
       sourceDomains: blind.sourceDomains,
@@ -617,25 +753,27 @@ async function processSlot(args: {
     }
   }
 
-  const resolver = createBrandResolver({
+  const resolver = createSubjectResolver({
+    subjectType: args.subjectType,
     ourBrand: args.ourBrand,
     brandAliases: args.brandAliases,
     competitors: args.competitors,
   })
-  const knownBrands = resolver.knownNames
-  const mentionedBrands = knownBrands
+  const knownSubjects = resolver.knownNames
+  const mentionedBrands = resolver.canonicalizeList(knownSubjects
     .map(x => x.trim())
-    .filter((brand, index, all) => {
+    .filter((subject, index, all) => {
       if (
-        !brand ||
-        isPlatformName(brand) ||
-        isGenericBrandCandidate(brand, args.ourBrand) ||
-        !answerMentionsBrand(blind.answer, brand)
+        !subject ||
+        isPlatformName(subject) ||
+        isGenericSubjectCandidate(subject, args.ourBrand, args.subjectType) ||
+        !answerMentionsBrand(blind.answer, subject)
       ) {
         return false
       }
-      return all.findIndex(other => normalize(other) === normalize(brand)) === index
-    })
+      return all.findIndex(other => normalize(other) === normalize(subject)) === index
+    }))
+    .map(subject => subject.display)
 
   const codeHit = resolver.targetNames.some(brand => answerMentionsBrand(blind.answer, brand))
 
@@ -645,6 +783,9 @@ async function processSlot(args: {
     question: args.question,
     answer: blind.answer,
     mentionedBrands,
+    mentionedEntities: args.subjectType === "person"
+      ? mentionedBrands.map(name => ({ name, kind: "person", isPeer: true }))
+      : undefined,
     topRecommended: null,
     searchSources: blind.searchSources,
     sourceDomains: blind.sourceDomains,
@@ -659,33 +800,93 @@ type ProcessedSlot = {
   item: PenetrationItem & { error?: string; judgeError?: string }
 }
 
-function mergeVerifiedBrands(
+function mergeVerifiedSubjects(
   item: PenetrationItem,
-  candidates: string[],
+  candidates: PenetrationMentionedEntity[],
   ourBrand: string,
   brandAliases: string[],
   competitors: string[],
-): string[] {
-  const resolver = createBrandResolver({
+  subjectType: AnalysisSubjectType,
+): { mentionedSubjects: string[]; entities: PenetrationMentionedEntity[] } {
+  const candidateNames = candidates
+    .filter(entity => entity.kind === (subjectType === "person" ? "person" : "brand"))
+    .map(entity => entity.name)
+  const resolver = createSubjectResolver({
+    subjectType,
     ourBrand,
     brandAliases,
     competitors,
-    observedBrands: [...item.mentionedBrands, ...candidates],
+    observedBrands: [...item.mentionedBrands, ...candidateNames],
   })
-  const merged = [...item.mentionedBrands, ...candidates]
-    .map(brand => brand.trim())
-    .filter(brand => {
+  const knownKeys = new Set(
+    resolver.canonicalizeList(resolver.knownNames).map(subject => subject.key),
+  )
+  const candidateByKey = new Map<string, PenetrationMentionedEntity>()
+  for (const entity of candidates) {
+    if (!entity.name.trim() || !answerMentionsBrand(item.answer, entity.name)) continue
+    if (entity.kind === "person" && !isUsablePersonName(entity.name)) continue
+    const key = `${entity.kind}:${normalize(entity.name)}`
+    if (!candidateByKey.has(key)) candidateByKey.set(key, entity)
+  }
+
+  const merged = [...item.mentionedBrands, ...candidateNames]
+    .map(subject => subject.trim())
+    .filter(subject => {
       return (
-        !!brand &&
-        !isPlatformName(brand) &&
-        !isGenericBrandCandidate(brand, ourBrand) &&
-        answerMentionsBrand(item.answer, brand)
+        !!subject &&
+        !isPlatformName(subject) &&
+        !isGenericSubjectCandidate(subject, ourBrand, subjectType) &&
+        answerMentionsBrand(item.answer, subject)
       )
     })
 
   if (item.hitOur && ourBrand.trim()) merged.push(ourBrand.trim())
 
-  return resolver.canonicalizeList(merged).map(brand => brand.display)
+  const mentionedSubjects = resolver.canonicalizeList(merged)
+    .filter(subject => {
+      if (subjectType !== "person") return true
+      if (subject.isTarget || knownKeys.has(subject.key)) return true
+      return candidates.some(entity =>
+        entity.kind === "person"
+        && entity.isPeer === true
+        && resolver.canonicalize(entity.name)?.key === subject.key
+      )
+    })
+    .map(subject => subject.display)
+
+  if (subjectType !== "person") {
+    return {
+      mentionedSubjects,
+      entities: mentionedSubjects.map(name => ({ name, kind: "brand" })),
+    }
+  }
+
+  const personEntities = resolver.canonicalizeList([
+    ...(item.mentionedEntities || [])
+      .filter(entity => entity.kind === "person")
+      .map(entity => entity.name),
+    ...candidateNames,
+  ]).map(person => {
+    const source = Array.from(candidateByKey.values()).find(entity =>
+      entity.kind === "person"
+      && resolver.canonicalize(entity.name)?.key === person.key
+    )
+    return {
+      name: person.display,
+      kind: "person" as const,
+      isPeer: mentionedSubjects.some(name => resolver.canonicalize(name)?.key === person.key),
+      profession: source?.profession,
+      organization: source?.organization,
+    }
+  })
+  const organizationEntities = Array.from(candidateByKey.values())
+    .filter(entity => entity.kind === "organization")
+    .map(entity => ({ ...entity, isPeer: undefined }))
+
+  return {
+    mentionedSubjects,
+    entities: [...personEntities, ...dedupeMentionedEntities(organizationEntities)],
+  }
 }
 
 async function enrichWithBatchJudge(
@@ -694,6 +895,8 @@ async function enrichWithBatchJudge(
   competitors: string[],
   ourBrand: string,
   brandAliases: string[],
+  subjectType: AnalysisSubjectType,
+  personProfile?: PersonSubjectProfile,
 ): Promise<void> {
   const jobs: Array<{
     model: ModelKey
@@ -714,6 +917,8 @@ async function enrichWithBatchJudge(
 
   await mapWithConcurrency(jobs, 2, async job => {
     const judged = await judgeAnswersBatch(judgeModel, {
+      subjectType,
+      personProfile,
       competitors,
       entries: job.slots.map(slot => ({ id: slot.id, answer: slot.item.answer })),
     })
@@ -721,24 +926,37 @@ async function enrichWithBatchJudge(
 
     for (const slot of job.slots) {
       const result = judgedById.get(slot.id)
-      slot.item.mentionedBrands = mergeVerifiedBrands(
+      const merged = mergeVerifiedSubjects(
         slot.item,
-        result?.mentionedBrands ?? [],
+        result?.mentionedEntities ?? [],
         ourBrand,
         brandAliases,
         competitors,
+        subjectType,
       )
+      slot.item.mentionedBrands = merged.mentionedSubjects
+      slot.item.mentionedEntities = merged.entities
       // 裁判抽出的品牌必须先通过回答原文字面校验。通过后，再允许简称/公司全称
       // 之间的同品牌匹配回写 hitOur，例如“木点点”命中“木点点整装（深圳）有限公司”。
       slot.item.hitOur =
         slot.item.hitOur ||
         slot.item.mentionedBrands.some(brand =>
-          [ourBrand, ...brandAliases].some(target => isSameBrand(brand, target)),
+          [ourBrand, ...brandAliases].some(target =>
+            subjectType === "person"
+              ? isSameSubject(brand, target, "person")
+              : isSameBrand(brand, target)
+          ),
         )
       slot.item.topRecommended =
         result?.topRecommended &&
         !isPlatformName(result.topRecommended) &&
-        answerMentionsBrand(slot.item.answer, result.topRecommended)
+        answerMentionsBrand(slot.item.answer, result.topRecommended) &&
+        (
+          subjectType !== "person"
+          || slot.item.mentionedBrands.some(name =>
+            isSameSubject(name, result.topRecommended || "", "person")
+          )
+        )
           ? result.topRecommended
           : null
       if (judged.error) slot.item.judgeError = judged.error
@@ -791,6 +1009,8 @@ async function handler(req: NextRequest) {
   try {
     const internalJobRequest = isInternalApiRequest(req, "penetration-job")
     const body = await req.json()
+    let subjectType = normalizeAnalysisSubjectType(body.subjectType)
+    let personProfile = normalizePersonSubjectProfile(body.personProfile)
     let ourBrand = String(body.ourBrand || "").trim()
     const questions: string[] = Array.isArray(body.questions)
       ? body.questions.map((q: unknown) => String(q).trim()).filter(Boolean)
@@ -833,13 +1053,18 @@ async function handler(req: NextRequest) {
           return NextResponse.json({ error: "已授权的客户面板不存在，请联系管理员" }, { status: 404 })
         }
         ourBrand = client.ourBrand.trim()
+        subjectType = normalizeAnalysisSubjectType(client.subjectType)
+        personProfile = normalizePersonSubjectProfile(client.personProfile)
         brandAliases = client.brandAliases ?? []
         competitors = client.competitors
       }
     }
 
     if (!ourBrand) {
-      return NextResponse.json({ error: "请填写我方品牌名" }, { status: 400 })
+      return NextResponse.json(
+        { error: subjectType === "person" ? "请填写目标人物姓名" : "请填写我方品牌名" },
+        { status: 400 },
+      )
     }
     if (questions.length === 0) {
       return NextResponse.json({ error: "请至少提供一个疑问句" }, { status: 400 })
@@ -894,6 +1119,7 @@ async function handler(req: NextRequest) {
           questionCount: questions.length,
           slotCount,
           brandAliasCount: brandAliases.length,
+          subjectType,
         },
       })
       if (!guard.ok) return guard.response
@@ -932,6 +1158,7 @@ async function handler(req: NextRequest) {
                 question: q,
                 answer: "",
                 mentionedBrands: [],
+                mentionedEntities: [],
                 topRecommended: null,
                 searchSources: [],
                 sourceDomains: [],
@@ -949,6 +1176,8 @@ async function handler(req: NextRequest) {
             ourBrand,
             brandAliases,
             competitors,
+            subjectType,
+            personProfile,
             auditProfile,
           })
           if (item.error && isPermanentPenetrationProviderError(item.error)) {
@@ -960,13 +1189,20 @@ async function handler(req: NextRequest) {
       })
     )
     const results = groupedResults.flat()
-    const knownBrandResolver = createBrandResolver({ ourBrand, brandAliases, competitors })
+    const knownSubjectResolver = createSubjectResolver({
+      subjectType,
+      ourBrand,
+      brandAliases,
+      competitors,
+    })
     await enrichWithBatchJudge(
       results,
       judgeModel,
-      knownBrandResolver.knownNames,
+      knownSubjectResolver.knownNames,
       ourBrand,
       brandAliases,
+      subjectType,
+      personProfile,
     )
     console.log(`[penetration] 全部完成 耗时 ${Date.now() - t0}ms`)
 
@@ -992,7 +1228,13 @@ async function handler(req: NextRequest) {
       if (judgeErrs.length > 0) judgeErrors[m] = judgeErrs[0]
     }
 
-    const aggregated = aggregatePenetration(byModel, ourBrand, brandAliases, competitors)
+    const aggregated = aggregatePenetration(
+      byModel,
+      ourBrand,
+      brandAliases,
+      competitors,
+      subjectType,
+    )
 
     const successfulSlots = results.filter(result => isCompletePenetrationItem(result.item)).length
     if (reservation) {
@@ -1006,7 +1248,9 @@ async function handler(req: NextRequest) {
         aggregated,
         generatedAt: new Date().toISOString(),
         judgeModel,
-        judgeLabel: `${ADAPTERS[judgeModel].label}（批量品牌裁判，不联网）`,
+        judgeLabel: `${ADAPTERS[judgeModel].label}（批量${
+          subjectType === "person" ? "人物与同行" : "品牌"
+        }裁判，不联网）`,
         skipped: skipped.map(item => `${ADAPTERS[item.model].label}（${item.reason}）`),
         skippedDetail: skipped.map(item => ({
           model: item.model,

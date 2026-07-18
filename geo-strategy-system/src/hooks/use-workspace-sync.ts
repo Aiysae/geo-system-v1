@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { Client } from "@/types"
+import type { AnalysisSubjectType, Client } from "@/types"
 import {
   createClient,
   canClaimLegacyWorkspace,
@@ -290,9 +290,12 @@ export function useWorkspaceSync(
     persistActiveId(userId, id)
   }, [userId])
 
-  const handleCreate = useCallback((name: string) => {
+  const handleCreate = useCallback((
+    name: string,
+    subjectType: AnalysisSubjectType = "brand",
+  ) => {
     if (restrictedClientId) return
-    const client = createClient(name)
+    const client = createClient(name, subjectType)
     setClients(previous => [client, ...previous])
     setActiveIdState(client.id)
     persistActiveId(userId, client.id)

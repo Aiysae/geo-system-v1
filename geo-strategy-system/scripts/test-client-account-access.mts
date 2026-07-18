@@ -39,6 +39,7 @@ const now = new Date().toISOString()
 const client: Client = {
   id: "client-account-contract",
   name: "专属客户测试品牌",
+  subjectType: "brand",
   ourBrand: "测试品牌",
   brandAliases: ["TEST"],
   industry: "测试行业",

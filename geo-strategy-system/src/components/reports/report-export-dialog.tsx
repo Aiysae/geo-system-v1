@@ -312,6 +312,8 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
       client: {
         id: client.id,
         name: client.name,
+        subjectType: client.subjectType,
+        personProfile: client.personProfile,
         ourBrand: client.ourBrand,
         brandAliases: client.brandAliases || [],
         industry: client.industry,

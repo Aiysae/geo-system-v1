@@ -30,10 +30,14 @@ const EXTRACTION_SYSTEM = `你是一个专业的客户资料抽取助手。你�
 6. 如果某个字段置信度低，不要硬塞长文本，用 "建议人工补充：……" 表示。
 7. project_name 从文件名或内容中提取，如果找不到就用 "未命名项目"。
 8. industry、audience、product_description、geo_goals 从原文提取，找不到就设为空字符串。
+9. 当 subject_type 为 person 时，这是个人 IP 项目：competitors 只能抽取同职业、同专业方向或同服务场景中的具名同行人物；医院、律所、公司、学校、协会和平台必须保留在人物背景资料中，不能当作同行人物。
+10. 个人 IP 模式必须避免同名串人，不得凭姓名编造职称、机构、资质、履历和案例。
 
 输出必须是严格 JSON，格式：
 {
   "project_name": "项目名称",
+  "subject_type": "brand/person",
+  "person_profile": {},
   "industry": "行业",
   "audience": "目标客户",
   "product_description": "产品/服务说明",
@@ -52,7 +56,8 @@ function buildExtractionUserPrompt(
   files: { name: string; content: string }[],
   projectInfo: Record<string, string | undefined>,
 ): string {
-  let prompt = `以下是用户上传的资料和填写的项目信息，请抽取结构化客户资料。\n\n`
+  const isPerson = projectInfo.subject_type === "person"
+  let prompt = `以下是用户上传的资料和填写的项目信息，请抽取结构化${isPerson ? "个人 IP" : "客户"}资料。\n\n`
 
   if (Object.values(projectInfo).some(v => v)) {
     prompt += `【用户填写的项目信息】\n`
@@ -66,6 +71,9 @@ function buildExtractionUserPrompt(
     prompt += `【文件: ${file.name}】\n${file.content.slice(0, 15000)}\n\n`
   }
 
+  if (isPerson) {
+    prompt += "\n【个人 IP 特别规则】\n只把具名同行人物放入 competitors；人物所在机构只能写入 person_profile.organization 或 source_notes，不得与同行混排。\n"
+  }
   prompt += `请严格按照上述 JSON 格式输出抽取结果。`
   return prompt
 }
@@ -226,6 +234,8 @@ async function handler(req: NextRequest) {
 
     const result = {
       project_name: extracted.project_name || projectInfo?.project_name || "未命名项目",
+      subject_type: projectInfo?.subject_type === "person" ? "person" : "brand",
+      person_profile: parsePersonProfile(projectInfo?.person_profile, extracted.person_profile),
       industry: extracted.industry || projectInfo?.industry || "",
       audience: extracted.audience || projectInfo?.audience || "",
       product_description: extracted.product_description || projectInfo?.product_description || "",
@@ -255,3 +265,18 @@ async function handler(req: NextRequest) {
 }
 
 export const POST = handler
+
+function parsePersonProfile(serialized: unknown, extracted: unknown): Record<string, unknown> | undefined {
+  if (extracted && typeof extracted === "object" && !Array.isArray(extracted)) {
+    return extracted as Record<string, unknown>
+  }
+  if (typeof serialized !== "string" || !serialized.trim()) return undefined
+  try {
+    const parsed = JSON.parse(serialized)
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
+  }
+}

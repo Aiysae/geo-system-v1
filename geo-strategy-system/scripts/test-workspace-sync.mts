@@ -21,6 +21,7 @@ const now = new Date().toISOString()
 const client: Client = {
   id: "workspace-test-client",
   name: "同步测试客户",
+  subjectType: "brand",
   ourBrand: "原品牌",
   brandAliases: [],
   industry: "测试行业",

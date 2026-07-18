@@ -11,6 +11,7 @@ import {
   requireStandardAccountMode,
   resolveWorkspaceAccess,
 } from "@/lib/client-accounts"
+import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -109,6 +110,8 @@ export async function POST(req: NextRequest) {
         model: text(base.model, 160),
         clientName: text(base.clientName, 160),
         brandName: text(base.brandName, 160),
+        subjectType: normalizeAnalysisSubjectType(base.subjectType),
+        subjectContext: text(base.subjectContext, 4_000),
         industry: text(base.industry, 240),
         website: text(base.website, 2_000),
         coreQuestion,

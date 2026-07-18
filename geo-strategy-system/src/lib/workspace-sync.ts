@@ -1,4 +1,8 @@
 import type { Client, ModelKey } from "@/types"
+import {
+  normalizeAnalysisSubjectType,
+  normalizePersonSubjectProfile,
+} from "@/lib/analysis-subject"
 
 export const WORKSPACE_SECTIONS = [
   "core",
@@ -29,6 +33,8 @@ export class WorkspaceValidationError extends Error {
 const SECTION_FIELDS = {
   core: [
     "name",
+    "subjectType",
+    "personProfile",
     "ourBrand",
     "brandAliases",
     "industry",
@@ -165,6 +171,8 @@ export function normalizeClientPayload(value: unknown): Client {
   const client: Client = {
     id,
     name,
+    subjectType: normalizeAnalysisSubjectType(input.subjectType),
+    personProfile: normalizePersonSubjectProfile(input.personProfile),
     ourBrand: String(input.ourBrand || "").slice(0, 300),
     brandAliases: stringArray(input.brandAliases, 100, 300),
     industry: String(input.industry || "").slice(0, 300),

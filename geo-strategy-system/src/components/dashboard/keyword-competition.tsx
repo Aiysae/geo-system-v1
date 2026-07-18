@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts"
 import { Flame, Gem, Activity } from "lucide-react"
-import type { ModelKey } from "@/types"
+import type { AnalysisSubjectType, ModelKey } from "@/types"
 import type { KeywordCompetitionItem } from "@/lib/dashboard-aggregations"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
@@ -24,6 +24,7 @@ interface Props {
   /** 默认展示前 N 条；硬上限 10，传入更大值会被钳到 10 */
   maxItems?: number
   compact?: boolean
+  subjectType?: AnalysisSubjectType
 }
 
 const CHART_HARD_CAP = 10
@@ -42,7 +43,13 @@ function truncate(s: string, n: number): string {
   return `${s.slice(0, n - 1)}…`
 }
 
-export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, compact = false }: Props) {
+export default function KeywordCompetition({
+  items,
+  maxItems = CHART_HARD_CAP,
+  compact = false,
+  subjectType = "brand",
+}: Props) {
+  const entityLabel = subjectType === "person" ? "同行人物" : "品牌"
   const [sortOrder, setSortOrder] = useState<SortOrder>("redOcean")
   const mode = sortOrder === "redOcean"
       ? {
@@ -160,7 +167,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, c
                   axisLine={{ stroke: "#C8D7E8" }}
                   tickLine={{ stroke: "#C8D7E8" }}
                   label={{
-                    value: "品牌提及总数",
+                    value: `${entityLabel}提及总数`,
                     position: "insideBottom",
                     offset: -8,
                     fill: "#64748b",
@@ -199,7 +206,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, c
 
                 <Tooltip
                   cursor={{ fill: "rgba(59,130,246,0.06)" }}
-                  content={<CompetitionTooltip />}
+                  content={<CompetitionTooltip subjectType={subjectType} />}
                 />
 
                 <Bar
@@ -228,7 +235,7 @@ export default function KeywordCompetition({ items, maxItems = CHART_HARD_CAP, c
                 className="inline-block w-3 h-2 rounded-sm"
                 style={{ background: `linear-gradient(90deg, ${mode.barFrom}, ${mode.barTo})` }}
               />
-              品牌提及总数
+              {entityLabel}提及总数
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="inline-block w-3 border-t-2 border-amber-400" />
@@ -287,9 +294,11 @@ interface TooltipPayloadEntry {
 function CompetitionTooltip({
   active,
   payload,
+  subjectType,
 }: {
   active?: boolean
   payload?: TooltipPayloadEntry[]
+  subjectType: AnalysisSubjectType
 }) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload
@@ -302,7 +311,9 @@ function CompetitionTooltip({
         {d.question}
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-        <div className="text-slate-400">品牌提及总数</div>
+        <div className="text-slate-400">
+          {subjectType === "person" ? "同行人物提及总数" : "品牌提及总数"}
+        </div>
         <div className="text-right text-cyan-300 font-semibold tabular-nums">
           {d.totalMentions ?? 0}
         </div>

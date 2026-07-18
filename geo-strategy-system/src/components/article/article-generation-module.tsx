@@ -32,6 +32,10 @@ import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-s
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { ARTICLE_PROMPT_PRICE_KEYS, estimateFeatureCredits } from "@/lib/pricing"
 import { buildArticleSourceModelGroups } from "@/lib/article-source-options"
+import {
+  formatPersonSubjectContext,
+  getClientSubjectType,
+} from "@/lib/analysis-subject"
 import { cancelBackgroundJob, createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
@@ -153,12 +157,17 @@ function createInitialArticle(client: Client): ArticleGenerationState {
 }
 
 function buildArticleJobPayload(client: Client, article: ArticleGenerationState) {
+  const subjectType = getClientSubjectType(client)
   return {
     promptKey: article.promptKey,
     modelProvider: article.modelProvider,
     model: article.model,
     clientName: client.name,
     brandName: client.ourBrand || client.name,
+    subjectType,
+    subjectContext: subjectType === "person"
+      ? formatPersonSubjectContext(client.personProfile)
+      : "",
     industry: client.industry,
     website: client.website,
     sourceUrl: article.sourceUrl,
@@ -179,6 +188,8 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
 }
 
 export default function ArticleGenerationModule({ client, onChangeClient }: Props) {
+  const subjectType = getClientSubjectType(client)
+  const isPersonSubject = subjectType === "person"
   const [article, setArticle] = useState<ArticleGenerationState>(() => createInitialArticle(client))
   const articleRef = useRef(article)
   const [workspaceMode, setWorkspaceMode] = useState<ArticleWorkspaceMode>(() => (
@@ -830,13 +841,19 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                     }`}
                   >
                     <span className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold">{prompt.title}</span>
+                      <span className="text-sm font-semibold">
+                        {isPersonSubject && prompt.key === "competitorComparison"
+                          ? "同行人物对比推荐文章"
+                          : prompt.title}
+                      </span>
                       <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
                         {prompt.outputType}
                       </span>
                     </span>
                     <span className="mt-1 line-clamp-2 block text-[11px] leading-5 text-slate-500">
-                      {prompt.description}
+                      {isPersonSubject && prompt.key === "competitorComparison"
+                        ? "按统一专业维度对比真实同行人物，自然优先展开目标人物；机构只作为身份背景。"
+                        : prompt.description}
                     </span>
                   </button>
                 )
@@ -1023,7 +1040,12 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 </>
               ) : (
                 <>
-              {hasKeywordQuickFill && (
+                  {isPersonSubject && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-5 text-blue-700">
+                      当前按个人 IP 模式生成：人物与任职机构会分开表达，同行按职业、专业方向、地域与服务场景判断。
+                    </div>
+                  )}
+                  {hasKeywordQuickFill && (
                 <div className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-3">
                   <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -1079,7 +1101,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
                   {quickAdvantages.length > 0 && (
                     <div>
-                      <div className="mb-1.5 text-[11px] font-medium text-slate-500">主要优势</div>
+                      <div className="mb-1.5 text-[11px] font-medium text-slate-500">
+                        {isPersonSubject ? "主要专业优势" : "主要优势"}
+                      </div>
                       <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-1">
                         {quickAdvantages.map(advantage => (
                           <button
@@ -1126,7 +1150,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                   />
                 </Label>
                 <Label className="text-xs">
-                  <span className="mb-1.5 block font-medium text-slate-500">主营业务 / 具体业务</span>
+                  <span className="mb-1.5 block font-medium text-slate-500">
+                    {isPersonSubject ? "专业方向 / 服务范围" : "主营业务 / 具体业务"}
+                  </span>
                   <Input
                     value={article.business}
                     onChange={event => updateField("business", event.target.value)}
@@ -1136,7 +1162,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 </Label>
               </div>
               <Label className="text-xs">
-                <span className="mb-1.5 block font-medium text-slate-500">核心优势 / 可验证事实</span>
+                <span className="mb-1.5 block font-medium text-slate-500">
+                  {isPersonSubject ? "专业优势 / 可验证事实" : "核心优势 / 可验证事实"}
+                </span>
                 <Textarea
                   value={article.advantages}
                   onChange={event => updateField("advantages", event.target.value)}
@@ -1233,6 +1261,10 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               model: article.model,
               clientName: client.name,
               brandName: client.ourBrand || client.name,
+              subjectType: getClientSubjectType(client),
+              subjectContext: getClientSubjectType(client) === "person"
+                ? formatPersonSubjectContext(client.personProfile)
+                : "",
               industry: client.industry,
               website: client.website,
               coreQuestion: article.coreQuestion,

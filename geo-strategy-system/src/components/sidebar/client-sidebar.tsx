@@ -3,14 +3,24 @@
 import { useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { Plus, Trash2, Users, Database, X, ShieldCheck } from "lucide-react"
-import type { Client } from "@/types"
+import {
+  Building2,
+  Database,
+  Plus,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+  Users,
+  X,
+} from "lucide-react"
+import type { AnalysisSubjectType, Client } from "@/types"
+import { getClientSubjectType } from "@/lib/analysis-subject"
 
 interface Props {
   clients: Client[]
   activeId: string | null
   onSelect: (id: string) => void
-  onCreate: (name: string) => void
+  onCreate: (name: string, subjectType?: AnalysisSubjectType) => void
   onDelete: (id: string) => void
   /** 仅在移动端抽屉模式下生效：是否展开。桌面端 (md+) 永远显示，此值被忽略。 */
   open?: boolean
@@ -35,12 +45,14 @@ export default function ClientSidebar({
 }: Props) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState("")
+  const [subjectType, setSubjectType] = useState<AnalysisSubjectType>("brand")
 
   function submit() {
     const v = name.trim()
     if (!v) return
-    onCreate(v)
+    onCreate(v, subjectType)
     setName("")
+    setSubjectType("brand")
     setAdding(false)
   }
 
@@ -107,27 +119,53 @@ export default function ClientSidebar({
       </div>
 
       {adding && (
-        <div className="px-3 pb-2 flex gap-1 shrink-0">
-          <input
-            autoFocus
-            value={name}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter") submit()
-              if (e.key === "Escape") {
-                setName("")
-                setAdding(false)
-              }
-            }}
-            placeholder="客户名称..."
-            className="flex-1 bg-white/10 placeholder:text-white/40 text-sm rounded px-2 py-1.5 outline-none focus:bg-white/15"
-          />
-          <button
-            onClick={submit}
-            className="text-xs px-2.5 rounded bg-white/15 hover:bg-white/25 transition"
-          >
-            添加
-          </button>
+        <div className="shrink-0 space-y-2 px-3 pb-3">
+          <div className="grid grid-cols-2 rounded-lg bg-white/8 p-1 ring-1 ring-white/10">
+            {([
+              { value: "brand", label: "品牌", icon: Building2 },
+              { value: "person", label: "个人 IP", icon: UserRound },
+            ] as const).map(option => {
+              const Icon = option.icon
+              const active = subjectType === option.value
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setSubjectType(option.value)}
+                  className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] transition ${
+                    active ? "bg-white text-[#0958D9] shadow-sm" : "text-white/65 hover:text-white"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex gap-1">
+            <input
+              autoFocus
+              value={name}
+              onChange={e => setName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") submit()
+                if (e.key === "Escape") {
+                  setName("")
+                  setSubjectType("brand")
+                  setAdding(false)
+                }
+              }}
+              placeholder={subjectType === "person" ? "项目名称，如：王医生" : "客户名称..."}
+              className="min-w-0 flex-1 rounded bg-white/10 px-2 py-1.5 text-sm outline-none placeholder:text-white/40 focus:bg-white/15"
+            />
+            <button
+              type="button"
+              onClick={submit}
+              className="rounded bg-white/15 px-2.5 text-xs transition hover:bg-white/25"
+            >
+              添加
+            </button>
+          </div>
         </div>
       )}
 
@@ -149,7 +187,15 @@ export default function ClientSidebar({
             }`}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <span className={`h-2 w-2 shrink-0 rounded-full ${activeId === c.id ? "bg-white" : "bg-cyan-300/45"}`} />
+              {getClientSubjectType(c) === "person" ? (
+                <UserRound className={`h-3.5 w-3.5 shrink-0 ${
+                  activeId === c.id ? "text-white" : "text-cyan-200/55"
+                }`} />
+              ) : (
+                <Building2 className={`h-3.5 w-3.5 shrink-0 ${
+                  activeId === c.id ? "text-white" : "text-cyan-200/55"
+                }`} />
+              )}
               <span className="truncate">{c.name}</span>
             </span>
             {!restricted ? (

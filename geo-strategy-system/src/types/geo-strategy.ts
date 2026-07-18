@@ -63,6 +63,16 @@ export interface ProjectInfo {
 
 /** 抽取后的客户资料 */
 export interface ExtractedProfile {
+  subject_type?: "brand" | "person"
+  person_profile?: {
+    profession: string
+    specialties: string[]
+    organization: string
+    region: string
+    title: string
+    credentials: string[]
+    profileUrls: string[]
+  }
   project_name: string
   industry: string
   audience: string
@@ -208,6 +218,16 @@ export interface GeoStrategyPlan {
   project_name: string
   summary: string
   profile: {
+    subject_type?: "brand" | "person"
+    person_profile?: {
+      profession: string
+      specialties: string[]
+      organization: string
+      region: string
+      title: string
+      credentials: string[]
+      profileUrls: string[]
+    }
     brand_or_product: string
     industry: string
     audience: string
