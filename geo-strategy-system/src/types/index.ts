@@ -610,6 +610,7 @@ export interface PenetrationResult {
 export type PenetrationJobStatus = "queued" | "running" | "succeeded" | "blocked" | "failed" | "cancelled"
 export type PenetrationJobOperation = "replace" | "append"
 export type PenetrationJobPhase = "preflight" | "sampling" | "retrying" | "finalizing"
+export type PenetrationQueueReason = "capacity" | "user_limit" | "retry_wait" | "queued"
 
 export interface PenetrationModelProgress {
   total: number
@@ -631,6 +632,9 @@ export interface PenetrationJobRecord {
   phase?: PenetrationJobPhase
   retryRound?: number
   nextRetryAt?: string
+  queuePosition?: number
+  queueDepth?: number
+  queueReason?: PenetrationQueueReason
   totalAttempts?: number
   retryingSlots?: number
   blockedSlots?: number

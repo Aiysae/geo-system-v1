@@ -37,6 +37,7 @@ import {
   formatPenetrationProviderError,
   isPermanentPenetrationProviderError,
 } from "@/lib/penetration/provider-errors"
+import { runPenetrationProviderCall } from "@/lib/penetration/provider-concurrency"
 import { isCompletePenetrationItem } from "@/lib/penetration/slot-policy"
 import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
 import { resolveWorkspaceAccess } from "@/lib/client-accounts"
@@ -490,39 +491,41 @@ async function blindQuery(
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       let raw = ""
       try {
-        raw = await adapter.chat({
-          system: "",
-          user: question,
-          temperature: 0,
-          seed: seed + attempt,
-          mode: "consumer",
-          jsonMode: false,
-          maxTokens: blindQueryMaxTokens(model),
-          timeoutSec: blindQueryTimeoutSec(model),
-          forceWebSearch: true,
-          rawQuestionOnly: true,
-          requireWebEvidence: true,
-          officialWebOnly: true,
-          onSearchSources: event => {
-            if (event.query?.trim()) searchQueries.add(event.query.trim())
-            if (event.mode) {
-              actualSearchMode = event.mode
-              actualPromptPurity =
-                event.mode === "presearch_context"
-                  ? "search_context_augmented"
-                  : event.mode === "local_tool_search"
-                    ? "tool_augmented"
-                    : auditProfile.promptPurity
-            }
-            if (event.failureReason) webFailureReason = event.failureReason
-            if (event.searchExecuted) {
-              webExecutionVerified = true
-              if (!event.failureReason) webFailureReason = null
-            }
-            if (event.providerRequestId?.trim()) providerRequestIds.add(event.providerRequestId.trim())
-            collectedSources.push(...event.sources)
-          },
-        })
+        raw = await runPenetrationProviderCall(model, "consumer", () =>
+          adapter.chat({
+            system: "",
+            user: question,
+            temperature: 0,
+            seed: seed + attempt,
+            mode: "consumer",
+            jsonMode: false,
+            maxTokens: blindQueryMaxTokens(model),
+            timeoutSec: blindQueryTimeoutSec(model),
+            forceWebSearch: true,
+            rawQuestionOnly: true,
+            requireWebEvidence: true,
+            officialWebOnly: true,
+            onSearchSources: event => {
+              if (event.query?.trim()) searchQueries.add(event.query.trim())
+              if (event.mode) {
+                actualSearchMode = event.mode
+                actualPromptPurity =
+                  event.mode === "presearch_context"
+                    ? "search_context_augmented"
+                    : event.mode === "local_tool_search"
+                      ? "tool_augmented"
+                      : auditProfile.promptPurity
+              }
+              if (event.failureReason) webFailureReason = event.failureReason
+              if (event.searchExecuted) {
+                webExecutionVerified = true
+                if (!event.failureReason) webFailureReason = null
+              }
+              if (event.providerRequestId?.trim()) providerRequestIds.add(event.providerRequestId.trim())
+              collectedSources.push(...event.sources)
+            },
+          }),
+        )
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         if (attempt < maxAttempts - 1 && !isPermanentPenetrationProviderError(message)) {
@@ -621,17 +624,19 @@ async function judgeAnswersBatch(
   const t0 = Date.now()
 
   async function attempt(extraHint = ""): Promise<BatchJudgeItem[] | null> {
-    const raw = await adapter.chat({
-      system: sys + extraHint,
-      user,
-      temperature: 0,
-      seed: 43,
-      mode: "judge",
-      jsonMode: true,
-      maxTokens: JUDGE_BATCH_MAX_TOKENS,
-      timeoutSec: JUDGE_BATCH_TIMEOUT_SEC,
-      allowWebSearch: false,
-    })
+    const raw = await runPenetrationProviderCall(judgeModel, "judge", () =>
+      adapter.chat({
+        system: sys + extraHint,
+        user,
+        temperature: 0,
+        seed: 43,
+        mode: "judge",
+        jsonMode: true,
+        maxTokens: JUDGE_BATCH_MAX_TOKENS,
+        timeoutSec: JUDGE_BATCH_TIMEOUT_SEC,
+        allowWebSearch: false,
+      }),
+    )
     const parsed = parseJsonLoose(raw) as { items?: unknown } | null
     if (!parsed || !Array.isArray(parsed.items)) return null
     return parsed.items

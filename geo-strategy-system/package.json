@@ -29,6 +29,8 @@
     "test:penetration-sampling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-independent-sampling.mts",
     "test:penetration-strict": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-strict-completion.mts",
     "test:penetration-recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-job-recovery.mts",
+    "test:penetration-scheduling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-job-scheduling.mts",
+    "test:penetration-provider-concurrency": "tsx scripts/test-penetration-provider-concurrency.mts",
     "test:penetration-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-history.mts",
     "test:person-subject": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-person-subject.mts",
     "test:source-platforms": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-source-platform-intelligence.mts",

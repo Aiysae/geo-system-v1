@@ -98,15 +98,37 @@ const PENETRATION_JOB_BATCH_TIMEOUT_MS = 15 * 60 * 1000
 const PENETRATION_JOB_MAX_BATCH_ATTEMPTS = 2
 const PENETRATION_JOB_TTL_SECONDS = 60 * 60 * 24 * 7
 const PENETRATION_JOB_CANCELLED_MESSAGE = "用户已停止检测"
+const PENETRATION_JOB_RUN_LEASE_SECONDS = 30 * 60
+const PENETRATION_PENDING_SET_KEY = "geo:penetration-jobs:pending"
+const MAX_CONCURRENT_PENETRATION_JOBS = Math.max(
+  1,
+  Math.min(8, Math.floor(Number(process.env.PENETRATION_JOB_CONCURRENCY) || 3)),
+)
+const MAX_CONCURRENT_PENETRATION_JOBS_PER_USER = Math.max(
+  1,
+  Math.min(
+    2,
+    Math.floor(Number(process.env.PENETRATION_JOB_PER_USER_CONCURRENCY) || 1),
+  ),
+)
 
 const memoryJobs = new Map<string, StoredPenetrationJob>()
 const activeJobs = new Set<string>()
+const activeJobOwners = new Map<string, string>()
+const activeOwnerCounts = new Map<string, number>()
+const queuedJobs: string[] = []
+const queuedJobIds = new Set<string>()
 const activeAbortControllers = new Map<string, AbortController>()
 const settlingJobs = new Set<string>()
 const historySavingJobs = new Set<string>()
 const resumeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let schedulerRunning = false
+let schedulerRequested = false
+let queueRecoveryPromise: Promise<void> | null = null
+let queueRecoveryCompleted = false
 
 const jobKey = (id: string) => `geo:penetration-jobs:${id}`
+const jobLeaseKey = (id: string) => `geo:penetration-job-leases:${id}`
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -123,6 +145,24 @@ function toPublicJob(job: StoredPenetrationJob): PenetrationJobRecord {
   delete publicJob.baseResult
   delete publicJob.creditsSettledAt
   delete publicJob.slotStates
+  const queueIndex = queuedJobs.indexOf(job.id)
+  if (queueIndex >= 0) {
+    publicJob.queuePosition = queueIndex + 1
+    publicJob.queueDepth = queuedJobs.length
+    publicJob.queueReason = activeOwnerCount(job.ownerUserId)
+      >= MAX_CONCURRENT_PENETRATION_JOBS_PER_USER
+      ? "user_limit"
+      : activeJobs.size >= MAX_CONCURRENT_PENETRATION_JOBS
+        ? "capacity"
+        : "queued"
+  } else if (resumeTimers.has(job.id)) {
+    publicJob.queueDepth = queuedJobs.length
+    publicJob.queueReason = "retry_wait"
+  } else {
+    delete publicJob.queuePosition
+    delete publicJob.queueDepth
+    delete publicJob.queueReason
+  }
   return publicJob as PenetrationJobRecord
 }
 
@@ -334,6 +374,22 @@ async function patchJob(
   return next
 }
 
+async function markJobPending(id: string): Promise<void> {
+  try {
+    await kv.sadd(PENETRATION_PENDING_SET_KEY, id)
+  } catch (error) {
+    console.warn("[penetration-jobs] failed to persist pending job", id, error)
+  }
+}
+
+async function clearPendingJob(id: string): Promise<void> {
+  try {
+    await kv.srem(PENETRATION_PENDING_SET_KEY, id)
+  } catch (error) {
+    console.warn("[penetration-jobs] failed to clear pending job", id, error)
+  }
+}
+
 class PenetrationJobCancelledError extends Error {
   constructor() {
     super(PENETRATION_JOB_CANCELLED_MESSAGE)
@@ -362,7 +418,7 @@ function scheduleResume(id: string, atIso: string): void {
   const delay = Math.max(250, Date.parse(atIso) - Date.now())
   const timer = setTimeout(() => {
     resumeTimers.delete(id)
-    void runJob(id)
+    queueJob(id)
   }, delay)
   timer.unref?.()
   resumeTimers.set(id, timer)
@@ -723,7 +779,11 @@ async function processDueBatch(
         continue
       }
 
-      const retryAt = nextPenetrationRetryAt(attempts, Date.parse(completedAt))
+      const retryAt = nextPenetrationRetryAt(
+        attempts,
+        Date.parse(completedAt),
+        `${job.id}:${key}:${attempts}`,
+      )
       if (retryAt) {
         state.status = "retry_wait"
         state.nextRetryAt = retryAt
@@ -760,12 +820,174 @@ async function processDueBatch(
   }) || { ...job, slotStates: states, result, ...progress }
 }
 
-async function runJob(jobId: string): Promise<void> {
-  if (activeJobs.has(jobId)) return
-  clearResumeTimer(jobId)
-  activeJobs.add(jobId)
+function activeOwnerCount(ownerUserId: string): number {
+  return activeOwnerCounts.get(ownerUserId) || 0
+}
+
+function markJobActive(job: StoredPenetrationJob): void {
+  activeJobs.add(job.id)
+  activeJobOwners.set(job.id, job.ownerUserId)
+  activeOwnerCounts.set(job.ownerUserId, activeOwnerCount(job.ownerUserId) + 1)
+}
+
+function releaseActiveJob(jobId: string): void {
+  activeJobs.delete(jobId)
+  const ownerUserId = activeJobOwners.get(jobId)
+  activeJobOwners.delete(jobId)
+  if (!ownerUserId) return
+  const next = Math.max(0, activeOwnerCount(ownerUserId) - 1)
+  if (next === 0) activeOwnerCounts.delete(ownerUserId)
+  else activeOwnerCounts.set(ownerUserId, next)
+}
+
+function requestSchedulerRun(): void {
+  if (schedulerRunning) {
+    schedulerRequested = true
+    return
+  }
+  queueMicrotask(() => {
+    void drainJobQueue()
+  })
+}
+
+function queueJob(jobId: string): void {
+  if (activeJobs.has(jobId) || queuedJobIds.has(jobId) || resumeTimers.has(jobId)) return
+  queuedJobs.push(jobId)
+  queuedJobIds.add(jobId)
+  requestSchedulerRun()
+}
+
+async function recoverPendingJobs(): Promise<void> {
+  let ids: string[] = []
+  try {
+    ids = await kv.smembers<string[]>(PENETRATION_PENDING_SET_KEY)
+  } catch (error) {
+    console.warn("[penetration-jobs] failed to recover persistent queue", error)
+    throw error
+  }
+
+  const loadedJobs = await Promise.all(ids.map(async id => ({
+    id,
+    job: await getStoredJob(id),
+  })))
+  for (const item of loadedJobs) {
+    if (!item.job) await clearPendingJob(item.id)
+  }
+  const jobs = loadedJobs
+    .map(item => item.job)
+    .filter((job): job is StoredPenetrationJob => Boolean(job))
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+
+  for (const job of jobs) {
+    if (["succeeded", "blocked", "failed", "cancelled"].includes(job.status)) {
+      await clearPendingJob(job.id)
+      continue
+    }
+    const retryAtMs = job.nextRetryAt ? Date.parse(job.nextRetryAt) : 0
+    if (retryAtMs > Date.now()) scheduleResume(job.id, job.nextRetryAt as string)
+    else queueJob(job.id)
+  }
+}
+
+async function ensurePendingJobsRecovered(): Promise<void> {
+  if (queueRecoveryCompleted) return
+  if (!queueRecoveryPromise) {
+    queueRecoveryPromise = recoverPendingJobs()
+      .then(() => {
+        queueRecoveryCompleted = true
+      })
+      .catch(error => {
+        console.warn("[penetration-jobs] persistent queue recovery failed", error)
+      })
+      .finally(() => {
+        queueRecoveryPromise = null
+      })
+  }
+  await queueRecoveryPromise
+}
+
+export async function resumePendingPenetrationJobs(): Promise<void> {
+  await ensurePendingJobsRecovered()
+}
+
+export function getPenetrationQueueSnapshot() {
+  return {
+    active: activeJobs.size,
+    activeLimit: MAX_CONCURRENT_PENETRATION_JOBS,
+    queued: queuedJobs.length,
+    delayed: resumeTimers.size,
+    activeUsers: activeOwnerCounts.size,
+    perUserLimit: MAX_CONCURRENT_PENETRATION_JOBS_PER_USER,
+  }
+}
+
+async function drainJobQueue(): Promise<void> {
+  if (schedulerRunning) {
+    schedulerRequested = true
+    return
+  }
+  schedulerRunning = true
+  schedulerRequested = false
 
   try {
+    while (
+      activeJobs.size < MAX_CONCURRENT_PENETRATION_JOBS
+      && queuedJobs.length > 0
+    ) {
+      const candidates = queuedJobs.length
+      let selected: StoredPenetrationJob | null = null
+
+      for (let index = 0; index < candidates; index++) {
+        const jobId = queuedJobs.shift()
+        if (!jobId) break
+        queuedJobIds.delete(jobId)
+        if (activeJobs.has(jobId)) continue
+
+        const job = await getStoredJob(jobId)
+        if (!job || ["succeeded", "blocked", "failed", "cancelled"].includes(job.status)) {
+          await clearPendingJob(jobId)
+          continue
+        }
+        if (resumeTimers.has(jobId)) continue
+        if (activeOwnerCount(job.ownerUserId) >= MAX_CONCURRENT_PENETRATION_JOBS_PER_USER) {
+          queuedJobs.push(jobId)
+          queuedJobIds.add(jobId)
+          continue
+        }
+
+        selected = job
+        break
+      }
+
+      if (!selected) break
+      markJobActive(selected)
+      void runJobSlice(selected.id)
+    }
+  } finally {
+    schedulerRunning = false
+    if (schedulerRequested) {
+      schedulerRequested = false
+      setTimeout(requestSchedulerRun, 0)
+    }
+  }
+}
+
+async function runJobSlice(jobId: string): Promise<void> {
+  clearResumeTimer(jobId)
+  let shouldRequeue = false
+  const leaseToken = `${process.pid}:${randomUUID()}`
+  let ownsLease = false
+
+  try {
+    ownsLease = Boolean(await kv.set(jobLeaseKey(jobId), leaseToken, {
+      nx: true,
+      ex: PENETRATION_JOB_RUN_LEASE_SECONDS,
+    }))
+    if (!ownsLease) {
+      scheduleResume(jobId, new Date(Date.now() + 2_000).toISOString())
+      return
+    }
+
     let job = await getStoredJob(jobId)
     if (!job) return
     if (["succeeded", "blocked", "failed", "cancelled"].includes(job.status)) return
@@ -789,72 +1011,71 @@ async function runJob(jobId: string): Promise<void> {
       ...summarizeSlotStates(job, states),
     }) || job
 
-    while (true) {
-      await assertNotCancelled(job.id)
-      job = await getStoredJob(job.id) || job
-      states = cloneSlotStates(job.slotStates || initialSlotStates(job))
-      const progress = summarizeSlotStates(job, states)
+    await assertNotCancelled(job.id)
+    job = await getStoredJob(job.id) || job
+    states = cloneSlotStates(job.slotStates || initialSlotStates(job))
+    const progress = summarizeSlotStates(job, states)
 
-      if (progress.completedSlots === job.totalSlots) {
-        job = await patchJob(job.id, { phase: "finalizing", ...progress }) || job
-        await persistJobResultToWorkspace(job)
-        const usedSlots = successfulNewSlotCount(job)
-        await settleJobCreditsQuietly(job.id, usedSlots)
-        const finishedAt = nowIso()
-        const historyPatch = await persistTerminalHistory({
-          job,
-          status: "succeeded",
-          finishedAt,
-        })
-        await patchJob(job.id, {
-          status: "succeeded",
-          phase: "finalizing",
-          completedSlots: job.totalSlots,
-          completedBatches: job.totalBatches,
-          retryingSlots: 0,
-          blockedSlots: 0,
-          modelErrors: {},
-          nextRetryAt: undefined,
-          finishedAt,
-          ...historyPatch,
-        })
-        return
-      }
-
-      const recoverableSlots = Object.values(states).filter(isRecoverableSlot)
-      if (recoverableSlots.length === 0) {
-        job = await patchJob(job.id, progress) || job
-        await persistJobResultToWorkspace(job)
-        const usedSlots = successfulNewSlotCount(job)
-        await settleJobCreditsQuietly(job.id, usedSlots)
-        const error = `仍有 ${progress.blockedSlots || 0} 个槽位在多轮独立联网补采后未达标。已保留 ${progress.completedSlots} 个完整结果，未达标槽位不计费、不进入渗透率统计。`
-        const finishedAt = nowIso()
-        const historyPatch = await persistTerminalHistory({
-          job,
-          status: "partial",
-          error,
-          finishedAt,
-        })
-        await patchJob(job.id, {
-          status: "blocked",
-          error,
-          nextRetryAt: undefined,
-          finishedAt,
-          ...historyPatch,
-        })
-        return
-      }
-
-      const batch = selectDueBatch(job, states, Date.now())
-      if (!batch) {
-        const nextRetryAt = progress.nextRetryAt || new Date(Date.now() + 2_000).toISOString()
-        await patchJob(job.id, { ...progress, status: "running", nextRetryAt })
-        scheduleResume(job.id, nextRetryAt)
-        return
-      }
-
-      job = await processDueBatch(job, batch)
+    if (progress.completedSlots === job.totalSlots) {
+      job = await patchJob(job.id, { phase: "finalizing", ...progress }) || job
+      await persistJobResultToWorkspace(job)
+      const usedSlots = successfulNewSlotCount(job)
+      await settleJobCreditsQuietly(job.id, usedSlots)
+      const finishedAt = nowIso()
+      const historyPatch = await persistTerminalHistory({
+        job,
+        status: "succeeded",
+        finishedAt,
+      })
+      await patchJob(job.id, {
+        status: "succeeded",
+        phase: "finalizing",
+        completedSlots: job.totalSlots,
+        completedBatches: job.totalBatches,
+        retryingSlots: 0,
+        blockedSlots: 0,
+        modelErrors: {},
+        nextRetryAt: undefined,
+        finishedAt,
+        ...historyPatch,
+      })
+      return
     }
+
+    const recoverableSlots = Object.values(states).filter(isRecoverableSlot)
+    if (recoverableSlots.length === 0) {
+      job = await patchJob(job.id, progress) || job
+      await persistJobResultToWorkspace(job)
+      const usedSlots = successfulNewSlotCount(job)
+      await settleJobCreditsQuietly(job.id, usedSlots)
+      const error = `仍有 ${progress.blockedSlots || 0} 个槽位在多轮独立联网补采后未达标。已保留 ${progress.completedSlots} 个完整结果，未达标槽位不计费、不进入渗透率统计。`
+      const finishedAt = nowIso()
+      const historyPatch = await persistTerminalHistory({
+        job,
+        status: "partial",
+        error,
+        finishedAt,
+      })
+      await patchJob(job.id, {
+        status: "blocked",
+        error,
+        nextRetryAt: undefined,
+        finishedAt,
+        ...historyPatch,
+      })
+      return
+    }
+
+    const batch = selectDueBatch(job, states, Date.now())
+    if (!batch) {
+      const nextRetryAt = progress.nextRetryAt || new Date(Date.now() + 2_000).toISOString()
+      await patchJob(job.id, { ...progress, status: "running", nextRetryAt })
+      scheduleResume(job.id, nextRetryAt)
+      return
+    }
+
+    await processDueBatch(job, batch)
+    shouldRequeue = true
   } catch (error) {
     const current = await getStoredJob(jobId)
     if (current?.result) {
@@ -900,8 +1121,23 @@ async function runJob(jobId: string): Promise<void> {
       ...historyPatch,
     })
   } finally {
-    activeJobs.delete(jobId)
+    if (ownsLease) {
+      try {
+        const currentLease = await kv.get<string>(jobLeaseKey(jobId))
+        if (currentLease === leaseToken) await kv.del(jobLeaseKey(jobId))
+      } catch (error) {
+        console.warn("[penetration-jobs] failed to release job lease", jobId, error)
+      }
+    }
+    releaseActiveJob(jobId)
     activeAbortControllers.delete(jobId)
+    const latest = await getStoredJob(jobId)
+    if (!latest || ["succeeded", "blocked", "failed", "cancelled"].includes(latest.status)) {
+      await clearPendingJob(jobId)
+    } else if (shouldRequeue) {
+      queueJob(jobId)
+    }
+    requestSchedulerRun()
   }
 }
 
@@ -945,14 +1181,17 @@ export async function createPenetrationJob(args: {
   Object.assign(stored, summarizeSlotStates(stored, stored.slotStates))
 
   await saveJob(stored)
-  void runJob(stored.id)
-  return toPublicJob(stored)
+  await markJobPending(stored.id)
+  await ensurePendingJobsRecovered()
+  queueJob(stored.id)
+  return toPublicJob(await getStoredJob(stored.id) || stored)
 }
 
 export async function getPenetrationJob(
   id: string,
   requesterUserId: string,
 ): Promise<PenetrationJobRecord | null> {
+  await ensurePendingJobsRecovered()
   const job = await getStoredJob(id)
   if (
     !job
@@ -963,7 +1202,7 @@ export async function getPenetrationJob(
     && !activeJobs.has(job.id)
     && !resumeTimers.has(job.id)
   ) {
-    void runJob(job.id)
+    queueJob(job.id)
   }
   if (
     ["succeeded", "blocked", "failed", "cancelled"].includes(job.status)
@@ -996,6 +1235,11 @@ export async function cancelPenetrationJob(
   activeAbortControllers.get(id)?.abort()
   activeAbortControllers.delete(id)
   clearResumeTimer(id)
+  await clearPendingJob(id)
+  if (queuedJobIds.delete(id)) {
+    const index = queuedJobs.indexOf(id)
+    if (index >= 0) queuedJobs.splice(index, 1)
+  }
   const historyPatch = await persistTerminalHistory({
     job: cancelled,
     status: "cancelled",

@@ -16,8 +16,12 @@ import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser } from "@/lib/auth"
 import { getAdminOperationsMetrics, type DailyOperationsMetric } from "@/lib/admin-metrics"
 import { formatYuan } from "@/lib/pricing"
+import { MODEL_LABELS } from "@/lib/model-labels"
+import { getPenetrationQueueSnapshot } from "@/lib/penetration/jobs"
+import { getPenetrationConcurrencySnapshot } from "@/lib/penetration/provider-concurrency"
 import SiteFooter from "@/components/site-footer"
 import { AdminHeader } from "@/components/admin/admin-header"
+import type { ModelKey } from "@/types"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -61,6 +65,10 @@ export default async function AdminMetricsPage() {
 
   const metrics = await getAdminOperationsMetrics()
   const maxDailyUsage = Math.max(...metrics.daily.map(item => item.usageNet), 0)
+  const penetrationQueue = getPenetrationQueueSnapshot()
+  const penetrationConcurrency = getPenetrationConcurrencySnapshot()
+  const providerWaiting = Object.values(penetrationConcurrency.providers)
+    .reduce((sum, provider) => sum + provider.waiting, 0)
 
   return (
     <div className="min-h-screen geo-saturated-bg">
@@ -101,6 +109,56 @@ export default async function AdminMetricsPage() {
             note="需要人工核对到账"
             tone="amber"
           />
+        </section>
+
+        <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h2 className="text-sm font-semibold text-slate-900">疑问句检测实时调度</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              当前进程的用户公平队列与模型并发占用；刷新页面可读取最新状态。
+            </p>
+          </div>
+          <div className="grid gap-px bg-slate-100 sm:grid-cols-2 xl:grid-cols-4">
+            <LiveMetric
+              label="检测执行中"
+              value={`${penetrationQueue.active}/${penetrationQueue.activeLimit}`}
+              note={`${penetrationQueue.activeUsers} 个账号正在执行`}
+            />
+            <LiveMetric
+              label="等待执行"
+              value={formatInt(penetrationQueue.queued)}
+              note={`同账号并发上限 ${penetrationQueue.perUserLimit}`}
+            />
+            <LiveMetric
+              label="延迟补采"
+              value={formatInt(penetrationQueue.delayed)}
+              note="按退避时间自动恢复"
+            />
+            <LiveMetric
+              label="模型请求"
+              value={`${penetrationConcurrency.total.active}/${penetrationConcurrency.total.limit}`}
+              note={`${providerWaiting} 个请求等待供应商额度`}
+            />
+          </div>
+          <div className="grid gap-3 border-t border-slate-100 p-4 sm:grid-cols-2 xl:grid-cols-3">
+            {(Object.entries(penetrationConcurrency.providers) as Array<[
+              ModelKey,
+              { active: number; waiting: number; limit: number },
+            ]>).map(([model, provider]) => (
+              <div
+                key={model}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5"
+              >
+                <div>
+                  <div className="text-xs font-semibold text-slate-800">{MODEL_LABELS[model]}</div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">等待 {provider.waiting}</div>
+                </div>
+                <div className="font-mono text-sm font-bold text-[#1677FF]">
+                  {provider.active}/{provider.limit}
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
 
         <section className="grid gap-3 md:grid-cols-4">
@@ -315,6 +373,24 @@ export default async function AdminMetricsPage() {
         </section>
       </main>
       <SiteFooter />
+    </div>
+  )
+}
+
+function LiveMetric({
+  label,
+  value,
+  note,
+}: {
+  label: string
+  value: string
+  note: string
+}) {
+  return (
+    <div className="bg-white px-5 py-4">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="mt-1 font-mono text-2xl font-bold text-slate-900">{value}</div>
+      <div className="mt-1 text-xs text-slate-500">{note}</div>
     </div>
   )
 }

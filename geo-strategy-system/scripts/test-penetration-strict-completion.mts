@@ -76,5 +76,8 @@ const base = Date.parse("2026-07-16T00:00:00.000Z")
 assert.equal(nextPenetrationRetryAt(1, base), "2026-07-16T00:00:05.000Z")
 assert.equal(nextPenetrationRetryAt(6, base), "2026-07-16T00:15:00.000Z")
 assert.equal(nextPenetrationRetryAt(7, base), null)
+const jittered = Date.parse(nextPenetrationRetryAt(1, base, "job:model:1") || "")
+assert.ok(jittered >= base + 5_500)
+assert.ok(jittered <= base + 6_500)
 
 console.log("Penetration strict completion policy passed.")

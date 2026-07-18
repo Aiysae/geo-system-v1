@@ -507,8 +507,19 @@ export default function PenetrationModule({
 }
 
 function formatPenetrationJobProgress(job: PenetrationJobRecord): string {
+  if (job.queuePosition) {
+    const position = `排队第 ${job.queuePosition} 位`
+    const reason = job.queueReason === "user_limit"
+      ? "同一账号的检测将依次执行"
+      : job.queueReason === "capacity"
+        ? "系统正在公平调度其他用户"
+        : "等待后台执行位"
+    return job.completedSlots > 0
+      ? `有效结果 ${job.completedSlots}/${job.totalSlots} · ${position}，${reason}`
+      : `任务已受理 · ${position}，${reason}`
+  }
   if (job.status === "queued" || job.phase === "preflight") {
-    return "正在进行所选模型联网能力预检..."
+    return "任务已受理，正在分配后台执行位..."
   }
   const base = `有效结果 ${job.completedSlots}/${job.totalSlots}`
   if (job.phase !== "retrying") return `${base} · 正在独立联网采样`
