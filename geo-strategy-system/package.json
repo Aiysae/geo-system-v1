@@ -13,6 +13,7 @@
     "test:article-rewrite": "tsx scripts/test-article-rewrite.mts",
     "test:article-publishing": "tsx scripts/test-article-publishing.mts",
     "test:article-batches": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-batches.mts",
+    "test:article-batch-restart": "tsx scripts/test-article-batch-restart.mts",
     "test:geo-article-prompts": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-geo-article-prompts.mts",
     "test:payment-orders": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-payment-orders.mts",
     "test:vip-report-access": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-vip-report-access.mts",

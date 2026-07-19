@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import {
   cancelArticleBatch,
   getArticleBatch,
+  restartArticleBatch,
   retryFailedArticleBatchItems,
 } from "@/lib/article-batches/manager"
 import { requireUserId } from "@/lib/with-credits"
@@ -49,7 +50,7 @@ export async function PATCH(
     )
   }
   const { batchId } = await context.params
-  const body = await req.json().catch(() => ({})) as { action?: string }
+  const body = await req.json().catch(() => ({})) as { action?: string; requestId?: string }
   if (body.action === "cancel") {
     const batch = await cancelArticleBatch(batchId, auth.userId)
     if (!batch) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
@@ -57,6 +58,15 @@ export async function PATCH(
   }
   if (body.action === "retryFailed") {
     const result = await retryFailedArticleBatchItems(batchId, auth.userId)
+    if (!result.ok) return result.response
+    return NextResponse.json(result.batch, { status: result.reused ? 200 : 202 })
+  }
+  if (body.action === "restart") {
+    const requestId = String(body.requestId || "").trim()
+    if (!/^[A-Za-z0-9_-]{16,160}$/.test(requestId)) {
+      return NextResponse.json({ error: "重新生成请求编号无效，请刷新后重试" }, { status: 400 })
+    }
+    const result = await restartArticleBatch(batchId, auth.userId, requestId)
     if (!result.ok) return result.response
     return NextResponse.json(result.batch, { status: result.reused ? 200 : 202 })
   }

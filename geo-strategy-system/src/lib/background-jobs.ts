@@ -465,6 +465,14 @@ function scheduleJob(jobId: string, kind: BackgroundJobKind): void {
   drainQueue()
 }
 
+function removePendingJob(jobId: string, kind: BackgroundJobKind): void {
+  scheduledJobs.delete(jobId)
+  const queue = kind === "articleGeneration" ? pendingArticleJobs : pendingGeneralJobs
+  for (let index = queue.length - 1; index >= 0; index -= 1) {
+    if (queue[index] === jobId) queue.splice(index, 1)
+  }
+}
+
 export function isBackgroundJobKind(value: unknown): value is BackgroundJobKind {
   return [
     "articleGeneration",
@@ -769,7 +777,9 @@ export async function cancelBackgroundJob(
     error: "用户已停止任务",
     finishedAt: nowIso(),
   }) || job
+  removePendingJob(id, job.kind)
   activeControllers.get(id)?.abort()
   await settleJobCredits(id, false)
+  drainQueue()
   return toPublicJob(cancelled)
 }
