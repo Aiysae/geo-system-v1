@@ -1,7 +1,9 @@
 import assert from "node:assert/strict"
 import { JSDOM } from "jsdom"
-import React, { act } from "react"
+import React from "react"
 import { createRoot } from "react-dom/client"
+
+const { act } = React
 
 const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
   url: "https://shitugeo.top/workspace",
