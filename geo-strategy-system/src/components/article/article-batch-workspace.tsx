@@ -62,6 +62,20 @@ function topicLines(value: string): number {
   return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).length
 }
 
+function startBlockReason(args: {
+  count: number
+  coreQuestion: string
+  topicMode: ArticleBatchTopicMode
+  providedTopicCount: number
+}): string {
+  if (args.count < 2 || args.count > 50) return "生成数量需要在 2 到 50 篇之间"
+  if (!args.coreQuestion.trim()) return "请先填写“核心搜索问题 / 内容主题”"
+  if (args.topicMode !== "auto" && args.providedTopicCount < args.count) {
+    return `当前只填写了 ${args.providedTopicCount} 个主题，请补足到 ${args.count} 个`
+  }
+  return ""
+}
+
 export default function ArticleBatchWorkspace({
   clientId,
   promptTitle,
@@ -136,11 +150,13 @@ export default function ArticleBatchWorkspace({
   const selectedBatch = batches.find(batch => batch.id === selectedBatchId) || batches[0]
   const providedTopicCount = topicLines(customTopics)
   const totalCredits = Math.max(0, perArticleCredits) * count
-  const canStart = count >= 2
-    && count <= 50
-    && Boolean(basePayload.coreQuestion?.trim())
-    && (topicMode === "auto" || providedTopicCount >= count)
-    && !submitting
+  const blockedReason = startBlockReason({
+    count,
+    coreQuestion: basePayload.coreQuestion || "",
+    topicMode,
+    providedTopicCount,
+  })
+  const canStart = !blockedReason && !submitting
   const batchProgress = useMemo(() => {
     if (!selectedBatch || selectedBatch.requestedCount <= 0) return 0
     const total = selectedBatch.items.reduce((sum, item) => sum + item.progressPercent, 0)
@@ -183,7 +199,7 @@ export default function ArticleBatchWorkspace({
     }
   }
 
-  async function runAction(action: "cancel" | "retryFailed") {
+  async function runAction(action: "cancel" | "retryFailed" | "restart") {
     if (!selectedBatch || acting) return
     setActing(true)
     setError("")
@@ -191,11 +207,17 @@ export default function ArticleBatchWorkspace({
       const response = await apiFetch(`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({
+          action,
+          ...(action === "restart"
+            ? { requestId: createBackgroundRequestId("article_batch_restart") }
+            : {}),
+        }),
       })
       const batch = await readApiJson<ArticleBatchRecord & { error?: string }>(response, "批量文章任务")
       if (!response.ok) throw new Error(batch.error || "批量任务操作失败")
       applyBatches([batch, ...batches.filter(item => item.id !== batch.id)])
+      if (action === "restart") setSelectedBatchId(batch.id)
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "批量任务操作失败")
     } finally {
@@ -322,12 +344,18 @@ export default function ArticleBatchWorkspace({
             type="button"
             onClick={() => void startBatch()}
             disabled={!canStart}
+            title={blockedReason || "创建新的批量文章任务"}
             className="h-10 gap-2 bg-gradient-to-r from-[#1677FF] to-[#00B8D9] px-5 text-white shadow-sm hover:shadow-blue-200"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Files className="h-4 w-4" />}
             {submitting ? "正在创建任务..." : `批量生成 ${count} 篇`}
           </Button>
         </div>
+        {blockedReason && !submitting && (
+          <div className="mt-2 text-right text-[11px] leading-5 text-amber-600">
+            {blockedReason}
+          </div>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
@@ -357,6 +385,19 @@ export default function ArticleBatchWorkspace({
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     重试失败项
+                  </Button>
+                )}
+                {selectedBatch.status === "cancelled" && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void runAction("restart")}
+                    disabled={acting}
+                    className="gap-1.5 border-blue-200 text-[#0958D9] hover:bg-blue-50 hover:text-[#003EB3]"
+                  >
+                    {acting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    按原设置重新生成
                   </Button>
                 )}
                 {!TERMINAL_BATCH.has(selectedBatch.status) && (

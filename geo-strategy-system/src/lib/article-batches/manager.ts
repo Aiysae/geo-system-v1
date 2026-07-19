@@ -449,6 +449,42 @@ export async function cancelArticleBatch(
   return current ? toPublicArticleBatch(current) : null
 }
 
+export async function restartArticleBatch(
+  id: string,
+  ownerUserId: string,
+  requestId: string,
+): Promise<CreateArticleBatchResult> {
+  const batch = await getOwnedStoredArticleBatch(id, ownerUserId)
+  if (!batch) {
+    return { ok: false, response: Response.json({ error: "批量任务不存在" }, { status: 404 }) }
+  }
+  if (!TERMINAL_BATCH_STATUSES.has(batch.status)) {
+    return {
+      ok: false,
+      response: Response.json({ error: "当前批次仍在运行，请先停止后再按原设置重新生成" }, { status: 409 }),
+    }
+  }
+
+  const customTopics = batch.topicMode === "auto"
+    ? ""
+    : batch.items
+      .slice()
+      .sort((left, right) => left.position - right.position)
+      .map(item => item.topic)
+      .join("\n")
+
+  return createArticleBatch({
+    requestId,
+    clientId: batch.clientId,
+    promptTitle: batch.promptTitle,
+    count: batch.requestedCount,
+    topicMode: batch.topicMode,
+    customTopics,
+    similarityRetry: batch.similarityRetry,
+    basePayload: batch.basePayload,
+  }, ownerUserId)
+}
+
 export async function retryFailedArticleBatchItems(
   id: string,
   ownerUserId: string,
