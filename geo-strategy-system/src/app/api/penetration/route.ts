@@ -1239,6 +1239,11 @@ async function handler(req: NextRequest) {
       brandAliases,
       competitors,
       subjectType,
+      {
+        plannedQuestions: questions,
+        plannedSlots: activeModels.length * questions.length,
+        modelCount: activeModels.length,
+      },
     )
 
     const successfulSlots = results.filter(result => isCompletePenetrationItem(result.item)).length

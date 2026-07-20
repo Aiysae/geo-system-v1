@@ -152,6 +152,9 @@ export interface SourcePlatformEvidence {
   balanced_adoption_rate: number
   model_keys: string[]
   question_count: number
+  intent_count?: number
+  category_count?: number
+  intent_adoption_rate?: number
   evidence: SourcePlatformCitationEvidence[]
 }
 
@@ -161,6 +164,12 @@ export interface SourcePlatformSnapshot {
   successful_answer_count: number
   successful_model_count: number
   total_citation_events: number
+  distinct_question_count?: number
+  semantic_intent_count?: number
+  unique_url_count?: number
+  unique_domain_count?: number
+  duplicate_citation_rate?: number
+  sample_confidence?: "low" | "medium" | "high"
   platforms: SourcePlatformEvidence[]
 }
 

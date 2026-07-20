@@ -7,6 +7,10 @@ import type {
   SourcePlatformEvidence,
   SourcePlatformSnapshot,
 } from "@/types/geo-strategy"
+import {
+  buildPenetrationQuestionSamples,
+  computePenetrationSourceDiversity,
+} from "@/lib/penetration/sample-design"
 import { isAuditableSourceUrl, normalizeSourceDomain } from "@/lib/llm/source-extract"
 
 interface SourcePlatformDefinition {
@@ -184,6 +188,8 @@ interface MutablePlatformEvidence {
   uniqueUrls: Set<string>
   models: Set<string>
   questions: Set<string>
+  intents: Set<string>
+  categories: Set<string>
   evidence: SourcePlatformCitationEvidence[]
   evidenceKeys: Set<string>
   modelAnswerHits: Map<string, number>
@@ -219,6 +225,18 @@ export function buildSourcePlatformSnapshot(
 
   const officialDomain = websiteDomain(options.officialWebsite)
   const platformMap = new Map<string, MutablePlatformEvidence>()
+  const successfulQuestionTexts = Array.from(new Set(
+    Object.values(penetration.byModel).flatMap(items =>
+      (items || [])
+        .filter(item => item.answer?.trim() && item.webVerified !== false)
+        .map(item => item.question.trim())
+        .filter(Boolean),
+    ),
+  ))
+  const questionSamples = buildPenetrationQuestionSamples(successfulQuestionTexts)
+  const sampleByQuestion = new Map(
+    questionSamples.map(sample => [sample.question.normalize("NFKC").trim().toLowerCase(), sample]),
+  )
   const successfulAnswersByModel = new Map<string, number>()
   let successfulAnswerCount = 0
   let totalCitationEvents = 0
@@ -231,6 +249,9 @@ export function buildSourcePlatformSnapshot(
       successfulAnswerCount += 1
       successfulAnswersByModel.set(model, (successfulAnswersByModel.get(model) || 0) + 1)
       const hitPlatforms = new Set<string>()
+      const questionSample = sampleByQuestion.get(
+        item.question.normalize("NFKC").trim().toLowerCase(),
+      )
 
       for (const source of sources) {
         const domain = normalizeSourceDomain(source.normalizedUrl)
@@ -246,6 +267,8 @@ export function buildSourcePlatformSnapshot(
             uniqueUrls: new Set<string>(),
             models: new Set<string>(),
             questions: new Set<string>(),
+            intents: new Set<string>(),
+            categories: new Set<string>(),
             evidence: [],
             evidenceKeys: new Set<string>(),
             modelAnswerHits: new Map<string, number>(),
@@ -258,6 +281,10 @@ export function buildSourcePlatformSnapshot(
         aggregate.uniqueUrls.add(source.normalizedUrl)
         aggregate.models.add(model)
         if (item.question?.trim()) aggregate.questions.add(item.question.trim())
+        if (questionSample) {
+          aggregate.intents.add(questionSample.intentId)
+          aggregate.categories.add(questionSample.category)
+        }
         totalCitationEvents += 1
 
         const evidenceKey = `${model}::${item.sampleId || item.sampledAt || item.question}::${source.normalizedUrl}`
@@ -307,6 +334,11 @@ export function buildSourcePlatformSnapshot(
         : 0,
       model_keys: Array.from(aggregate.models).sort(),
       question_count: aggregate.questions.size,
+      intent_count: aggregate.intents.size,
+      category_count: aggregate.categories.size,
+      intent_adoption_rate: questionSamples.length > 0
+        ? Number(((aggregate.intents.size / new Set(questionSamples.map(item => item.intentId)).size) * 100).toFixed(1))
+        : 0,
       evidence: aggregate.evidence,
     }
   }).sort((a, b) =>
@@ -316,12 +348,20 @@ export function buildSourcePlatformSnapshot(
       || a.platform.localeCompare(b.platform, "zh-CN"),
   )
 
+  const sourceDiversity = penetration.aggregated.sampleQuality?.sourceDiversity
+    || computePenetrationSourceDiversity(penetration.byModel)
   return {
     penetration_generated_at: penetration.generatedAt,
     calculated_at: calculatedAt,
     successful_answer_count: successfulAnswerCount,
     successful_model_count: successfulAnswersByModel.size,
     total_citation_events: totalCitationEvents,
+    distinct_question_count: successfulQuestionTexts.length,
+    semantic_intent_count: new Set(questionSamples.map(sample => sample.intentId)).size,
+    unique_url_count: sourceDiversity.uniqueUrlCount,
+    unique_domain_count: sourceDiversity.uniqueDomainCount,
+    duplicate_citation_rate: sourceDiversity.duplicateCitationRate,
+    sample_confidence: penetration.aggregated.sampleQuality?.confidence,
     platforms,
   }
 }
@@ -351,6 +391,9 @@ export function sourcePlatformPromptContext(snapshot?: SourcePlatformSnapshot): 
     unique_url_count: platform.unique_url_count,
     model_coverage: platform.model_keys.length,
     question_coverage: platform.question_count,
+    intent_coverage: platform.intent_count,
+    category_coverage: platform.category_count,
+    intent_adoption_rate: platform.intent_adoption_rate,
   }))
 }
 

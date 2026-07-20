@@ -28,6 +28,8 @@
     "test:email-verification": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-email-verification.mts",
     "test:penetration-web": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-web-adapters.mts",
     "test:penetration-sampling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-independent-sampling.mts",
+    "test:penetration-sample-quality": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-sample-quality.mts",
+    "test:penetration-balanced-scoring": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-balanced-scoring.mts",
     "test:penetration-strict": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-strict-completion.mts",
     "test:penetration-recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-job-recovery.mts",
     "test:penetration-scheduling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-job-scheduling.mts",

@@ -131,7 +131,7 @@ function resolveTask(kind: BackgroundJobKind, payload: unknown): TaskDefinition 
       }
     }
     case "queryGeneration": {
-      const units = Math.min(30, Math.max(1, Math.floor(Number(body.count) || 5)))
+      const units = Math.min(84, Math.max(1, Math.floor(Number(body.count) || 28)))
       return {
         endpoint: "/api/generate-queries",
         featureKey: "legacyQueryGenerateUnit",

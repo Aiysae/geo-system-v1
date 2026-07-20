@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -30,6 +30,13 @@ import {
   getSubjectCopy,
   normalizePersonSubjectProfile,
 } from "@/lib/analysis-subject"
+import {
+  arePenetrationQuestionsSemanticallySimilar,
+  buildPenetrationSampleQuality,
+  inferPenetrationQuestionCategory,
+  PENETRATION_QUESTION_CATEGORY_LABELS,
+  PENETRATION_SAMPLE_PRESETS,
+} from "@/lib/penetration/sample-design"
 import type {
   AnalysisSubjectType,
   BackgroundJobRef,
@@ -81,7 +88,7 @@ export default function BatchInputPanel({
   const [competitorsText, setCompetitorsText] = useState(() => client.competitors.join("\n"))
 
   const [inputMode, setInputMode] = useState<InputMode>("manual")
-  const [aiCount, setAiCount] = useState(5)
+  const [aiCount, setAiCount] = useState(28)
   const [aiKeywords, setAiKeywords] = useState("")
   const [aiToast, setAiToast] = useState<string | null>(null)
   const [modelReadiness, setModelReadiness] = useState<ModelReadiness>({})
@@ -133,14 +140,16 @@ export default function BatchInputPanel({
       }
 
       const existing = parseLines(questionsText)
-      const seen = new Set(existing)
       const merged = [...existing]
       for (const question of generated) {
         const value = String(question || "").trim()
-        if (value && !seen.has(value)) {
-          seen.add(value)
-          merged.push(value)
-        }
+        if (!value) continue
+        const category = inferPenetrationQuestionCategory(value)
+        const duplicate = merged.some(previous => (
+          inferPenetrationQuestionCategory(previous) === category
+          && arePenetrationQuestionsSemanticallySimilar(previous, value)
+        ))
+        if (!duplicate) merged.push(value)
       }
       setQuestionsText(merged.join("\n"))
       setInputMode("manual")
@@ -245,9 +254,22 @@ export default function BatchInputPanel({
     })
   }
 
-  const questionCount = parseLines(questionsText).length
+  const currentQuestions = useMemo(
+    () => parseLines(questionsText),
+    [questionsText],
+  )
+  const questionCount = currentQuestions.length
   const eligibleSelectedModels = client.selectedModels.filter(
     model => modelReadiness[model]?.ready !== false,
+  )
+  const plannedSlots = questionCount * eligibleSelectedModels.length
+  const sampleQuality = useMemo(
+    () => buildPenetrationSampleQuality(currentQuestions, {
+      modelCount: eligibleSelectedModels.length,
+      plannedSlots,
+      completedSlots: plannedSlots,
+    }),
+    [currentQuestions, eligibleSelectedModels.length, plannedSlots],
   )
   const canRun =
     !loading && client.ourBrand.trim().length > 0 && questionCount > 0 && eligibleSelectedModels.length > 0
@@ -502,17 +524,37 @@ export default function BatchInputPanel({
           />
         ) : (
           <div className="space-y-3 rounded-lg border border-[#CFE1F5] bg-[#F5FAFF] p-3">
+            <div>
+              <Label className="mb-1.5 block text-[11px] text-slate-600">样本预设</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {Object.values(PENETRATION_SAMPLE_PRESETS).map(preset => (
+                  <button
+                    key={preset.count}
+                    type="button"
+                    onClick={() => setAiCount(preset.count)}
+                    className={`rounded-lg border px-2 py-2 text-left transition ${
+                      aiCount === preset.count
+                        ? "border-[#1677FF] bg-white text-[#0958D9] shadow-sm"
+                        : "border-[#D7E7F7] bg-[#F8FBFF] text-[#526A83] hover:border-[#91CAFF]"
+                    }`}
+                  >
+                    <span className="block text-xs font-semibold">{preset.label} · {preset.count} 条</span>
+                    <span className="mt-0.5 block text-[9px] leading-4 text-[#7A8EA3]">{preset.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="grid gap-3 md:grid-cols-[110px_1fr_auto] md:items-end">
               <div>
-                <Label className="text-[11px] text-slate-600 mb-1.5 block">生成数量</Label>
+                <Label className="text-[11px] text-slate-600 mb-1.5 block">自定义数量</Label>
                 <Input
                   type="number"
                   min={1}
-                  max={30}
+                  max={84}
                   value={aiCount}
                   onChange={e => {
                     const n = Number(e.target.value)
-                    setAiCount(Number.isFinite(n) ? Math.max(1, Math.min(30, n)) : 5)
+                    setAiCount(Number.isFinite(n) ? Math.max(1, Math.min(84, n)) : 28)
                   }}
                 />
               </div>
@@ -567,6 +609,54 @@ export default function BatchInputPanel({
           </div>
         )}
       </div>
+
+      {questionCount > 0 && (
+        <div className="rounded-lg border border-[#CFE1F5] bg-white p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold text-[#17324D]">检测前样本质量</div>
+              <div className="mt-0.5 text-[10px] text-[#7A8EA3]">
+                同义问题仍会独立请求模型，但统计时会归为同一语义意图。
+              </div>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+              sampleQuality.confidence === "high"
+                ? "bg-emerald-50 text-emerald-700"
+                : sampleQuality.confidence === "medium"
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-rose-50 text-rose-700"
+            }`}>
+              {sampleQuality.confidenceLabel} · {sampleQuality.score} 分
+            </span>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="rounded-md bg-[#F5FAFF] px-2 py-2 text-center">
+              <div className="text-sm font-bold text-[#0958D9]">{questionCount}</div>
+              <div className="text-[9px] text-[#7A8EA3]">问题总数</div>
+            </div>
+            <div className="rounded-md bg-[#F5FAFF] px-2 py-2 text-center">
+              <div className="text-sm font-bold text-[#0958D9]">{sampleQuality.semanticIntentCount}</div>
+              <div className="text-[9px] text-[#7A8EA3]">独立语义意图</div>
+            </div>
+            <div className="rounded-md bg-[#F5FAFF] px-2 py-2 text-center">
+              <div className="text-sm font-bold text-[#0958D9]">{sampleQuality.categoryCoverageCount}/7</div>
+              <div className="text-[9px] text-[#7A8EA3]">问题类别覆盖</div>
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {sampleQuality.categoryCounts.map(item => (
+              <span key={item.category} className="rounded-md border border-[#DCEAF8] bg-[#F8FBFF] px-2 py-1 text-[9px] text-[#526A83]">
+                {PENETRATION_QUESTION_CATEGORY_LABELS[item.category]} {item.questionCount}
+              </span>
+            ))}
+          </div>
+          {sampleQuality.warnings.length > 0 && (
+            <div className="mt-2 text-[10px] leading-5 text-amber-700">
+              {sampleQuality.warnings.slice(0, 2).join(" ")}
+            </div>
+          )}
+        </div>
+      )}
 
       <div>
         <Label className="text-xs text-slate-600 mb-2 block">检测模型 *</Label>

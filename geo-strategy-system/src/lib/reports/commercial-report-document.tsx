@@ -628,6 +628,12 @@ function distinctQuestions(answers: FlattenedAnswer[]): number {
   return new Set(answers.map(({ item }) => item.question.trim()).filter(Boolean)).size
 }
 
+function sampleConfidenceLabel(value?: "low" | "medium" | "high"): string {
+  if (value === "high") return "标准可信"
+  if (value === "medium") return "方向性"
+  return "探索性"
+}
+
 function isPersonReport(input: CommercialReportInput): boolean {
   return input.client.subjectType === "person"
 }
@@ -661,7 +667,10 @@ function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer
       ? `${terms.ranking}位列第 ${penetration.ourRanking}`
       : `当前未进入${terms.ranking}`
     sections.push(
-      `本次多模型检测覆盖 ${distinctQuestions(answers)} 条疑问句、${penetration.perModelRate.length} 个模型和 ${penetration.totalSlots} 个检测槽位；${terms.visibility}为 ${percent(penetration.penetrationRate)}，${rank}。`,
+      `本次多模型检测覆盖 ${distinctQuestions(answers)} 条疑问句、${penetration.perModelRate.length} 个模型和 ${penetration.totalSlots} 个有效检测槽位；`
+      + `原始槽位${terms.visibility}为 ${percent(penetration.penetrationRate)}`
+      + (penetration.categoryBalancedRate != null ? `，七类问题均衡率为 ${percent(penetration.categoryBalancedRate)}` : "")
+      + `，样本属于${sampleConfidenceLabel(penetration.sampleQuality?.confidence)}结果，${rank}。`,
     )
   }
   if (input.difficulty) {
@@ -934,9 +943,25 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
           : "把复杂模型检测压缩为可决策的品牌心智信号。"}
       />
       <View style={styles.metricsGrid}>
-        <MetricCard label={terms.visibility} value={penetration ? percent(penetration.penetrationRate) : "未检测"} note={penetration ? `${penetration.ourMentions}/${penetration.totalSlots} 个槽位命中` : undefined} />
-        <MetricCard label={terms.ranking} value={penetration?.ourRanking ? `第 ${penetration.ourRanking}` : "未上榜"} note={penetration ? `共识别 ${penetration.industryShare.length} 个${terms.subject}` : undefined} />
-        <MetricCard label="联网可验证率" value={answers.length ? percent(verifiedRate(answers)) : "无数据"} note={`${sources.length} 条去重信源`} />
+        <MetricCard
+          label={`原始槽位${terms.visibility}`}
+          value={penetration ? percent(penetration.penetrationRate) : "未检测"}
+          note={penetration
+            ? `${penetration.ourMentions}/${penetration.totalSlots} 个槽位命中 · ${penetration.ourRanking ? `${terms.ranking}第 ${penetration.ourRanking}` : "未上榜"}`
+            : undefined}
+        />
+        <MetricCard
+          label="七类问题均衡率"
+          value={penetration?.categoryBalancedRate != null ? percent(penetration.categoryBalancedRate) : "历史口径"}
+          note="七类搜索意图先分别计算，再等权汇总"
+        />
+        <MetricCard
+          label="样本可信度"
+          value={penetration ? sampleConfidenceLabel(penetration.sampleQuality?.confidence) : "未检测"}
+          note={penetration?.sampleQuality
+            ? `${penetration.sampleQuality.semanticIntentCount} 个独立语义 · 完成率 ${percent(penetration.sampleQuality.completionRate)}`
+            : `${sources.length} 条去重信源`}
+        />
         <MetricCard label="GEO 难度" value={difficulty ? `${difficulty.totalScore} 分` : "未测评"} note={difficulty ? `${difficulty.level} · ${concisePeriod(difficulty.stableMentionPeriod)}` : undefined} />
       </View>
       <View style={styles.insightBox} wrap={false}>
@@ -982,13 +1007,13 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
         <DonutChart
           value={penetration.aggregated.penetrationRate}
           display={percent(penetration.aggregated.penetrationRate)}
-          label={terms.visibility}
+          label={`原始槽位${terms.visibility}`}
         />
         <View style={styles.heroMetrics}>
           <HeroMetric label={`${terms.target}命中`} value={`${penetration.aggregated.ourMentions}/${penetration.aggregated.totalSlots}`} />
           <HeroMetric label={terms.ranking} value={penetration.aggregated.ourRanking ? `第 ${penetration.aggregated.ourRanking}` : "未上榜"} />
-          <HeroMetric label="检测问题" value={`${distinctQuestions(answers)} 条`} />
-          <HeroMetric label={`识别${terms.subject}`} value={`${penetration.aggregated.industryShare.length} 个`} />
+          <HeroMetric label="七类问题均衡率" value={penetration.aggregated.categoryBalancedRate != null ? percent(penetration.aggregated.categoryBalancedRate) : "历史口径"} />
+          <HeroMetric label="样本可信度" value={sampleConfidenceLabel(penetration.aggregated.sampleQuality?.confidence)} />
         </View>
       </View>
       <View style={styles.section} wrap={false}>
@@ -1010,6 +1035,9 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
           {isPersonReport(input)
             ? "统计说明：目标人物姓名及已配置别名在回答原文中通过字面校验后才计为命中；同行人物由独立裁判结合职业、专业方向与回答上下文判定，机构不计入人物排名。失败或空回答不会被包装成成功结果。"
             : "统计说明：目标品牌全称及已配置别名在回答原文中通过字面校验后才计为命中。失败或空回答不会被包装成成功结果。"}
+        </Text>
+        <Text style={{ marginTop: 4 }}>
+          原始槽位率保留每次独立联网回答；语义均衡率把同义问法归为一个意图；七类均衡率将榜单推荐、痛点解决、竞品对比、采购决策、场景人群、品牌认知与风险疑虑分别计算后等权汇总。
         </Text>
       </View>
     </Page>
@@ -1171,24 +1199,25 @@ function PenetrationOpportunityPage({ input }: { input: CommercialReportInput })
 
 function SourcesPage({ input, answers, sources }: { input: CommercialReportInput; answers: FlattenedAnswer[]; sources: PenetrationSource[] }) {
   const domains = sourceDomainCounts(sources)
+  const diversity = input.penetration?.aggregated.sampleQuality?.sourceDiversity
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
       <ChapterTitle kicker="EVIDENCE AUDIT" title="联网信源与可审计性" intro="先展示联网验证覆盖与来源结构，再在后续索引页列出可点击的具体网址。" />
       <View style={styles.metricsGrid}>
         <MetricCard label="联网可验证回答" value={`${answers.filter(({ item }) => item.webVerified).length}/${answers.length}`} />
-        <MetricCard label="去重信源" value={`${sources.length}`} />
-        <MetricCard label="来源域名" value={`${domains.length}`} />
-        <MetricCard label="仅原始问题请求" value={`${answers.filter(({ item }) => item.promptPurity === "raw_question_only").length}/${answers.length}`} />
+        <MetricCard label="引用事件" value={`${diversity?.citationEvents ?? sources.length}`} note="不同模型重复采信会分别计数" />
+        <MetricCard label="唯一网址" value={`${diversity?.uniqueUrlCount ?? sources.length}`} note={`重复引用占比 ${percent(diversity?.duplicateCitationRate || 0)}`} />
+        <MetricCard label="唯一域名" value={`${diversity?.uniqueDomainCount ?? domains.length}`} note={`纯净问题请求 ${answers.filter(({ item }) => item.promptPurity === "raw_question_only").length}/${answers.length}`} />
       </View>
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>高频来源域名</Text>
+        <Text style={styles.sectionTitle}>不同网址最多的来源域名</Text>
         {domains.slice(0, 12).map((item, index) => (
-          <HorizontalBar key={item.domain} label={item.domain} value={item.count / Math.max(1, domains[0]?.count || 1)} display={`${item.count} 次`} color={index < 3 ? [COLORS.amber, COLORS.silver, COLORS.bronze][index] : COLORS.slate} />
+          <HorizontalBar key={item.domain} label={item.domain} value={item.count / Math.max(1, domains[0]?.count || 1)} display={`${item.count} 个网址`} color={index < 3 ? [COLORS.amber, COLORS.silver, COLORS.bronze][index] : COLORS.slate} />
         ))}
       </View>
       <View style={styles.methodology}>
-        <Text>信源说明：仅保留合法的 HTTP/HTTPS 地址，并按完整网址去重。域名频次用于观察模型引用来源是否过度集中。</Text>
+        <Text>信源说明：引用事件用于观察不同模型和问题对来源的重复采信；唯一网址、唯一域名用于观察证据多样性。可点击索引按完整网址去重，二者不能混为同一指标。</Text>
       </View>
     </Page>
   )
@@ -1537,14 +1566,15 @@ function ActionPage({ input }: { input: CommercialReportInput }) {
       </View>
       <View style={styles.methodology}>
         <Text>方法说明</Text>
-        <Text style={{ marginTop: 5 }}>1. 渗透率来自所选模型对真实疑问句的独立回答，模型回答与信源按原始结果保存。</Text>
+        <Text style={{ marginTop: 5 }}>1. 原始渗透率来自所选模型对真实疑问句的独立回答，模型回答与信源按原始结果保存。</Text>
+        <Text>2. 同义问题会独立请求模型，但在代表性统计中归为同一语义意图；七类问题均衡率用于降低单一推荐场景的重复放大。</Text>
         <Text>
           {isPersonReport(input)
-            ? "2. 人物识别与同行判定在回答生成后完成，不把目标人物、同行名单或身份资料注入被测问题。"
-            : "2. 品牌识别在回答生成后完成，不把目标品牌和优势信息注入被测问题。"}
+            ? "3. 人物识别与同行判定在回答生成后完成，不把目标人物、同行名单或身份资料注入被测问题。"
+            : "3. 品牌识别在回答生成后完成，不把目标品牌和优势信息注入被测问题。"}
         </Text>
-        <Text>3. 难度测评来自系统保存的五步评估结果，报告不额外调用 AI，也不补写未提供的事实。</Text>
-        <Text>4. 本报告用于 GEO 策略与内容决策，不构成法律、财务或绝对排名承诺。</Text>
+        <Text>4. 难度测评来自系统保存的五步评估结果，报告不额外调用 AI，也不补写未提供的事实。</Text>
+        <Text>5. 本报告用于 GEO 策略与内容决策，不构成法律、财务或绝对排名承诺。</Text>
       </View>
     </Page>
   )

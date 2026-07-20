@@ -41,6 +41,9 @@ export function buildPenetrationBatchResult(args: {
   competitors: string[]
   subjectType?: AnalysisSubjectType
   generatedAt: string
+  plannedQuestions?: string[]
+  plannedSlots?: number
+  modelCount?: number
 }): PenetrationResult {
   const existingByModel = args.currentResult?.byModel
     || (args.operation === "append" ? args.baseResult?.byModel : undefined)
@@ -54,6 +57,11 @@ export function buildPenetrationBatchResult(args: {
       args.brandAliases,
       args.competitors,
       args.subjectType || "brand",
+      {
+        plannedQuestions: args.plannedQuestions,
+        plannedSlots: args.plannedSlots,
+        modelCount: args.modelCount,
+      },
     ),
     generatedAt: args.generatedAt,
   }

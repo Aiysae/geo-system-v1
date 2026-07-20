@@ -94,7 +94,7 @@ function PlatformRow({
             />
           </span>
           <span className="mt-1 block truncate text-[10px] tabular-nums text-slate-400">
-            命中 {platform.answer_hits}/{totalAnswers} · 引用 {platform.citation_events} · 模型 {platform.model_keys.length}/{totalModels}
+            命中 {platform.answer_hits}/{totalAnswers} · 引用 {platform.citation_events} · 意图 {platform.intent_count ?? platform.question_count} · 模型 {platform.model_keys.length}/{totalModels}
           </span>
         </span>
         <span className="flex items-center justify-end gap-1 text-right text-xs font-bold tabular-nums text-slate-700">
@@ -116,8 +116,13 @@ function PlatformRow({
               {platform.unique_url_count} 个不同网址
             </span>
             <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-500">
-              {platform.question_count} 个疑问句
+              {platform.intent_count ?? platform.question_count} 个独立语义
             </span>
+            {platform.intent_adoption_rate != null ? (
+              <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-500">
+                意图覆盖率 {platform.intent_adoption_rate}%
+              </span>
+            ) : null}
           </div>
           <div className="max-h-64 divide-y divide-slate-100 overflow-y-auto pr-1">
             {visibleEvidence.map((evidence, index) => (
@@ -172,7 +177,7 @@ export function SourcePlatformAdoptionChart({ snapshot }: { snapshot?: SourcePla
 
   return (
     <div>
-      <div className="grid grid-cols-3 border-y border-slate-100 py-3">
+      <div className="grid grid-cols-2 border-y border-slate-100 py-3 sm:grid-cols-5">
         <div className="border-r border-slate-100 px-2 text-center">
           <div className="text-base font-bold tabular-nums text-slate-800">{snapshot.successful_answer_count}</div>
           <div className="text-[10px] text-slate-400">成功联网回答</div>
@@ -180,6 +185,14 @@ export function SourcePlatformAdoptionChart({ snapshot }: { snapshot?: SourcePla
         <div className="border-r border-slate-100 px-2 text-center">
           <div className="text-base font-bold tabular-nums text-slate-800">{snapshot.total_citation_events}</div>
           <div className="text-[10px] text-slate-400">有效引用事件</div>
+        </div>
+        <div className="border-r border-slate-100 px-2 text-center">
+          <div className="text-base font-bold tabular-nums text-slate-800">{snapshot.unique_url_count ?? "—"}</div>
+          <div className="text-[10px] text-slate-400">唯一网址</div>
+        </div>
+        <div className="border-r border-slate-100 px-2 text-center">
+          <div className="text-base font-bold tabular-nums text-slate-800">{snapshot.unique_domain_count ?? "—"}</div>
+          <div className="text-[10px] text-slate-400">唯一域名</div>
         </div>
         <div className="px-2 text-center">
           <div className="text-base font-bold tabular-nums text-slate-800">{rankedPlatforms.length}</div>
@@ -219,9 +232,12 @@ export function SourcePlatformAdoptionChart({ snapshot }: { snapshot?: SourcePla
         </button>
       ) : null}
 
-      {snapshot.successful_answer_count < 10 ? (
+      {snapshot.sample_confidence !== "high" ? (
         <div className="mt-3 border-l-2 border-amber-300 pl-2 text-[10px] leading-4 text-amber-700">
-          当前只有 {snapshot.successful_answer_count} 次有效联网回答，排名可作方向判断，建议增加检测样本后再比较稳定权重。
+          当前样本
+          {snapshot.sample_confidence === "medium" ? "属于方向性结果" : "属于探索性结果"}
+          ：覆盖 {snapshot.semantic_intent_count ?? snapshot.distinct_question_count ?? 0} 个独立语义意图。
+          平台排序会保留不同模型的重复采信事件，但建议结合唯一网址和唯一域名一起判断稳定权重。
         </div>
       ) : null}
     </div>

@@ -4,6 +4,7 @@ import type {
   ModelKey,
   PenetrationAggregated,
   PenetrationByModel,
+  PenetrationQuestionCategory,
   PerModelRate,
 } from "@/types"
 import {
@@ -11,11 +12,47 @@ import {
   createSubjectResolver,
   isSameSubject,
 } from "@/lib/subject-canonicalization"
+import {
+  buildPenetrationQuestionSamples,
+  buildPenetrationSampleQuality,
+  computePenetrationSourceDiversity,
+} from "@/lib/penetration/sample-design"
 
 // 宽松匹配：把空格/大小写差异都抹掉后，任一方包含另一方即视为同一品牌
 // 例：用户填 "势途"、模型返回 "势途GEO" / "势途 GEO" → 都识别为我方
 export function isSameBrand(a: string, b: string): boolean {
   return isSameSubject(a, b, "brand")
+}
+
+type RateAccumulator = {
+  mentions: number
+  total: number
+}
+
+type PenetrationAggregateOptions = {
+  plannedQuestions?: string[]
+  plannedSlots?: number
+  modelCount?: number
+}
+
+function questionKey(value: string): string {
+  return value.normalize("NFKC").trim().toLowerCase().replace(/\s+/gu, " ")
+}
+
+function meanRate(values: Iterable<RateAccumulator>): number {
+  const rates = Array.from(values)
+    .filter(value => value.total > 0)
+    .map(value => value.mentions / value.total)
+  return rates.length > 0
+    ? rates.reduce((sum, value) => sum + value, 0) / rates.length
+    : 0
+}
+
+function representativeQuestions(byModel: PenetrationByModel): string[] {
+  const candidates = Object.values(byModel)
+    .map(items => (items || []).filter(item => item.answer?.trim()).map(item => item.question))
+    .sort((left, right) => right.length - left.length)
+  return candidates[0] || []
 }
 
 export function aggregatePenetration(
@@ -24,6 +61,7 @@ export function aggregatePenetration(
   brandAliases: string[] = [],
   competitors: string[] = [],
   subjectType: AnalysisSubjectType = "brand",
+  options: PenetrationAggregateOptions = {},
 ): PenetrationAggregated {
   const resolver = createSubjectResolver({
     subjectType,
@@ -36,9 +74,31 @@ export function aggregatePenetration(
   const perModelRate: PerModelRate[] = []
   let ourMentions = 0
   let totalSlots = 0
+  const exactQuestionRates = new Map<string, RateAccumulator>()
+  const intentRates = new Map<string, RateAccumulator>()
+  const intentCategories = new Map<string, PenetrationQuestionCategory>()
 
   const mentionedByAnyModel = new Set<string>()
   const allQuestions = new Set<string>()
+  const observedQuestions = Array.from(new Set(
+    Object.values(byModel)
+      .flatMap(items => (items || []).filter(item => item.answer?.trim()).map(item => item.question)),
+  ))
+  const questionSamples = buildPenetrationQuestionSamples(observedQuestions)
+  const sampleByQuestion = new Map(
+    questionSamples.map(sample => [questionKey(sample.question), sample]),
+  )
+
+  function recordRate(
+    rates: Map<string, RateAccumulator>,
+    key: string,
+    hit: boolean,
+  ) {
+    const current = rates.get(key) || { mentions: 0, total: 0 }
+    current.total += 1
+    if (hit) current.mentions += 1
+    rates.set(key, current)
+  }
 
   for (const [model, items] of Object.entries(byModel)) {
     if (!items) continue
@@ -55,6 +115,14 @@ export function aggregatePenetration(
       // hitOur=true 是直接命中；裁判从原文抽取并校验过的简称/别名也可命中全称。
       // 这样能修复“排行榜识别到我方品牌，但提及率仍为 0%”的不一致。
       const hitOurInThisSlot = it.hitOur === true || canonicalBrands.some(b => b.isTarget)
+      const sample = sampleByQuestion.get(questionKey(it.question))
+        || buildPenetrationQuestionSamples([it.question])[0]
+      const exactKey = questionKey(it.question)
+      recordRate(exactQuestionRates, exactKey, hitOurInThisSlot)
+      if (sample) {
+        recordRate(intentRates, sample.intentId, hitOurInThisSlot)
+        intentCategories.set(sample.intentId, sample.category)
+      }
       if (hitOurInThisSlot) {
         ourMentions++
         modelMentions++
@@ -103,6 +171,33 @@ export function aggregatePenetration(
     .slice(0, 3)
     .map(s => s.brand)
 
+  const categoryIntentRates = new Map<PenetrationQuestionCategory, RateAccumulator[]>()
+  for (const [intentId, rate] of intentRates) {
+    const category = intentCategories.get(intentId)
+    if (!category) continue
+    const values = categoryIntentRates.get(category) || []
+    values.push(rate)
+    categoryIntentRates.set(category, values)
+  }
+  const categoryRates = Array.from(categoryIntentRates.values()).map(rates => ({
+    mentions: meanRate(rates),
+    total: 1,
+  }))
+  const plannedQuestions = options.plannedQuestions?.filter(question => question.trim())
+    || representativeQuestions(byModel)
+  const modelCount = Math.max(
+    0,
+    Math.floor(options.modelCount ?? Object.keys(byModel).length),
+  )
+  const plannedSlots = Math.max(0, Math.floor(options.plannedSlots ?? totalSlots))
+  const sourceDiversity = computePenetrationSourceDiversity(byModel)
+  const sampleQuality = buildPenetrationSampleQuality(plannedQuestions, {
+    modelCount,
+    plannedSlots,
+    completedSlots: totalSlots,
+    sourceDiversity,
+  })
+
   const institutionCount = new Map<string, { displayName: string; count: number }>()
   if (subjectType === "person") {
     for (const items of Object.values(byModel)) {
@@ -137,6 +232,12 @@ export function aggregatePenetration(
     penetrationRate: totalSlots ? ourMentions / totalSlots : 0,
     ourMentions,
     totalSlots,
+    plannedSlots,
+    completionRate: sampleQuality.completionRate,
+    questionLevelRate: meanRate(exactQuestionRates.values()),
+    intentBalancedRate: meanRate(intentRates.values()),
+    categoryBalancedRate: meanRate(categoryRates),
+    sampleQuality,
     industryShare,
     institutionShare: subjectType === "person" ? institutionShare : undefined,
     ourRanking,

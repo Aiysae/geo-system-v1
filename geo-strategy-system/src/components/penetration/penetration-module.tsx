@@ -9,6 +9,7 @@ import PenetrationDonut from "./penetration-donut"
 import IndustryShareChart from "./industry-share-chart"
 import BrandRankingCard from "./brand-ranking-card"
 import ModelRateTrend from "./model-rate-trend"
+import PenetrationSampleQualityPanel from "./sample-quality-panel"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
@@ -295,6 +296,10 @@ export default function PenetrationModule({
         client.brandAliases ?? [],
         client.competitors,
         subjectType,
+        {
+          plannedSlots: client.penetration.aggregated.plannedSlots,
+          modelCount: client.penetration.aggregated.perModelRate.length,
+        },
       ),
     }
   }, [
@@ -360,7 +365,7 @@ export default function PenetrationModule({
                 <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                   <div className="geo-data-panel min-w-0 rounded-lg p-4">
                     <div className="geo-section-kicker mb-1">
-                      {subjectType === "person" ? "个人 IP 可见率" : "渗透率"}
+                      {subjectType === "person" ? "原始槽位个人 IP 可见率" : "原始槽位渗透率"}
                     </div>
                     <PenetrationDonut
                       rate={pen.aggregated.penetrationRate}
@@ -378,6 +383,8 @@ export default function PenetrationModule({
                     />
                   </div>
                 </div>
+
+                <PenetrationSampleQualityPanel aggregated={pen.aggregated} />
 
                 <div className="grid min-w-0 gap-4 xl:grid-cols-2">
                   <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
