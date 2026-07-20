@@ -9,6 +9,10 @@ import {
   computeKeywordCompetition,
 } from "@/lib/dashboard-aggregations"
 import { PENETRATION_HISTORY_SCHEMA_SQL } from "@/lib/penetration/history-schema"
+import {
+  buildPenetrationSampleQuality,
+  computePenetrationSourceDiversity,
+} from "@/lib/penetration/sample-design"
 import type {
   PenetrationHistoryListItem,
   PenetrationHistoryListPage,
@@ -126,15 +130,6 @@ export async function ensurePenetrationHistorySchema(): Promise<void> {
   await historyGlobal.__geoPenetrationHistorySchemaPromise
 }
 
-function concreteSourceCount(result?: PenetrationResult): number {
-  if (!result) return 0
-  let count = 0
-  for (const items of Object.values(result.byModel)) {
-    for (const item of items || []) count += item.searchSources?.length || 0
-  }
-  return count
-}
-
 export function buildPenetrationHistoryRecord(
   input: PenetrationHistoryBuildInput,
 ): PenetrationHistoryRecord {
@@ -158,6 +153,22 @@ export function buildPenetrationHistoryRecord(
       }
     : { brandVoice: [], keywordCompetition: [] }
   const updatedAt = input.completedAt || new Date().toISOString()
+  const activeModelCount = input.request.activeModels?.length
+    ? input.request.activeModels.length
+    : input.request.models.length
+  const sourceDiversity = result
+    ? result.aggregated.sampleQuality?.sourceDiversity
+      || computePenetrationSourceDiversity(result.byModel)
+    : undefined
+  const sampleQuality = result
+    ? result.aggregated.sampleQuality
+      || buildPenetrationSampleQuality(input.request.questions, {
+        modelCount: activeModelCount,
+        plannedSlots: input.totalSlots,
+        completedSlots: input.completedSlots,
+        sourceDiversity,
+      })
+    : undefined
 
   return {
     id: input.id,
@@ -173,16 +184,23 @@ export function buildPenetrationHistoryRecord(
       ourBrand: input.request.ourBrand,
       industry: input.request.industry,
       questionCount: input.request.questions.length,
-      modelCount: input.request.models.length,
+      modelCount: activeModelCount,
       completedSlots: Math.max(0, input.completedSlots),
       totalSlots: Math.max(0, input.totalSlots),
       penetrationRate: result?.aggregated.penetrationRate ?? null,
-      sourceCount: concreteSourceCount(result),
+      sourceCount: sourceDiversity?.citationEvents || 0,
+      uniqueSourceCount: sourceDiversity?.uniqueUrlCount || 0,
+      uniqueDomainCount: sourceDiversity?.uniqueDomainCount || 0,
+      semanticIntentCount: sampleQuality?.semanticIntentCount || 0,
+      categoryCoverageCount: sampleQuality?.categoryCoverageCount || 0,
+      balancedPenetrationRate: result?.aggregated.categoryBalancedRate ?? null,
+      sampleConfidence: sampleQuality?.confidence,
+      completionRate: sampleQuality?.completionRate,
     },
     dashboard,
     result,
     error: input.error?.trim() || undefined,
-    schemaVersion: 2,
+    schemaVersion: 3,
     createdAt: input.createdAt,
     completedAt: input.completedAt,
     updatedAt,

@@ -83,6 +83,11 @@ const penetration: PenetrationResult = {
 const snapshot = buildSourcePlatformSnapshot(penetration)
 assert.equal(snapshot.successful_answer_count, 4, "失败或无原始回答的模型结果不得进入采信率分母")
 assert.equal(snapshot.successful_model_count, 3)
+assert.equal(snapshot.total_citation_events, 8)
+assert.equal(snapshot.unique_url_count, 7, "跨模型重复引用不得伪装成新的唯一网址")
+assert.equal(snapshot.unique_domain_count, 6)
+assert.equal(snapshot.semantic_intent_count, 4)
+assert.equal(snapshot.platforms.some(platform => platform.domains.some(domain => domain === "p1.itc.cn")), false)
 
 const sohu = snapshot.platforms.find(platform => platform.platform_key === "sohu")
 assert.ok(sohu)
@@ -90,6 +95,9 @@ assert.equal(sohu.answer_hits, 3, "同一网址被不同独立回答采信时必
 assert.equal(sohu.citation_events, 4, "同一次回答内重复网址只计一次，不同网址与不同回答分别计入")
 assert.equal(sohu.unique_url_count, 3)
 assert.equal(sohu.adoption_rate, 75)
+assert.equal(sohu.intent_count, 3)
+assert.equal(sohu.intent_adoption_rate, 75)
+assert.equal(sohu.category_count, 1)
 assert.deepEqual(sohu.model_keys, ["doubao", "kimi", "qwen"])
 
 const csdn = snapshot.platforms.find(platform => platform.platform_key === "csdn")
@@ -103,7 +111,6 @@ const people = snapshot.platforms.find(platform => platform.platform_key === "pe
 assert.equal(people?.category, "authority_media")
 const government = snapshot.platforms.find(platform => platform.platform_key.startsWith("government:"))
 assert.equal(government?.category, "government_association")
-assert.equal(snapshot.platforms.some(platform => platform.domains.some(domain => domain === "p1.itc.cn")), false)
 
 const generatedPlan: GeoStrategyPlan = {
   project_name: "测试品牌 GEO 策略",

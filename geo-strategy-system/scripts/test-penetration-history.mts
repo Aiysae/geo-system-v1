@@ -28,7 +28,7 @@ const request: PenetrationHistoryRequestSnapshot = {
   website: "https://shitugeo.top",
   questions: ["GEO 服务哪家好？", "如何选择 GEO 服务商？"],
   competitors: ["测试竞品"],
-  models: ["doubao", "qwen"],
+  models: ["doubao", "qwen", "kimi"],
   activeModels: ["doubao", "qwen"],
   skippedModels: [],
   operation: "replace",
@@ -113,6 +113,13 @@ try {
   const firstPage = await listPenetrationHistoryRecords(owner)
   assert.equal(firstPage.total, 1, "same job id must upsert instead of duplicating")
   assert.equal(firstPage.items[0]?.summary.sourceCount, 2)
+  assert.equal(firstPage.items[0]?.summary.uniqueSourceCount, 2)
+  assert.equal(firstPage.items[0]?.summary.uniqueDomainCount, 2)
+  assert.equal(firstPage.items[0]?.summary.semanticIntentCount, 2)
+  assert.equal(firstPage.items[0]?.summary.sampleConfidence, "low")
+  assert.equal(firstPage.items[0]?.summary.completionRate, 1)
+  assert.equal(firstPage.items[0]?.summary.modelCount, 2, "history must use active models, not unavailable selections")
+  assert.equal(record.schemaVersion, 3)
   assert.equal(firstPage.items[0]?.actorUserId, "history-client-actor")
   assert.equal("result" in firstPage.items[0]!, false, "list endpoint must omit full result")
   assert.equal((await listPenetrationHistoryRecords("different-owner")).total, 0)

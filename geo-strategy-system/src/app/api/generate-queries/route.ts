@@ -8,6 +8,16 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import {
+  arePenetrationQuestionsSemanticallySimilar,
+  buildPenetrationCategoryQuotas,
+  buildPenetrationQuestionSamples,
+  buildPenetrationSampleQuality,
+  inferPenetrationQuestionCategory,
+  normalizePenetrationQuestionCategory,
+  PENETRATION_QUESTION_CATEGORY_LABELS,
+} from "@/lib/penetration/sample-design"
+import type { PenetrationQuestionCategory } from "@/types"
 
 // 高频疑问句智能生成 · 豆包专用 (Volcengine Ark)
 //
@@ -15,12 +25,12 @@ import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 //   - 优先使用后台配置的 Bot ID（bot-xxxx），走 /api/v3/bots/chat/completions。
 //   - 未配置 Bot 时，允许回退到后台配置的 Endpoint ID（ep-xxxx），走 /api/v3/chat/completions。
 //   - 避免部署环境只配置普通 Endpoint 时，智能生成入口被错误阻断。
-//   - 系统提示强约束模型只输出"字符串数组"或 {"questions":[...]} 包装对象。
+//   - 系统提示强约束模型按七类意图输出结构化 JSON。
 //   - 后端对返回做宽松解析：兼容 markdown 代码块、双引号/单引号、对象/数组两种 shape。
 //   - 任何上游失败一律把具体错误（含 Volcengine 的 code/message）透传到前端 Toast。
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+export const maxDuration = 180
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
@@ -28,10 +38,25 @@ const ARK_BOT_URL = "https://ark.cn-beijing.volces.com/api/v3/bots/chat/completi
 const ARK_ENDPOINT_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
 const SYSTEM_PROMPT =
-  "你是一个顶级的 GEO (生成式引擎优化) 与 SEO 专家。你的唯一任务是站在【完全中立的普通消费者视角】，推演目标消费者在搜寻相关服务或产品时最常问的高频疑问句。" +
+  "你是一个顶级的 GEO (生成式引擎优化) 样本设计专家。你的唯一任务是站在【完全中立的普通消费者视角】，生成覆盖七类真实搜索意图的高频疑问句。" +
   "【绝对禁令】这些疑问句中严禁出现任何具体的品牌名、公司名、产品名、服务商名（包括但不限于用户告诉你的目标品牌——目标品牌只用于让你理解所处行业，绝对不可写进任何疑问句中）。" +
-  "你只关注通用的行业痛点、选购困惑、对比需求、价格敏感点、效果质疑等普世问题，模拟一个还不知道任何品牌的真实潜在客户的搜索行为。" +
-  "你必须只返回一个 JSON 格式的字符串数组，例如：[\"问题1\", \"问题2\"]，不要输出任何额外的解释文本，不要使用 markdown 代码块包裹。"
+  "同一意图不得只换词重复，问题应在需求、决策阶段、场景和风险上真正不同。" +
+  "你必须只返回 JSON 数组，每项格式为 {\"question\":\"问题\",\"category\":\"七类中文名称之一\"}，不要输出任何解释或 markdown。"
+
+const CATEGORY_GUIDANCE: Record<PenetrationQuestionCategory, string> = {
+  recommendation: "寻找行业榜单、常见选择或值得推荐的对象",
+  pain_solution: "围绕失败、效果不佳、使用难题及解决办法",
+  comparison: "比较不同方案、路线或供应类型的差异与取舍",
+  purchase_decision: "预算、价格、参数、合同、交付及采购判断",
+  scenario_audience: "具体地区、人群、身份、规模或使用场景",
+  brand_cognition: "了解行业品牌实力、口碑、地位和判断依据",
+  risk_concern: "风险、避坑、资质、安全、隐形收费及售后疑虑",
+}
+
+type GeneratedQuestionItem = {
+  question: string
+  category: PenetrationQuestionCategory
+}
 
 function buildUserPrompt(args: {
   industry: string
@@ -48,6 +73,10 @@ function buildUserPrompt(args: {
   const brandForbid = args.brand
     ? `【硬性禁令】严禁在任何疑问句中出现"${args.brand}"或其任何变体/缩写/拼音。若不慎写出，本次输出视为无效。`
     : "【硬性禁令】严禁在任何疑问句中出现任何具体的品牌名、公司名或产品名。"
+  const quotas = buildPenetrationCategoryQuotas(args.count)
+  const quotaLines = quotas.map(({ category, count }) => (
+    `- ${PENETRATION_QUESTION_CATEGORY_LABELS[category]}：${count} 条；${CATEGORY_GUIDANCE[category]}`
+  ))
 
   return [
     `请为【行业/描述：${industryDesc}】生成 ${args.count} 句高频疑问句。`,
@@ -55,28 +84,67 @@ function buildUserPrompt(args: {
     brandForbid,
     kwLine,
     "要求：",
-    "1. 站在真实潜在客户视角，用口语化中文，模拟普通消费者在百度/AI 搜索框里会输入的问句；",
-    "2. 聚焦【行业痛点 / 选购困惑 / 对比需求 / 价格疑问 / 效果质疑 / 选型标准】等通用维度；",
-    "3. 每句独立、可直接被搜索引擎/AI 大模型理解；",
-    "4. 不要带编号、不要带引号包裹（数组本身已是 JSON 字符串）；",
-    "5. 严格只输出 JSON 字符串数组，无任何前后解释，无 markdown 代码块。",
+    "1. 必须严格按以下七类配额生成，不能用大量推荐榜单问题代替其他类别：",
+    ...quotaLines,
+    "2. 站在真实潜在客户视角，用口语化中文，模拟普通消费者在搜索框里会输入的完整问句；",
+    "3. 每句必须是不同的真实搜索意图，不得仅替换形容词、地区或语序来凑数；",
+    "4. 问题中不要预设答案，不要植入目标对象优势，不要带编号；",
+    "5. category 只能使用上面七类中文名称，数量必须严格匹配配额；",
+    "6. 严格只输出 JSON 数组，例如：[{\"question\":\"这个行业有哪些值得推荐的服务商？\",\"category\":\"榜单推荐型\"}]。",
   ]
     .filter(Boolean)
     .join("\n")
 }
 
 // 后端兜底过滤：万一 AI 不听话，把含品牌名的句子剔除掉
-function stripBrandedQuestions(questions: string[], brand: string): string[] {
+function stripBrandedQuestions(
+  questions: GeneratedQuestionItem[],
+  brand: string,
+): GeneratedQuestionItem[] {
   if (!brand) return questions
   const b = brand.toLowerCase().replace(/\s+/g, "")
-  return questions.filter(q => {
-    const norm = q.toLowerCase().replace(/\s+/g, "")
+  return questions.filter(item => {
+    const norm = item.question.toLowerCase().replace(/\s+/g, "")
     return !norm.includes(b)
   })
 }
 
-// 宽松解析：兼容 ```json 包裹、对象 {questions:[...]}、纯数组、单引号
-function parseQuestionsFromLLM(raw: string): string[] | null {
+function parseQuestionArray(value: unknown): GeneratedQuestionItem[] | null {
+  if (!Array.isArray(value)) return null
+  const items = value.flatMap(item => {
+    if (typeof item === "string") {
+      const question = item.trim()
+      return question
+        ? [{ question, category: inferPenetrationQuestionCategory(question) }]
+        : []
+    }
+    if (!item || typeof item !== "object") return []
+    const record = item as Record<string, unknown>
+    const question = String(
+      record.question || record.query || record.text || record.title || "",
+    ).trim()
+    if (!question) return []
+    const category = normalizePenetrationQuestionCategory(record.category)
+      || inferPenetrationQuestionCategory(question)
+    return [{ question, category }]
+  })
+  return items.length > 0 ? items : null
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    try {
+      return JSON.parse(value.replace(/'/g, '"'))
+    } catch {
+      return null
+    }
+  }
+}
+
+// 宽松解析：兼容 ```json 包裹、对象 {questions:[...]}、字符串数组与结构化数组。
+function parseQuestionsFromLLM(raw: string): GeneratedQuestionItem[] | null {
   let s = raw.trim()
   if (s.startsWith("```")) {
     s = s.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "")
@@ -87,54 +155,61 @@ function parseQuestionsFromLLM(raw: string): string[] | null {
   const rb = s.lastIndexOf("]")
   if (lb >= 0 && rb > lb) {
     const arrSlice = s.slice(lb, rb + 1)
-    const arr = tryParseArray(arrSlice)
+    const arr = parseQuestionArray(tryParseJson(arrSlice))
     if (arr) return arr
   }
 
-  // 再尝试对象包装：{ "questions": [...] } 或 { "data": [...] }
   const lc = s.indexOf("{")
   const rc = s.lastIndexOf("}")
   if (lc >= 0 && rc > lc) {
-    try {
-      const obj = JSON.parse(s.slice(lc, rc + 1)) as Record<string, unknown>
+    const parsed = tryParseJson(s.slice(lc, rc + 1))
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const obj = parsed as Record<string, unknown>
       for (const k of ["questions", "data", "items", "list", "result"]) {
-        const v = obj[k]
-        if (Array.isArray(v)) {
-          const cleaned = v.map(x => String(x).trim()).filter(Boolean)
-          if (cleaned.length > 0) return cleaned
-        }
+        const items = parseQuestionArray(obj[k])
+        if (items) return items
       }
-    } catch {
-      /* fall-through */
     }
   }
 
   return null
 }
 
-function tryParseArray(s: string): string[] | null {
-  // 1) 直接 JSON.parse
-  try {
-    const arr = JSON.parse(s) as unknown
-    if (Array.isArray(arr)) {
-      const cleaned = arr.map(x => String(x).trim()).filter(Boolean)
-      if (cleaned.length > 0) return cleaned
-    }
-  } catch {
-    /* 继续 */
+function deduplicateGeneratedQuestions(
+  items: GeneratedQuestionItem[],
+): GeneratedQuestionItem[] {
+  const accepted: GeneratedQuestionItem[] = []
+  for (const item of items) {
+    const duplicate = accepted.some(previous => (
+      previous.category === item.category
+      && arePenetrationQuestionsSemanticallySimilar(previous.question, item.question)
+    ))
+    if (!duplicate) accepted.push(item)
   }
-  // 2) 单引号 → 双引号后重试（粗暴但对国产模型偶发输出有效）
-  try {
-    const replaced = s.replace(/'/g, '"')
-    const arr = JSON.parse(replaced) as unknown
-    if (Array.isArray(arr)) {
-      const cleaned = arr.map(x => String(x).trim()).filter(Boolean)
-      if (cleaned.length > 0) return cleaned
+  return accepted
+}
+
+function selectBalancedQuestions(
+  items: GeneratedQuestionItem[],
+  count: number,
+): GeneratedQuestionItem[] {
+  const selected: GeneratedQuestionItem[] = []
+  const selectedQuestions = new Set<string>()
+  for (const { category, count: quota } of buildPenetrationCategoryQuotas(count)) {
+    for (const item of items) {
+      if (item.category !== category || selectedQuestions.has(item.question)) continue
+      selected.push(item)
+      selectedQuestions.add(item.question)
+      if (selected.filter(candidate => candidate.category === category).length >= quota) break
     }
-  } catch {
-    /* 继续 */
   }
-  return null
+  for (const item of items) {
+    if (selected.length >= count) break
+    if (selectedQuestions.has(item.question)) continue
+    selected.push(item)
+    selectedQuestions.add(item.question)
+  }
+  return selected.slice(0, count)
 }
 
 // 从 openai-compat 抛出的 Error.message（形如：`豆包 接口调用失败 HTTP 404：{...}`）
@@ -220,7 +295,7 @@ async function handler(req: NextRequest) {
     const brand = String(body?.brand ?? "").trim()
     const keywords = String(body?.keywords ?? "").trim()
     const rawCount = Number(body?.count)
-    const count = Number.isFinite(rawCount) ? Math.max(1, Math.min(30, Math.round(rawCount))) : 5
+    const count = Number.isFinite(rawCount) ? Math.max(1, Math.min(84, Math.round(rawCount))) : 28
 
     if (!industry && !brand) {
       return NextResponse.json(
@@ -251,7 +326,7 @@ async function handler(req: NextRequest) {
         system: SYSTEM_PROMPT,
         user: buildUserPrompt({ industry, brand, count, keywords }),
         temperature: 0.7,
-        maxTokens: 1500,
+        maxTokens: Math.min(12000, Math.max(2500, count * 130)),
       })
     } catch (upstream) {
       const raw = upstream instanceof Error ? upstream.message : String(upstream)
@@ -264,17 +339,18 @@ async function handler(req: NextRequest) {
 
     const questions = parseQuestionsFromLLM(content)
     if (!questions || questions.length === 0) {
-      console.error("[generate-queries] 豆包返回无法解析为字符串数组：", content.slice(0, 300))
+      console.error("[generate-queries] 豆包返回无法解析为疑问句数组：", content.slice(0, 300))
       await refundReservedCreditsQuietly(reservation)
       reservation = null
       return NextResponse.json(
-        { error: "生成失败：豆包返回内容无法解析为有效 JSON 数组，请重试" },
+        { error: "生成失败：豆包返回内容无法解析为有效疑问句 JSON，请重试" },
         { status: 502 }
       )
     }
 
     // 兜底：剔除任何含目标品牌名的问句，避免渗透率虚假 100%
-    const filtered = stripBrandedQuestions(questions, brand)
+    const neutralQuestions = stripBrandedQuestions(questions, brand)
+    const filtered = deduplicateGeneratedQuestions(neutralQuestions)
     if (filtered.length === 0) {
       console.error(
         `[generate-queries] AI 生成的全部 ${questions.length} 句均含品牌名，已被兜底过滤丢弃。请重试。`
@@ -289,22 +365,34 @@ async function handler(req: NextRequest) {
         { status: 502 }
       )
     }
-    if (filtered.length < questions.length) {
+    if (neutralQuestions.length < questions.length) {
       console.warn(
-        `[generate-queries] 已剔除 ${questions.length - filtered.length} 条含品牌名的问句（保留 ${filtered.length} 条）`
+        `[generate-queries] 已剔除 ${questions.length - neutralQuestions.length} 条含品牌名的问句`
+      )
+    }
+    if (filtered.length < neutralQuestions.length) {
+      console.warn(
+        `[generate-queries] 已合并 ${neutralQuestions.length - filtered.length} 条语义重复问句`
       )
     }
 
-    // 截断到用户期望的数量上限
-    const final = filtered.slice(0, count)
+    const finalItems = selectBalancedQuestions(filtered, count)
+    const final = finalItems.map(item => item.question)
+    const questionSamples = buildPenetrationQuestionSamples(final)
+    const sampleQuality = buildPenetrationSampleQuality(final)
     console.log(
-      `[generate-queries] ✓ 豆包 Bot 返回 ${questions.length} 条 → 中立过滤 ${filtered.length} 条 → 裁剪到 ${final.length} 条 | ${Date.now() - t0}ms`
+      `[generate-queries] ✓ 豆包返回 ${questions.length} 条 → 中立去重 ${filtered.length} 条 → 七类筛选 ${final.length} 条 | ${Date.now() - t0}ms`
     )
 
     await settleReservedCredits(reservation, estimateFeatureCredits(featureKey, final.length))
     reservation = null
     return NextResponse.json(
-      { questions: final, generatedAt: new Date().toISOString() },
+      {
+        questions: final,
+        questionSamples,
+        sampleQuality,
+        generatedAt: new Date().toISOString(),
+      },
       {
         headers: {
           "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",

@@ -26,6 +26,7 @@ import BrandRankingCard from "@/components/penetration/brand-ranking-card"
 import IndustryShareChart from "@/components/penetration/industry-share-chart"
 import ModelRateTrend from "@/components/penetration/model-rate-trend"
 import PenetrationDonut from "@/components/penetration/penetration-donut"
+import PenetrationSampleQualityPanel from "@/components/penetration/sample-quality-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
@@ -87,7 +88,7 @@ function formatDate(value?: string): string {
   })
 }
 
-function percent(value: number | null): string {
+function percent(value: number | null | undefined): string {
   return value == null ? "-" : `${(value * 100).toFixed(1)}%`
 }
 
@@ -495,12 +496,15 @@ function HistoryRow({
             className="mt-3 grid w-full grid-cols-2 gap-2 text-left sm:grid-cols-4"
           >
             <SummaryCell
-              label={subjectType === "person" ? "个人 IP 可见率" : "渗透率"}
+              label={subjectType === "person" ? "原始可见率" : "原始渗透率"}
               value={percent(record.summary.penetrationRate)}
             />
+            <SummaryCell label="七类均衡率" value={percent(record.summary.balancedPenetrationRate)} />
             <SummaryCell label="有效采样" value={`${record.summary.completedSlots}/${record.summary.totalSlots}`} />
-            <SummaryCell label="问题 / 模型" value={`${record.summary.questionCount} / ${record.summary.modelCount}`} />
-            <SummaryCell label="信源链接" value={`${record.summary.sourceCount}`} />
+            <SummaryCell
+              label="引用事件 / 唯一网址"
+              value={`${record.summary.sourceCount}/${record.summary.uniqueSourceCount ?? record.summary.sourceCount}`}
+            />
           </button>
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
@@ -563,7 +567,7 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
           <SnapshotMeta label="完成时间" value={formatDate(record.completedAt || record.createdAt)} />
           <SnapshotMeta label="检测类型" value={record.operation === "append" ? "单题重测" : "完整检测"} />
           <SnapshotMeta label="有效采样" value={`${record.summary.completedSlots}/${record.summary.totalSlots}`} />
-          <SnapshotMeta label="联网信源" value={`${record.summary.sourceCount} 个链接`} />
+          <SnapshotMeta label="联网信源" value={`${record.summary.sourceCount} 次引用 · ${record.summary.uniqueSourceCount ?? record.summary.sourceCount} 个网址`} />
         </div>
         {record.error ? (
           <div className="border-t border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 sm:px-5">
@@ -587,7 +591,7 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
           <div className="grid min-w-0 gap-4 sm:grid-cols-2">
             <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-1 text-[11px] font-semibold text-[#1677FF]">
-                {subjectType === "person" ? "个人 IP 可见率" : "渗透率"}
+                {subjectType === "person" ? "原始槽位个人 IP 可见率" : "原始槽位渗透率"}
               </div>
               <PenetrationDonut
                 rate={result.aggregated.penetrationRate}
@@ -605,6 +609,8 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
               />
             </section>
           </div>
+
+          <PenetrationSampleQualityPanel aggregated={result.aggregated} />
 
           <div className="grid min-w-0 gap-4 xl:grid-cols-2">
             <section className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">

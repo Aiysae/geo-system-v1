@@ -589,10 +589,75 @@ export interface PerModelRate {
   total: number
 }
 
+export type PenetrationQuestionCategory =
+  | "recommendation"
+  | "pain_solution"
+  | "comparison"
+  | "purchase_decision"
+  | "scenario_audience"
+  | "brand_cognition"
+  | "risk_concern"
+
+export type PenetrationSampleConfidence = "low" | "medium" | "high"
+
+export interface PenetrationQuestionSample {
+  question: string
+  category: PenetrationQuestionCategory
+  intentId: string
+  normalizedIntent: string
+}
+
+export interface PenetrationCategorySampleCount {
+  category: PenetrationQuestionCategory
+  questionCount: number
+  intentCount: number
+}
+
+export interface PenetrationSourceDiversity {
+  citationEvents: number
+  uniqueUrlCount: number
+  uniqueDomainCount: number
+  duplicateCitationRate: number
+  maxUrlReuse: number
+  topDomain: string | null
+  topDomainShare: number
+}
+
+export interface PenetrationSampleQuality {
+  version: 1
+  score: number
+  confidence: PenetrationSampleConfidence
+  confidenceLabel: string
+  questionCount: number
+  distinctQuestionCount: number
+  semanticIntentCount: number
+  semanticDuplicateRate: number
+  categoryCoverageCount: number
+  categoryCounts: PenetrationCategorySampleCount[]
+  minCategoryCount: number
+  maxCategoryShare: number
+  modelCount: number
+  plannedSlots: number
+  completedSlots: number
+  completionRate: number
+  sourceDiversity?: PenetrationSourceDiversity
+  warnings: string[]
+}
+
 export interface PenetrationAggregated {
   penetrationRate: number
   ourMentions: number
   totalSlots: number
+  /** Total model-question slots planned before retries or provider failures. */
+  plannedSlots?: number
+  completionRate?: number
+  /** Average hit rate after each exact question receives equal weight. */
+  questionLevelRate?: number
+  /** Average hit rate after semantically equivalent questions receive one shared weight. */
+  intentBalancedRate?: number
+  /** Average of the seven question-category rates, using covered categories only. */
+  categoryBalancedRate?: number
+  sampleQuality?: PenetrationSampleQuality
   industryShare: IndustryShareItem[]
   institutionShare?: IndustryShareItem[]
   ourRanking: number | null
@@ -707,6 +772,13 @@ export interface PenetrationHistorySummary {
   totalSlots: number
   penetrationRate: number | null
   sourceCount: number
+  uniqueSourceCount?: number
+  uniqueDomainCount?: number
+  semanticIntentCount?: number
+  categoryCoverageCount?: number
+  balancedPenetrationRate?: number | null
+  sampleConfidence?: PenetrationSampleConfidence
+  completionRate?: number
 }
 
 export interface PenetrationHistoryListItem {

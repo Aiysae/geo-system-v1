@@ -808,6 +808,17 @@ async function processDueBatch(
         competitors: job.request.competitors,
         subjectType: job.request.subjectType || "brand",
         generatedAt,
+        plannedQuestions: job.request.operation === "append"
+          ? undefined
+          : job.request.questions,
+        plannedSlots: job.request.operation === "append"
+          ? (
+              job.baseResult?.aggregated.plannedSlots
+              ?? job.baseResult?.aggregated.totalSlots
+              ?? 0
+            ) + job.totalSlots
+          : job.totalSlots,
+        modelCount: job.request.operation === "append" ? undefined : job.request.models.length,
       })
     : job.result
   const progress = summarizeSlotStates(job, states)
