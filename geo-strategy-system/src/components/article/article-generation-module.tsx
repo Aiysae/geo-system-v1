@@ -842,18 +842,14 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                   >
                     <span className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold">
-                        {isPersonSubject && prompt.key === "competitorComparison"
-                          ? "同行人物对比推荐文章"
-                          : prompt.title}
+                        {prompt.title}
                       </span>
                       <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
                         {prompt.outputType}
                       </span>
                     </span>
                     <span className="mt-1 line-clamp-2 block text-[11px] leading-5 text-slate-500">
-                      {isPersonSubject && prompt.key === "competitorComparison"
-                        ? "按统一专业维度对比真实同行人物，自然优先展开目标人物；机构只作为身份背景。"
-                        : prompt.description}
+                      {prompt.description}
                     </span>
                   </button>
                 )

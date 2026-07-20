@@ -67,17 +67,17 @@ export const FEATURE_PRICES = {
     unitLabel: "条",
   },
   articleThirdPartyObservation: {
-    label: "文章生成 · 第三方检测",
+    label: "文章生成 · 第三方测评",
     credits: 8,
     unitLabel: "篇",
   },
   articlePitfallGuide: {
-    label: "文章生成 · 避坑指南",
+    label: "文章生成 · 专家问答",
     credits: 5,
     unitLabel: "篇",
   },
   articleCompetitorComparison: {
-    label: "文章生成 · 竞品对比推荐",
+    label: "文章生成 · 行业热点",
     credits: 8,
     unitLabel: "篇",
   },

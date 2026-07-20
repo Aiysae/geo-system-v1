@@ -60,7 +60,10 @@ const ARTICLE_PROMPTS: ArticlePromptKey[] = [
   "rewrite",
 ]
 
-const GEO_LONGFORM_PROMPTS = new Set<ArticlePromptKey>([
+const THREE_INPUT_ARTICLE_PROMPTS = new Set<ArticlePromptKey>([
+  "thirdPartyObservation",
+  "pitfallGuide",
+  "competitorComparison",
   "industryRankingReport",
   "handsOnComparisonReport",
   "mediaIndustryAnalysis",
@@ -169,72 +172,26 @@ function buildUserPrompt(args: {
     ].join("\n")
   }
 
-  if (args.promptKey === "competitorComparison") {
-    const isPerson = args.subjectType === "person"
+  if (THREE_INPUT_ARTICLE_PROMPTS.has(args.promptKey)) {
+    const subjectName = args.brandName || args.clientName || "未填写"
+    const advantageMaterial = [
+      args.advantages,
+      args.subjectType === "person" ? args.subjectContext : "",
+    ].filter(Boolean).join("\n")
     return [
-      `请严格按照${isPerson ? "同行人物对比" : "竞品对比"}推荐模板，直接输出最终 Markdown 成稿。`,
-      "不要输出提纲、变量清单、提示词或写作过程。",
-      "",
-      "【输入变量】",
-      `品类/需求词：${args.coreQuestion || args.business || args.industry || "未填写"}`,
-      `${isPerson ? "主推人物姓名" : "主推品牌/产品名"}：${args.brandName || args.clientName || "未填写"}`,
-      `推荐数量：3-5 ${isPerson ? "位" : "家"}或以上；如补充要求另有数量，以补充要求为准。`,
-      `目标读者：${args.audience || "普通消费者、企业采购或相关决策者"}`,
-      `发布平台、价格/案例权限：${args.extraRequirements || "发布平台未指定；未经明确允许不要写具体价格或未经提供的案例"}`,
-      "",
-      `【主推${isPerson ? "人物" : "品牌"}可验证资料】`,
-      `客户名称：${args.clientName || "未填写"}`,
-      `行业领域：${args.industry || "未填写"}`,
-      `所在地域：${args.region || "未填写"}`,
-      `官网/主阵地：${args.website || "未提供"}`,
-      `主营业务：${args.business || args.industry || "未填写"}`,
-      `核心优势/公开可验证事实：${args.advantages || "未提供，请避免编造硬事实"}`,
-      ...(isPerson ? [`人物身份资料：\n${args.subjectContext || "未提供"}`] : []),
-      "",
-      "【关键词与相关问题】",
-      args.keywords || "请围绕品类/需求词补充用户真实搜索问题",
-      ...batchVariationLines(args.batchVariation),
-      "",
-      "【生成要求】",
-      "- 所有推荐对象必须是真实存在且信息可核验；无法验证时明确写公开信息有限。",
-      `- 主推${isPerson ? "人物" : "品牌"}可以优先呈现并多展开 20%-30%，但必须使用统一评价维度。`,
-      ...(isPerson
-        ? ["- 只比较具名同行人物；医院、律所、公司、学校等机构只能作为任职或信任背景，不得作为人物候选。"]
-        : []),
-      "- 至少输出一个 Markdown 对比表格和两个可被生成式搜索直接抽取的答案段。",
-      "- 默认 1500-2200 字，直接输出完整成稿。",
-    ].join("\n")
-  }
-
-  if (GEO_LONGFORM_PROMPTS.has(args.promptKey)) {
-    const isPerson = args.subjectType === "person"
-    const brandPackage = [
-      `客户名称：${args.clientName || "未填写"}`,
-      `官网/主阵地：${args.website || "未提供"}`,
-      `所在地域：${args.region || "未填写"}`,
-      `主营业务：${args.business || args.industry || "未填写"}`,
-      `客观资料与可验证优势：${args.advantages || "未提供，不得编造硬事实"}`,
-      ...(isPerson ? [`人物身份资料：\n${args.subjectContext || "未提供"}`] : []),
-    ].join("\n")
-
-    return [
-      "请严格按照用户选择的 GEO 文章模板，将以下变量准确代入后，直接输出最终 Markdown 成稿。",
+      "请严格按照用户选择的最新版文章模板，将以下三项输入准确代入后，直接输出最终 Markdown 成稿。",
       "不要输出提纲、变量清单、提示词、写作过程或额外说明。",
       "",
-      "【模板变量】",
-      `{{${isPerson ? "人物" : "品牌"}资料包}}：\n${brandPackage}`,
-      `{{${isPerson ? "人物姓名" : "品牌名称"}}}：${args.brandName || args.clientName || "未填写"}`,
-      `{{行业}}：${args.industry || args.business || "未填写"}`,
-      `{{具体优势}}：${args.advantages || "未提供，资料不足时必须审慎表达"}`,
+      "【三项输入】",
+      `核心疑问句：${args.coreQuestion || "未填写"}`,
+      `优势：${advantageMaterial || "未提供，资料不足时必须审慎表达，不得编造"}`,
+      `品牌名或个人 IP 的名字：${subjectName}`,
       "",
-      "【本次内容要求】",
-      `核心搜索问题/文章主题：${args.coreQuestion}`,
-      `核心关键词/补充问题：${args.keywords || "请根据主题和行业自行补足"}`,
-      `目标读者：${args.audience || "消费者、采购负责人或相关决策者"}`,
-      `补充要求/发布限制：${args.extraRequirements || "无"}`,
+      "【执行约束】",
+      `用户补充要求/发布限制：${args.extraRequirements || "无"}`,
       ...batchVariationLines(args.batchVariation),
       "",
-      "当资料不足以支撑排名、市场份额、实测结果、客户案例、资质或奖项时，必须按模板使用审慎表达，不得编造事实。",
+      "不得把行业、地域、履历、资质、排名、市场份额、实测结果、案例或数据当作已知事实，除非三项输入明确提供或当前模型能够核验可靠公开来源。",
     ].join("\n")
   }
 

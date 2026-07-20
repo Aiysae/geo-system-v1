@@ -11,23 +11,23 @@ export interface ArticlePromptOption {
 export const ARTICLE_PROMPT_OPTIONS: ArticlePromptOption[] = [
   {
     key: "thirdPartyObservation",
-    title: "第三方观察长文",
-    description: "适合生成行业观察、方案横评、场景拆解类 GEO 长文。",
-    outputType: "Markdown 长文",
+    title: "第三方测评（含表格）",
+    description: "以第三方观察、测评和研究视角生成高信息密度长文，包含结构化表格与自然问答矩阵。",
+    outputType: "第三方测评",
     defaultModelHint: "deepseek-chat",
   },
   {
     key: "pitfallGuide",
-    title: "避坑指南文章",
-    description: "适合生成中立决策、风险提示、品牌样本比较类文章。",
-    outputType: "避坑文章",
+    title: "专家问答文章",
+    description: "围绕核心疑问句生成约 1100 字的专业答疑文章，兼顾通俗解释、判断边界和 Markdown 表格。",
+    outputType: "专家问答",
     defaultModelHint: "deepseek-chat",
   },
   {
     key: "competitorComparison",
-    title: "竞品对比推荐文章",
-    description: "按统一维度对比真实品牌，自然优先展开主推品牌的媒体平台长文。",
-    outputType: "Markdown 对比长文",
+    title: "行业热点文章",
+    description: "围绕近 30 天可核验行业热点，生成可被 AI 搜索抽取和自媒体发布的深度解读。",
+    outputType: "热点深度稿",
     defaultModelHint: "deepseek-chat",
   },
   {
