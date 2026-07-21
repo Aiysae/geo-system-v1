@@ -18,6 +18,7 @@ import {
   Globe2,
   RefreshCw,
   UserRound,
+  Check,
 } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
@@ -32,10 +33,16 @@ import {
 } from "@/lib/analysis-subject"
 import {
   arePenetrationQuestionsSemanticallySimilar,
+  buildPenetrationCategoryQuotas,
   buildPenetrationSampleQuality,
   inferPenetrationQuestionCategory,
+  normalizePenetrationQuestionGenerationSettings,
+  normalizePenetrationQuestionIntentHints,
+  PENETRATION_QUESTION_CATEGORIES,
+  PENETRATION_QUESTION_CATEGORY_DESCRIPTIONS,
   PENETRATION_QUESTION_CATEGORY_LABELS,
   PENETRATION_SAMPLE_PRESETS,
+  questionIdentityKey,
 } from "@/lib/penetration/sample-design"
 import type {
   AnalysisSubjectType,
@@ -43,6 +50,9 @@ import type {
   Client,
   ModelKey,
   PenetrationModelProgress,
+  PenetrationQuestionCategory,
+  PenetrationQuestionGenerationSettings,
+  PenetrationQuestionIntentHint,
   PersonSubjectProfile,
 } from "@/types"
 
@@ -59,6 +69,7 @@ interface Props {
     models: ModelKey[]
     brandAliases: string[]
     competitors: string[]
+    questionIntents: PenetrationQuestionIntentHint[]
   }) => void
   onStop: () => void
   loading: boolean
@@ -88,13 +99,21 @@ export default function BatchInputPanel({
   const [competitorsText, setCompetitorsText] = useState(() => client.competitors.join("\n"))
 
   const [inputMode, setInputMode] = useState<InputMode>("manual")
-  const [aiCount, setAiCount] = useState(28)
-  const [aiKeywords, setAiKeywords] = useState("")
   const [aiToast, setAiToast] = useState<string | null>(null)
   const [modelReadiness, setModelReadiness] = useState<ModelReadiness>({})
   const subjectType = getClientSubjectType(client)
   const subjectCopy = getSubjectCopy(subjectType)
   const personProfile = normalizePersonSubjectProfile(client.personProfile)
+  const aiSettings = normalizePenetrationQuestionGenerationSettings(
+    client.questionGenerationSettings,
+  )
+  const aiCount = aiSettings.count
+  const aiKeywords = aiSettings.keywords
+  const aiQuotas = buildPenetrationCategoryQuotas(
+    aiCount,
+    aiSettings.categories,
+    aiSettings.allocationMode === "custom" ? aiSettings.categoryCounts : undefined,
+  )
   const subjectModeLocked = Boolean(
     client.penetration
       || client.research
@@ -112,6 +131,9 @@ export default function BatchInputPanel({
     personProfile: subjectType === "person" ? personProfile : undefined,
     count: aiCount,
     keywords: aiKeywords,
+    allocationMode: aiSettings.allocationMode,
+    categories: aiSettings.categories,
+    categoryCounts: aiSettings.categoryCounts,
   }
 
   function backgroundJobsWith(ref?: BackgroundJobRef) {
@@ -121,7 +143,11 @@ export default function BatchInputPanel({
     return next
   }
 
-  const aiJobState = useResumableBackgroundJob<{ questions?: string[] }>({
+  const aiJobState = useResumableBackgroundJob<{
+    questions?: string[]
+    questionItems?: PenetrationQuestionIntentHint[]
+    warnings?: string[]
+  }>({
     kind: "queryGeneration",
     clientId: client.id,
     jobRef: aiJobRef,
@@ -139,23 +165,44 @@ export default function BatchInputPanel({
         return
       }
 
+      const generatedItems = normalizePenetrationQuestionIntentHints(
+        job.result?.questionItems,
+        generated,
+      )
+      const generatedCategoryByQuestion = new Map(
+        generatedItems.map(item => [questionIdentityKey(item.question), item.category]),
+      )
       const existing = parseLines(questionsText)
+      const existingHints = normalizePenetrationQuestionIntentHints(
+        client.questionIntentHints,
+        existing,
+      )
+      const existingCategoryByQuestion = new Map(
+        existingHints.map(item => [questionIdentityKey(item.question), item.category]),
+      )
       const merged = [...existing]
       for (const question of generated) {
         const value = String(question || "").trim()
         if (!value) continue
-        const category = inferPenetrationQuestionCategory(value)
+        const category = generatedCategoryByQuestion.get(questionIdentityKey(value))
+          || inferPenetrationQuestionCategory(value)
         const duplicate = merged.some(previous => (
-          inferPenetrationQuestionCategory(previous) === category
+          (existingCategoryByQuestion.get(questionIdentityKey(previous))
+            || inferPenetrationQuestionCategory(previous)) === category
           && arePenetrationQuestionsSemanticallySimilar(previous, value)
         ))
         if (!duplicate) merged.push(value)
       }
+      const questionIntentHints = normalizePenetrationQuestionIntentHints(
+        [...existingHints, ...generatedItems],
+        merged,
+      )
       setQuestionsText(merged.join("\n"))
       setInputMode("manual")
-      setAiToast(null)
+      setAiToast(job.result?.warnings?.[0] || null)
       onChangeClient({
         questions: merged,
+        questionIntentHints,
         backgroundJobs: backgroundJobsWith(),
       })
     },
@@ -202,6 +249,92 @@ export default function BatchInputPanel({
       .filter(Boolean)
   }
 
+  function updateAiSettings(patch: Partial<PenetrationQuestionGenerationSettings>) {
+    onChangeClient({
+      questionGenerationSettings: normalizePenetrationQuestionGenerationSettings({
+        ...aiSettings,
+        ...patch,
+      }),
+    })
+  }
+
+  function setAiAllocationMode(mode: "balanced" | "custom") {
+    if (mode === aiSettings.allocationMode) return
+    if (mode === "custom") {
+      updateAiSettings({
+        allocationMode: mode,
+        categoryCounts: Object.fromEntries(
+          aiQuotas.map(item => [item.category, item.count]),
+        ),
+      })
+      return
+    }
+    updateAiSettings({ allocationMode: mode, categoryCounts: {} })
+  }
+
+  function toggleAiCategory(category: PenetrationQuestionCategory) {
+    const selected = new Set(aiSettings.categories)
+    if (selected.has(category)) {
+      if (selected.size === 1) {
+        setAiToast("至少保留一种问题意图")
+        return
+      }
+      selected.delete(category)
+    } else {
+      selected.add(category)
+    }
+    const categories = PENETRATION_QUESTION_CATEGORIES.filter(item => selected.has(item))
+    if (aiSettings.allocationMode === "custom") {
+      const categoryCounts = { ...aiSettings.categoryCounts }
+      if (selected.has(category) && !categoryCounts[category]) {
+        const currentTotal = Object.values(categoryCounts)
+          .reduce((sum, value) => sum + (Number(value) || 0), 0)
+        if (currentTotal >= 84) {
+          setAiToast("自定义总量已达到 84 条，请先减少其他意图数量")
+          return
+        }
+        categoryCounts[category] = 1
+      } else if (!selected.has(category)) {
+        delete categoryCounts[category]
+      }
+      updateAiSettings({ categories, categoryCounts })
+      return
+    }
+    updateAiSettings({
+      categories,
+      count: Math.max(aiSettings.count, categories.length),
+    })
+  }
+
+  function selectAllAiCategories() {
+    updateAiSettings({
+      allocationMode: "balanced",
+      categories: [...PENETRATION_QUESTION_CATEGORIES],
+      categoryCounts: {},
+      count: Math.max(14, aiSettings.count),
+    })
+  }
+
+  function updateAiCategoryCount(
+    category: PenetrationQuestionCategory,
+    rawValue: number,
+  ) {
+    const categoryCounts = { ...aiSettings.categoryCounts }
+    const otherTotal = aiSettings.categories
+      .filter(item => item !== category)
+      .reduce((sum, item) => sum + (categoryCounts[item] || 1), 0)
+    categoryCounts[category] = Math.max(
+      1,
+      Math.min(Math.max(1, 84 - otherTotal), Math.floor(rawValue) || 1),
+    )
+    updateAiSettings({ allocationMode: "custom", categoryCounts })
+  }
+
+  function intentLabel(category: PenetrationQuestionCategory): string {
+    if (subjectType === "person" && category === "brand_cognition") return "人物认知型"
+    return PENETRATION_QUESTION_CATEGORY_LABELS[category]
+  }
+
   function toggleModel(m: ModelKey) {
     if (modelReadiness[m]?.ready === false) return
     const set = new Set(client.selectedModels)
@@ -238,10 +371,20 @@ export default function BatchInputPanel({
     const competitors = identityReadOnly
       ? client.competitors
       : parseLines(competitorsText)
+    const questionIntents = normalizePenetrationQuestionIntentHints(
+      client.questionIntentHints,
+      questions,
+    )
     onChangeClient(identityReadOnly
       ? { questions }
-      : { questions, brandAliases, competitors })
-    onRun({ questions, models: eligibleSelectedModels, brandAliases, competitors })
+      : { questions, questionIntentHints: questionIntents, brandAliases, competitors })
+    onRun({
+      questions,
+      models: eligibleSelectedModels,
+      brandAliases,
+      competitors,
+      questionIntents,
+    })
   }
 
   function runAiGenerate() {
@@ -259,21 +402,33 @@ export default function BatchInputPanel({
     [questionsText],
   )
   const questionCount = currentQuestions.length
+  const currentQuestionIntents = useMemo(
+    () => normalizePenetrationQuestionIntentHints(
+      client.questionIntentHints,
+      currentQuestions,
+    ),
+    [client.questionIntentHints, currentQuestions],
+  )
   const eligibleSelectedModels = client.selectedModels.filter(
     model => modelReadiness[model]?.ready !== false,
   )
-  const plannedSlots = questionCount * eligibleSelectedModels.length
+  const eligibleModelCount = eligibleSelectedModels.length
+  const plannedSlots = questionCount * eligibleModelCount
   const sampleQuality = useMemo(
     () => buildPenetrationSampleQuality(currentQuestions, {
-      modelCount: eligibleSelectedModels.length,
+      modelCount: eligibleModelCount,
       plannedSlots,
       completedSlots: plannedSlots,
+      questionIntents: currentQuestionIntents,
     }),
-    [currentQuestions, eligibleSelectedModels.length, plannedSlots],
+    [currentQuestions, currentQuestionIntents, eligibleModelCount, plannedSlots],
   )
   const canRun =
     !loading && client.ourBrand.trim().length > 0 && questionCount > 0 && eligibleSelectedModels.length > 0
-  const canAiRun = !aiLoading && (!!client.industry.trim() || !!client.ourBrand.trim())
+  const canAiRun =
+    !aiLoading
+    && aiSettings.categories.length > 0
+    && (!!client.industry.trim() || !!client.ourBrand.trim())
 
   return (
     <div className="space-y-4">
@@ -515,8 +670,17 @@ export default function BatchInputPanel({
             value={questionsText}
             onChange={e => {
               const value = e.target.value
+              const questions = parseLines(value)
               setQuestionsText(value)
-              onChangeClient({ questions: parseLines(value) })
+              onChangeClient(identityReadOnly
+                ? { questions }
+                : {
+                    questions,
+                    questionIntentHints: normalizePenetrationQuestionIntentHints(
+                      client.questionIntentHints,
+                      questions,
+                    ),
+                  })
             }}
             rows={6}
             placeholder={"国内有哪些值得推荐的 AI Agent 工具？\n2026 年企业级 GEO 平台怎么选？\n..."}
@@ -524,6 +688,108 @@ export default function BatchInputPanel({
           />
         ) : (
           <div className="space-y-3 rounded-lg border border-[#CFE1F5] bg-[#F5FAFF] p-3">
+            <div className="space-y-2.5 border-b border-[#DCEAF8] pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Label className="block text-[11px] font-semibold text-[#17324D]">问题意图</Label>
+                  <div className="mt-0.5 text-[10px] text-[#6F8296]">
+                    可单选或多选；只选部分时，结果属于专项意图检测。
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={selectAllAiCategories}
+                  className="text-[10px] font-semibold text-[#0958D9] hover:text-[#1677FF]"
+                >
+                  七类均衡
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                {PENETRATION_QUESTION_CATEGORIES.map(category => {
+                  const selected = aiSettings.categories.includes(category)
+                  const quota = aiQuotas.find(item => item.category === category)?.count || 0
+                  return (
+                    <button
+                      key={category}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => toggleAiCategory(category)}
+                      className={`min-h-[68px] rounded-lg border px-2.5 py-2 text-left transition ${
+                        selected
+                          ? "border-[#1677FF] bg-white text-[#0958D9] shadow-sm"
+                          : "border-[#D7E7F7] bg-[#F8FBFF] text-[#60758A] hover:border-[#91CAFF]"
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-semibold">
+                          <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            selected ? "border-[#1677FF] bg-[#1677FF] text-white" : "border-[#B7C9DC] bg-white"
+                          }`}>
+                            {selected ? <Check className="h-3 w-3" /> : null}
+                          </span>
+                          <span className="truncate">{intentLabel(category)}</span>
+                        </span>
+                        {selected ? (
+                          <span className="shrink-0 rounded bg-[#E6F4FF] px-1.5 py-0.5 text-[9px] font-semibold">
+                            {quota} 条
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="mt-1 block text-[9px] leading-4 text-[#7A8EA3]">
+                        {PENETRATION_QUESTION_CATEGORY_DESCRIPTIONS[category]}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="geo-segmented inline-grid grid-cols-2 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setAiAllocationMode("balanced")}
+                    className={`rounded-md px-2.5 py-1 text-[10px] font-semibold transition ${
+                      aiSettings.allocationMode === "balanced"
+                        ? "bg-white text-[#0958D9] shadow-sm"
+                        : "text-[#60758A]"
+                    }`}
+                  >
+                    智能均分
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiAllocationMode("custom")}
+                    className={`rounded-md px-2.5 py-1 text-[10px] font-semibold transition ${
+                      aiSettings.allocationMode === "custom"
+                        ? "bg-white text-[#0958D9] shadow-sm"
+                        : "text-[#60758A]"
+                    }`}
+                  >
+                    自定义配额
+                  </button>
+                </div>
+                <div className="text-[10px] text-[#6F8296]">
+                  已选 {aiSettings.categories.length} 类 · 共 {aiCount} 条
+                </div>
+              </div>
+              {aiSettings.allocationMode === "custom" ? (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {aiSettings.categories.map(category => (
+                    <label key={category} className="flex items-center gap-2 text-[10px] text-[#526A83]">
+                      <span className="min-w-0 flex-1 truncate">{intentLabel(category)}</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={84}
+                        value={aiSettings.categoryCounts[category] || 1}
+                        onChange={event => updateAiCategoryCount(category, Number(event.target.value))}
+                        className="h-8 w-16 px-2 text-center text-xs"
+                        aria-label={`${intentLabel(category)}数量`}
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <div>
               <Label className="mb-1.5 block text-[11px] text-slate-600">样本预设</Label>
               <div className="grid grid-cols-3 gap-2">
@@ -531,15 +797,23 @@ export default function BatchInputPanel({
                   <button
                     key={preset.count}
                     type="button"
-                    onClick={() => setAiCount(preset.count)}
+                    onClick={() => updateAiSettings({
+                      count: preset.count,
+                      allocationMode: "balanced",
+                      categoryCounts: {},
+                    })}
                     className={`rounded-lg border px-2 py-2 text-left transition ${
-                      aiCount === preset.count
+                      aiCount === preset.count && aiSettings.allocationMode === "balanced"
                         ? "border-[#1677FF] bg-white text-[#0958D9] shadow-sm"
                         : "border-[#D7E7F7] bg-[#F8FBFF] text-[#526A83] hover:border-[#91CAFF]"
                     }`}
                   >
                     <span className="block text-xs font-semibold">{preset.label} · {preset.count} 条</span>
-                    <span className="mt-0.5 block text-[9px] leading-4 text-[#7A8EA3]">{preset.description}</span>
+                    <span className="mt-0.5 block text-[9px] leading-4 text-[#7A8EA3]">
+                      {aiSettings.categories.length === 7
+                        ? preset.description
+                        : `在已选 ${aiSettings.categories.length} 类意图中均分`}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -552,9 +826,14 @@ export default function BatchInputPanel({
                   min={1}
                   max={84}
                   value={aiCount}
+                  disabled={aiSettings.allocationMode === "custom"}
                   onChange={e => {
                     const n = Number(e.target.value)
-                    setAiCount(Number.isFinite(n) ? Math.max(1, Math.min(84, n)) : 28)
+                    updateAiSettings({
+                      count: Number.isFinite(n)
+                        ? Math.max(aiSettings.categories.length, Math.min(84, n))
+                        : 28,
+                    })
                   }}
                 />
               </div>
@@ -564,7 +843,7 @@ export default function BatchInputPanel({
                 </Label>
                 <Input
                   value={aiKeywords}
-                  onChange={e => setAiKeywords(e.target.value)}
+                  onChange={e => updateAiSettings({ keywords: e.target.value })}
                   placeholder="多个词用空格隔开"
                 />
               </div>

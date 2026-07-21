@@ -3,6 +3,10 @@ import {
   normalizeAnalysisSubjectType,
   normalizePersonSubjectProfile,
 } from "@/lib/analysis-subject"
+import {
+  normalizePenetrationQuestionGenerationSettings,
+  normalizePenetrationQuestionIntentHints,
+} from "@/lib/penetration/sample-design"
 
 export const WORKSPACE_SECTIONS = [
   "core",
@@ -40,6 +44,8 @@ const SECTION_FIELDS = {
     "industry",
     "website",
     "questions",
+    "questionGenerationSettings",
+    "questionIntentHints",
     "competitors",
     "selectedModels",
   ],
@@ -168,6 +174,7 @@ export function normalizeClientPayload(value: unknown): Client {
   if (!id || !name) throw new WorkspaceValidationError("客户 ID 和名称不能为空")
 
   const now = new Date().toISOString()
+  const questions = stringArray(input.questions, 5_000, 10_000)
   const client: Client = {
     id,
     name,
@@ -177,7 +184,14 @@ export function normalizeClientPayload(value: unknown): Client {
     brandAliases: stringArray(input.brandAliases, 100, 300),
     industry: String(input.industry || "").slice(0, 300),
     website: String(input.website || "").slice(0, 2_000),
-    questions: stringArray(input.questions, 5_000, 10_000),
+    questions,
+    questionGenerationSettings: normalizePenetrationQuestionGenerationSettings(
+      input.questionGenerationSettings,
+    ),
+    questionIntentHints: normalizePenetrationQuestionIntentHints(
+      input.questionIntentHints,
+      questions,
+    ),
     competitors: stringArray(input.competitors, 1_000, 500),
     selectedModels: modelArray(input.selectedModels),
     createdAt: validIso(input.createdAt) || now,

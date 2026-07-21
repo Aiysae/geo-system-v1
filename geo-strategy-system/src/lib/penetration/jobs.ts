@@ -29,6 +29,7 @@ import type {
   PenetrationJobRecord,
   PenetrationItem,
   PenetrationModelProgress,
+  PenetrationQuestionIntentHint,
   PenetrationResult,
   PersonSubjectProfile,
 } from "@/types"
@@ -45,6 +46,7 @@ export interface PenetrationJobRequest {
   industry: string
   website?: string
   questions: string[]
+  questionIntents?: PenetrationQuestionIntentHint[]
   competitors: string[]
   selectedModels?: ModelKey[]
   models: ModelKey[]
@@ -546,6 +548,7 @@ async function persistTerminalHistory(args: {
         industry: args.job.request.industry,
         website: args.job.request.website?.trim() || "",
         questions: args.job.request.questions,
+        questionIntents: args.job.request.questionIntents,
         competitors: args.job.request.competitors,
         models: args.job.request.selectedModels || args.job.request.models,
         activeModels: args.job.request.models,
@@ -811,6 +814,7 @@ async function processDueBatch(
         plannedQuestions: job.request.operation === "append"
           ? undefined
           : job.request.questions,
+        questionIntents: job.request.questionIntents,
         plannedSlots: job.request.operation === "append"
           ? (
               job.baseResult?.aggregated.plannedSlots

@@ -1,10 +1,12 @@
 import { aggregatePenetration } from "@/lib/score-utils"
+import { normalizePenetrationQuestionIntentHints } from "@/lib/penetration/sample-design"
 import type {
   AnalysisSubjectType,
   ModelKey,
   PenetrationByModel,
   PenetrationItem,
   PenetrationJobOperation,
+  PenetrationQuestionIntentHint,
   PenetrationResult,
 } from "@/types"
 
@@ -42,6 +44,7 @@ export function buildPenetrationBatchResult(args: {
   subjectType?: AnalysisSubjectType
   generatedAt: string
   plannedQuestions?: string[]
+  questionIntents?: PenetrationQuestionIntentHint[]
   plannedSlots?: number
   modelCount?: number
 }): PenetrationResult {
@@ -49,6 +52,13 @@ export function buildPenetrationBatchResult(args: {
     || (args.operation === "append" ? args.baseResult?.byModel : undefined)
     || {}
   const byModel = mergePenetrationByModel(existingByModel, args.incomingByModel)
+  const existingQuestionIntents = args.currentResult?.questionIntents
+    || (args.operation === "append" ? args.baseResult?.questionIntents : undefined)
+    || []
+  const questionIntents = normalizePenetrationQuestionIntentHints([
+    ...existingQuestionIntents,
+    ...(args.questionIntents || []),
+  ])
   return {
     byModel,
     aggregated: aggregatePenetration(
@@ -59,10 +69,12 @@ export function buildPenetrationBatchResult(args: {
       args.subjectType || "brand",
       {
         plannedQuestions: args.plannedQuestions,
+        questionIntents,
         plannedSlots: args.plannedSlots,
         modelCount: args.modelCount,
       },
     ),
+    questionIntents,
     generatedAt: args.generatedAt,
   }
 }

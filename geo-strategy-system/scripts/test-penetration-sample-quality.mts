@@ -8,6 +8,7 @@ const {
   buildPenetrationQuestionSamples,
   buildPenetrationSampleQuality,
   computePenetrationSourceDiversity,
+  normalizePenetrationQuestionGenerationSettings,
 } = await import("../src/lib/penetration/sample-design")
 
 const narrowQuestions = [
@@ -84,6 +85,53 @@ assert.equal(balancedQuality.confidence, "high")
 
 const quotas = buildPenetrationCategoryQuotas(28)
 assert.deepEqual(quotas.map(item => item.count), [4, 4, 4, 4, 4, 4, 4])
+
+const focusedQuotas = buildPenetrationCategoryQuotas(
+  10,
+  ["comparison", "purchase_decision", "risk_concern"],
+)
+assert.deepEqual(focusedQuotas, [
+  { category: "comparison", count: 4 },
+  { category: "purchase_decision", count: 3 },
+  { category: "risk_concern", count: 3 },
+])
+
+const customSettings = normalizePenetrationQuestionGenerationSettings({
+  count: 10,
+  keywords: "预算 合同",
+  allocationMode: "custom",
+  categories: ["purchase_decision", "risk_concern"],
+  categoryCounts: {
+    purchase_decision: 6,
+    risk_concern: 4,
+  },
+})
+assert.equal(customSettings.count, 10)
+assert.deepEqual(
+  buildPenetrationCategoryQuotas(
+    customSettings.count,
+    customSettings.categories,
+    customSettings.categoryCounts,
+  ),
+  [
+    { category: "purchase_decision", count: 6 },
+    { category: "risk_concern", count: 4 },
+  ],
+)
+
+const hintedQuestion = "这个行业通常需要了解哪些情况？"
+const hintedSamples = buildPenetrationQuestionSamples(
+  [hintedQuestion],
+  [{ question: hintedQuestion, category: "risk_concern" }],
+)
+assert.equal(hintedSamples[0].category, "risk_concern", "AI 生成时的明确意图应优先于关键词推断")
+const focusedQuality = buildPenetrationSampleQuality([hintedQuestion], {
+  questionIntents: [{ question: hintedQuestion, category: "risk_concern" }],
+  intendedCategories: ["risk_concern"],
+})
+assert.equal(focusedQuality.scopeMode, "focused")
+assert.deepEqual(focusedQuality.scopeCategories, ["risk_concern"])
+assert.ok(focusedQuality.warnings.some(message => message.includes("专项意图样本")))
 
 const repeatedUrl = "https://example.com/article/one"
 const byModel: PenetrationByModel = {

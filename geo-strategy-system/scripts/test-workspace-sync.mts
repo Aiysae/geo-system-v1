@@ -26,7 +26,18 @@ const client: Client = {
   brandAliases: [],
   industry: "测试行业",
   website: "",
-  questions: [],
+  questions: ["采购这类服务需要多少预算？"],
+  questionGenerationSettings: {
+    count: 10,
+    keywords: "预算",
+    allocationMode: "custom",
+    categories: ["purchase_decision"],
+    categoryCounts: { purchase_decision: 10 },
+  },
+  questionIntentHints: [{
+    question: "采购这类服务需要多少预算？",
+    category: "purchase_decision",
+  }],
   competitors: [],
   selectedModels: ["qwen"],
   createdAt: now,
@@ -36,6 +47,8 @@ const client: Client = {
 try {
   const created = await createWorkspaceClient("user-a", client)
   assert.equal(created.versions.core, 1)
+  assert.equal(created.client.questionGenerationSettings?.count, 10)
+  assert.equal(created.client.questionIntentHints?.[0]?.category, "purchase_decision")
   assert.equal((await listWorkspaceClients("user-b")).length, 0, "accounts must be isolated")
 
   const coreUpdated = await patchWorkspaceClient({

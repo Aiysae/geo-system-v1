@@ -2,6 +2,7 @@
 
 import type { AnalysisSubjectType, Client, ModelKey } from "@/types"
 import { createEmptyPersonSubjectProfile } from "@/lib/analysis-subject"
+import { normalizePenetrationQuestionGenerationSettings } from "@/lib/penetration/sample-design"
 
 const LEGACY_CLIENTS_KEY = "geo:clients"
 const LEGACY_ACTIVE_KEY = "geo:activeClientId"
@@ -117,6 +118,8 @@ export function createClient(
     industry: "",
     website: "",
     questions: [],
+    questionGenerationSettings: normalizePenetrationQuestionGenerationSettings(undefined),
+    questionIntentHints: [],
     competitors: [],
     selectedModels: DEFAULT_MODELS,
     createdAt: now,
