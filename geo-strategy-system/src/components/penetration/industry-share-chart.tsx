@@ -12,6 +12,7 @@ import {
 } from "recharts"
 import type { AnalysisSubjectType, IndustryShareItem } from "@/types"
 import { isSameSubject } from "@/lib/subject-canonicalization"
+import { wrapChartLabel } from "@/lib/chart-labels"
 
 interface Props {
   items: IndustryShareItem[]
@@ -28,6 +29,53 @@ const TOP_RANK_GRADIENTS = [
   { from: "#13C2C2", to: "#69E3E0" },
   { from: "#2F54EB", to: "#7B8CFF" },
 ]
+
+type BrandAxisTickProps = {
+  x?: number | string
+  y?: number | string
+  payload?: { value?: unknown }
+  compact: boolean
+  maxUnits: number
+}
+
+function BrandAxisTick({
+  x = 0,
+  y = 0,
+  payload,
+  compact,
+  maxUnits,
+}: BrandAxisTickProps) {
+  const value = String(payload?.value ?? "")
+  const lines = wrapChartLabel(value, maxUnits)
+  const lineHeight = compact ? 13 : 14
+  const firstLineOffset = -((lines.length - 1) * lineHeight) / 2
+  const resolvedX = Number(x) || 0
+  const resolvedY = Number(y) || 0
+
+  return (
+    <g transform={`translate(${resolvedX},${resolvedY})`} role="img" aria-label={value}>
+      <title>{value}</title>
+      <text
+        x={-8}
+        y={0}
+        textAnchor="end"
+        fill="#263d50"
+        fontSize={compact ? 11 : 12}
+        fontWeight={600}
+      >
+        {lines.map((line, index) => (
+          <tspan
+            key={`${line}-${index}`}
+            x={-8}
+            dy={index === 0 ? firstLineOffset : lineHeight}
+          >
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  )
+}
 
 export default function IndustryShareChart({
   items,
@@ -55,13 +103,20 @@ export default function IndustryShareChart({
     return <div className="text-sm text-slate-400 py-8 text-center">暂无数据</div>
   }
 
-  const compactBrandLabel = (value: string) =>
-    value.length > 9 ? `${value.slice(0, 8)}...` : value
+  const labelMaxUnits = compact ? 18 : 22
+  const maxLabelLines = data.reduce(
+    (maximum, item) => Math.max(maximum, wrapChartLabel(item.brand, labelMaxUnits).length),
+    1,
+  )
+  const labelLineHeight = compact ? 13 : 14
+  const rowHeight = Math.max(compact ? 28 : 32, maxLabelLines * labelLineHeight + 8)
+  const chartHeight = Math.max(data.length * rowHeight + 28, 320)
+  const axisWidth = compact ? 132 : 160
 
   return (
     <div
-      className={compact ? "h-full min-h-[320px] w-full" : "w-full"}
-      style={compact ? undefined : { height: Math.max(data.length * 36 + 32, 320) }}
+      className="w-full"
+      style={{ height: chartHeight }}
     >
       <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 520, height: 420 }}>
         <BarChart data={data} layout="vertical" margin={{ top: 8, right: compact ? 42 : 56, left: 0, bottom: 8 }}>
@@ -81,9 +136,14 @@ export default function IndustryShareChart({
           <YAxis
             dataKey="brand"
             type="category"
-            width={compact ? 92 : 110}
-            tick={{ fontSize: compact ? 11 : 12, fill: "#263d50", fontWeight: 600 }}
-            tickFormatter={compactBrandLabel}
+            width={axisWidth}
+            tick={props => (
+              <BrandAxisTick
+                {...props}
+                compact={compact}
+                maxUnits={labelMaxUnits}
+              />
+            )}
             axisLine={false}
             tickLine={false}
           />

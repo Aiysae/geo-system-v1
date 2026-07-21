@@ -1,7 +1,9 @@
 "use server"
 
+import { after } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
 import { createRequest } from "@/lib/recharge"
+import { deliverRechargeAdminEmail } from "@/lib/recharge-notification-email"
 
 export type RequestRechargeResult =
   | { ok: true; credits: number; packageName: string; priceCents?: number; paymentOutTradeNo?: string }
@@ -38,6 +40,7 @@ export async function requestRechargeAction(
       contact,
       note,
     })
+    after(() => deliverRechargeAdminEmail(request))
     return {
       ok: true,
       credits: request.credits ?? request.amount,

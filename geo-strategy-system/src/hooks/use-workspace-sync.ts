@@ -16,6 +16,7 @@ import {
 } from "@/lib/storage"
 import {
   emptyWorkspaceVersions,
+  reconcileWorkspaceClients,
   type SyncedClient,
   type WorkspaceVersions,
 } from "@/lib/workspace-sync"
@@ -84,25 +85,45 @@ export function useWorkspaceSync(
   const [showMigration, setShowMigration] = useState(false)
   const [conflict, setConflict] = useState<WorkspaceConflict | null>(null)
 
-  const clientsRef = useRef<Client[]>([])
+  const clientsRef = useRef<Client[]>(clients)
   const versionsRef = useRef<Record<string, WorkspaceVersions>>({})
   const pendingPatchesRef = useRef<Record<string, Partial<Client>>>({})
   const pendingCreatesRef = useRef<Record<string, Client>>({})
+  const localCreatesRef = useRef<Record<string, Client>>({})
   const creatingClientsRef = useRef(new Set<string>())
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const savingClientsRef = useRef(new Set<string>())
   const flushClientRef = useRef<(clientId: string, force?: boolean) => void>(() => undefined)
   const conflictRef = useRef<WorkspaceConflict | null>(null)
 
+  const commitClients = useCallback((nextClients: Client[]) => {
+    clientsRef.current = nextClients
+    setClients(nextClients)
+    saveCachedClients(userId, nextClients)
+  }, [userId])
+
   const applySyncedClients = useCallback((records: SyncedClient[]) => {
     const scopedRecords = restrictedClientId
       ? records.filter(record => record.client.id === restrictedClientId)
       : records
-    const nextClients = filterRestrictedClients(scopedRecords.map(record => record.client))
-    versionsRef.current = Object.fromEntries(scopedRecords.map(record => [record.client.id, record.versions]))
-    clientsRef.current = nextClients
-    setClients(nextClients)
-    saveCachedClients(userId, nextClients)
+    const localCreates = filterRestrictedClients(Object.values(localCreatesRef.current))
+    const reconciled = reconcileWorkspaceClients(
+      scopedRecords,
+      localCreates,
+      pendingPatchesRef.current,
+    )
+    for (const clientId of reconciled.observedLocalCreateIds) {
+      delete localCreatesRef.current[clientId]
+    }
+    const nextClients = filterRestrictedClients(reconciled.clients)
+    const cloudVersions = Object.fromEntries(
+      scopedRecords.map(record => [record.client.id, record.versions]),
+    )
+    versionsRef.current = Object.fromEntries(nextClients.flatMap(client => {
+      const versions = cloudVersions[client.id] || versionsRef.current[client.id]
+      return versions ? [[client.id, versions]] : []
+    }))
+    commitClients(nextClients)
     setActiveIdState(previous => {
       const preferred = previous || getActiveId(userId)
       const resolved = preferred && nextClients.some(client => client.id === preferred)
@@ -111,7 +132,7 @@ export function useWorkspaceSync(
       persistActiveId(userId, resolved)
       return resolved
     })
-  }, [filterRestrictedClients, restrictedClientId, userId])
+  }, [commitClients, filterRestrictedClients, restrictedClientId, userId])
 
   const fetchCloudClients = useCallback(async (silent = false): Promise<SyncedClient[]> => {
     const response = await fetch("/api/workspace/clients", {
@@ -192,9 +213,13 @@ export function useWorkspaceSync(
       }
       delete pendingCreatesRef.current[client.id]
       versionsRef.current[client.id] = body.versions
-      setClients(previous => previous.map(item => item.id === client.id
-        ? { ...body.client, ...(pendingPatchesRef.current[client.id] || {}) }
-        : item))
+      const syncedClient = { ...body.client, ...(pendingPatchesRef.current[client.id] || {}) }
+      localCreatesRef.current[client.id] = syncedClient
+      const previous = clientsRef.current
+      const nextClients = previous.some(item => item.id === client.id)
+        ? previous.map(item => item.id === client.id ? syncedClient : item)
+        : [syncedClient, ...previous]
+      commitClients(nextClients)
       setSyncState({ phase: "saved", message: "已保存到云端", savedAt: new Date().toISOString() })
       if (pendingPatchesRef.current[client.id]) {
         setTimeout(() => flushClientRef.current(client.id), 0)
@@ -207,7 +232,7 @@ export function useWorkspaceSync(
     } finally {
       creatingClientsRef.current.delete(client.id)
     }
-  }, [])
+  }, [commitClients])
 
   const flushClient = useCallback(async (clientId: string, force = false) => {
     if (savingClientsRef.current.has(clientId)) return
@@ -296,17 +321,21 @@ export function useWorkspaceSync(
   ) => {
     if (restrictedClientId) return
     const client = createClient(name, subjectType)
-    setClients(previous => [client, ...previous])
+    pendingCreatesRef.current[client.id] = client
+    localCreatesRef.current[client.id] = client
+    commitClients([client, ...clientsRef.current.filter(item => item.id !== client.id)])
     setActiveIdState(client.id)
     persistActiveId(userId, client.id)
     void persistCreate(client)
-  }, [persistCreate, restrictedClientId, userId])
+  }, [commitClients, persistCreate, restrictedClientId, userId])
 
   const handleDelete = useCallback((id: string) => {
     if (restrictedClientId) return
     const snapshot = clientsRef.current
     const next = snapshot.filter(client => client.id !== id)
-    setClients(next)
+    delete localCreatesRef.current[id]
+    delete pendingCreatesRef.current[id]
+    commitClients(next)
     if (activeId === id) {
       const replacement = next[0]?.id || null
       setActiveIdState(replacement)
@@ -318,7 +347,7 @@ export function useWorkspaceSync(
           method: "DELETE",
           credentials: "same-origin",
         })
-        if (!response.ok) {
+        if (!response.ok && response.status !== 404) {
           const body = await response.json().catch(() => ({})) as { error?: string }
           throw new Error(body.error || `删除失败（HTTP ${response.status}）`)
         }
@@ -326,11 +355,11 @@ export function useWorkspaceSync(
         delete pendingPatchesRef.current[id]
         setSyncState({ phase: "saved", message: "云端客户已删除", savedAt: new Date().toISOString() })
       } catch (error) {
-        setClients(snapshot)
+        commitClients(snapshot)
         setSyncState({ phase: "error", message: error instanceof Error ? error.message : "删除失败" })
       }
     })()
-  }, [activeId, restrictedClientId, userId])
+  }, [activeId, commitClients, restrictedClientId, userId])
 
   const handleChangeClient = useCallback((patch: Partial<Client>) => {
     if (!activeId) return

@@ -19,6 +19,8 @@
     "test:vip-report-access": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-vip-report-access.mts",
     "test:wechat-payment": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-wechat-payment.mts",
     "test:workspace-sync": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-workspace-sync.mts",
+    "test:chart-labels": "tsx scripts/test-chart-labels.mts",
+    "test:recharge-notifications": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-recharge-notifications.mts",
     "test:client-accounts": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-client-account-access.mts",
     "test:client-feedback": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-client-feedback.mts",
     "test:difficulty-scoring": "tsx scripts/test-difficulty-scoring.mts",

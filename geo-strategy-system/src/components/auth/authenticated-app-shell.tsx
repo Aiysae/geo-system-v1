@@ -5,6 +5,7 @@ import Link from "next/link"
 import { LockKeyhole } from "lucide-react"
 import AppShell from "@/components/app-shell"
 import { AccountMenu } from "@/components/auth/account-menu"
+import { AdminRechargeNotifier } from "@/components/admin/admin-recharge-notifier"
 import { useCredits } from "@/components/credits/credits-provider"
 import type { PublicUser } from "@/lib/auth"
 import type { WorkspaceAccountAccess } from "@/types"
@@ -16,6 +17,7 @@ export function AuthenticatedAppShell() {
   const [message, setMessage] = useState("")
   const [user, setUser] = useState<PublicUser | null>(null)
   const [access, setAccess] = useState<WorkspaceAccountAccess | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const { refresh } = useCredits()
 
   useEffect(() => {
@@ -32,9 +34,11 @@ export function AuthenticatedAppShell() {
           const body = await res.json() as {
             user?: PublicUser
             access?: WorkspaceAccountAccess
+            isAdmin?: boolean
           }
           if (!body.user?.id) throw new Error("登录账号信息不完整")
           setUser(body.user)
+          setIsAdmin(body.isAdmin === true || body.user.role === "admin")
           setAccess(body.access || {
             mode: "standard",
             status: "active",
@@ -115,7 +119,15 @@ export function AuthenticatedAppShell() {
         </div>
       )
     }
-    return <AppShell userId={user.id} access={access} />
+    return (
+      <AppShell
+        userId={user.id}
+        access={access}
+        adminNotifier={isAdmin
+          ? <AdminRechargeNotifier variant="workspace" />
+          : null}
+      />
+    )
   }
 
   return (

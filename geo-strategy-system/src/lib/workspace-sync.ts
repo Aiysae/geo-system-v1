@@ -27,6 +27,11 @@ export type SyncedClient = {
   versions: WorkspaceVersions
 }
 
+export type ReconciledWorkspaceClients = {
+  clients: Client[]
+  observedLocalCreateIds: string[]
+}
+
 export class WorkspaceValidationError extends Error {
   constructor(message: string) {
     super(message)
@@ -86,6 +91,34 @@ const MODEL_KEYS = new Set<ModelKey>([
 
 export function emptyWorkspaceVersions(): WorkspaceVersions {
   return Object.fromEntries(WORKSPACE_SECTIONS.map(section => [section, 0])) as WorkspaceVersions
+}
+
+/**
+ * A cloud list request may have started before a local client was created. Keep
+ * locally-created clients until a later cloud response explicitly observes
+ * them, and always preserve unsaved patches over cloud snapshots.
+ */
+export function reconcileWorkspaceClients(
+  records: readonly SyncedClient[],
+  localCreates: readonly Client[],
+  pendingPatches: Readonly<Record<string, Partial<Client>>> = {},
+): ReconciledWorkspaceClients {
+  const cloudIds = new Set(records.map(record => record.client.id))
+  const observedLocalCreateIds = localCreates
+    .filter(client => cloudIds.has(client.id))
+    .map(client => client.id)
+  const localOnlyClients = localCreates
+    .filter(client => !cloudIds.has(client.id))
+    .map(client => ({ ...client, ...(pendingPatches[client.id] || {}) }))
+  const cloudClients = records.map(record => ({
+    ...record.client,
+    ...(pendingPatches[record.client.id] || {}),
+  }))
+
+  return {
+    clients: [...localOnlyClients, ...cloudClients],
+    observedLocalCreateIds,
+  }
 }
 
 export function normalizeWorkspaceVersions(value: unknown): WorkspaceVersions {

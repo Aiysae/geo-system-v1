@@ -11,6 +11,7 @@ import {
   getRechargePackage,
   type RechargePackageKey,
 } from "@/lib/pricing"
+import { queueRechargeAdminEmail } from "@/lib/recharge-notification-email"
 
 export type RechargeStatus = "pending" | "approved" | "rejected"
 export type RechargePaymentMethod = "manual_transfer" | "wechat" | "alipay" | "other"
@@ -111,6 +112,9 @@ export async function createRequest(input: {
   await kv.sadd(KEY_PENDING_SET, record.id)
   await kv.sadd(KEY_USER_INDEX(record.userId), record.id)
   await kv.sadd(KEY_ALL, record.id)
+  await queueRechargeAdminEmail(record.id).catch(error => {
+    console.error(`[recharge-notification] Failed to queue email for ${record.id}`, error)
+  })
   return record
 }
 

@@ -15,12 +15,14 @@ type MeResponse = {
   }
   membership?: MembershipSnapshot
   access?: WorkspaceAccountAccess
+  isAdmin?: boolean
 }
 
 export function AccountMenu() {
   const [user, setUser] = useState<MeResponse["user"] | null>(null)
   const [membership, setMembership] = useState<MembershipSnapshot>({ tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 })
   const [access, setAccess] = useState<WorkspaceAccountAccess | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -30,6 +32,7 @@ export function AccountMenu() {
       .then((data: MeResponse | null) => {
         if (alive) {
           setUser(data?.user ?? null)
+          setIsAdmin(data?.isAdmin === true || data?.user?.role === "admin")
           setMembership(data?.membership?.active === true
             ? data.membership
             : { tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 })
@@ -69,17 +72,17 @@ export function AccountMenu() {
             <div className="mt-0.5 truncate text-xs text-slate-500">{user?.email || "已登录"}</div>
             <div className="mt-2">
               <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold ring-1 ${
-                user?.role === "admin" || membership.active
+                isAdmin || membership.active
                   ? "bg-amber-50 text-amber-700 ring-amber-200"
                   : "bg-slate-50 text-slate-500 ring-slate-200"
               }`}>
                 <Crown className="h-3 w-3" />
-                {user?.role === "admin" ? "管理员权益" : membership.active ? `${membership.tier.toUpperCase()} 会员` : "普通用户"}
+                {isAdmin ? "管理员权益" : membership.active ? `${membership.tier.toUpperCase()} 会员` : "普通用户"}
               </span>
             </div>
           </div>
 
-          {user?.role === "admin" && (
+          {isAdmin && (
             <Link
               href="/admin"
               className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
