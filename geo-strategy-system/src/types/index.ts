@@ -77,6 +77,8 @@ export interface WorkspaceAccountAccess {
   canRunPenetration: boolean
   canRunOtherModules: boolean
   canCreateReports: boolean
+  canViewFeedbackReports: boolean
+  canManageFeedbackReports: boolean
 }
 
 export type ArticlePromptKey =
@@ -893,7 +895,7 @@ export interface CommercialReportJobRecord {
   creditsRefunded?: boolean
 }
 
-export type MembershipTier = "free" | "vip1"
+export type MembershipTier = "free" | "vip1" | "vip2" | "vip3" | "vip4" | "vip5" | "vip6"
 export type MembershipSource = "payment" | "admin"
 
 export interface MembershipSnapshot {
@@ -902,12 +904,18 @@ export interface MembershipSnapshot {
   source?: MembershipSource
   sourceOrderId?: string
   activatedAt?: number
+  paidCents: number
+  qualifyingOrderCount: number
+  nextTier?: Exclude<MembershipTier, "free">
+  nextTierPaidCents?: number
+  amountToNextTierCents?: number
+  clientAccountLimit: number
 }
 
 export interface ReportBrandingAccess {
   membership: MembershipSnapshot
   canUseCustomBranding: boolean
-  accessSource: "admin" | "vip1" | "none"
+  accessSource: "admin" | "membership" | "none"
   customReportCredits: number
 }
 

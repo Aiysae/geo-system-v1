@@ -34,6 +34,8 @@ export type AuthUser = {
   lastLoginAt?: string
   termsAcceptedAt?: string
   emailVerifiedAt?: string
+  managedByUserId?: string
+  mustChangePassword?: boolean
   authVersion: number
 }
 
@@ -159,6 +161,8 @@ export async function createUser(input: {
   name?: string
   termsAcceptedAt?: string
   emailVerifiedAt?: string
+  managedByUserId?: string
+  mustChangePassword?: boolean
 }): Promise<PublicUser> {
   const email = normalizeEmail(input.email)
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -183,6 +187,8 @@ export async function createUser(input: {
     updatedAt: now,
     termsAcceptedAt: input.termsAcceptedAt || now,
     emailVerifiedAt: input.emailVerifiedAt,
+    managedByUserId: input.managedByUserId,
+    mustChangePassword: input.mustChangePassword === true,
     authVersion: 0,
   }
 
@@ -361,6 +367,7 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
   const updated: AuthUser = {
     ...user,
     passwordHash: await hashPassword(newPassword),
+    mustChangePassword: false,
     authVersion: currentAuthVersion(user) + 1,
     updatedAt: now,
   }
@@ -408,6 +415,7 @@ export async function resetPasswordWithEmailCode(input: {
     ...user,
     passwordHash: await hashPassword(input.newPassword),
     emailVerifiedAt: user.emailVerifiedAt || now,
+    mustChangePassword: false,
     authVersion: currentAuthVersion(user) + 1,
     updatedAt: now,
   }
@@ -502,6 +510,28 @@ export async function getUserByEmail(emailInput: string): Promise<PublicUser | n
   const userId = await kv.get<string>(KEY_EMAIL(email))
   if (!userId) return null
   return getUserById(userId)
+}
+
+export async function setManagedUserTemporaryPassword(input: {
+  parentUserId: string
+  childUserId: string
+  temporaryPassword: string
+}): Promise<PublicUser> {
+  const passwordError = validatePassword(input.temporaryPassword)
+  if (passwordError) throw new Error(passwordError)
+  const user = await kv.get<AuthUser>(KEY_USER(input.childUserId))
+  if (!user || user.managedByUserId !== input.parentUserId) {
+    throw new Error("客户子账号不存在或无权管理")
+  }
+  const updated: AuthUser = {
+    ...user,
+    passwordHash: await hashPassword(input.temporaryPassword),
+    mustChangePassword: true,
+    authVersion: currentAuthVersion(user) + 1,
+    updatedAt: new Date().toISOString(),
+  }
+  await kv.set(KEY_USER(user.id), updated)
+  return toPublicUser(updated)
 }
 
 export async function updateUserStatus(

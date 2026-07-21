@@ -40,7 +40,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
   const [monthlyAllowance, setMonthlyAllowance] = useState(0)
   const [renewsAt, setRenewsAt] = useState<string>()
   const [unlimited, setUnlimited] = useState(false)
-  const [membership, setMembership] = useState<MembershipSnapshot>({ tier: "free", active: false })
+  const [membership, setMembership] = useState<MembershipSnapshot>({ tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 })
   const [modal, setModal] = useState<ModalState>(null)
   // 避免短时间内多次成功触发并发 refresh
   const refreshingRef = useRef(false)
@@ -61,7 +61,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
         setUnlimited(data?.unlimited === true)
         setMembership(data?.membership?.active === true
           ? data.membership as MembershipSnapshot
-          : { tier: "free", active: false })
+          : { tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 })
       } else if (res.status === 401) {
         setBalance(null)
         setPermanentBalance(null)
@@ -69,7 +69,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
         setMonthlyAllowance(0)
         setRenewsAt(undefined)
         setUnlimited(false)
-        setMembership({ tier: "free", active: false })
+        setMembership({ tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 })
       }
     } catch {
       /* 静默 */

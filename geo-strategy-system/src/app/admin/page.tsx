@@ -5,7 +5,10 @@ import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, listPasswordResetRequests, listUsers } from "@/lib/auth"
 import { getCredits } from "@/lib/credits"
 import { getClientAccountLink } from "@/lib/client-accounts"
-import { getMembershipWithPaymentRepair } from "@/lib/membership"
+import {
+  getMembershipWithPaymentRepair,
+  membershipTierLabel,
+} from "@/lib/membership"
 import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "./credits-adjust-form"
@@ -57,7 +60,7 @@ export default async function AdminPage() {
   )
   const totalCredits = rows.reduce((sum, row) => sum + (row.unlimited ? 0 : row.credits), 0)
   const adminCount = rows.filter(row => row.user.role === "admin").length
-  const vip1Count = rows.filter(row => row.membership.active).length
+  const vipCount = rows.filter(row => row.membership.active).length
   const clientAccountCount = rows.filter(row => Boolean(row.clientLink)).length
   const pendingPasswordResetCount = passwordResetRequests.filter(request => request.status === "pending").length
 
@@ -109,9 +112,9 @@ export default async function AdminPage() {
           <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="flex items-center gap-1.5 text-xs text-amber-700">
               <Crown className="h-3.5 w-3.5" />
-              VIP1 会员
+              VIP 会员
             </div>
-            <div className="mt-2 font-mono text-2xl font-bold text-amber-700">{vip1Count}</div>
+            <div className="mt-2 font-mono text-2xl font-bold text-amber-700">{vipCount}</div>
           </div>
           <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="flex items-center gap-1.5 text-xs text-cyan-700">
@@ -168,7 +171,7 @@ export default async function AdminPage() {
                           : "bg-slate-50 text-slate-500 ring-slate-200"
                       }`}>
                         <Crown className="h-3 w-3" />
-                        {membership.active ? "VIP1" : "普通"}
+                        {membershipTierLabel(membership.tier)}
                       </span>
                     </td>
                     <td data-label="角色" className="px-4 py-4">

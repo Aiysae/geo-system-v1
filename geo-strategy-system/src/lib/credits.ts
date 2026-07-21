@@ -276,7 +276,14 @@ async function ensureClientMonthlyAllowance(userId: string): Promise<{
   renewsAt?: string
 }> {
   const link = await getClientAccountLink(userId)
-  if (!link || link.status !== "active") return { amount: 0, allowance: 0 }
+  if (
+    !link
+    || link.status !== "active"
+    || link.billingMode === "self_funded"
+    || link.monthlyCredits <= 0
+  ) {
+    return { amount: 0, allowance: 0 }
+  }
 
   const period = shanghaiPeriod()
   const allowance = link.monthlyCredits
@@ -677,6 +684,15 @@ export async function adjustCreditsByAdmin(input: {
   const display = { ...result, balance: await getCredits(input.userId) }
   await ensureAdminAdjustmentLedger(display, input.description)
   return display
+}
+
+/**
+ * 主账号创建的客户子账号不领取新用户体验积分，防止反复创建账号套取额度。
+ * 仅在余额键尚不存在时写入 0，不覆盖任何已充值或已分配余额。
+ */
+export async function initializeManagedAccountCredits(userId: string): Promise<void> {
+  if (!userId.trim()) throw new Error("用户 ID 缺失")
+  await kv.set(key(userId), 0, { nx: true })
 }
 
 /** 当前剩余积分。无记录则初始化为 INITIAL_CREDITS 后返回。 */

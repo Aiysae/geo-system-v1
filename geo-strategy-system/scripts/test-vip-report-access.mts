@@ -20,15 +20,80 @@ const {
   createPaymentOrder,
   creditPaymentOrder,
 } = await import("../src/lib/payment-orders")
-const { savePaymentOrderRecord } = await import("../src/lib/payment-store")
+const {
+  getPaymentOrderRecord,
+  savePaymentOrderRecord,
+} = await import("../src/lib/payment-store")
 const {
   backfillVip1Memberships,
   getMembership,
+  membershipClientAccountLimit,
+  membershipTierForPaidCents,
+  recalculateMembershipForUser,
 } = await import("../src/lib/membership")
 const { getFeaturePrice } = await import("../src/lib/pricing")
 
 try {
   assert.equal(getFeaturePrice("reportCustomBranding").credits, 9)
+  assert.equal(membershipTierForPaidCents(0), "free")
+  assert.equal(membershipTierForPaidCents(1), "vip1")
+  assert.equal(membershipTierForPaidCents(9_999), "vip1")
+  assert.equal(membershipTierForPaidCents(10_000), "vip2")
+  assert.equal(membershipTierForPaidCents(60_000), "vip3")
+  assert.equal(membershipTierForPaidCents(150_000), "vip4")
+  assert.equal(membershipTierForPaidCents(300_000), "vip5")
+  assert.equal(membershipTierForPaidCents(1_000_000), "vip6")
+  assert.equal(membershipClientAccountLimit("vip2"), 1)
+  assert.equal(membershipClientAccountLimit("vip6"), 100)
+
+  const cumulativeUserId = "vip-cumulative-user"
+  const cumulativeFirst = await createPaymentOrder({
+    userId: cumulativeUserId,
+    username: "累计充值用户",
+    email: "vip-cumulative@example.com",
+    packageName: "累计充值 A",
+    priceCents: 4_000,
+    credits: 200,
+    provider: "alipay",
+  })
+  await creditPaymentOrder({
+    orderId: cumulativeFirst.id,
+    providerTradeId: "vip-cumulative-a",
+    paidCents: 4_000,
+    source: "payment_callback",
+  })
+  const cumulativeSecond = await createPaymentOrder({
+    userId: cumulativeUserId,
+    username: "累计充值用户",
+    email: "vip-cumulative@example.com",
+    packageName: "累计充值 B",
+    priceCents: 6_000,
+    credits: 300,
+    provider: "wechat",
+  })
+  await creditPaymentOrder({
+    orderId: cumulativeSecond.id,
+    providerTradeId: "vip-cumulative-b",
+    paidCents: 6_000,
+    source: "payment_callback",
+  })
+  const cumulativeMembership = await getMembership(cumulativeUserId)
+  assert.equal(cumulativeMembership.tier, "vip2")
+  assert.equal(cumulativeMembership.paidCents, 10_000)
+  assert.equal(cumulativeMembership.qualifyingOrderCount, 2)
+  assert.equal(cumulativeMembership.clientAccountLimit, 1)
+
+  const cumulativeSecondStored = await getPaymentOrderRecord(cumulativeSecond.id)
+  if (!cumulativeSecondStored) throw new Error("cumulative payment order missing")
+  await savePaymentOrderRecord({
+    ...cumulativeSecondStored,
+    status: "refunded",
+    refundedAt: Date.now(),
+    updatedAt: Date.now(),
+  })
+  const downgraded = await recalculateMembershipForUser(cumulativeUserId)
+  assert.equal(downgraded.tier, "vip1")
+  assert.equal(downgraded.paidCents, 4_000, "refunded orders must not count toward VIP level")
 
   const paidUserId = "vip-paid-user"
   const pendingOrder = await createPaymentOrder({

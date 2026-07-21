@@ -10,6 +10,7 @@ import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
 import KeywordStrategyModule from "@/components/keyword/keyword-strategy-module"
 import ArticleGenerationModule from "@/components/article/article-generation-module"
 import DifficultyAssessmentModule from "@/components/difficulty/difficulty-assessment-module"
+import ClientFeedbackModule from "@/components/client-feedback/client-feedback-module"
 import ReportExportDialog from "@/components/reports/report-export-dialog"
 import ReportHistoryDialog from "@/components/reports/report-history-dialog"
 import SiteFooter from "@/components/site-footer"
@@ -18,6 +19,7 @@ import {
   ArrowUp,
   Brain,
   Building2,
+  CalendarRange,
   CheckCircle2,
   Cloud,
   CloudOff,
@@ -651,10 +653,14 @@ function Dashboard({
   onExportReport: (preset: ReportExportPreset) => void
   access: WorkspaceAccountAccess
 }) {
-  const [activeModule, setActiveModule] = useState<DashboardModuleKey>("penetration")
+  const [activeModule, setActiveModule] = useState<DashboardModuleKey>(
+    access.mode === "client" ? "feedback" : "penetration",
+  )
   const subjectType = getClientSubjectType(client)
   const subjectCopy = getSubjectCopy(subjectType)
-  const readOnlyModule = access.mode === "client" && activeModule !== "penetration"
+  const readOnlyModule = access.mode === "client"
+    && activeModule !== "penetration"
+    && activeModule !== "feedback"
   const moduleOnChange = readOnlyModule ? () => undefined : onChangeClient
 
   return (
@@ -697,7 +703,7 @@ function Dashboard({
         {readOnlyModule ? (
           <div className="mb-3 flex items-start gap-2 rounded-lg border border-[#91CAFF] bg-[#EAF5FF] px-3 py-2.5 text-xs leading-5 text-[#0958D9] no-print">
             <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            当前为客户专属账号，本模块展示关联品牌的现有数据，仅渗透率情报支持操作。
+            当前为客户专属账号，本模块展示关联主体的现有数据；可使用渗透率情报，并查看已发布的执行反馈。
           </div>
         ) : null}
         <fieldset
@@ -739,13 +745,16 @@ function Dashboard({
         {activeModule === "article" && (
           <ArticleGenerationModule client={client} onChangeClient={moduleOnChange} />
         )}
+        {activeModule === "feedback" && (
+          <ClientFeedbackModule client={client} />
+        )}
         </fieldset>
       </section>
     </div>
   )
 }
 
-type DashboardModuleKey = "penetration" | "research" | "diagnosis" | "difficulty" | "keyword" | "article"
+type DashboardModuleKey = "penetration" | "research" | "diagnosis" | "difficulty" | "keyword" | "article" | "feedback"
 
 const DASHBOARD_MODULES: Array<{
   key: DashboardModuleKey
@@ -810,6 +819,15 @@ const DASHBOARD_MODULES: Array<{
     iconClass: "bg-violet-50 text-[#6C5CE7]",
     dotClass: "bg-[#6C5CE7]",
   },
+  {
+    key: "feedback",
+    label: "执行反馈",
+    desc: "日历 · 周报月报",
+    icon: CalendarRange,
+    activeClass: "bg-gradient-to-r from-[#00AEEA] to-[#13C2C2] text-white shadow-sm",
+    iconClass: "bg-cyan-50 text-[#08979C]",
+    dotClass: "bg-[#13C2C2]",
+  },
 ]
 
 function ModuleNav({
@@ -866,7 +884,7 @@ function ModuleNav({
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   <span className="truncate text-xs font-semibold">{item.label}</span>
-                  {restricted && item.key !== "penetration" ? (
+                  {restricted && item.key !== "penetration" && item.key !== "feedback" ? (
                     <LockKeyhole className="h-3 w-3 shrink-0 opacity-55" />
                   ) : null}
                 </button>
@@ -876,7 +894,7 @@ function ModuleNav({
         ) : null}
       </div>
 
-      <div className="hidden grid-cols-6 gap-1 rounded-lg border border-[#DCE6F2] bg-white p-1 shadow-[0_12px_30px_-25px_rgba(23,59,102,0.28)] md:grid">
+      <div className="hidden grid-cols-7 gap-1 rounded-lg border border-[#DCE6F2] bg-white p-1 shadow-[0_12px_30px_-25px_rgba(23,59,102,0.28)] md:grid">
         {DASHBOARD_MODULES.map(item => {
           const Icon = item.icon
           const isActive = active === item.key
@@ -899,7 +917,7 @@ function ModuleNav({
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5 text-xs font-semibold xl:text-sm">
                   <span className="truncate">{item.label}</span>
-                  {restricted && item.key !== "penetration" ? (
+                  {restricted && item.key !== "penetration" && item.key !== "feedback" ? (
                     <LockKeyhole className="h-3 w-3 shrink-0 opacity-55" />
                   ) : null}
                 </span>

@@ -20,6 +20,7 @@
     "test:wechat-payment": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-wechat-payment.mts",
     "test:workspace-sync": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-workspace-sync.mts",
     "test:client-accounts": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-client-account-access.mts",
+    "test:client-feedback": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-client-feedback.mts",
     "test:difficulty-scoring": "tsx scripts/test-difficulty-scoring.mts",
     "test:report-branding": "tsx scripts/test-report-branding.mts",
     "test:report-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-report-history.mts",

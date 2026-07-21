@@ -5,8 +5,8 @@ import Link from "next/link"
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, LockKeyhole, Mail } from "lucide-react"
 import { EmailVerificationField } from "@/components/auth/email-verification-field"
 
-export function PasswordResetRequestForm() {
-  const [email, setEmail] = useState("")
+export function PasswordResetRequestForm({ initialEmail = "" }: { initialEmail?: string }) {
+  const [email, setEmail] = useState(initialEmail)
   const [verificationCode, setVerificationCode] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
