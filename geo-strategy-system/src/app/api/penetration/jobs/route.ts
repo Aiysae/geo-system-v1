@@ -23,6 +23,7 @@ import {
   normalizeAnalysisSubjectType,
   normalizePersonSubjectProfile,
 } from "@/lib/analysis-subject"
+import { normalizePenetrationQuestionIntentHints } from "@/lib/penetration/sample-design"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -48,6 +49,10 @@ export async function POST(req: NextRequest) {
       (model): model is ModelKey => model in ADAPTERS,
     )
     const questions = stringList(body.questions)
+    const questionIntents = normalizePenetrationQuestionIntentHints(
+      body.questionIntents,
+      questions,
+    )
     const requestedOurBrand = String(body.ourBrand || "").trim()
     const requestedSubjectType = normalizeAnalysisSubjectType(body.subjectType)
     const requestedPersonProfile = normalizePersonSubjectProfile(body.personProfile)
@@ -144,6 +149,7 @@ export async function POST(req: NextRequest) {
       industry,
       website: currentClient.website,
       questions,
+      questionIntents,
       competitors,
       selectedModels: requestedModels,
       models: activeModels,

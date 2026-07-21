@@ -5,6 +5,7 @@ import type {
   PenetrationAggregated,
   PenetrationByModel,
   PenetrationQuestionCategory,
+  PenetrationQuestionIntentHint,
   PerModelRate,
 } from "@/types"
 import {
@@ -31,6 +32,7 @@ type RateAccumulator = {
 
 type PenetrationAggregateOptions = {
   plannedQuestions?: string[]
+  questionIntents?: PenetrationQuestionIntentHint[]
   plannedSlots?: number
   modelCount?: number
 }
@@ -84,7 +86,10 @@ export function aggregatePenetration(
     Object.values(byModel)
       .flatMap(items => (items || []).filter(item => item.answer?.trim()).map(item => item.question)),
   ))
-  const questionSamples = buildPenetrationQuestionSamples(observedQuestions)
+  const questionSamples = buildPenetrationQuestionSamples(
+    observedQuestions,
+    options.questionIntents,
+  )
   const sampleByQuestion = new Map(
     questionSamples.map(sample => [questionKey(sample.question), sample]),
   )
@@ -196,6 +201,7 @@ export function aggregatePenetration(
     plannedSlots,
     completedSlots: totalSlots,
     sourceDiversity,
+    questionIntents: options.questionIntents,
   })
 
   const institutionCount = new Map<string, { displayName: string; count: number }>()

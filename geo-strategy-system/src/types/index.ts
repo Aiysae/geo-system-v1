@@ -598,6 +598,25 @@ export type PenetrationQuestionCategory =
   | "brand_cognition"
   | "risk_concern"
 
+export type PenetrationQuestionAllocationMode = "balanced" | "custom"
+
+export type PenetrationQuestionCategoryCounts = Partial<
+  Record<PenetrationQuestionCategory, number>
+>
+
+export interface PenetrationQuestionGenerationSettings {
+  count: number
+  keywords: string
+  allocationMode: PenetrationQuestionAllocationMode
+  categories: PenetrationQuestionCategory[]
+  categoryCounts: PenetrationQuestionCategoryCounts
+}
+
+export interface PenetrationQuestionIntentHint {
+  question: string
+  category: PenetrationQuestionCategory
+}
+
 export type PenetrationSampleConfidence = "low" | "medium" | "high"
 
 export interface PenetrationQuestionSample {
@@ -641,6 +660,8 @@ export interface PenetrationSampleQuality {
   completedSlots: number
   completionRate: number
   sourceDiversity?: PenetrationSourceDiversity
+  scopeMode?: "comprehensive" | "focused"
+  scopeCategories?: PenetrationQuestionCategory[]
   warnings: string[]
 }
 
@@ -669,6 +690,7 @@ export interface PenetrationAggregated {
 export interface PenetrationResult {
   byModel: PenetrationByModel
   aggregated: PenetrationAggregated
+  questionIntents?: PenetrationQuestionIntentHint[]
   generatedAt: string
 }
 
@@ -730,6 +752,7 @@ export interface PenetrationHistoryRequestSnapshot {
   industry: string
   website: string
   questions: string[]
+  questionIntents?: PenetrationQuestionIntentHint[]
   competitors: string[]
   /** User-selected models before readiness checks. */
   models: ModelKey[]
@@ -977,6 +1000,8 @@ export interface Client {
   industry: string
   website: string
   questions: string[]
+  questionGenerationSettings?: PenetrationQuestionGenerationSettings
+  questionIntentHints?: PenetrationQuestionIntentHint[]
   competitors: string[]
   selectedModels: ModelKey[]
   createdAt: string

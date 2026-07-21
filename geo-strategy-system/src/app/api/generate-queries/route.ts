@@ -14,10 +14,16 @@ import {
   buildPenetrationQuestionSamples,
   buildPenetrationSampleQuality,
   inferPenetrationQuestionCategory,
+  normalizePenetrationQuestionCategories,
   normalizePenetrationQuestionCategory,
+  normalizePenetrationQuestionGenerationSettings,
   PENETRATION_QUESTION_CATEGORY_LABELS,
 } from "@/lib/penetration/sample-design"
-import type { PenetrationQuestionCategory } from "@/types"
+import type {
+  AnalysisSubjectType,
+  PenetrationQuestionCategory,
+  PenetrationQuestionIntentHint,
+} from "@/types"
 
 // 高频疑问句智能生成 · 豆包专用 (Volcengine Ark)
 //
@@ -38,10 +44,10 @@ const ARK_BOT_URL = "https://ark.cn-beijing.volces.com/api/v3/bots/chat/completi
 const ARK_ENDPOINT_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
 const SYSTEM_PROMPT =
-  "你是一个顶级的 GEO (生成式引擎优化) 样本设计专家。你的唯一任务是站在【完全中立的普通消费者视角】，生成覆盖七类真实搜索意图的高频疑问句。" +
-  "【绝对禁令】这些疑问句中严禁出现任何具体的品牌名、公司名、产品名、服务商名（包括但不限于用户告诉你的目标品牌——目标品牌只用于让你理解所处行业，绝对不可写进任何疑问句中）。" +
-  "同一意图不得只换词重复，问题应在需求、决策阶段、场景和风险上真正不同。" +
-  "你必须只返回 JSON 数组，每项格式为 {\"question\":\"问题\",\"category\":\"七类中文名称之一\"}，不要输出任何解释或 markdown。"
+  "你是一个顶级的 GEO (生成式引擎优化) 样本设计专家。你的唯一任务是站在【完全中立的真实用户视角】，按指定的问题意图和数量生成高频疑问句。" +
+  "【绝对禁令】疑问句中严禁出现任何具体品牌名、公司名、产品名、服务商名或人物姓名；目标对象只用于理解行业，绝对不可写进问题。" +
+  "同一类别不得只换词重复，问题必须在需求、决策阶段、场景或风险上真正不同。" +
+  "你必须只返回 JSON 数组，每项格式为 {\"question\":\"问题\",\"category\":\"指定的中文类别名称\"}，不要输出任何解释或 markdown。"
 
 const CATEGORY_GUIDANCE: Record<PenetrationQuestionCategory, string> = {
   recommendation: "寻找行业榜单、常见选择或值得推荐的对象",
@@ -58,39 +64,52 @@ type GeneratedQuestionItem = {
   category: PenetrationQuestionCategory
 }
 
+type QuestionQuota = {
+  category: PenetrationQuestionCategory
+  count: number
+}
+
 function buildUserPrompt(args: {
   industry: string
   brand: string
-  count: number
+  subjectType: AnalysisSubjectType
   keywords: string
+  quotas: QuestionQuota[]
+  refill: boolean
 }): string {
-  // 注意：品牌名仅用于让 AI 理解"所处行业"上下文，绝不允许出现在生成的疑问句中。
-  const industryDesc = args.industry || "通用消费场景"
+  const industryDesc = args.industry || (args.subjectType === "person" ? "专业服务人物" : "通用消费场景")
+  const count = args.quotas.reduce((sum, item) => sum + item.count, 0)
   const kw = args.keywords.trim()
   const kwLine = kw
-    ? `这些疑问句中可以自然地包含以下行业关键词（任意一个或多个，不必每句全含）：[${kw}]。`
+    ? `问题可以自然包含这些行业关键词（不必每句全含）：[${kw}]。`
     : ""
-  const brandForbid = args.brand
-    ? `【硬性禁令】严禁在任何疑问句中出现"${args.brand}"或其任何变体/缩写/拼音。若不慎写出，本次输出视为无效。`
-    : "【硬性禁令】严禁在任何疑问句中出现任何具体的品牌名、公司名或产品名。"
-  const quotas = buildPenetrationCategoryQuotas(args.count)
-  const quotaLines = quotas.map(({ category, count }) => (
-    `- ${PENETRATION_QUESTION_CATEGORY_LABELS[category]}：${count} 条；${CATEGORY_GUIDANCE[category]}`
-  ))
+  const targetLabel = args.subjectType === "person" ? "目标人物姓名" : "目标品牌"
+  const targetForbid = args.brand
+    ? `【硬性禁令】严禁出现"${args.brand}"及其变体、简称或拼音，也不要通过暗示答案来指向它。`
+    : `【硬性禁令】严禁出现任何具体的${args.subjectType === "person" ? "人物姓名或机构名称" : "品牌名、公司名或产品名"}。`
+  const quotaLines = args.quotas.map(({ category, count: quota }) => {
+    const guidance = category === "brand_cognition" && args.subjectType === "person"
+      ? "了解行业人物的专业能力、口碑、地位和判断依据"
+      : CATEGORY_GUIDANCE[category]
+    const label = category === "brand_cognition" && args.subjectType === "person"
+      ? "人物认知型"
+      : PENETRATION_QUESTION_CATEGORY_LABELS[category]
+    return `- ${label}：${quota} 条；${guidance}`
+  })
 
   return [
-    `请为【行业/描述：${industryDesc}】生成 ${args.count} 句高频疑问句。`,
-    "这些疑问句用于检测该行业内主流 AI 大模型在没有任何品牌提示时会自然推荐哪些品牌，因此【必须站在完全中立的、还不认识任何品牌的普通消费者视角】，只问行业通用问题。",
-    brandForbid,
+    `请为【行业/描述：${industryDesc}】${args.refill ? "补充生成" : "生成"} ${count} 句高频疑问句。`,
+    `这些问题用于盲测主流 AI 在没有${targetLabel}提示时的自然回答，必须站在完全中立、不了解目标对象的真实用户视角。`,
+    targetForbid,
     kwLine,
-    "要求：",
-    "1. 必须严格按以下七类配额生成，不能用大量推荐榜单问题代替其他类别：",
+    "本次只允许生成以下问题意图，并严格满足各类数量：",
     ...quotaLines,
-    "2. 站在真实潜在客户视角，用口语化中文，模拟普通消费者在搜索框里会输入的完整问句；",
-    "3. 每句必须是不同的真实搜索意图，不得仅替换形容词、地区或语序来凑数；",
-    "4. 问题中不要预设答案，不要植入目标对象优势，不要带编号；",
-    "5. category 只能使用上面七类中文名称，数量必须严格匹配配额；",
-    "6. 严格只输出 JSON 数组，例如：[{\"question\":\"这个行业有哪些值得推荐的服务商？\",\"category\":\"榜单推荐型\"}]。",
+    "要求：",
+    "1. category 只能使用上面列出的类别，禁止生成未选择的类别；",
+    "2. 使用口语化中文，模拟真实用户会在搜索框中输入的完整问句；",
+    "3. 每句必须是不同的真实搜索意图，不得只替换形容词、地区或语序凑数；",
+    "4. 不预设答案，不植入目标对象优势，不带编号；",
+    "5. 严格只输出 JSON 数组，例如：[{\"question\":\"这个行业有哪些值得推荐的服务商？\",\"category\":\"榜单推荐型\"}]。",
   ]
     .filter(Boolean)
     .join("\n")
@@ -189,27 +208,26 @@ function deduplicateGeneratedQuestions(
   return accepted
 }
 
-function selectBalancedQuestions(
+function selectQuestionsByQuotas(
   items: GeneratedQuestionItem[],
-  count: number,
+  quotas: QuestionQuota[],
 ): GeneratedQuestionItem[] {
   const selected: GeneratedQuestionItem[] = []
-  const selectedQuestions = new Set<string>()
-  for (const { category, count: quota } of buildPenetrationCategoryQuotas(count)) {
-    for (const item of items) {
-      if (item.category !== category || selectedQuestions.has(item.question)) continue
-      selected.push(item)
-      selectedQuestions.add(item.question)
-      if (selected.filter(candidate => candidate.category === category).length >= quota) break
-    }
+  for (const { category, count } of quotas) {
+    selected.push(...items.filter(item => item.category === category).slice(0, count))
   }
-  for (const item of items) {
-    if (selected.length >= count) break
-    if (selectedQuestions.has(item.question)) continue
-    selected.push(item)
-    selectedQuestions.add(item.question)
-  }
-  return selected.slice(0, count)
+  return selected
+}
+
+function missingQuestionQuotas(
+  selected: GeneratedQuestionItem[],
+  quotas: QuestionQuota[],
+): QuestionQuota[] {
+  return quotas.flatMap(item => {
+    const selectedCount = selected.filter(candidate => candidate.category === item.category).length
+    const missing = Math.max(0, item.count - selectedCount)
+    return missing > 0 ? [{ category: item.category, count: missing }] : []
+  })
 }
 
 // 从 openai-compat 抛出的 Error.message（形如：`豆包 接口调用失败 HTTP 404：{...}`）
@@ -293,14 +311,38 @@ async function handler(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
     const industry = String(body?.industry ?? "").trim()
     const brand = String(body?.brand ?? "").trim()
-    const keywords = String(body?.keywords ?? "").trim()
-    const rawCount = Number(body?.count)
-    const count = Number.isFinite(rawCount) ? Math.max(1, Math.min(84, Math.round(rawCount))) : 28
+    const subjectType: AnalysisSubjectType = body?.subjectType === "person" ? "person" : "brand"
+    const requestedCategories = normalizePenetrationQuestionCategories(body?.categories)
+    if (Array.isArray(body?.categories) && requestedCategories.length === 0) {
+      return NextResponse.json(
+        { error: "请至少选择一种有效的问题意图" },
+        { status: 400 },
+      )
+    }
+    const settings = normalizePenetrationQuestionGenerationSettings({
+      count: body?.count,
+      keywords: body?.keywords,
+      allocationMode: body?.allocationMode,
+      categories: requestedCategories.length > 0 ? requestedCategories : undefined,
+      categoryCounts: body?.categoryCounts,
+    })
+    const quotas = buildPenetrationCategoryQuotas(
+      settings.count,
+      settings.categories,
+      settings.allocationMode === "custom" ? settings.categoryCounts : undefined,
+    )
+    const count = quotas.reduce((sum, item) => sum + item.count, 0)
+    if (count > 84) {
+      return NextResponse.json(
+        { error: "单次最多智能生成 84 条疑问句，请调整各意图数量" },
+        { status: 400 },
+      )
+    }
 
     if (!industry && !brand) {
       return NextResponse.json(
-        { error: "请先在客户信息中填写所属行业，再生成高频疑问句" },
-        { status: 400 }
+        { error: `请先填写${subjectType === "person" ? "目标人物的专业领域" : "所属行业"}，再生成高频疑问句` },
+        { status: 400 },
       )
     }
 
@@ -310,78 +352,105 @@ async function handler(req: NextRequest) {
       featureKey,
       source: "api:generate-queries",
       description: getFeaturePrice(featureKey).label,
-      metadata: { requestedCount: count },
+      metadata: {
+        requestedCount: count,
+        categories: settings.categories.join(","),
+        allocationMode: settings.allocationMode,
+      },
     })
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
     const t0 = Date.now()
-    let content: string
+    const selectedCategories = new Set(settings.categories)
+    let allCandidates: GeneratedQuestionItem[] = []
+    let finalItems: GeneratedQuestionItem[] = []
+    let requestedQuotas = quotas
+    let rawGeneratedCount = 0
+    let removedBrandCount = 0
+    let removedCategoryCount = 0
+
     try {
-      content = await openaiCompatChat({
-        url: botId ? ARK_BOT_URL : ARK_ENDPOINT_URL,
-        apiKey,
-        model: currentModel,
-        label: "豆包",
-        system: SYSTEM_PROMPT,
-        user: buildUserPrompt({ industry, brand, count, keywords }),
-        temperature: 0.7,
-        maxTokens: Math.min(12000, Math.max(2500, count * 130)),
-      })
+      for (let attempt = 0; attempt < 2 && requestedQuotas.length > 0; attempt++) {
+        const requestCount = requestedQuotas.reduce((sum, item) => sum + item.count, 0)
+        const content = await openaiCompatChat({
+          url: botId ? ARK_BOT_URL : ARK_ENDPOINT_URL,
+          apiKey,
+          model: currentModel,
+          label: "豆包",
+          system: SYSTEM_PROMPT,
+          user: buildUserPrompt({
+            industry,
+            brand,
+            subjectType,
+            keywords: settings.keywords,
+            quotas: requestedQuotas,
+            refill: attempt > 0,
+          }),
+          temperature: 0.45,
+          maxTokens: Math.min(12000, Math.max(2500, requestCount * 150)),
+        })
+
+        const parsed = parseQuestionsFromLLM(content)
+        if (!parsed || parsed.length === 0) {
+          console.error("[generate-queries] 豆包返回无法解析为疑问句数组：", content.slice(0, 300))
+          throw new Error("生成失败：豆包返回内容无法解析为有效疑问句 JSON，请重试")
+        }
+
+        rawGeneratedCount += parsed.length
+        const neutral = stripBrandedQuestions(parsed, brand)
+        removedBrandCount += parsed.length - neutral.length
+        const scoped = neutral.filter(item => selectedCategories.has(item.category))
+        removedCategoryCount += neutral.length - scoped.length
+        allCandidates = deduplicateGeneratedQuestions([...allCandidates, ...scoped])
+        finalItems = selectQuestionsByQuotas(allCandidates, quotas)
+        requestedQuotas = missingQuestionQuotas(finalItems, quotas)
+      }
     } catch (upstream) {
       const raw = upstream instanceof Error ? upstream.message : String(upstream)
-      const friendly = humanizeUpstreamError(raw, currentModel, modelType)
+      const friendly = raw.startsWith("生成失败：")
+        ? raw
+        : humanizeUpstreamError(raw, currentModel, modelType)
       console.error("[generate-queries] 豆包 Bot 上游失败：", raw)
       await refundReservedCreditsQuietly(reservation)
       reservation = null
       return NextResponse.json({ error: friendly }, { status: 502 })
     }
 
-    const questions = parseQuestionsFromLLM(content)
-    if (!questions || questions.length === 0) {
-      console.error("[generate-queries] 豆包返回无法解析为疑问句数组：", content.slice(0, 300))
-      await refundReservedCreditsQuietly(reservation)
-      reservation = null
-      return NextResponse.json(
-        { error: "生成失败：豆包返回内容无法解析为有效疑问句 JSON，请重试" },
-        { status: 502 }
-      )
-    }
-
-    // 兜底：剔除任何含目标品牌名的问句，避免渗透率虚假 100%
-    const neutralQuestions = stripBrandedQuestions(questions, brand)
-    const filtered = deduplicateGeneratedQuestions(neutralQuestions)
-    if (filtered.length === 0) {
+    if (finalItems.length === 0) {
       console.error(
-        `[generate-queries] AI 生成的全部 ${questions.length} 句均含品牌名，已被兜底过滤丢弃。请重试。`
+        `[generate-queries] AI 返回 ${rawGeneratedCount} 条，但品牌中立和意图过滤后无有效问题`,
       )
       await refundReservedCreditsQuietly(reservation)
       reservation = null
       return NextResponse.json(
         {
           error:
-            "生成失败：AI 不慎在所有疑问句中带上了品牌名，已被后端品牌中立过滤器拒绝。请重试一次。",
+            "生成失败：AI 返回的问题未通过品牌中立和所选意图校验，请重试一次。",
         },
-        { status: 502 }
-      )
-    }
-    if (neutralQuestions.length < questions.length) {
-      console.warn(
-        `[generate-queries] 已剔除 ${questions.length - neutralQuestions.length} 条含品牌名的问句`
-      )
-    }
-    if (filtered.length < neutralQuestions.length) {
-      console.warn(
-        `[generate-queries] 已合并 ${neutralQuestions.length - filtered.length} 条语义重复问句`
+        { status: 502 },
       )
     }
 
-    const finalItems = selectBalancedQuestions(filtered, count)
     const final = finalItems.map(item => item.question)
-    const questionSamples = buildPenetrationQuestionSamples(final)
-    const sampleQuality = buildPenetrationSampleQuality(final)
+    const questionIntents: PenetrationQuestionIntentHint[] = finalItems.map(item => ({
+      question: item.question,
+      category: item.category,
+    }))
+    const questionSamples = buildPenetrationQuestionSamples(final, questionIntents)
+    const sampleQuality = buildPenetrationSampleQuality(final, {
+      questionIntents,
+      intendedCategories: settings.categories,
+    })
+    const missing = missingQuestionQuotas(finalItems, quotas)
+    const warnings = missing.length > 0
+      ? [
+          `计划生成 ${count} 条，严格过滤后得到 ${final.length} 条；仍缺少${missing.map(item => `${PENETRATION_QUESTION_CATEGORY_LABELS[item.category]} ${item.count} 条`).join("、")}。`,
+        ]
+      : []
+
     console.log(
-      `[generate-queries] ✓ 豆包返回 ${questions.length} 条 → 中立去重 ${filtered.length} 条 → 七类筛选 ${final.length} 条 | ${Date.now() - t0}ms`
+      `[generate-queries] ✓ 豆包返回 ${rawGeneratedCount} 条 → 去品牌 ${removedBrandCount} 条 → 去非目标意图 ${removedCategoryCount} 条 → 最终 ${final.length}/${count} 条 | ${Date.now() - t0}ms`,
     )
 
     await settleReservedCredits(reservation, estimateFeatureCredits(featureKey, final.length))
@@ -389,8 +458,11 @@ async function handler(req: NextRequest) {
     return NextResponse.json(
       {
         questions: final,
+        questionItems: questionIntents,
         questionSamples,
         sampleQuality,
+        requestedCount: count,
+        warnings,
         generatedAt: new Date().toISOString(),
       },
       {
@@ -399,7 +471,7 @@ async function handler(req: NextRequest) {
           Pragma: "no-cache",
           Expires: "0",
         },
-      }
+      },
     )
   } catch (e) {
     await refundReservedCreditsQuietly(reservation)

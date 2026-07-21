@@ -1,6 +1,9 @@
 import type {
   PenetrationByModel,
   PenetrationQuestionCategory,
+  PenetrationQuestionCategoryCounts,
+  PenetrationQuestionGenerationSettings,
+  PenetrationQuestionIntentHint,
   PenetrationQuestionSample,
   PenetrationSampleConfidence,
   PenetrationSampleQuality,
@@ -29,6 +32,27 @@ export const PENETRATION_QUESTION_CATEGORY_LABELS: Record<
   scenario_audience: "场景人群型",
   brand_cognition: "品牌认知型",
   risk_concern: "风险疑虑型",
+}
+
+export const PENETRATION_QUESTION_CATEGORY_DESCRIPTIONS: Record<
+  PenetrationQuestionCategory,
+  string
+> = {
+  recommendation: "寻找榜单、推荐对象和常见选择",
+  pain_solution: "围绕问题、失败原因和解决办法",
+  comparison: "比较方案、路线和服务类型的差异",
+  purchase_decision: "关注预算、参数、合同和交付判断",
+  scenario_audience: "限定地区、人群、身份或使用场景",
+  brand_cognition: "了解行业认知、口碑、实力和地位",
+  risk_concern: "核验风险、资质、收费和售后保障",
+}
+
+export const DEFAULT_PENETRATION_QUESTION_GENERATION_SETTINGS: PenetrationQuestionGenerationSettings = {
+  count: 28,
+  keywords: "",
+  allocationMode: "balanced",
+  categories: [...PENETRATION_QUESTION_CATEGORIES],
+  categoryCounts: {},
 }
 
 export const PENETRATION_SAMPLE_PRESETS = {
@@ -71,6 +95,8 @@ const CATEGORY_ALIASES = new Map<string, PenetrationQuestionCategory>([
   ["brand_cognition", "brand_cognition"],
   ["品牌认知型", "brand_cognition"],
   ["品牌认知", "brand_cognition"],
+  ["人物认知型", "brand_cognition"],
+  ["人物认知", "brand_cognition"],
   ["risk_concern", "risk_concern"],
   ["风险疑虑型", "risk_concern"],
   ["风险疑虑", "risk_concern"],
@@ -155,6 +181,14 @@ function normalizeQuestionText(value: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, "")
 }
 
+export function questionIdentityKey(value: string): string {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/gu, " ")
+}
+
 export function normalizeQuestionIntent(value: string): string {
   let normalized = value.normalize("NFKC").toLowerCase()
   for (const [pattern, replacement] of INTENT_REPLACEMENTS) {
@@ -172,6 +206,93 @@ export function normalizePenetrationQuestionCategory(
   const normalized = String(value || "").trim()
   if (!normalized) return null
   return CATEGORY_ALIASES.get(normalized) || CATEGORY_ALIASES.get(normalized.toLowerCase()) || null
+}
+
+export function normalizePenetrationQuestionCategories(
+  value: unknown,
+): PenetrationQuestionCategory[] {
+  if (!Array.isArray(value)) return []
+  const requested = new Set(
+    value
+      .map(normalizePenetrationQuestionCategory)
+      .filter((item): item is PenetrationQuestionCategory => Boolean(item)),
+  )
+  return PENETRATION_QUESTION_CATEGORIES.filter(category => requested.has(category))
+}
+
+export function normalizePenetrationQuestionGenerationSettings(
+  value: unknown,
+): PenetrationQuestionGenerationSettings {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+  const selected = normalizePenetrationQuestionCategories(record.categories)
+  const categories = selected.length > 0
+    ? selected
+    : [...PENETRATION_QUESTION_CATEGORIES]
+  const requestedCount = Number(record.count)
+  const count = Math.max(
+    categories.length,
+    Math.min(84, Number.isFinite(requestedCount) ? Math.floor(requestedCount) : 28),
+  )
+  const allocationMode = record.allocationMode === "custom" ? "custom" : "balanced"
+  const rawCounts = record.categoryCounts && typeof record.categoryCounts === "object"
+    ? record.categoryCounts as Record<string, unknown>
+    : {}
+  const categoryCounts: PenetrationQuestionCategoryCounts = {}
+  for (const category of categories) {
+    const raw = Number(rawCounts[category])
+    if (Number.isFinite(raw) && raw > 0) categoryCounts[category] = Math.floor(raw)
+  }
+
+  if (allocationMode === "custom") {
+    const fallback = buildPenetrationCategoryQuotas(count, categories)
+    for (const item of fallback) {
+      if (!categoryCounts[item.category]) categoryCounts[item.category] = item.count
+    }
+    const customTotal = categories.reduce(
+      (sum, category) => sum + (categoryCounts[category] || 0),
+      0,
+    )
+    if (customTotal <= 84) {
+      return {
+        count: customTotal,
+        keywords: String(record.keywords || "").trim().slice(0, 500),
+        allocationMode,
+        categories,
+        categoryCounts,
+      }
+    }
+  }
+
+  return {
+    count,
+    keywords: String(record.keywords || "").trim().slice(0, 500),
+    allocationMode: "balanced",
+    categories,
+    categoryCounts: {},
+  }
+}
+
+export function normalizePenetrationQuestionIntentHints(
+  value: unknown,
+  questions?: string[],
+): PenetrationQuestionIntentHint[] {
+  if (!Array.isArray(value)) return []
+  const allowed = questions
+    ? new Set(questions.map(questionIdentityKey).filter(Boolean))
+    : null
+  const byQuestion = new Map<string, PenetrationQuestionIntentHint>()
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue
+    const record = item as Record<string, unknown>
+    const question = String(record.question || "").trim()
+    const category = normalizePenetrationQuestionCategory(record.category)
+    const key = questionIdentityKey(question)
+    if (!question || !category || !key || (allowed && !allowed.has(key))) continue
+    byQuestion.set(key, { question, category })
+  }
+  return Array.from(byQuestion.values())
 }
 
 export function inferPenetrationQuestionCategory(
@@ -239,13 +360,19 @@ function stableIntentId(value: string): string {
 
 export function buildPenetrationQuestionSamples(
   questions: string[],
+  questionIntents: PenetrationQuestionIntentHint[] = [],
 ): PenetrationQuestionSample[] {
+  const hintByQuestion = new Map(
+    normalizePenetrationQuestionIntentHints(questionIntents, questions)
+      .map(item => [questionIdentityKey(item.question), item.category]),
+  )
   const prepared = questions
     .map(question => question.trim())
     .filter(Boolean)
     .map(question => ({
       question,
-      category: inferPenetrationQuestionCategory(question),
+      category: hintByQuestion.get(questionIdentityKey(question))
+        || inferPenetrationQuestionCategory(question),
       normalizedIntent: normalizeQuestionIntent(question) || normalizeQuestionText(question),
     }))
   const parent = prepared.map((_, index) => index)
@@ -297,15 +424,32 @@ export function buildPenetrationQuestionSamples(
 
 export function buildPenetrationCategoryQuotas(
   count: number,
+  categories: PenetrationQuestionCategory[] = PENETRATION_QUESTION_CATEGORIES,
+  customCounts?: PenetrationQuestionCategoryCounts,
 ): Array<{ category: PenetrationQuestionCategory; count: number }> {
-  const normalizedCount = Math.max(1, Math.floor(count))
-  const base = Math.floor(normalizedCount / PENETRATION_QUESTION_CATEGORIES.length)
-  let remaining = normalizedCount % PENETRATION_QUESTION_CATEGORIES.length
-  return PENETRATION_QUESTION_CATEGORIES.map(category => {
+  const selected = normalizePenetrationQuestionCategories(categories)
+  const activeCategories = selected.length > 0
+    ? selected
+    : [...PENETRATION_QUESTION_CATEGORIES]
+
+  if (customCounts) {
+    const custom = activeCategories
+      .map(category => ({
+        category,
+        count: Math.max(0, Math.floor(Number(customCounts[category]) || 0)),
+      }))
+      .filter(item => item.count > 0)
+    if (custom.length > 0) return custom
+  }
+
+  const normalizedCount = Math.max(activeCategories.length, Math.floor(count))
+  const base = Math.floor(normalizedCount / activeCategories.length)
+  let remaining = normalizedCount % activeCategories.length
+  return activeCategories.map(category => {
     const quota = base + (remaining > 0 ? 1 : 0)
     remaining = Math.max(0, remaining - 1)
     return { category, count: quota }
-  }).filter(item => item.count > 0)
+  })
 }
 
 function normalizedSourceUrl(rawUrl: string): string | null {
@@ -402,9 +546,11 @@ export function buildPenetrationSampleQuality(
     plannedSlots?: number
     completedSlots?: number
     sourceDiversity?: PenetrationSourceDiversity
+    questionIntents?: PenetrationQuestionIntentHint[]
+    intendedCategories?: PenetrationQuestionCategory[]
   } = {},
 ): PenetrationSampleQuality {
-  const samples = buildPenetrationQuestionSamples(questions)
+  const samples = buildPenetrationQuestionSamples(questions, options.questionIntents)
   const questionCount = samples.length
   const distinctQuestionCount = new Set(samples.map(sample => normalizeQuestionText(sample.question))).size
   const semanticIntentCount = new Set(samples.map(sample => sample.intentId)).size
@@ -421,6 +567,14 @@ export function buildPenetrationSampleQuality(
   })
   const coveredCategories = categoryCounts.filter(item => item.questionCount > 0)
   const categoryCoverageCount = coveredCategories.length
+  const intendedCategories = normalizePenetrationQuestionCategories(options.intendedCategories)
+  const scopeCategories = intendedCategories.length > 0
+    ? intendedCategories
+    : coveredCategories.map(item => item.category)
+  const scopeMode: "comprehensive" | "focused" =
+    scopeCategories.length === PENETRATION_QUESTION_CATEGORIES.length
+      ? "comprehensive"
+      : "focused"
   const minCategoryCount = categoryCoverageCount === PENETRATION_QUESTION_CATEGORIES.length
     ? Math.min(...categoryCounts.map(item => item.questionCount))
     : 0
@@ -485,10 +639,16 @@ export function buildPenetrationSampleQuality(
   if (questionCount < 14) warnings.push(`当前只有 ${questionCount} 条问题，低于快速检测建议的 14 条。`)
   else if (questionCount < 28) warnings.push(`当前为方向性样本；正式分析建议使用 28 条问题。`)
   if (categoryCoverageCount < 7) {
-    const missing = categoryCounts
-      .filter(item => item.questionCount === 0)
-      .map(item => PENETRATION_QUESTION_CATEGORY_LABELS[item.category])
-    warnings.push(`七类问题未覆盖完整，缺少：${missing.join("、")}。`)
+    if (scopeMode === "focused" && scopeCategories.length > 0) {
+      warnings.push(
+        `当前为专项意图样本，覆盖：${scopeCategories.map(category => PENETRATION_QUESTION_CATEGORY_LABELS[category]).join("、")}；不代表七类综合渗透率。`,
+      )
+    } else {
+      const missing = categoryCounts
+        .filter(item => item.questionCount === 0)
+        .map(item => PENETRATION_QUESTION_CATEGORY_LABELS[item.category])
+      warnings.push(`七类问题未覆盖完整，缺少：${missing.join("、")}。`)
+    }
   }
   if (semanticDuplicateRate > 0.2) {
     warnings.push(`约 ${Math.round(semanticDuplicateRate * 100)}% 的问题语义近似，不能视为新的独立意图。`)
@@ -530,6 +690,8 @@ export function buildPenetrationSampleQuality(
     completedSlots,
     completionRate,
     sourceDiversity: options.sourceDiversity,
+    scopeMode,
+    scopeCategories,
     warnings,
   }
 }

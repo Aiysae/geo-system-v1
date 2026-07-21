@@ -35,6 +35,7 @@ import type {
   PenetrationJobRecord,
   PenetrationModelProgress,
   PenetrationPromptPurity,
+  PenetrationQuestionIntentHint,
   PenetrationResult,
   PenetrationSource,
   PenetrationSearchMode,
@@ -52,6 +53,7 @@ type PenetrationRunParams = {
   models: ModelKey[]
   brandAliases: string[]
   competitors: string[]
+  questionIntents: PenetrationQuestionIntentHint[]
   operation?: "replace" | "append"
   retestSampleId?: string
 }
@@ -226,6 +228,7 @@ export default function PenetrationModule({
           brandAliases: params.brandAliases,
           industry: client.industry,
           questions: params.questions,
+          questionIntents: params.questionIntents,
           competitors: params.competitors,
           models: params.models,
           operation: params.operation || "replace",
@@ -262,6 +265,8 @@ export default function PenetrationModule({
       models: [model],
       brandAliases: client.brandAliases ?? [],
       competitors: client.competitors,
+      questionIntents: (client.penetration?.questionIntents || [])
+        .filter(hint => hint.question === item.question),
       operation: "append",
       retestSampleId: sampleKey,
     })

@@ -167,6 +167,7 @@ export function buildPenetrationHistoryRecord(
         plannedSlots: input.totalSlots,
         completedSlots: input.completedSlots,
         sourceDiversity,
+        questionIntents: input.request.questionIntents,
       })
     : undefined
 

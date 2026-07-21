@@ -49,9 +49,20 @@ export default function PenetrationSampleQualityPanel({
             原始槽位率保留全部有效回答；语义与七类均衡率用于抑制相似问题重复放大。
           </p>
         </div>
-        <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${tone.badge}`}>
-          {quality.confidenceLabel} · {quality.score} 分
-        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {quality.scopeMode === "focused" ? (
+            <span className="rounded-full border border-[#91CAFF] bg-[#E6F4FF] px-2.5 py-1 text-[10px] font-semibold text-[#0958D9]">
+              专项意图检测
+            </span>
+          ) : (
+            <span className="rounded-full border border-[#B7E3D0] bg-[#F0FFF8] px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
+              综合意图检测
+            </span>
+          )}
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${tone.badge}`}>
+            {quality.confidenceLabel} · {quality.score} 分
+          </span>
+        </div>
       </div>
 
       <div className={`grid divide-x divide-y divide-[#EAF1F8] sm:divide-y-0 ${compact ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 lg:grid-cols-5"}`}>
