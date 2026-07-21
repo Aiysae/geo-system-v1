@@ -22,11 +22,13 @@ const {
 } = await import("../src/lib/client-accounts")
 const {
   getCreditBalanceSnapshot,
+  initializeManagedAccountCredits,
   refundCreditReservationBreakdown,
   reserveCreditsBy,
   syncClientMonthlyAllowance,
 } = await import("../src/lib/credits")
 const { settleReservedCredits } = await import("../src/lib/with-credits")
+const { transferCreditsToManagedAccount } = await import("../src/lib/client-credit-transfer")
 const {
   createWorkspaceClient,
   listWorkspaceClients,
@@ -62,6 +64,8 @@ try {
     operatorUserId,
   })
   assert.equal(link.status, "active")
+  assert.equal(link.provisioning, "admin")
+  assert.equal(link.billingMode, "monthly_grant")
 
   const access = await getWorkspaceAccountAccess(clientUserId)
   assert.equal(access.mode, "client")
@@ -71,6 +75,8 @@ try {
   assert.equal(access.canRunPenetration, true)
   assert.equal(access.canRunOtherModules, false)
   assert.equal(access.canCreateReports, false)
+  assert.equal(access.canViewFeedbackReports, true)
+  assert.equal(access.canManageFeedbackReports, false)
 
   const allowedScope = await resolveWorkspaceAccess(clientUserId, client.id)
   assert.equal(allowedScope.ok, true)
@@ -190,6 +196,39 @@ try {
     ["activated", "linked", "suspended"].sort(),
   )
 
+  const managedChildUserId = "owner-created-managed-child"
+  await saveClientAccountLink({
+    userId: managedChildUserId,
+    ownerUserId,
+    clientId: "owner-managed-client",
+    clientName: "主账号自建客户",
+    monthlyCredits: 0,
+    provisioning: "owner",
+    billingMode: "self_funded",
+    operatorUserId: ownerUserId,
+  })
+  await initializeManagedAccountCredits(managedChildUserId)
+  assert.equal((await getCreditBalanceSnapshot(managedChildUserId)).total, 0)
+  const firstTransfer = await transferCreditsToManagedAccount({
+    operationId: "ct_client_account_transfer_001",
+    ownerUserId,
+    childUserId: managedChildUserId,
+    amount: 20,
+  })
+  assert.equal(firstTransfer.status, "completed")
+  assert.equal((await getCreditBalanceSnapshot(ownerUserId)).total, 30)
+  assert.equal((await getCreditBalanceSnapshot(managedChildUserId)).total, 20)
+  const repeatedTransfer = await transferCreditsToManagedAccount({
+    operationId: "ct_client_account_transfer_001",
+    ownerUserId,
+    childUserId: managedChildUserId,
+    amount: 20,
+  })
+  assert.equal(repeatedTransfer.status, "completed")
+  assert.equal((await getCreditBalanceSnapshot(ownerUserId)).total, 30, "transfer retry must not debit twice")
+  assert.equal((await getCreditBalanceSnapshot(managedChildUserId)).total, 20, "transfer retry must not credit twice")
+
+  assert.equal(await deleteClientAccountLink({ userId: managedChildUserId, operatorUserId: ownerUserId }), true)
   assert.equal(await deleteClientAccountLink({ userId: clientUserId, operatorUserId }), true)
   assert.equal((await getWorkspaceAccountAccess(clientUserId)).mode, "standard")
   assert.equal((await getCreditBalanceSnapshot(clientUserId)).total, 50)

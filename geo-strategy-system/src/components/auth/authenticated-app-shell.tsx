@@ -43,6 +43,8 @@ export function AuthenticatedAppShell() {
             canRunPenetration: true,
             canRunOtherModules: true,
             canCreateReports: true,
+            canViewFeedbackReports: true,
+            canManageFeedbackReports: true,
           })
           setState("authenticated")
           void refresh()
@@ -68,6 +70,27 @@ export function AuthenticatedAppShell() {
   }, [refresh])
 
   if (state === "authenticated" && user && access) {
+    if (user.mustChangePassword) {
+      return (
+        <div className="flex min-h-screen items-center justify-center geo-saturated-bg px-4">
+          <div className="w-full max-w-lg rounded-lg bg-white/96 p-6 text-center shadow-2xl ring-1 ring-white/80 sm:p-8">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-[#EAF5FF] text-[#0958D9] ring-1 ring-[#B7DBFF]">
+              <LockKeyhole className="h-7 w-7" />
+            </span>
+            <h1 className="mt-5 text-xl font-semibold text-slate-900">请先设置自己的登录密码</h1>
+            <p className="mt-3 text-sm leading-7 text-slate-500">
+              当前使用的是主账号生成的临时密码。请通过 {user.email} 接收验证码并设置新密码，完成后再进入客户工作台。
+            </p>
+            <Link
+              href={`/forgot-password?email=${encodeURIComponent(user.email)}&managed=1`}
+              className="mt-6 inline-flex h-10 items-center justify-center rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-5 text-xs font-semibold text-white shadow-sm"
+            >
+              验证邮箱并设置密码
+            </Link>
+          </div>
+        </div>
+      )
+    }
     if (access.mode === "client" && access.status === "suspended") {
       return (
         <div className="flex min-h-screen items-center justify-center geo-saturated-bg px-4">

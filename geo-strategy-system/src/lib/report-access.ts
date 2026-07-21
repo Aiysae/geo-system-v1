@@ -19,7 +19,7 @@ export async function getReportBrandingAccess(userId: string): Promise<ReportBra
   return {
     membership,
     canUseCustomBranding: admin || membership.active,
-    accessSource: admin ? "admin" : membership.active ? "vip1" : "none",
+    accessSource: admin ? "admin" : membership.active ? "membership" : "none",
     customReportCredits: admin ? 0 : getFeaturePrice("reportCustomBranding").credits,
   }
 }

@@ -15,6 +15,8 @@ export type ClientAccountLink = {
   clientName: string
   status: ClientAccountStatus
   monthlyCredits: number
+  provisioning: "admin" | "owner"
+  billingMode: "monthly_grant" | "self_funded"
   grantedByUserId: string
   createdAt: string
   updatedAt: string
@@ -74,8 +76,8 @@ function cleanId(value: unknown, label: string): string {
 
 function cleanMonthlyCredits(value: unknown): number {
   const credits = Math.floor(Number(value))
-  if (!Number.isFinite(credits) || credits < 1 || credits > 1_000_000) {
-    throw new Error("每月专属额度必须是 1 到 1000000 之间的整数")
+  if (!Number.isFinite(credits) || credits < 0 || credits > 1_000_000) {
+    throw new Error("每月专属额度必须是 0 到 1000000 之间的整数")
   }
   return credits
 }
@@ -100,6 +102,8 @@ function normalizeLink(value: unknown): ClientAccountLink | null {
     clientName: String(input.clientName),
     status: input.status,
     monthlyCredits: cleanMonthlyCredits(input.monthlyCredits),
+    provisioning: input.provisioning === "owner" ? "owner" : "admin",
+    billingMode: input.billingMode === "self_funded" ? "self_funded" : "monthly_grant",
     grantedByUserId: String(input.grantedByUserId || ""),
     createdAt: String(input.createdAt || ""),
     updatedAt: String(input.updatedAt || ""),
@@ -145,6 +149,13 @@ export async function listClientAccountLinks(): Promise<ClientAccountLink[]> {
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
+export async function listClientAccountLinksForOwner(
+  ownerUserId: string,
+): Promise<ClientAccountLink[]> {
+  return (await listClientAccountLinks())
+    .filter(link => link.ownerUserId === ownerUserId)
+}
+
 export async function listClientAccountAudit(
   userId: string,
   limit = 30,
@@ -164,6 +175,8 @@ export async function saveClientAccountLink(input: {
   clientName: string
   monthlyCredits?: number
   status?: ClientAccountStatus
+  provisioning?: ClientAccountLink["provisioning"]
+  billingMode?: ClientAccountLink["billingMode"]
   operatorUserId: string
 }): Promise<ClientAccountLink> {
   const userId = cleanId(input.userId, "用户")
@@ -181,7 +194,9 @@ export async function saveClientAccountLink(input: {
     clientName: String(input.clientName || "").trim().slice(0, 160) || "客户面板",
     status: input.status || existing?.status || "active",
     monthlyCredits: cleanMonthlyCredits(input.monthlyCredits ?? existing?.monthlyCredits ?? 1000),
-    grantedByUserId: cleanId(input.operatorUserId, "管理员"),
+    provisioning: input.provisioning || existing?.provisioning || "admin",
+    billingMode: input.billingMode || existing?.billingMode || "monthly_grant",
+    grantedByUserId: cleanId(input.operatorUserId, "授权人"),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   }
@@ -248,6 +263,8 @@ export async function getWorkspaceAccountAccess(userId: string): Promise<Workspa
       canRunPenetration: true,
       canRunOtherModules: true,
       canCreateReports: true,
+      canViewFeedbackReports: true,
+      canManageFeedbackReports: true,
     }
   }
   return {
@@ -261,6 +278,8 @@ export async function getWorkspaceAccountAccess(userId: string): Promise<Workspa
     canRunPenetration: link.status === "active",
     canRunOtherModules: false,
     canCreateReports: false,
+    canViewFeedbackReports: true,
+    canManageFeedbackReports: false,
   }
 }
 

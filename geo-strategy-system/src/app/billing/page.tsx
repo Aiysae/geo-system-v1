@@ -21,7 +21,11 @@ import {
 } from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
 import { listRequestsForUser } from "@/lib/recharge"
-import { getMembershipWithPaymentRepair } from "@/lib/membership"
+import {
+  getMembershipWithPaymentRepair,
+  membershipTierLabel,
+  MEMBERSHIP_LEVELS,
+} from "@/lib/membership"
 import { InvoiceSupportButton } from "@/components/billing/invoice-support-button"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import SiteFooter from "@/components/site-footer"
@@ -105,6 +109,16 @@ export default async function BillingPage() {
       ? getFirstPurchaseBlockReason(paymentOrders, introPackage.key)
       : null
   const whiteLabelCredits = getFeaturePrice("reportCustomBranding").credits
+  const membershipLabel = membershipTierLabel(membership.tier)
+  const currentLevel = MEMBERSHIP_LEVELS.find(level => level.tier === membership.tier)
+  const nextLevel = MEMBERSHIP_LEVELS.find(level => level.tier === membership.nextTier)
+  const progressStart = currentLevel?.minPaidCents || 0
+  const progressEnd = nextLevel?.minPaidCents || Math.max(progressStart, membership.paidCents)
+  const membershipProgress = progressEnd > progressStart
+    ? Math.max(0, Math.min(100, Math.round(
+        ((membership.paidCents - progressStart) / (progressEnd - progressStart)) * 100,
+      )))
+    : 100
 
   return (
     <div className="min-h-screen geo-saturated-bg">
@@ -147,8 +161,29 @@ export default async function BillingPage() {
                 : "bg-slate-50 text-slate-600 ring-slate-200"
             }`}>
               <Crown className="h-4 w-4" />
-              {unlimited ? "管理员权益已解锁" : membership.active ? "VIP1 已解锁 · 可生成白标报告" : "充值任意套餐到账后解锁 VIP1"}
+              {unlimited
+                ? "管理员权益已解锁"
+                : membership.active
+                  ? `${membershipLabel} 已解锁 · 累计充值 ¥${(membership.paidCents / 100).toFixed(2)}`
+                  : "充值任意套餐到账后解锁 VIP1"}
             </div>
+            {membership.nextTier && membership.nextTierPaidCents ? (
+              <div className="mt-4">
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>距离 {membershipTierLabel(membership.nextTier)} 还差 ¥{((membership.amountToNextTierCents || 0) / 100).toFixed(2)}</span>
+                  <span>{membershipProgress}%</span>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] via-[#00AEEA] to-[#13C2C2]" style={{ width: `${membershipProgress}%` }} />
+                </div>
+              </div>
+            ) : null}
+            {membership.clientAccountLimit > 0 ? (
+              <Link href="/client-accounts" className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-[#0958D9] hover:underline">
+                管理客户子账号 · {membership.clientAccountLimit} 个名额
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
+            ) : null}
             <div className="mt-5">
               <RechargeButton />
             </div>
@@ -161,7 +196,7 @@ export default async function BillingPage() {
             </div>
             <div className="mb-4 flex items-start gap-2 rounded-lg bg-[#EEF6FF] px-3 py-2.5 text-xs leading-5 text-[#003EB3] ring-1 ring-[#BAE0FF]">
               <Crown className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <span>首次真实充值到账即永久升级 VIP1，白标专业报告 {whiteLabelCredits} 积分/份；势途标准报告仍免费。</span>
+              <span>首次真实充值到账即升级 VIP1；等级按累计实际到账金额自动提升。白标专业报告 {whiteLabelCredits} 积分/份，VIP2 起可创建客户专属账号。</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {RECHARGE_PACKAGES.map(pkg => {
@@ -225,6 +260,33 @@ export default async function BillingPage() {
                 查看充值与退款规则
               </Link>
             </p>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">VIP 等级与客户账号权益</h2>
+              <p className="mt-1 text-xs text-slate-500">只累计实际支付并已到账的金额；退款订单不计入等级。</p>
+            </div>
+            <span className="rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 py-1.5 text-xs font-bold text-white">{membershipLabel}</span>
+          </div>
+          <div className="grid gap-px bg-[#E4ECF4] sm:grid-cols-2 lg:grid-cols-6">
+            {MEMBERSHIP_LEVELS.map(level => {
+              const reached = membership.active && membership.paidCents >= level.minPaidCents
+              return (
+                <div key={level.tier} className={`p-4 ${reached ? "bg-[#F0F8FF]" : "bg-white"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-sm font-bold ${reached ? "text-[#0958D9]" : "text-slate-700"}`}>{membershipTierLabel(level.tier)}</span>
+                    {reached ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white">✓</span> : null}
+                  </div>
+                  <p className="mt-2 font-mono text-xs text-slate-500">累计 ¥{(level.minPaidCents / 100).toFixed(0)}</p>
+                  <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                    {level.clientAccountLimit > 0 ? `最多 ${level.clientAccountLimit} 个客户子账号` : "白标报告付费权限"}
+                  </p>
+                </div>
+              )
+            })}
           </div>
         </section>
 

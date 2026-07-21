@@ -222,7 +222,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [branding, setBranding] = useState<ReportBrandingSettings>({ ...DEFAULT_REPORT_BRANDING })
   const [brandingAccess, setBrandingAccess] = useState<ReportBrandingAccess>({
-    membership: { tier: "free", active: false },
+    membership: { tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 },
     canUseCustomBranding: false,
     accessSource: "none",
     customReportCredits: 15,

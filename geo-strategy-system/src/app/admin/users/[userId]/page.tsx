@@ -11,7 +11,10 @@ import {
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser, getUserById, listUsers } from "@/lib/auth"
 import { getCreditBalanceSnapshot } from "@/lib/credits"
-import { getMembershipWithPaymentRepair } from "@/lib/membership"
+import {
+  getMembershipWithPaymentRepair,
+  membershipTierLabel,
+} from "@/lib/membership"
 import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
 import { listCreditLedgerForUser, type CreditLedgerEntry } from "@/lib/credit-ledger"
 import { formatYuan, getFeaturePrice } from "@/lib/pricing"
@@ -184,7 +187,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
                   : "bg-slate-50 text-slate-500 ring-slate-200"
               }`}>
                 <Crown className="h-3 w-3" />
-                {membership.active ? "VIP1" : "普通会员"}
+                {membershipTierLabel(membership.tier)}
               </span>
             </div>
           </div>
@@ -281,7 +284,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
           </div>
           {membership.active ? (
             <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
-              VIP1 激活时间：{formatTime(membership.activatedAt)}；来源：{membership.source === "payment" ? "真实充值到账" : "管理员授权"}。
+              {membershipTierLabel(membership.tier)} 激活时间：{formatTime(membership.activatedAt)}；累计实际充值 ¥{(membership.paidCents / 100).toFixed(2)}；来源：{membership.source === "payment" ? "真实充值到账" : "管理员授权"}。
             </div>
           ) : null}
         </section>
