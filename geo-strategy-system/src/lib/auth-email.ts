@@ -102,6 +102,28 @@ function getTransporter(config: AuthEmailConfig): Transporter {
   return transporter
 }
 
+export async function sendSystemEmail(input: {
+  to: string | string[]
+  subject: string
+  text: string
+  html: string
+}): Promise<void> {
+  const config = readConfig()
+  if (!config) throw new AuthEmailConfigurationError()
+
+  await getTransporter(config).sendMail({
+    from: {
+      name: config.fromName,
+      address: config.fromAddress,
+    },
+    to: input.to,
+    replyTo: config.replyTo,
+    subject: input.subject,
+    text: input.text,
+    html: input.html,
+  })
+}
+
 export async function sendAuthVerificationEmail(input: {
   email: string
   code: string
@@ -121,13 +143,8 @@ export async function sendAuthVerificationEmail(input: {
   ].join("\n\n")
 
   try {
-    await getTransporter(config).sendMail({
-      from: {
-        name: config.fromName,
-        address: config.fromAddress,
-      },
+    await sendSystemEmail({
       to: input.email,
-      replyTo: config.replyTo,
       subject: copy.subject,
       text,
       html: renderVerificationEmail({

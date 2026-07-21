@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
+import { isAdminUser } from "@/lib/admin"
 import { getMembershipWithPaymentRepair } from "@/lib/membership"
 import { getWorkspaceAccountAccess } from "@/lib/client-accounts"
 
@@ -18,7 +19,7 @@ export async function GET() {
     getWorkspaceAccountAccess(user.id),
   ])
   return NextResponse.json(
-    { user, membership, access },
+    { user, membership, access, isAdmin: isAdminUser(user) },
     { headers: { "Cache-Control": "private, no-store" } },
   )
 }

@@ -46,7 +46,10 @@ export function RechargeRow({ req }: { req: RechargeRequest }) {
   const isPending = req.status === "pending"
 
   return (
-    <tr className="border-t border-slate-200 hover:bg-slate-50/60 transition">
+    <tr
+      id={`recharge-${req.id}`}
+      className="scroll-mt-24 border-t border-slate-200 transition hover:bg-slate-50/60 target:bg-blue-50/70"
+    >
       <td data-label="用户" className="px-4 py-3 align-top">
         <div className="text-sm font-medium text-slate-900">
           {req.username || <span className="text-slate-400">（无昵称）</span>}

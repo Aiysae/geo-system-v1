@@ -9,6 +9,7 @@ import {
   UsersRound,
   Workflow,
 } from "lucide-react"
+import { AdminRechargeNotifier } from "@/components/admin/admin-recharge-notifier"
 
 export type AdminSection = "users" | "recharge" | "metrics" | "ledger" | "password-resets"
 
@@ -102,6 +103,8 @@ export function AdminHeader({
         <nav className="hidden items-center gap-1.5 lg:flex" aria-label="后台导航">
           <AdminNavLinks active={active} pendingPasswordResetCount={pendingPasswordResetCount} />
         </nav>
+
+        <AdminRechargeNotifier variant="admin" />
 
         <details className="group relative shrink-0 lg:hidden">
           <summary

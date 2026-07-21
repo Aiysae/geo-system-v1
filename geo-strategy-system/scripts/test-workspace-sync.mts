@@ -8,6 +8,11 @@ const testFile = path.join(os.tmpdir(), `geo-workspace-sync-${process.pid}.json`
 process.env.WORKSPACE_STORE = "file"
 process.env.WORKSPACE_FILE = testFile
 
+const workspaceSyncModule = await import("../src/lib/workspace-sync") as typeof import("../src/lib/workspace-sync") & {
+  default?: typeof import("../src/lib/workspace-sync")
+}
+const { reconcileWorkspaceClients } = workspaceSyncModule.default || workspaceSyncModule
+
 const {
   WorkspaceConflictError,
   createWorkspaceClient,
@@ -45,6 +50,42 @@ const client: Client = {
 }
 
 try {
+  const optimisticClient: Client = {
+    ...client,
+    id: "optimistic-client",
+    name: "无需刷新即可显示的客户",
+  }
+  const staleCloudReconciliation = reconcileWorkspaceClients(
+    [],
+    [optimisticClient],
+    { [optimisticClient.id]: { industry: "创建期间填写的行业" } },
+  )
+  assert.deepEqual(
+    staleCloudReconciliation.clients.map(item => item.id),
+    [optimisticClient.id],
+    "a stale cloud response must not erase a locally-created client",
+  )
+  assert.equal(
+    staleCloudReconciliation.clients[0]?.industry,
+    "创建期间填写的行业",
+    "pending edits must survive stale cloud responses",
+  )
+  const observedCloudReconciliation = reconcileWorkspaceClients(
+    [{ client: optimisticClient, versions: {
+      core: 1,
+      penetration: 0,
+      research: 0,
+      diagnosis: 0,
+      difficulty: 0,
+      keywordStrategy: 0,
+      articleGeneration: 0,
+      jobs: 0,
+    } }],
+    [optimisticClient],
+  )
+  assert.deepEqual(observedCloudReconciliation.observedLocalCreateIds, [optimisticClient.id])
+  assert.equal(observedCloudReconciliation.clients.length, 1, "observed creates must not duplicate")
+
   const created = await createWorkspaceClient("user-a", client)
   assert.equal(created.versions.core, 1)
   assert.equal(created.client.questionGenerationSettings?.count, 10)

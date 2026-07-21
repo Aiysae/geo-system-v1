@@ -55,9 +55,11 @@ import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
 export default function Home({
   userId,
   access,
+  adminNotifier,
 }: {
   userId: string
   access: WorkspaceAccountAccess
+  adminNotifier?: React.ReactNode
 }) {
   const restricted = access.mode === "client"
   const {
@@ -159,6 +161,7 @@ export default function Home({
           syncState={syncState}
           onRetrySync={retry}
           access={access}
+          adminNotifier={adminNotifier}
         />
         {conflict ? (
           <WorkspaceConflictNotice
@@ -245,6 +248,7 @@ function StickyHeader({
   syncState,
   onRetrySync,
   access,
+  adminNotifier,
 }: {
   client: Client | null
   onOpenSidebar: () => void
@@ -253,6 +257,7 @@ function StickyHeader({
   syncState: WorkspaceSyncState
   onRetrySync: () => void
   access: WorkspaceAccountAccess
+  adminNotifier?: React.ReactNode
 }) {
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false)
 
@@ -323,6 +328,7 @@ function StickyHeader({
           </div>
           <CreditsPill />
           <RechargeButton />
+          {adminNotifier}
           <div className="relative lg:hidden">
             <button
               type="button"
