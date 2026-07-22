@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 import {
+  deleteClientFeedbackReport,
   getClientFeedbackReport,
   publishClientFeedbackReport,
   revokeClientFeedbackShare,
@@ -64,5 +65,37 @@ export async function PATCH(
     })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "反馈报告发布失败" }, { status: 400 })
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  context: { params: Promise<{ clientId: string; reportId: string }> },
+) {
+  const auth = await requireUserId()
+  if (!auth.ok) return auth.response
+  try {
+    const { clientId, reportId } = await context.params
+    const access = await resolveWorkspaceAccess(auth.userId, clientId)
+    if (!access.ok) throw new Error(access.message)
+    if (access.mode !== "standard") {
+      return NextResponse.json({ error: "客户专属账号不能删除报告" }, { status: 403 })
+    }
+    const result = await deleteClientFeedbackReport({
+      ownerUserId: access.ownerUserId,
+      clientId,
+      reportId,
+    })
+    if (result === "not_found") {
+      return NextResponse.json({ error: "反馈报告不存在或无权访问" }, { status: 404 })
+    }
+    if (result === "published") {
+      return NextResponse.json({ error: "已发布报告不能删除，可先停止分享并保留交付记录" }, { status: 409 })
+    }
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "反馈报告删除失败",
+    }, { status: 400 })
   }
 }

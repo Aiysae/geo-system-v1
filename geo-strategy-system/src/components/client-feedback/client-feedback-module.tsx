@@ -324,6 +324,55 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     }
   }
 
+  async function revokeReportShare(report: ClientFeedbackReport) {
+    if (!report.shareEnabled || !window.confirm(`确认停止分享“${report.snapshot.reportTitle}”吗？原私密链接将立即失效。`)) return
+    setPending(`revoke:${report.id}`)
+    setError("")
+    setNotice("")
+    try {
+      const response = await fetch(`${endpoint}/reports/${encodeURIComponent(report.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revoke-share" }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "停止分享失败，请稍后重试。", subject: "停止分享" }))
+      const nextReport = body.report as ClientFeedbackReport
+      setPreviewReport(current => current?.id === report.id ? nextReport : current)
+      setShareUrl("")
+      setNotice("报告分享已停止，原私密链接已失效")
+      await load(true)
+    } catch (caught) {
+      setError(toUserFacingError(caught, { fallback: "停止分享失败，请稍后重试。", subject: "停止分享" }))
+    } finally {
+      setPending("")
+    }
+  }
+
+  async function deleteReport(report: ClientFeedbackReport) {
+    if (report.status !== "draft" || !window.confirm(`确认删除草稿“${report.snapshot.reportTitle}”吗？删除后无法恢复。`)) return
+    setPending(`delete-report:${report.id}`)
+    setError("")
+    setNotice("")
+    try {
+      const response = await fetch(`${endpoint}/reports/${encodeURIComponent(report.id)}`, {
+        method: "DELETE",
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "报告草稿删除失败，请稍后重试。", subject: "删除报告草稿" }))
+      setPayload(current => current ? {
+        ...current,
+        reports: current.reports.filter(item => item.id !== report.id),
+      } : current)
+      setPreviewReport(current => current?.id === report.id ? null : current)
+      setNotice("报告草稿已删除")
+    } catch (caught) {
+      setError(toUserFacingError(caught, { fallback: "报告草稿删除失败，请稍后重试。", subject: "删除报告草稿" }))
+    } finally {
+      setPending("")
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[420px] items-center justify-center rounded-lg border border-[#DCE8F4] bg-white">
@@ -511,10 +560,21 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                     <ExternalLink className="h-3.5 w-3.5" />查看
                   </button>
                   {payload.canManage ? (
-                    <button type="button" onClick={() => void publishReport(report)} disabled={pending === `publish:${report.id}`} className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] text-xs font-semibold text-white disabled:opacity-50">
-                      {pending === `publish:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : copiedReportId === report.id ? <Check className="h-3.5 w-3.5" /> : report.status === "published" ? <Copy className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
-                      {copiedReportId === report.id ? "已复制" : report.status === "published" ? "更新链接" : "发布"}
-                    </button>
+                    <>
+                      {report.status === "draft" ? (
+                        <button type="button" onClick={() => void deleteReport(report)} disabled={pending === `delete-report:${report.id}`} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 disabled:opacity-50" aria-label="删除报告草稿" title="删除草稿">
+                          {pending === `delete-report:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </button>
+                      ) : report.shareEnabled ? (
+                        <button type="button" onClick={() => void revokeReportShare(report)} disabled={pending === `revoke:${report.id}`} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#C8D9E8] bg-white text-[#5E738A] hover:border-rose-200 hover:text-rose-600 disabled:opacity-50" aria-label="停止分享报告" title="停止分享">
+                          {pending === `revoke:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <LockKeyhole className="h-3.5 w-3.5" />}
+                        </button>
+                      ) : null}
+                      <button type="button" onClick={() => void publishReport(report)} disabled={pending === `publish:${report.id}`} className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] text-xs font-semibold text-white disabled:opacity-50">
+                        {pending === `publish:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : copiedReportId === report.id ? <Check className="h-3.5 w-3.5" /> : report.status === "published" ? <Copy className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
+                        {copiedReportId === report.id ? "已复制" : report.status === "published" ? report.shareEnabled ? "更新链接" : "重新分享" : "发布"}
+                      </button>
+                    </>
                   ) : null}
                 </div>
               </article>
@@ -569,9 +629,21 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
 
       {previewReport ? (
         <div className="fixed inset-0 z-[9999] overflow-y-auto bg-[#00133F]/72 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true">
-          <div className="mx-auto mb-4 flex max-w-6xl items-center justify-between gap-3 rounded-lg bg-[#001D66] px-3 py-2 text-white">
+          <div className="mx-auto mb-4 flex max-w-6xl flex-col items-stretch justify-between gap-2 rounded-lg bg-[#001D66] px-3 py-2 text-white sm:flex-row sm:items-center sm:gap-3">
             <button type="button" onClick={() => setPreviewReport(null)} className="inline-flex h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold hover:bg-white/10"><ArrowLeft className="h-4 w-4" />返回执行中心</button>
-            {payload.canManage ? <button type="button" onClick={() => void publishReport(previewReport)} disabled={pending === `publish:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold disabled:opacity-50">{pending === `publish:${previewReport.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}{previewReport.status === "published" ? "更新并复制链接" : "确认发布并复制链接"}</button> : null}
+            {payload.canManage ? (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {previewReport.status === "draft" ? (
+                  <button type="button" onClick={() => void deleteReport(previewReport)} disabled={pending === `delete-report:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10 disabled:opacity-50"><Trash2 className="h-4 w-4" />删除草稿</button>
+                ) : previewReport.shareEnabled ? (
+                  <button type="button" onClick={() => void revokeReportShare(previewReport)} disabled={pending === `revoke:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10 disabled:opacity-50"><LockKeyhole className="h-4 w-4" />停止分享</button>
+                ) : null}
+                <button type="button" onClick={() => void publishReport(previewReport)} disabled={pending === `publish:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold disabled:opacity-50">
+                  {pending === `publish:${previewReport.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {previewReport.status === "published" ? previewReport.shareEnabled ? "更新并复制链接" : "重新分享并复制链接" : "确认发布并复制链接"}
+                </button>
+              </div>
+            ) : null}
           </div>
           <ClientFeedbackReportView report={previewReport} />
         </div>

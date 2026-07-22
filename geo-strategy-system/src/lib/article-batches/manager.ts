@@ -11,6 +11,7 @@ import {
 } from "@/lib/background-jobs"
 import {
   cleanupArticleArtifacts,
+  deleteArticleBatchArtifacts,
   extractArticleTitle,
   readArticleDocxArtifact,
   writeArticleDocxArtifact,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/article-batches/planning"
 import {
   createStoredArticleBatchInput,
+  deleteOwnedStoredArticleBatch,
   findStoredArticleBatchByRequest,
   getOwnedStoredArticleBatch,
   listOwnedStoredArticleBatches,
@@ -429,6 +431,21 @@ export async function getArticleBatch(
   if (!batch) return null
   if (!TERMINAL_BATCH_STATUSES.has(batch.status)) scheduleArticleBatchMonitor(id)
   return toPublicArticleBatch(batch)
+}
+
+export async function deleteArticleBatch(
+  id: string,
+  ownerUserId: string,
+): Promise<"deleted" | "not_found" | "active"> {
+  const batch = await getOwnedStoredArticleBatch(id, ownerUserId)
+  if (!batch) return "not_found"
+  if (!TERMINAL_BATCH_STATUSES.has(batch.status)) return "active"
+
+  const deleted = await deleteOwnedStoredArticleBatch(id, ownerUserId)
+  if (!deleted) return "not_found"
+  activeMonitors.delete(id)
+  await deleteArticleBatchArtifacts(id)
+  return "deleted"
 }
 
 export async function cancelArticleBatch(

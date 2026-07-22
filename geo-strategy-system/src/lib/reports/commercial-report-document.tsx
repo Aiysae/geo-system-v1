@@ -26,6 +26,10 @@ import {
   isContentVolumeCostEstimate,
   isContentVolumeV3CostEstimate,
 } from "@/lib/difficulty/content-cost-estimate"
+import {
+  DIFFICULTY_RING_COLORS,
+  difficultyDimensionPercent,
+} from "@/lib/difficulty/dimension-visuals"
 import { reportPublisherLabel, resolveReportBranding } from "@/lib/report-branding"
 
 const FONT_DIR = path.join(process.cwd(), "public", "fonts")
@@ -353,6 +357,50 @@ const styles = StyleSheet.create({
   ringValue: { color: COLORS.ink, fontSize: 20, fontWeight: 700 },
   ringLabel: { marginTop: 2, color: COLORS.muted, fontSize: 7 },
   heroMetrics: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  difficultyVisual: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+  },
+  difficultyRingBox: { position: "relative", width: 196, height: 180, alignItems: "center", justifyContent: "center" },
+  difficultyRingOverlay: { position: "absolute", top: 67, left: 0, width: 196, alignItems: "center" },
+  difficultyRingValue: { color: COLORS.ink, fontSize: 21, fontWeight: 700, lineHeight: 1 },
+  difficultyRingLabel: { marginTop: 3, color: COLORS.muted, fontSize: 6.2 },
+  difficultyLegend: { flex: 1, minWidth: 0 },
+  difficultyLegendRow: {
+    minHeight: 22,
+    marginBottom: 3,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 4,
+    backgroundColor: "#F5FAFF",
+  },
+  difficultyLegendSwatch: { width: 4, height: 16, borderRadius: 2, marginRight: 6 },
+  difficultyLegendCopy: { flex: 1, minWidth: 0 },
+  difficultyLegendName: { color: COLORS.text, fontSize: 7.4, fontWeight: 700 },
+  difficultyLegendMeta: { marginTop: 1.5, color: COLORS.muted, fontSize: 6.2 },
+  difficultyLegendScore: { marginLeft: 5, color: COLORS.ink, fontSize: 8, fontWeight: 700 },
+  difficultyMetaGrid: { flexDirection: "row", gap: 6, marginBottom: 12 },
+  difficultyMetaCard: {
+    width: "24%",
+    minWidth: 0,
+    minHeight: 42,
+    padding: 7,
+    borderRadius: 5,
+    backgroundColor: COLORS.paper,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+  },
+  difficultyMetaLabel: { color: COLORS.muted, fontSize: 6.4 },
+  difficultyMetaValue: { marginTop: 4, color: COLORS.ink, fontSize: 9, fontWeight: 700, lineHeight: 1.25 },
   heroMetric: {
     width: "47.5%",
     minHeight: 50,
@@ -810,6 +858,89 @@ function DonutChart({ value, display, label, color = COLORS.blue }: {
   )
 }
 
+function DifficultyDimensionsRing({
+  dimensions,
+  totalScore,
+}: {
+  dimensions: DifficultyDimensionResult[]
+  totalScore: number
+}) {
+  const data = dimensions.map((dimension, index) => ({
+    ...dimension,
+    color: DIFFICULTY_RING_COLORS[index % DIFFICULTY_RING_COLORS.length],
+    percent: difficultyDimensionPercent(dimension.score, dimension.max),
+  }))
+  const center = 90
+  const outerRadius = 76
+  const ringStep = 8
+  const strokeWidth = 5.5
+
+  return (
+    <View style={styles.difficultyVisual} wrap={false}>
+      <View style={styles.difficultyRingBox}>
+        <Svg width={180} height={180} viewBox="0 0 180 180">
+          {data.map((dimension, index) => {
+            const radius = outerRadius - index * ringStep
+            const circumference = 2 * Math.PI * radius
+            const progress = circumference * dimension.percent / 100
+            const partialDash = dimension.percent > 0 && dimension.percent < 100
+            return (
+              <React.Fragment key={`${dimension.name}-${index}`}>
+                <Circle
+                  cx={center}
+                  cy={center}
+                  r={radius}
+                  fill="none"
+                  stroke="#DFEAF5"
+                  strokeWidth={strokeWidth}
+                />
+                {dimension.percent > 0 ? (
+                  <Circle
+                    cx={center}
+                    cy={center}
+                    r={radius}
+                    fill="none"
+                    stroke={dimension.color}
+                    strokeWidth={strokeWidth}
+                    strokeLinecap="round"
+                    strokeDasharray={partialDash ? `${progress} ${circumference - progress}` : undefined}
+                    transform={`rotate(-90 ${center} ${center})`}
+                  />
+                ) : null}
+              </React.Fragment>
+            )
+          })}
+        </Svg>
+        <View style={styles.difficultyRingOverlay}>
+          <Text style={styles.difficultyRingValue}>{totalScore}</Text>
+          <Text style={styles.difficultyRingLabel}>总分 / 100</Text>
+        </View>
+      </View>
+      <View style={styles.difficultyLegend}>
+        {data.map((dimension, index) => (
+          <View key={`${dimension.name}-legend-${index}`} style={styles.difficultyLegendRow}>
+            <View style={[styles.difficultyLegendSwatch, { backgroundColor: dimension.color }]} />
+            <View style={styles.difficultyLegendCopy}>
+              <Text style={styles.difficultyLegendName}>{dimension.name}</Text>
+              <Text style={styles.difficultyLegendMeta}>{dimension.level} · 完成度 {dimension.percent}%</Text>
+            </View>
+            <Text style={styles.difficultyLegendScore}>{dimension.score}/{dimension.max}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
+function DifficultyMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.difficultyMetaCard} wrap={false}>
+      <Text style={styles.difficultyMetaLabel}>{label}</Text>
+      <Text style={styles.difficultyMetaValue}>{value}</Text>
+    </View>
+  )
+}
+
 function HeroMetric({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.heroMetric} wrap={false}>
@@ -1262,25 +1393,17 @@ function DifficultyPage({ input }: { input: CommercialReportInput }) {
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
       <ChapterTitle kicker="DIFFICULTY ASSESSMENT" title="GEO 难度测评" intro={`${entry.city || "全国"} · ${entry.industry} · ${entry.mode === "brand" ? entry.targetBrand || "品牌评估" : "行业评估"}`} />
-      <View style={styles.penetrationHero} wrap={false}>
-        <DonutChart value={result.totalScore / 100} display={`${result.totalScore}`} label="难度总分 / 100" color={COLORS.violet} />
-        <View style={styles.heroMetrics}>
-          <HeroMetric label="难度等级" value={result.level} />
-          <HeroMetric label="报告来源" value={provider} />
-          <HeroMetric label="评估模式" value={entry.mode === "brand" ? "品牌评估" : "行业评估"} />
-          <HeroMetric label="报告时间" value={formatDateToMinute(result.generatedAt)} />
-        </View>
+      <DifficultyDimensionsRing dimensions={dimensions} totalScore={result.totalScore} />
+      <View style={styles.difficultyMetaGrid} wrap={false}>
+        <DifficultyMeta label="难度等级" value={result.level} />
+        <DifficultyMeta label="报告来源" value={provider} />
+        <DifficultyMeta label="评估模式" value={entry.mode === "brand" ? "品牌评估" : "行业评估"} />
+        <DifficultyMeta label="报告时间" value={formatDateToMinute(result.generatedAt)} />
       </View>
       <DetailMetric label="稳定提及周期" value={concisePeriod(result.stableMentionPeriod)} />
       <View style={styles.insightBox}>
         <Text style={styles.insightTitle}>测评结论</Text>
         <Text style={styles.insightText} orphans={2} widows={2}>{result.summary}</Text>
-      </View>
-      <View style={styles.section} wrap={false}>
-        <Text style={styles.sectionTitle}>{dimensions.length}维评分</Text>
-        {dimensions.map((item, index) => (
-          <HorizontalBar key={`${item.name}-${index}`} label={`${item.name} · ${item.level}`} value={item.score / Math.max(1, item.max)} display={`${item.score}/${item.max}`} color={[COLORS.blue, COLORS.violet, COLORS.green, COLORS.amber, COLORS.cyan, COLORS.slate][index % 6]} />
-        ))}
       </View>
     </Page>
   )
@@ -1291,7 +1414,7 @@ function DifficultyDetailsPage({ input }: { input: CommercialReportInput }) {
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="SCORE EXPLANATION" title={`${dimensions.length}维评分详解`} intro="完整保留各维度分值、等级与判断依据；V2 报告由后端固定公式计算，大模型只负责联网取证与分析。" />
+      <ChapterTitle kicker="SCORE EXPLANATION" title={`${dimensions.length}维评分详解`} intro="完整呈现各维度分值、等级与判断依据，便于理解当前难点和优先投入方向。" />
       <View style={styles.table}>
         <View style={[styles.tableRow, styles.tableHeader]}>
           <TableCell width="22%" header>维度</TableCell>

@@ -17,6 +17,7 @@
     "test:native-model-chat": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-native-model-chat.mts",
     "test:article-batch-restart": "NODE_ENV=test tsx scripts/test-article-batch-restart.mts",
     "test:geo-article-prompts": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-geo-article-prompts.mts",
+    "test:material-template": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-material-template.mts",
     "test:payment-orders": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-payment-orders.mts",
     "test:vip-report-access": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-vip-report-access.mts",
     "test:wechat-payment": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-wechat-payment.mts",

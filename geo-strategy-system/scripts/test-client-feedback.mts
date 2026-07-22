@@ -11,9 +11,11 @@ process.env.PENETRATION_HISTORY_STORE = "file"
 process.env.PENETRATION_HISTORY_FILE = path.join(directory, "penetration-history.json")
 
 const {
+  deleteClientFeedbackReport,
   executionCounters,
   feedbackPeriodForDate,
   getClientExecutionProfile,
+  getClientFeedbackReport,
   getSharedClientFeedbackReport,
   listClientFeedbackReports,
   publishClientFeedbackReport,
@@ -144,6 +146,35 @@ try {
     reportId: report.id,
   })
   assert.equal(await getSharedClientFeedbackReport(published.shareToken), null)
+
+  assert.equal(await deleteClientFeedbackReport({
+    ownerUserId,
+    clientId: client.id,
+    reportId: report.id,
+  }), "published", "published reports must remain as delivery records")
+
+  const draft = await buildClientFeedbackReport({
+    ownerUserId,
+    actorUserId,
+    client,
+    profile,
+    period: week,
+  })
+  assert.equal(await deleteClientFeedbackReport({
+    ownerUserId,
+    clientId: "another-client",
+    reportId: draft.id,
+  }), "not_found", "reports must be scoped to their client")
+  assert.equal(await deleteClientFeedbackReport({
+    ownerUserId,
+    clientId: client.id,
+    reportId: draft.id,
+  }), "deleted")
+  assert.equal(await getClientFeedbackReport(ownerUserId, draft.id), null)
+
+  const reportsAfterDelete = await listClientFeedbackReports(ownerUserId, client.id)
+  assert.equal(reportsAfterDelete.length, 1)
+  assert.equal(reportsAfterDelete[0]?.id, report.id)
 
   assert.throws(
     () => feedbackPeriodForDate(profile, "weekly", "not-a-date"),

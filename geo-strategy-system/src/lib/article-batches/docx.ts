@@ -347,6 +347,14 @@ export async function readArticleDocxArtifact(args: {
   return writeArticleDocxArtifact(args)
 }
 
+export async function deleteArticleBatchArtifacts(batchId: string): Promise<void> {
+  const safeBatch = String(batchId || "").trim()
+  if (!/^[A-Za-z0-9_-]{8,200}$/.test(safeBatch)) {
+    throw new Error("批量任务编号无效")
+  }
+  await fs.rm(path.join(artifactRoot(), safeBatch), { recursive: true, force: true })
+}
+
 export async function cleanupArticleArtifacts(): Promise<void> {
   const root = artifactRoot()
   try {

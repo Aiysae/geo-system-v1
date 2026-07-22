@@ -227,6 +227,32 @@ export async function getOwnedStoredArticleBatch(
   return batch?.ownerUserId === ownerUserId ? batch : null
 }
 
+export async function deleteOwnedStoredArticleBatch(
+  id: string,
+  ownerUserId: string,
+): Promise<StoredArticleBatch | null> {
+  if (backend() === "postgres") {
+    await ensureSchema()
+    const result = await pool().query<{ data: unknown }>(
+      `DELETE FROM geo_article_batches_v1
+       WHERE id = $1 AND owner_user_id = $2
+       RETURNING data`,
+      [id, ownerUserId],
+    )
+    return normalizeStoredBatch(result.rows[0]?.data)
+  }
+
+  const batch = await getOwnedStoredArticleBatch(id, ownerUserId)
+  if (!batch) return null
+  await Promise.all([
+    kv.del(batchKey(batch.id)),
+    kv.del(requestKey(batch.ownerUserId, batch.requestId)),
+    kv.srem(indexKey(batch.ownerUserId, batch.clientId), batch.id),
+  ])
+  mutationQueues.delete(batch.id)
+  return batch
+}
+
 export async function findStoredArticleBatchByRequest(
   ownerUserId: string,
   requestId: string,

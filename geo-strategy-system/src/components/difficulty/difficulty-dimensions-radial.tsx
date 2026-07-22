@@ -8,6 +8,10 @@ import {
   RadialBarChart,
   ResponsiveContainer,
 } from "recharts"
+import {
+  DIFFICULTY_RING_COLORS,
+  difficultyDimensionPercent,
+} from "@/lib/difficulty/dimension-visuals"
 import type { DifficultyDimensionResult, DifficultyLevel } from "@/types"
 
 type Props = {
@@ -15,16 +19,6 @@ type Props = {
   totalScore: number
   level: DifficultyLevel
 }
-
-const RING_COLORS = [
-  "#1677FF",
-  "#00AEEA",
-  "#13C2C2",
-  "#2F54EB",
-  "#6C5CE7",
-  "#16A34A",
-  "#F59E0B",
-]
 
 function levelClasses(level: DifficultyLevel): string {
   if (level === "容易") return "bg-emerald-50 text-emerald-700 ring-emerald-200"
@@ -37,8 +31,8 @@ export default function DifficultyDimensionsRadial({ dimensions, totalScore, lev
   const [activeIndex, setActiveIndex] = useState(0)
   const data = useMemo(() => dimensions.map((dimension, index) => ({
     ...dimension,
-    color: RING_COLORS[index % RING_COLORS.length],
-    percent: Math.max(0, Math.min(100, Math.round((dimension.score / Math.max(1, dimension.max)) * 100))),
+    color: DIFFICULTY_RING_COLORS[index % DIFFICULTY_RING_COLORS.length],
+    percent: difficultyDimensionPercent(dimension.score, dimension.max),
   })), [dimensions])
   const active = data[Math.min(activeIndex, Math.max(0, data.length - 1))]
 
