@@ -5,7 +5,6 @@ import {
   DEFAULT_CATEGORY_CONFIG,
   DEFAULT_QUESTION_MODEL_PROVIDER,
   QUESTION_MODEL_OPTIONS,
-  QUESTION_MODEL_OPTIONS_LAST_VERIFIED,
   QUESTION_MODEL_PROVIDER_LABELS,
   getDefaultQuestionModel,
   normalizeQuestionModel,
@@ -728,7 +727,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     },
     onSucceeded: job => {
       if (!job.result || typeof job.result !== "object") {
-        updateBrand({ extracting: false, extractionError: "后台资料抽取结果不完整，请重新抽取。" })
+        updateBrand({ extracting: false, extractionError: "资料整理结果不完整，请重新尝试。" })
         onChangeClient({ backgroundJobs: backgroundJobsWith("keywordExtract") })
         return
       }
@@ -817,7 +816,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     onSucceeded: job => {
       const result = job.result
       if (!result?.project_name || !result.profile || !result.keyword_strategy) {
-        updateBrand({ strategyStatus: "error", strategyError: "后台策略结果不完整，请重新生成。" })
+        updateBrand({ strategyStatus: "error", strategyError: "策略结果不完整，请重新生成。" })
         onChangeClient({ backgroundJobs: backgroundJobsWith("keywordStrategy") })
         return
       }
@@ -898,7 +897,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   // Extraction
   const handleExtract = useCallback(() => {
     if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
-      updateBrand({ extractionError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。" })
+      updateBrand({ extractionError: "资料整理功能暂时不可用，请稍后再试或联系管理员。" })
       return
     }
 
@@ -913,7 +912,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   const handleGenerateAdvantages = useCallback(() => {
     if (!activeBrand.extractedProfile) return
     if (keywordModelSetting && !keywordModelSetting.hasApiKey) {
-      updateBrand({ advantageError: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置。" })
+      updateBrand({ advantageError: "优势整理功能暂时不可用，请稍后再试或联系管理员。" })
       return
     }
 
@@ -944,7 +943,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     const selectedQuestionSetting = questionProviderSettings[activeBrand.questionModelProvider]
     if (selectedQuestionSetting && !selectedQuestionSetting.hasApiKey) {
       updateBrand({
-        questionError: `后台未配置${QUESTION_MODEL_PROVIDER_LABELS[activeBrand.questionModelProvider]} API Key，请联系管理员在后台管理页配置。`,
+        questionError: "当前所选模型暂时不可用，请更换模型或稍后再试。",
         questionStatus: "error",
       })
       return
@@ -1057,7 +1056,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         },
       })
       if (!job.id) {
-        throw new Error("疑问句任务创建失败：未返回任务 ID")
+        throw new Error("疑问句生成未能开始，请稍后重试。")
       }
 
       if (!isCurrentRun()) return
@@ -1170,7 +1169,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             failedPolls += 1
             if (failedPolls >= 5) {
               updateBrand({
-                questionError: "后台任务仍在生成，暂时无法刷新进度；系统会继续自动重试，请不要重新发起同一个任务。",
+                questionError: "生成仍在继续，进度暂时无法刷新，系统会自动重试。",
                 questionStatus: "generating",
                 questionJobId: jobId,
               })
@@ -1199,7 +1198,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           }
 
           if (job.status === "failed") {
-            throw new Error(job.error || "疑问句后台任务失败")
+            throw new Error(job.error || "疑问句生成未完成，请稍后重试。")
           }
 
           if (job.status === "cancelled") {
@@ -1220,14 +1219,14 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             questionJobProgress: progress,
             questionStatus: "generating",
             questionError: slowNoticeShown
-              ? "后台任务仍在生成，大批量豆包任务可能耗时较久；系统会持续等待并自动写入结果。"
+              ? "大批量疑问句仍在生成，完成后会自动写入结果。"
               : "",
           })
 
           if (!slowNoticeShown && Date.now() - pollStartedAt > 30 * 60 * 1000) {
             slowNoticeShown = true
             updateBrand({
-              questionError: "后台任务仍在生成，大批量豆包任务可能耗时较久；系统会持续等待并自动写入结果。",
+              questionError: "大批量疑问句仍在生成，完成后会自动写入结果。",
               questionStatus: "generating",
               questionJobId: jobId,
             })
@@ -1241,7 +1240,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
 
         if (isRecoverableQuestionPollError(err)) {
           updateBrand({
-            questionError: "后台任务仍在生成，刚才进度刷新超时；系统会继续自动重试并保留已生成结果。",
+            questionError: "疑问句仍在生成，进度暂时未更新，系统会自动重试并保留已有结果。",
             questionStatus: "generating",
             questionJobId: jobId,
           })
@@ -1319,11 +1318,11 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   // ==================== Render ====================
 
   const ab = activeBrand
-  const keywordModelName = keywordModelSetting?.model || "后台托管模型"
+  const keywordModelName = keywordModelSetting?.model || "系统推荐模型"
   const keywordModelConfigured = keywordModelSetting?.hasApiKey ?? true
   const activeKeywordJobLabel = extractJobRef
-    ? "资料抽取"
-    : advantagesJobRef ? "优势生成" : strategyJobRef ? "策略生成" : ""
+    ? "资料整理"
+    : advantagesJobRef ? "优势整理" : strategyJobRef ? "策略生成" : ""
   const activeKeywordJobStage = extractJobRef
     ? extractJobState.currentJob?.stage
     : advantagesJobRef
@@ -1345,17 +1344,15 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
             </div>
             <div className="min-w-0">
               <div className="geo-module-title">
-                关键词策略 · GEO 策略生成工具
+                关键词策略
               </div>
               <div className="geo-module-description truncate">
                 当前客户：{client.name}
               </div>
             </div>
           </div>
-          <div className="inline-flex w-full flex-wrap items-center justify-center gap-2 rounded-lg border border-[#DCE6F2] bg-[#F8FAFD] px-3 py-2 text-xs text-slate-600 sm:w-auto">
-            <span className={`h-2 w-2 rounded-full ${keywordModelConfigured ? "bg-emerald-500" : "bg-amber-500"}`} />
-            <span className="font-medium text-slate-700">{keywordModelName}</span>
-            <span className="text-slate-400">后台托管</span>
+          <div className="rounded-lg border border-[#DCE6F2] bg-[#F8FAFD] px-3 py-2 text-xs text-slate-600">
+            资料整理、策略规划与问题生成
           </div>
         </div>
       </div>
@@ -1488,9 +1485,9 @@ function KeywordBackgroundJobNotice({
 }) {
   return (
     <div className="mb-5 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-xs leading-5 text-cyan-900">
-      <div className="font-semibold">{label}：{stage || "任务正在转入服务器后台"}</div>
+      <div className="font-semibold">{label}：{stage || "正在处理"}</div>
       <div className="text-[11px] text-cyan-800/80">
-        {notice || "可以切换客户或刷新页面，任务完成后结果会自动恢复。"}
+        {notice || "可以继续使用其他功能，完成后结果会自动保存。"}
       </div>
     </div>
   )
@@ -1501,9 +1498,9 @@ function KeywordBackgroundJobNotice({
 function StepProgress({ current }: { current: ToolStep }) {
   const steps: { key: ToolStep; label: string }[] = [
     { key: "input", label: "上传资料" },
-    { key: "extraction", label: "确认资料" },
-    { key: "strategy", label: "策略方案" },
-    { key: "questions", label: "疑问句池" },
+    { key: "extraction", label: "确认内容" },
+    { key: "strategy", label: "生成策略" },
+    { key: "questions", label: "生成问题" },
   ]
 
   const idx = steps.findIndex(s => s.key === current)
@@ -1563,8 +1560,8 @@ function InputStep({
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div>
-        <h1 className="geo-display-title text-xl text-slate-900">GEO 策略方案生成</h1>
-        <p className="text-sm text-slate-500 mt-1">上传客户资料，填写基础信息，系统将自动抽取结构化数据并生成优化策略</p>
+        <h1 className="geo-display-title text-xl text-slate-900">整理资料并生成策略</h1>
+        <p className="text-sm text-slate-500 mt-1">上传资料并补充基础信息，系统会整理内容并生成关键词策略</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1582,7 +1579,7 @@ function InputStep({
               <FileText className="h-8 w-8 text-slate-300 mx-auto mb-2" />
               <p className="text-xs text-slate-500">点击上传 PDF / Word / Excel / 图片 / 文本</p>
               <p className="text-[10px] text-slate-400 mt-1">支持 .doc、.docx、.xlsx、调研报告、截图和笔记</p>
-              <p className="text-[10px] text-amber-500 mt-1">图片/PDF 需视觉模型；Word/Excel 会自动提取文字和表格</p>
+              <p className="text-[10px] text-amber-500 mt-1">支持图片、PDF、Word 和 Excel 文件</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1744,7 +1741,7 @@ function InputStep({
           {!modelConfigured && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 flex items-start gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              关键词策略模型暂未在后台配置，配置完成后即可抽取资料。
+              资料整理功能暂时不可用，请稍后再试或联系管理员。
             </div>
           )}
 
@@ -1752,8 +1749,8 @@ function InputStep({
             <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-xs text-amber-800 flex items-start gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <div>
-                <div className="font-semibold mb-1">当前模型不支持图片/PDF</div>
-                <div><code className="bg-amber-100 px-1 rounded">{modelName}</code> 是纯文本模型，无法识别图片和 PDF 中的内容。请将模型名改为：<code className="bg-green-100 px-1 rounded text-green-800">qwen3-vl-plus</code></div>
+                <div className="font-semibold mb-1">当前选择不支持图片或 PDF</div>
+                <div>请改用支持图片识别的模型，或上传 Word、Excel 等可读取文字的文件。</div>
               </div>
             </div>
           )}
@@ -1766,9 +1763,9 @@ function InputStep({
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-white hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none transition-all"
           >
             {extracting ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> AI 正在抽取资料...</>
+              <><Loader2 className="h-4 w-4 animate-spin" /> 正在整理资料...</>
             ) : (
-              <><Sparkles className="h-4 w-4" /> 提交并抽取资料</>
+              <><Sparkles className="h-4 w-4" /> 上传并整理资料</>
             )}
           </button>
         </div>
@@ -1845,7 +1842,7 @@ function ExtractionStep({
     <div className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">确认资料抽取结果</h1>
+          <h1 className="text-xl font-bold text-slate-800">确认整理结果</h1>
           <p className="text-xs text-slate-500 mt-1">编辑、删除或新增条目后，点击「确认并生成策略」</p>
         </div>
         <div className="flex items-center gap-2">
@@ -1938,7 +1935,7 @@ function ExtractionStep({
                   placeholder="编辑内容..."
                 />
                 {item.confidence === "low" && (
-                  <span className="text-[10px] text-amber-500 whitespace-nowrap bg-amber-50 px-1.5 py-0.5 rounded">置信度低</span>
+                  <span className="text-[10px] text-amber-500 whitespace-nowrap bg-amber-50 px-1.5 py-0.5 rounded">资料较少</span>
                 )}
                 <button onClick={() => removeItem(section.key, i)}
                   className="p-1 text-slate-300 hover:text-red-400 transition shrink-0">
@@ -2013,7 +2010,7 @@ function ExtractionStep({
           <button onClick={onReExtract} disabled={reExtracting}
             className="text-sm inline-flex w-full items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 disabled:opacity-50 transition sm:w-auto">
             {reExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            重新抽取
+            重新整理
           </button>
           <button onClick={onGenerate} disabled={generating}
             className="text-sm inline-flex w-full items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#1677FF] to-[#00C8FF] text-white font-semibold hover:shadow-lg hover:shadow-blue-300/30 disabled:opacity-50 transition-all sm:w-auto">
@@ -2134,11 +2131,11 @@ function StrategyStep({
       const prompt = String(job.result?.prompt || "").trim()
       if (!prompt) {
         if (key === "official") {
-          setOfficialPromptError("后台官网 Prompt 结果不完整，请重新生成。")
+          setOfficialPromptError("官网建站指令生成不完整，请重新生成。")
         } else {
           setThirdPartyPromptErrors(current => ({
             ...current,
-            [key]: "后台第三方网站 Prompt 结果不完整，请重新生成。",
+            [key]: "第三方网站建站指令生成不完整，请重新生成。",
           }))
         }
         onChangeWebsitePromptJob()
@@ -2213,7 +2210,7 @@ function StrategyStep({
           </button>
           <div className="h-5 w-px bg-slate-200" />
           <button onClick={onExportJson} className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition">
-            <Download className="h-3.5 w-3.5" /> JSON
+            <Download className="h-3.5 w-3.5" /> 数据备份
           </button>
           <button onClick={onExportMarkdown} className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition">
             <Download className="h-3.5 w-3.5" /> Markdown
@@ -2251,7 +2248,7 @@ function StrategyStep({
 
       {websitePromptJobRef && (
         <KeywordBackgroundJobNotice
-          label={websitePromptKey === "official" ? "官网 Prompt 生成" : "第三方网站 Prompt 生成"}
+          label={websitePromptKey === "official" ? "官网建站指令" : "第三方网站建站指令"}
           stage={websitePromptJobState.currentJob?.stage}
           notice={websitePromptJobState.connectionNotice}
         />
@@ -2296,9 +2293,9 @@ function StrategyStep({
         <Card title="官网建设策略" icon={<Settings className="h-4 w-4 text-indigo-500" />}>
           <div className="mb-4 flex flex-col gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-700">完整官网建设 Prompt</div>
+              <div className="text-sm font-semibold text-slate-700">完整官网建站指令</div>
               <div className="mt-1 text-xs leading-relaxed text-slate-500">
-                通义千问会把下方全部建议合并为一个可直接建站的完整 Prompt，{isPerson ? "人物资料" : "品牌资料"}由你另外提供。
+                系统会把下方建议整理成一份可直接使用的建站指令，{isPerson ? "人物资料" : "品牌资料"}可以另外补充。
               </div>
             </div>
             <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end">
@@ -2311,7 +2308,7 @@ function StrategyStep({
                 {officialPromptLoading
                   ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   : <Sparkles className="h-3.5 w-3.5" />}
-                {officialPromptLoading ? "通义千问生成中..." : officialPrompt ? "重新生成完整 Prompt" : "生成完整官网 Prompt"}
+                {officialPromptLoading ? "正在生成..." : officialPrompt ? "重新生成建站指令" : "生成官网建站指令"}
               </button>
             </div>
           </div>
@@ -2330,7 +2327,7 @@ function StrategyStep({
                 prompt={officialPrompt}
                 copied={copiedPromptKey === "official-complete"}
                 onCopy={handleCopyPrompt}
-                title="完整官网建设 Prompt"
+                title="完整官网建站指令"
               />
             </div>
           )}
@@ -2383,10 +2380,10 @@ function StrategyStep({
                     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     : <Sparkles className="h-3.5 w-3.5" />}
                   {thirdPartyPromptLoadingKey === `third-${i}`
-                    ? "DeepSeek 生成中..."
+                    ? "正在生成..."
                     : thirdPartyPrompts[`third-${i}`]
-                      ? "重新生成 Prompt"
-                      : "DeepSeek 生成 Prompt"}
+                      ? "重新生成建站指令"
+                      : "生成建站指令"}
                 </button>
                 {thirdPartyPromptErrors[`third-${i}`] && (
                   <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-600">
@@ -2401,12 +2398,12 @@ function StrategyStep({
                       prompt={thirdPartyPrompts[`third-${i}`]}
                       copied={copiedPromptKey === `third-${i}`}
                       onCopy={handleCopyPrompt}
-                      title="DeepSeek 生成的第三方建站 Prompt"
+                      title="第三方网站建站指令"
                     />
                   ) : thirdPartyPromptLoadingKey === `third-${i}` ? (
                     <div className="mt-3 flex items-center gap-2 rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-3 text-xs text-cyan-700">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>DeepSeek 正在生成这个第三方验证网站的专属 Prompt...</span>
+                      <span>正在生成这个第三方网站的专属建站指令...</span>
                     </div>
                   ) : null
                 )}
@@ -2619,18 +2616,6 @@ function StrategyStep({
         )}
       </Card>
       </div>
-
-      {/* JSON Preview */}
-      <details className="geo-panel">
-        <summary className="px-5 py-3 text-sm font-medium text-slate-500 cursor-pointer hover:text-slate-700 transition select-none">
-          JSON 原文预览
-        </summary>
-        <div className="px-5 pb-4">
-          <pre className="text-[11px] leading-relaxed text-slate-600 bg-slate-50 rounded-xl p-4 overflow-x-auto max-h-96 overflow-y-auto">
-            {JSON.stringify(plan, null, 2)}
-          </pre>
-        </div>
-      </details>
     </div>
   )
 }
@@ -2644,13 +2629,13 @@ function QuestionJobProgressBar({ progress }: { progress: QuestionJobProgress })
     ? `第 ${Math.min(progress.currentBatch, progress.totalBatches)}/${progress.totalBatches} 批`
     : "准备中"
   const longTaskText = progress.totalCount >= 300
-    ? "大批量任务会持续后台生成，可切换客户面板，完成后自动写入当前客户。"
+    ? "大批量疑问句会分批生成，可以切换页面，完成后自动保存。"
     : ""
 
   return (
     <div className="rounded-lg border border-[#BAE0FF] bg-[#F5F9FF] px-3 py-2.5">
       <div className="mb-1.5 flex items-center justify-between gap-3 text-[11px] text-[#0958D9]">
-        <span className="font-medium">后台生成中</span>
+        <span className="font-medium">生成中</span>
         <span>{progress.completedCount}/{progress.totalCount} 条 · {batchText}</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-white">
@@ -2718,10 +2703,10 @@ function QuestionSettingsPanel({
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : "border-slate-200 bg-slate-50 text-slate-500"
   const selectedProviderStatusText = selectedProviderMissingKey
-    ? "后台 API Key 未配置"
+    ? "暂不可用"
     : selectedProviderSetting
-      ? "后台 API Key 已配置"
-      : "正在读取后台配置"
+      ? "可用"
+      : "正在确认可用状态"
   const selectedModelOption = QUESTION_MODEL_OPTIONS[questionModelProvider].find(option => option.model === questionModel)
   const generateDisabled = totalTooHigh || noSectionsSelected || keywordCustomMissing || painCustomMissing || selectedProviderMissingKey
 
@@ -2786,8 +2771,8 @@ function QuestionSettingsPanel({
         <div className="rounded-lg border border-slate-200 bg-white p-3">
           <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-slate-600">AI 模型</div>
-              <div className="text-[10px] text-slate-400">模型名称已按官方文档核对至 {QUESTION_MODEL_OPTIONS_LAST_VERIFIED}</div>
+              <div className="text-[11px] font-semibold text-slate-600">选择模型</div>
+              <div className="text-[10px] text-slate-400">不同模型会分别生成独立结果</div>
             </div>
             <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-0.5">
               {(["qwen", "doubao"] as QuestionModelProvider[]).map(provider => (
@@ -3129,7 +3114,7 @@ function WebsitePromptPanel({
   prompt,
   copied,
   onCopy,
-  title = "可复制建站 Prompt",
+  title = "可复制建站指令",
 }: {
   promptKey: string
   prompt: string
@@ -3146,7 +3131,7 @@ function WebsitePromptPanel({
           className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100 sm:w-auto"
         >
           {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "已复制" : "复制 Prompt"}
+          {copied ? "已复制" : "复制建站指令"}
         </button>
       </div>
       <textarea

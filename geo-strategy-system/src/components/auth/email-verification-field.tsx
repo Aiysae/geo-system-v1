@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Loader2, MailCheck } from "lucide-react"
 import type { EmailVerificationPurpose } from "@/lib/email-verification"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 
 export function EmailVerificationField({
   email,
@@ -57,7 +58,7 @@ export function EmailVerificationField({
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setError(data?.error || "验证码发送失败")
+        setError(toUserFacingError(data?.error, { status: res.status, fallback: "验证码发送失败，请稍后重试。", subject: "验证码发送" }))
         return
       }
 
@@ -66,8 +67,8 @@ export function EmailVerificationField({
       const cooldownSeconds = Math.max(1, Number(data?.cooldownSeconds || 60))
       setAvailableAt(Date.now() + cooldownSeconds * 1000)
       setRemaining(cooldownSeconds)
-    } catch {
-      setError("网络连接失败，请稍后重试")
+    } catch (caught) {
+      setError(toUserFacingError(caught, { fallback: "网络连接失败，请稍后重试。", subject: "验证码发送" }))
     } finally {
       setSending(false)
     }

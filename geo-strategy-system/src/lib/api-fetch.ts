@@ -1,3 +1,5 @@
+import { toUserFacingError } from "@/lib/user-facing-errors"
+
 // 模块级桥接器：让客户端组件中的 fetch wrapper 能回调 React Context。
 // CreditsProvider 在 mount 时注册回调；apiFetch 在收到 403 时触发。
 
@@ -31,11 +33,10 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       ...init,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : "网络连接失败"
-    if (/failed to fetch|fetch failed|load failed|networkerror/i.test(message)) {
-      throw new Error("网络请求未完成，可能是服务响应超时或网络连接中断，请稍后重试。")
-    }
-    throw new Error(`请求失败：${message}`)
+    throw new Error(toUserFacingError(error, {
+      fallback: "请求未完成，请稍后重试。",
+      subject: "请求",
+    }))
   }
 
   if (res.status === 403) {
@@ -67,16 +68,27 @@ export async function readApiJson<T = Record<string, unknown>>(
   }
 
   try {
-    return JSON.parse(text) as T
+    const data = JSON.parse(text) as T
+    if (data && typeof data === "object" && "error" in data) {
+      const record = data as Record<string, unknown>
+      if (typeof record.error === "string") {
+        record.error = toUserFacingError(record.error, {
+          fallback: `${label}未完成，请稍后重试。`,
+          status: res.status,
+          subject: label,
+        })
+      }
+    }
+    return data
   } catch {
     const looksLikeHtml = /^\s*</.test(text) || /<!doctype\s+html/i.test(text)
     if (looksLikeHtml) {
       const timedOut = [408, 502, 503, 504].includes(res.status) || /timeout|timed out/i.test(text)
       if (timedOut) {
-        throw new Error(`${label}处理时间过长，服务网关已中断。请减少单次任务量或稍后重新发起。`)
+        throw new Error(`${label}处理时间较长，请稍后查看结果或重新尝试。`)
       }
-      throw new Error(`${label}服务返回了异常页面（HTTP ${res.status}），请刷新后重试。`)
+      throw new Error(`${label}暂时不可用，请刷新后重试。`)
     }
-    throw new Error(`${label}返回格式异常（HTTP ${res.status}），请稍后重试。`)
+    throw new Error(`${label}结果生成不完整，请稍后重试。`)
   }
 }

@@ -7,7 +7,6 @@ import {
   ExternalLink,
   FileText,
   Globe2,
-  KeyRound,
   Link,
   Loader2,
   RefreshCw,
@@ -38,6 +37,7 @@ import {
 } from "@/lib/analysis-subject"
 import { cancelBackgroundJob, createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type {
   ArticleGenerationState,
@@ -234,7 +234,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
       } catch (error) {
         if (!cancelled) {
-          setSettingsError(error instanceof Error ? error.message : "配置读取失败")
+          setSettingsError(toUserFacingError(error, { fallback: "文章创作暂时不可用，请稍后重试。", subject: "文章创作" }))
         }
       }
     }
@@ -340,7 +340,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         const next = {
           ...article,
           status: "error" as const,
-          error: "后台文章任务没有返回有效内容，请重新生成。",
+          error: "文章内容生成不完整，请重新生成。",
         }
         persistArticleAndJob(next)
         return
@@ -591,7 +591,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       persist({
         ...extracting,
         extractStatus: "error",
-        extractError: error instanceof Error ? error.message : "文章读取失败",
+        extractError: toUserFacingError(error, { fallback: "文章读取失败，请稍后重试。", subject: "文章读取" }),
       })
     }
   }
@@ -652,7 +652,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         error: undefined,
       })
     } catch (error) {
-      setBrandAnalysisError(error instanceof Error ? error.message : "品牌分析失败")
+      setBrandAnalysisError(toUserFacingError(error, { fallback: "品牌分析失败，请稍后重试。", subject: "品牌分析" }))
     } finally {
       setAnalyzingBrands(false)
     }
@@ -702,7 +702,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     } catch (error) {
       persist({
         ...article,
-        error: error instanceof Error ? error.message : "停止任务失败，后台任务仍在继续。",
+        error: `${toUserFacingError(error, { fallback: "暂时无法停止文章生成。", subject: "停止文章生成" })} 文章仍会继续生成。`,
       })
     } finally {
       setStoppingJob(false)
@@ -722,20 +722,11 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 文章生成 · GEO 内容写作台
               </div>
               <div className="geo-module-description truncate">
-                {isBatch ? "批量生成" : isRewrite ? "文章改写" : activePrompt.title} · {article.model || activeProvider?.model || "后台托管模型"}
+                {isBatch ? "批量文章创作" : isRewrite ? "文章改写" : activePrompt.title}
               </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {activeProvider && (
-              <span className={activeProvider.hasApiKey
-                ? "inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-100"
-                : "inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-700 ring-1 ring-rose-100"
-              }>
-                <KeyRound className="h-3 w-3" />
-                {activeProvider.hasApiKey ? "Key 已配置" : "Key 未配置"}
-              </span>
-            )}
             {article.generatedAt && (
               <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] text-slate-500">
                 {new Date(article.generatedAt).toLocaleString("zh-CN", { hour12: false })}
@@ -789,7 +780,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-xs">
-                <span className="mb-1.5 block font-medium text-slate-500">模型来源</span>
+                <span className="mb-1.5 block font-medium text-slate-500">选择模型</span>
                 <Select
                   value={article.modelProvider}
                   onChange={event => updateProvider(event.target.value as ArticleModelProviderKey)}
@@ -803,7 +794,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 </Select>
               </label>
               <Label className="text-xs">
-                <span className="mb-1.5 block font-medium text-slate-500">模型名 / Endpoint</span>
+                <span className="mb-1.5 block font-medium text-slate-500">具体模型</span>
                 <Input
                   value={article.model}
                   onChange={event => updateField("model", event.target.value)}
@@ -822,7 +813,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           <section className="geo-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="text-xs font-semibold text-slate-700">
-                {isRewrite ? "改写模板" : "Prompt 模板"}
+                {isRewrite ? "改写模板" : "创作模板"}
               </div>
               <span className="text-[10px] text-slate-400">{visiblePrompts.length} 个模板</span>
             </div>
@@ -1200,10 +1191,10 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           {!isBatch && isGenerating && (
             <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs leading-5 text-cyan-800">
               <div className="font-medium">
-                {articleJobState.currentJob?.stage || "任务正在转入服务器后台"}
+                {articleJobState.currentJob?.stage || "正在生成文章"}
               </div>
               <div className="text-[11px] text-cyan-700/80">
-                {articleJobState.connectionNotice || "可以切换客户或刷新页面，生成结果会自动恢复。"}
+                {articleJobState.connectionNotice || "可以继续使用其他功能，完成后文章会自动保存。"}
               </div>
             </div>
           )}
@@ -1225,8 +1216,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               )}
               {isGenerating
                 ? articleJobState.currentJob?.status === "queued"
-                  ? "任务排队中..."
-                  : isRewrite ? "后台改写中..." : "后台生成中..."
+                  ? "正在排队..."
+                  : isRewrite ? "改写中..." : "生成中..."
                 : hasOutput
                   ? isRewrite ? "重新改写文章" : "重新生成文章"
                   : isRewrite ? "开始改写文章" : "生成文章"}

@@ -170,12 +170,12 @@ function InsufficientCreditsModal({
               <Sparkles className="h-5 w-5 text-white" />
             </span>
             <h2 className="text-lg font-bold tracking-tight text-slate-900">
-              体验算力积分不足
+              积分不足
             </h2>
           </div>
 
           <p className="text-sm text-slate-600 leading-relaxed">
-            当前体验算力积分不足以完成本次任务。你可以选择充值套餐，或减少问题数量 / 检测模型后重试。
+            当前积分不足以完成本次操作。可以选择充值套餐，或减少本次处理数量后重试。
           </p>
 
           {(typeof required === "number" || typeof balance === "number") && (

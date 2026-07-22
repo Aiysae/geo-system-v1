@@ -28,6 +28,7 @@ import {
   type ActiveRechargePackageKey,
 } from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 
 type PaymentOptions = {
   alipay: boolean
@@ -275,7 +276,7 @@ function RechargeDialog({
       }
       window.location.assign(payload.paymentUrl)
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : "支付宝下单失败，请稍后重试")
+      setCheckoutError(toUserFacingError(error, { fallback: "支付宝下单失败，请稍后重试。", subject: "支付宝下单" }))
       setCheckoutPending(false)
     }
   }
@@ -297,7 +298,7 @@ function RechargeDialog({
       }
     } catch (error) {
       if (!silent) {
-        setCheckoutError(error instanceof Error ? error.message : "微信支付状态查询失败")
+        setCheckoutError(toUserFacingError(error, { fallback: "暂时无法查询微信支付状态，请稍后重试。", subject: "微信支付" }))
       }
     }
   }, [refresh])
@@ -382,7 +383,7 @@ function RechargeDialog({
       })
       setCheckoutPending(false)
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : "微信支付下单失败，请稍后重试")
+      setCheckoutError(toUserFacingError(error, { fallback: "微信支付下单失败，请稍后重试。", subject: "微信支付下单" }))
       setCheckoutPending(false)
     }
   }
@@ -743,7 +744,7 @@ function RechargeDialog({
                     <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-[#1677FF]" />
                     <p>
                       {officialPayment
-                        ? "官方支付通道会核验支付平台签名和实付金额，付款成功后积分自动到账。"
+                        ? "付款成功后积分自动到账，可以在账单页面查看记录。"
                         : RECHARGE_PAYMENT_INFO.notice}
                     </p>
                   </div>
@@ -955,7 +956,7 @@ function PaymentMethodInfo({
           </div>
         ) : (
           <div className="rounded-lg bg-white/80 px-3 py-2 text-[11px] text-rose-600 ring-1 ring-rose-100">
-            当前未配置对公账户信息，请联系管理员。
+            当前暂不提供对公转账，请选择其他付款方式或联系客服。
           </div>
         )}
         <p className="mt-2 text-[11px] text-slate-500">
@@ -977,8 +978,8 @@ function PaymentMethodInfo({
         </div>
         {!wechatCheckout ? (
           <>
-            <p>点击下方按钮生成本次订单的微信官方付款码。系统会验证微信签名和实付金额，无需上传付款截图。</p>
-            <p className="mt-1 text-[11px] text-slate-500">手机端在 H5 通道审核通过后会自动进入微信收银台。</p>
+            <p>点击下方按钮获取微信付款码，支付成功后积分自动到账。</p>
+            <p className="mt-1 text-[11px] text-slate-500">手机端将直接进入微信收银台。</p>
           </>
         ) : (
           <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-emerald-200">
@@ -1029,7 +1030,7 @@ function PaymentMethodInfo({
           <AlipayBrandMark compact />
           <span className="text-[11px] text-[#0958D9]">官方在线支付</span>
         </div>
-        <p>点击下方按钮进入支付宝官方收银台。系统以支付平台签名回调和订单主动查询双重确认到账，不需要上传付款截图。</p>
+        <p>点击下方按钮进入支付宝收银台，支付成功后积分自动到账。</p>
         <p className="mt-1 text-[11px] text-slate-500">支付成功后请返回本系统，积分通常会在数秒内自动到账。</p>
       </div>
     )
@@ -1060,11 +1061,11 @@ function PaymentMethodInfo({
           </div>
         ) : (
           <div className="rounded-lg bg-white px-3 py-2 text-[11px] text-rose-600 ring-1 ring-rose-100">
-            当前未配置该付款方式的收款码，请切换其他方式或联系管理员。
+            当前暂不提供该付款方式，请切换其他方式或联系客服。
           </div>
         )}
         <p className="mt-2 text-[11px] text-slate-500">
-          付款后请在下方填写付款人、交易号或付款截图链接，便于后台核对到账。
+          付款后请填写付款人、交易号或付款凭证，便于确认到账。
         </p>
       </div>
     )

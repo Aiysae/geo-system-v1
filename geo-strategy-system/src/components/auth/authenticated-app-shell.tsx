@@ -9,6 +9,7 @@ import { AdminRechargeNotifier } from "@/components/admin/admin-recharge-notifie
 import { useCredits } from "@/components/credits/credits-provider"
 import type { PublicUser } from "@/lib/auth"
 import type { WorkspaceAccountAccess } from "@/types"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 
 type AuthState = "checking" | "authenticated" | "error"
 
@@ -58,11 +59,18 @@ export function AuthenticatedAppShell() {
           window.location.replace("/sign-in?redirect_url=/workspace")
           return
         }
-        setMessage(`登录状态确认失败（HTTP ${res.status}），请刷新后重试。`)
+        setMessage(toUserFacingError("", {
+          status: res.status,
+          fallback: "登录状态确认失败，请刷新后重试。",
+          subject: "登录状态确认",
+        }))
         setState("error")
       } catch (error) {
         if (cancelled) return
-        setMessage(error instanceof Error ? error.message : "登录状态确认失败，请刷新后重试。")
+        setMessage(toUserFacingError(error, {
+          fallback: "登录状态确认失败，请刷新后重试。",
+          subject: "登录状态确认",
+        }))
         setState("error")
       }
     }

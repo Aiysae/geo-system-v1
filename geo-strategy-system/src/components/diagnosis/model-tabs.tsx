@@ -41,9 +41,9 @@ export default function ModelTabs({ data }: Props) {
               {t.hint}
             </div>
             <dl className="space-y-3">
-              <Row label="抓取偏好" value={d?.preference} tone="neutral" />
-              <Row label="核心失分项" value={d?.weakness} tone="warn" />
-              <Row label="修复动作" value={d?.fix} tone="action" />
+              <Row label="内容偏好" value={d?.preference} tone="neutral" />
+              <Row label="主要短板" value={d?.weakness} tone="warn" />
+              <Row label="优先动作" value={d?.fix} tone="action" />
             </dl>
           </TabsContent>
         )

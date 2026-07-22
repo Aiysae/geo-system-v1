@@ -79,7 +79,7 @@ export default function BrandRankingCard({
                     hasValidAnswer ? "text-slate-700" : "text-red-500"
                   }`}
                 >
-                  {hasValidAnswer ? `${p.mentions}/${p.total} · ${pct}%` : "调用失败"}
+                  {hasValidAnswer ? `${p.mentions}/${p.total} · ${pct}%` : "未获得有效回答"}
                 </span>
               </div>
             )

@@ -132,23 +132,23 @@ export default function PenetrationModule({
             setProgressLabel("")
             const historyNotice = job.historySavedAt
               ? "已保存到检测历史。"
-              : "检测历史正在后台补存。"
+              : "检测记录正在保存。"
             setCompletionNotice(
               job.operation === "append"
-                ? `本题重新检测已完成：新的独立联网回答已追加，旧回答仍然保留。${historyNotice}`
+                ? `本题重新检测完成，新的联网回答已追加，原回答仍然保留。${historyNotice}`
                 : completedQuestions && completedModels
-                ? `疑问句检测已完成：${job.totalSlots} 次独立采样（${completedQuestions} 个不同问题、${completedModels} 个模型）。${historyNotice}`
-                : `疑问句检测已完成：${job.completedSlots} 项结果已更新。${historyNotice}`,
+                ? `疑问句检测完成：共 ${job.totalSlots} 项结果，覆盖 ${completedQuestions} 个问题和 ${completedModels} 个模型。${historyNotice}`
+                : `疑问句检测完成：${job.completedSlots} 项结果已更新。${historyNotice}`,
             )
             return
           }
           if (job.status === "failed") {
             onChangeClient({ penetrationJobId: undefined })
-            setError(job.error || "疑问句检测后台任务失败")
+            setError(job.error || "疑问句检测未完成，请稍后重试。")
             setCompletionNotice(
               job.historySavedAt
-                ? "本次失败原因和检测输入已保存到检测历史。"
-                : "本次失败记录正在后台补存。",
+                ? "本次检测记录已保存到历史。"
+                : "本次检测记录正在保存。",
             )
             setLoading(false)
             setRetestingSampleId(null)
@@ -160,11 +160,11 @@ export default function PenetrationModule({
               ...(job.result ? { penetration: job.result } : {}),
               penetrationJobId: undefined,
             })
-            setError(job.error || "部分模型在多轮联网补采后仍不可用，请检查对应模型配置。")
+            setError(job.error || "部分模型暂未返回完整结果，可以稍后重新检测。")
             setCompletionNotice(
               job.historySavedAt
-                ? "本次已完成的有效结果已保存到检测历史。"
-                : "本次部分结果正在后台补存。",
+                ? "已完成的结果已保存到检测历史。"
+                : "已完成的结果正在保存。",
             )
             setLoading(false)
             setRetestingSampleId(null)
@@ -179,8 +179,8 @@ export default function PenetrationModule({
             setError(job.result ? "检测已停止，已保留当前完成结果。" : "检测已停止。")
             setCompletionNotice(
               job.historySavedAt
-                ? "本次停止前的输入和已完成结果已保存到检测历史。"
-                : "本次停止记录正在后台补存。",
+                ? "停止前已完成的结果已保存到检测历史。"
+                : "停止前已完成的结果正在保存。",
             )
             setLoading(false)
             setRetestingSampleId(null)
@@ -191,7 +191,7 @@ export default function PenetrationModule({
           if (stopped || controller.signal.aborted) return
           failedPolls += 1
           if (failedPolls >= 3) {
-            setError("后台检测仍在继续，刚才进度刷新失败；系统会自动重试，不需要重新发起任务。")
+            setError("检测仍在继续，进度暂时未更新，系统会自动重试。")
           }
         }
 
@@ -213,7 +213,7 @@ export default function PenetrationModule({
     setSkipped([])
     setModelErrors({})
     setModelProgress({})
-    setProgressLabel(params.operation === "append" ? "正在创建本题独立重测任务..." : "正在创建后台检测任务...")
+    setProgressLabel(params.operation === "append" ? "正在重新检测本题..." : "正在开始检测...")
     try {
       const requestId = createBackgroundRequestId("penetration")
       const job = await createIdempotentApiJob<PenetrationJobRecord & { error?: string }>({
@@ -234,15 +234,15 @@ export default function PenetrationModule({
           operation: params.operation || "replace",
         },
         onRetry: () => {
-          setProgressLabel("网络暂时中断，正在确认检测任务是否已经创建...")
-          setError("请勿重复点击，系统正在用同一请求编号自动确认任务。")
+          setProgressLabel("网络暂时中断，正在确认检测是否已开始...")
+          setError("正在确认刚才的提交，请不要重复点击。")
         },
       })
-      if (!job.id) throw new Error("后台检测任务创建失败：未返回任务 ID")
+      if (!job.id) throw new Error("检测未能开始，请稍后重试。")
 
       setError(null)
       setSkipped(job.skipped || [])
-      setProgressLabel(`后台检测 0/${job.totalSlots}`)
+      setProgressLabel(`检测进度 0/${job.totalSlots}`)
       onChangeClient(identityReadOnly
         ? { penetrationJobId: job.id }
         : {
@@ -275,7 +275,7 @@ export default function PenetrationModule({
   async function handleStop() {
     const jobId = client.penetrationJobId
     if (!jobId) return
-    setProgressLabel("正在停止后台检测...")
+    setProgressLabel("正在停止检测...")
     try {
       await apiFetch(`/api/penetration/jobs/${jobId}`, {
         method: "PATCH",
@@ -333,7 +333,7 @@ export default function PenetrationModule({
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-3">
             <div>
               <div className="text-sm font-semibold text-slate-900">检测配置</div>
-              <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围后，结果将在下方按完整页面宽度生成</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围，完成后将在下方展示结果和来源</div>
             </div>
             <div className="rounded-md bg-[#001D66] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
               官方联网 · 纯净盲测
@@ -361,7 +361,7 @@ export default function PenetrationModule({
                 <div>
                   <div className="text-sm text-slate-500 mb-1">情报大盘待生成</div>
                   <div className="text-xs text-slate-400">
-                    填写上方信息后点击检测，任务会在后台分批执行，可随时切换客户面板
+                    填写上方信息后开始检测，完成后会自动保存结果
                   </div>
                 </div>
               </div>
@@ -370,7 +370,7 @@ export default function PenetrationModule({
                 <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                   <div className="geo-data-panel min-w-0 rounded-lg p-4">
                     <div className="geo-section-kicker mb-1">
-                      {subjectType === "person" ? "原始槽位个人 IP 可见率" : "原始槽位渗透率"}
+                      {subjectType === "person" ? "个人 IP 被提及率" : "品牌被提及率"}
                     </div>
                     <PenetrationDonut
                       rate={pen.aggregated.penetrationRate}
@@ -521,28 +521,23 @@ export default function PenetrationModule({
 function formatPenetrationJobProgress(job: PenetrationJobRecord): string {
   if (job.queuePosition) {
     const position = `排队第 ${job.queuePosition} 位`
-    const reason = job.queueReason === "user_limit"
-      ? "同一账号的检测将依次执行"
-      : job.queueReason === "capacity"
-        ? "系统正在公平调度其他用户"
-        : "等待后台执行位"
     return job.completedSlots > 0
-      ? `有效结果 ${job.completedSlots}/${job.totalSlots} · ${position}，${reason}`
-      : `任务已受理 · ${position}，${reason}`
+      ? `已完成 ${job.completedSlots}/${job.totalSlots} · ${position}`
+      : `检测已提交 · ${position}`
   }
   if (job.status === "queued" || job.phase === "preflight") {
-    return "任务已受理，正在分配后台执行位..."
+    return "检测已提交，正在排队..."
   }
-  const base = `有效结果 ${job.completedSlots}/${job.totalSlots}`
-  if (job.phase !== "retrying") return `${base} · 正在独立联网采样`
+  const base = `已完成 ${job.completedSlots}/${job.totalSlots}`
+  if (job.phase !== "retrying") return `${base} · 正在联网检测`
 
   const retrying = job.retryingSlots || 0
-  if (!job.nextRetryAt) return `${base} · 正在自动补采 ${retrying} 项`
+  if (!job.nextRetryAt) return `${base} · 正在补全 ${retrying} 项结果`
   const waitSeconds = Math.max(0, Math.ceil((Date.parse(job.nextRetryAt) - Date.now()) / 1000))
   const waitLabel = waitSeconds >= 60
     ? `${Math.ceil(waitSeconds / 60)} 分钟内`
     : `${Math.max(1, waitSeconds)} 秒内`
-  return `${base} · ${retrying} 项待补采，${waitLabel}继续`
+  return `${base} · ${retrying} 项待补全，${waitLabel}继续`
 }
 
 function RawAnswersPanel({
@@ -625,9 +620,9 @@ function RawAnswersPanel({
             <MessageSquare className="h-3.5 w-3.5 text-white" />
           </span>
           <div className="text-left">
-            <div className="text-sm font-medium text-slate-800">联网回答命中审计</div>
+            <div className="text-sm font-medium text-slate-800">原始联网回答与来源</div>
             <div className="text-[11px] text-slate-500">
-              每条回答均为独立请求；默认展示联网模式、提示纯净度和可审计来源
+              查看各模型的完整回答、联网状态和可点击来源
             </div>
           </div>
         </div>
@@ -663,9 +658,9 @@ function RawAnswersPanel({
                   <Globe2 className="h-3.5 w-3.5" />
                 </span>
                 <div>
-                  <div className="text-xs font-semibold text-slate-800">来源域名统计</div>
+                  <div className="text-xs font-semibold text-slate-800">来源网站概览</div>
                   <div className="text-[11px] text-slate-500 leading-relaxed">
-                    统计 {MODEL_LABELS[currentModel]} 本次可审计公开网页来源；未返回来源的结果会在单条回答里标为联网不可验证。
+                    汇总 {MODEL_LABELS[currentModel]} 本次回答引用的公开网页；未返回网址的回答会单独标记。
                   </div>
                 </div>
               </div>
@@ -676,9 +671,9 @@ function RawAnswersPanel({
               )}
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <AuditStatCard label="联网模式" value={auditStats.modeSummary} />
-              <AuditStatCard label="纯问题请求" value={`${auditStats.rawQuestionOnly}/${items.length}`} />
-              <AuditStatCard label="联网可验证" value={`${auditStats.webVerified}/${items.length}`} />
+              <AuditStatCard label="回答方式" value={auditStats.modeSummary} />
+              <AuditStatCard label="原问题直接提问" value={`${auditStats.rawQuestionOnly}/${items.length}`} />
+              <AuditStatCard label="可核验联网回答" value={`${auditStats.webVerified}/${items.length}`} />
             </div>
             {modelDomainStats.length > 0 ? (
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -708,7 +703,7 @@ function RawAnswersPanel({
               </div>
             ) : (
               <div className="mt-3 text-[11px] text-slate-500 bg-white/70 border border-dashed border-cyan-100 rounded-lg px-3 py-2">
-                该模型本次未返回可审计来源域名；请重新检测，系统会尝试补充同题公开网页采样。
+                该模型本次未返回可核验的来源网站，可以重新检测本题。
               </div>
             )}
           </div>
@@ -736,7 +731,7 @@ function RawAnswersPanel({
                           className="whitespace-nowrap rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
                           title={it.sampleId || "历史结果"}
                         >
-                          第 {meta.ordinal} 次采样{meta.total > 1 ? ` / 共 ${meta.total} 次` : ""}
+                          第 {meta.ordinal} 次检测{meta.total > 1 ? ` / 共 ${meta.total} 次` : ""}
                         </span>
                         {hit ? (
                           <span className="whitespace-nowrap rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
@@ -762,7 +757,7 @@ function RawAnswersPanel({
                   </div>
                   {it.sampledAt && (
                     <div className="mb-1.5 pl-7 text-[10px] text-slate-400">
-                      请求时间 {new Date(it.sampledAt).toLocaleString("zh-CN")}
+                      检测时间 {new Date(it.sampledAt).toLocaleString("zh-CN")}
                     </div>
                   )}
                   <AnswerItem text={it.answer} ourBrand={ourBrand} highlightFn={highlight} />
@@ -816,25 +811,25 @@ function RawAnswersPanel({
 }
 
 const SEARCH_MODE_LABELS: Record<PenetrationSearchMode, string> = {
-  native_web: "官方联网",
-  local_tool_search: "本地搜索增强",
-  presearch_context: "预搜索上下文",
+  native_web: "模型联网",
+  local_tool_search: "联网补充",
+  presearch_context: "联网补充",
   none: "未联网",
 }
 
 const PROMPT_PURITY_LABELS: Record<PenetrationPromptPurity, string> = {
-  raw_question_only: "仅原始问题",
-  tool_augmented: "带工具元数据",
-  search_context_augmented: "带搜索上下文",
-  unknown: "未知",
+  raw_question_only: "原问题直接提问",
+  tool_augmented: "联网辅助提问",
+  search_context_augmented: "结合公开网页提问",
+  unknown: "未记录",
 }
 
 function getSearchModeLabel(mode?: PenetrationSearchMode): string {
-  return mode ? SEARCH_MODE_LABELS[mode] : "旧数据未记录"
+  return mode ? SEARCH_MODE_LABELS[mode] : "未记录"
 }
 
 function getPromptPurityLabel(purity?: PenetrationPromptPurity): string {
-  return purity ? PROMPT_PURITY_LABELS[purity] : "旧数据未记录"
+  return purity ? PROMPT_PURITY_LABELS[purity] : "未记录"
 }
 
 function getModelAuditStats(items: PenetrationItem[]): {
@@ -873,7 +868,6 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
   const sourceCount = item.sourceCount ?? item.searchSources?.length ?? 0
   const verified = item.webVerified === true
   const executionOnly = verified && item.webExecutionVerified === true && sourceCount === 0
-  const providerRequestId = item.providerRequestIds?.at(-1)
   return (
     <div className="pl-7 mb-2 flex flex-wrap gap-1.5">
       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
@@ -896,22 +890,7 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
             : "官方联网已验证"
           : "官方联网不可验证"} · 来源 {sourceCount}
       </span>
-      {item.sampleId && (
-        <span
-          className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500"
-          title={`独立采样编号：${item.sampleId}`}
-        >
-          采样 {item.sampleId.slice(-8)}
-        </span>
-      )}
-      {providerRequestId && (
-        <span
-          className="rounded border border-cyan-100 bg-cyan-50 px-1.5 py-0.5 font-mono text-[10px] text-cyan-700"
-          title={`厂商请求编号：${providerRequestId}`}
-        >
-          厂商请求 {providerRequestId.slice(-8)}
-        </span>
-      )}
+
     </div>
   )
 }
@@ -971,7 +950,7 @@ function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
       <div className="rounded-lg border border-slate-100 bg-slate-50/70 px-2.5 py-2">
         {searchQueries.length > 0 && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-medium text-slate-500">实际搜索词</span>
+            <span className="text-[10px] font-medium text-slate-500">搜索关键词</span>
             {searchQueries.map(query => (
               <span
                 key={query}
@@ -984,12 +963,12 @@ function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
         )}
         {item.webFailureReason && (
           <div className="mb-1.5 rounded border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
-            {item.webFailureReason}
+            本条回答未返回可核验来源，可以重新检测。
           </div>
         )}
         {domains.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-medium text-slate-500">参考域名</span>
+            <span className="text-[10px] font-medium text-slate-500">来源网站</span>
             {domains.map(source => (
               <span
                 key={source.domain}

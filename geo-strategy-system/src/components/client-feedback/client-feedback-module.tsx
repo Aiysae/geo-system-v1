@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import ClientFeedbackReportView from "@/components/client-feedback/client-feedback-report-view"
 import type { Client } from "@/types"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   ClientExecutionAction,
   ClientExecutionProfile,
@@ -153,11 +154,11 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     try {
       const response = await fetch(endpoint, { cache: "no-store" })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "执行反馈读取失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "执行反馈读取失败，请稍后重试。", subject: "执行反馈" }))
       setPayload(body as Payload)
       setProfileDraft((body as Payload).profile)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "执行反馈读取失败")
+      setError(toUserFacingError(caught, { fallback: "执行反馈读取失败，请稍后重试。", subject: "执行反馈" }))
     } finally {
       if (!silent) setLoading(false)
     }
@@ -202,12 +203,12 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         }),
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "执行设置保存失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "执行设置保存失败，请稍后重试。", subject: "执行设置" }))
       setSettingsOpen(false)
       setNotice("执行设置已保存")
       await load(true)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "执行设置保存失败")
+      setError(toUserFacingError(caught, { fallback: "执行设置保存失败，请稍后重试。", subject: "执行设置" }))
     } finally {
       setPending("")
     }
@@ -240,12 +241,12 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         }),
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "动作记录保存失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "动作记录保存失败，请稍后重试。", subject: "动作记录" }))
       setActionOpen(false)
       setNotice("动作记录已保存")
       await load(true)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "动作记录保存失败")
+      setError(toUserFacingError(caught, { fallback: "动作记录保存失败，请稍后重试。", subject: "动作记录" }))
     } finally {
       setPending("")
     }
@@ -260,10 +261,10 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         method: "DELETE",
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "动作记录删除失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "动作记录删除失败，请稍后重试。", subject: "删除动作记录" }))
       await load(true)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "动作记录删除失败")
+      setError(toUserFacingError(caught, { fallback: "动作记录删除失败，请稍后重试。", subject: "删除动作记录" }))
     } finally {
       setPending("")
     }
@@ -280,12 +281,12 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         body: JSON.stringify({ type, targetDate: reportTargetDate }),
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "反馈报告生成失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "反馈报告生成失败，请稍后重试。", subject: "反馈报告" }))
       setPreviewReport(body.report as ClientFeedbackReport)
       setNotice("报告草稿已生成，确认后可发布给客户")
       await load(true)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "反馈报告生成失败")
+      setError(toUserFacingError(caught, { fallback: "反馈报告生成失败，请稍后重试。", subject: "反馈报告" }))
     } finally {
       setPending("")
     }
@@ -301,7 +302,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         body: JSON.stringify({ action: "publish" }),
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "报告发布失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "报告发布失败，请稍后重试。", subject: "报告发布" }))
       const url = new URL(body.sharePath, window.location.origin).toString()
       setShareUrl(url)
       let copied = false
@@ -317,7 +318,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
       if (copied) window.setTimeout(() => setCopiedReportId(""), 2_000)
       await load(true)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "报告发布失败")
+      setError(toUserFacingError(caught, { fallback: "报告发布失败，请稍后重试。", subject: "报告发布" }))
     } finally {
       setPending("")
     }
@@ -387,7 +388,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
               </button>
             </div>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-xs text-[#6B8299]"><LockKeyhole className="h-3.5 w-3.5" />客户只读视图</span>
+            <span className="inline-flex items-center gap-1.5 text-xs text-[#6B8299]"><LockKeyhole className="h-3.5 w-3.5" />客户浏览模式</span>
           )}
         </div>
       </section>
@@ -410,7 +411,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
           <header className="flex items-center justify-between gap-3 border-b border-[#E7EFF6] px-4 py-3">
             <div>
               <h3 className="flex items-center gap-2 text-sm font-semibold"><CalendarDays className="h-4 w-4 text-[#1677FF]" />执行日历</h3>
-              <p className="mt-0.5 text-[10px] text-[#7E91A7]">系统检测和人工动作统一落在执行日期上</p>
+              <p className="mt-0.5 text-[10px] text-[#7E91A7]">检测结果与执行记录按日期汇总</p>
             </div>
             <div className="flex items-center gap-1">
               <button type="button" onClick={() => setCalendarMonth(value => shiftMonth(value, -1))} className="rounded-md p-2 text-[#6B8299] hover:bg-[#EEF5FC]" aria-label="上个月"><ChevronLeft className="h-4 w-4" /></button>
@@ -475,7 +476,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E7EFF6] px-4 py-3">
           <div>
             <h3 className="flex items-center gap-2 text-sm font-semibold"><FileBarChart2 className="h-4 w-4 text-[#6C5CE7]" />周报与月报</h3>
-            <p className="mt-0.5 text-[10px] text-[#7E91A7]">报告发布后同步到客户账号，并可生成私密验证链接</p>
+            <p className="mt-0.5 text-[10px] text-[#7E91A7]">发布后客户可在账号中查看，也可通过私密链接验证</p>
           </div>
           {payload.canManage ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -504,7 +505,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                   <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${report.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{report.status === "published" ? "已发布" : "草稿"}</span>
                 </div>
                 <h4 className="mt-3 break-words text-sm font-semibold">{report.snapshot.reportTitle}</h4>
-                <p className="mt-1 text-[11px] text-[#7E91A7]">{report.periodStart} 至 {report.periodEnd} · V{report.version}</p>
+                <p className="mt-1 text-[11px] text-[#7E91A7]">{report.periodStart} 至 {report.periodEnd}</p>
                 <div className="mt-4 flex items-center gap-2">
                   <button type="button" onClick={() => setPreviewReport(report)} className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-[#C8D9E8] bg-white text-xs font-semibold text-[#38536E] hover:border-[#91CAFF]">
                     <ExternalLink className="h-3.5 w-3.5" />查看

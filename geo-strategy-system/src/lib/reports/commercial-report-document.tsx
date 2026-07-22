@@ -643,7 +643,7 @@ function reportVocabulary(input: CommercialReportInput) {
     ? {
         subject: "人物",
         target: "目标人物",
-        visibility: "个人 IP 可见率",
+        visibility: "个人 IP 被提及率",
         ranking: "同行人物声量排名",
         competitors: "同行人物",
         assets: "专业身份与内容资产",
@@ -651,7 +651,7 @@ function reportVocabulary(input: CommercialReportInput) {
     : {
         subject: "品牌",
         target: "目标品牌",
-        visibility: "品牌渗透率",
+        visibility: "品牌被提及率",
         ranking: "品牌声量排名",
         competitors: "竞品",
         assets: "品牌资产",
@@ -668,7 +668,7 @@ function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer
       : `当前未进入${terms.ranking}`
     sections.push(
       `本次多模型检测覆盖 ${distinctQuestions(answers)} 条疑问句、${penetration.perModelRate.length} 个模型和 ${penetration.totalSlots} 个有效检测槽位；`
-      + `原始槽位${terms.visibility}为 ${percent(penetration.penetrationRate)}`
+      + `${terms.visibility}为 ${percent(penetration.penetrationRate)}`
       + (penetration.categoryBalancedRate != null ? `，七类问题均衡率为 ${percent(penetration.categoryBalancedRate)}` : "")
       + `，样本属于${sampleConfidenceLabel(penetration.sampleQuality?.confidence)}结果，${rank}。`,
     )
@@ -688,7 +688,7 @@ function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer
     )
   }
   if (answers.length > 0) {
-    sections.push(`联网可验证率为 ${percent(verifiedRate(answers))}，本报告仅基于系统已保存的检测结果与可审计信源生成。`)
+    sections.push(`联网可验证率为 ${percent(verifiedRate(answers))}，本报告仅基于已保存的检测结果和可核验来源生成。`)
   }
   return sections.join("") || "当前客户尚未生成可用于报告的检测或难度测评数据。"
 }
@@ -913,7 +913,7 @@ function CoverPage({ input }: { input: CommercialReportInput }) {
           <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>客户</Text><Text style={styles.coverMetaValue}>{input.client.name}</Text></View>
           <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>{terms.target}</Text><Text style={styles.coverMetaValue}>{input.client.ourBrand || "未填写"}</Text></View>
           <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>行业</Text><Text style={styles.coverMetaValue}>{input.client.industry || "未填写"}</Text></View>
-          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>报告版本</Text><Text style={styles.coverMetaValue}>{input.detail === "full" ? "审计附录版" : "精简决策版"}</Text></View>
+          <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>报告版本</Text><Text style={styles.coverMetaValue}>{input.detail === "full" ? "完整证据版" : "精简决策版"}</Text></View>
           <View style={styles.coverMetaRow}><Text style={styles.coverMetaLabel}>生成时间</Text><Text style={styles.coverMetaValue}>{formatDate(new Date().toISOString())}</Text></View>
         </View>
       </View>
@@ -944,7 +944,7 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
       />
       <View style={styles.metricsGrid}>
         <MetricCard
-          label={`原始槽位${terms.visibility}`}
+          label={terms.visibility}
           value={penetration ? percent(penetration.penetrationRate) : "未检测"}
           note={penetration
             ? `${penetration.ourMentions}/${penetration.totalSlots} 个槽位命中 · ${penetration.ourRanking ? `${terms.ranking}第 ${penetration.ourRanking}` : "未上榜"}`
@@ -959,7 +959,7 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
           label="样本可信度"
           value={penetration ? sampleConfidenceLabel(penetration.sampleQuality?.confidence) : "未检测"}
           note={penetration?.sampleQuality
-            ? `${penetration.sampleQuality.semanticIntentCount} 个独立语义 · 完成率 ${percent(penetration.sampleQuality.completionRate)}`
+            ? `${penetration.sampleQuality.semanticIntentCount} 类有效问题 · 完成率 ${percent(penetration.sampleQuality.completionRate)}`
             : `${sources.length} 条去重信源`}
         />
         <MetricCard label="GEO 难度" value={difficulty ? `${difficulty.totalScore} 分` : "未测评"} note={difficulty ? `${difficulty.level} · ${concisePeriod(difficulty.stableMentionPeriod)}` : undefined} />
@@ -1007,7 +1007,7 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
         <DonutChart
           value={penetration.aggregated.penetrationRate}
           display={percent(penetration.aggregated.penetrationRate)}
-          label={`原始槽位${terms.visibility}`}
+          label={terms.visibility}
         />
         <View style={styles.heroMetrics}>
           <HeroMetric label={`${terms.target}命中`} value={`${penetration.aggregated.ourMentions}/${penetration.aggregated.totalSlots}`} />
@@ -1037,7 +1037,7 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
             : "统计说明：目标品牌全称及已配置别名在回答原文中通过字面校验后才计为命中。失败或空回答不会被包装成成功结果。"}
         </Text>
         <Text style={{ marginTop: 4 }}>
-          原始槽位率保留每次独立联网回答；语义均衡率把同义问法归为一个意图；七类均衡率将榜单推荐、痛点解决、竞品对比、采购决策、场景人群、品牌认知与风险疑虑分别计算后等权汇总。
+          每个问题都会独立获得联网回答；同义问题在汇总时归为一类，避免重复问题放大结果；七类问题会分别计算后再综合汇总。
         </Text>
       </View>
     </Page>
@@ -1203,12 +1203,12 @@ function SourcesPage({ input, answers, sources }: { input: CommercialReportInput
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="EVIDENCE AUDIT" title="联网信源与可审计性" intro="先展示联网验证覆盖与来源结构，再在后续索引页列出可点击的具体网址。" />
+      <ChapterTitle kicker="EVIDENCE" title="联网来源与证据" intro="先展示联网回答覆盖和来源结构，再列出可以直接打开的具体网址。" />
       <View style={styles.metricsGrid}>
         <MetricCard label="联网可验证回答" value={`${answers.filter(({ item }) => item.webVerified).length}/${answers.length}`} />
         <MetricCard label="引用事件" value={`${diversity?.citationEvents ?? sources.length}`} note="不同模型重复采信会分别计数" />
         <MetricCard label="唯一网址" value={`${diversity?.uniqueUrlCount ?? sources.length}`} note={`重复引用占比 ${percent(diversity?.duplicateCitationRate || 0)}`} />
-        <MetricCard label="唯一域名" value={`${diversity?.uniqueDomainCount ?? domains.length}`} note={`纯净问题请求 ${answers.filter(({ item }) => item.promptPurity === "raw_question_only").length}/${answers.length}`} />
+        <MetricCard label="不同来源网站" value={`${diversity?.uniqueDomainCount ?? domains.length}`} note={`独立纯净提问 ${answers.filter(({ item }) => item.promptPurity === "raw_question_only").length}/${answers.length}`} />
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>不同网址最多的来源域名</Text>
@@ -1232,8 +1232,8 @@ function SourceIndexPages({ input, sources }: { input: CommercialReportInput; so
       <HeaderFooter input={input} />
       <ChapterTitle
         kicker="SOURCE INDEX"
-        title={pageIndex === 0 ? "可点击信源索引" : "可点击信源索引（续）"}
-        intro="每条来源均保留网页标题、域名、触发查询与具体网址，可直接点击复核。"
+        title={pageIndex === 0 ? "可点击来源列表" : "可点击来源列表（续）"}
+        intro="每条来源均保留网页标题、网站、相关问题与具体网址，可直接打开查看。"
       />
       <Text style={styles.continuationLabel}>第 {pageIndex + 1} 组 · 共展示 {visible.length} 条去重信源</Text>
       {pageSources.map((source, index) => {
@@ -1247,7 +1247,7 @@ function SourceIndexPages({ input, sources }: { input: CommercialReportInput; so
         )
       })}
       {pageIndex === pages.length - 1 && sources.length > sourceLimit ? (
-        <Text style={styles.tableNote}>当前版本展示前 {sourceLimit} 条信源，其余信源保留在系统原始回答审计中。</Text>
+        <Text style={styles.tableNote}>当前版本展示前 {sourceLimit} 条来源，完整内容可在系统的原始联网回答中查看。</Text>
       ) : null}
     </Page>
   ))
@@ -1257,7 +1257,7 @@ function DifficultyPage({ input }: { input: CommercialReportInput }) {
   const entry = input.difficulty!
   const result = entry.result
   const dimensions = Object.values(result.dimensions) as DifficultyDimensionResult[]
-  const provider = entry.source || result.providerLabel || "服务端模型"
+  const provider = entry.source || result.providerLabel || "在线智能测评"
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
@@ -1271,7 +1271,7 @@ function DifficultyPage({ input }: { input: CommercialReportInput }) {
           <HeroMetric label="报告时间" value={formatDateToMinute(result.generatedAt)} />
         </View>
       </View>
-      <DetailMetric label={`${result.scoreVersion === "v2" ? "V2 固定公式" : "V1 历史逻辑"} · 稳定提及周期`} value={concisePeriod(result.stableMentionPeriod)} />
+      <DetailMetric label="稳定提及周期" value={concisePeriod(result.stableMentionPeriod)} />
       <View style={styles.insightBox}>
         <Text style={styles.insightTitle}>测评结论</Text>
         <Text style={styles.insightText} orphans={2} widows={2}>{result.summary}</Text>
@@ -1334,8 +1334,8 @@ function DifficultyContentCostPage({
         kicker="CONTENT COST MODEL"
         title="GEO 执行成本测算"
         intro={v3
-          ? `难度总分采用容易、中等、困难、超难四档工作量锚点，档内逐分复合增长，跨档明显跃升。行业与客单价共同修正执行标准；置信度为${estimate.confidence}，三个阶段均为累计投入。`
-          : `难度总分已包含地域、竞品、商业价值和资产缺口；预算只按达到各阶段所需内容数量计算。置信度为${estimate.confidence}，三个阶段均为累计投入。`}
+          ? `难度总分采用容易、中等、困难、超难四档工作量标准，分数越高，所需内容量逐步增加，跨档后会明显提升。行业与客单价共同调整执行标准；参考可靠度为${estimate.confidence}，三个阶段均为累计投入。`
+          : `难度总分已包含地域、竞品、商业价值和资料缺口；预算按达到各阶段所需内容数量计算。参考可靠度为${estimate.confidence}，三个阶段均为累计投入。`}
       />
       <View style={styles.signalStrip} wrap={false}>
         {estimate.milestones.map(item => (
@@ -1456,7 +1456,7 @@ function DifficultyLegacyCostPage({
     ["每月内容生产", estimate.monthlyContent, "文章、问答、案例、对比和场景内容"],
     ["权威信源资产", estimate.authorityAssets, "资质、案例、媒体与第三方验证资产"],
     ["地域覆盖建设", estimate.regionalCoverage, "区域页面、本地案例、地图与地方信源"],
-    ["每月监测复盘", estimate.monthlyMonitoring, "模型轮询、品牌提及、信源与策略复盘"],
+    ["每月监测复盘", estimate.monthlyMonitoring, "定期检测品牌提及、来源变化与策略效果"],
   ] as const
   return (
     <Page size="A4" style={styles.page}>
@@ -1464,7 +1464,7 @@ function DifficultyLegacyCostPage({
       <ChapterTitle
         kicker="BUDGET ESTIMATE"
         title="GEO 执行成本测算 · 历史版本"
-        intro={`该报告生成于旧版预算模型，按${input.difficulty!.city || "全国"}覆盖范围、竞争强度和多个预算池测算。重新测评后会切换为按内容数量和固定单价计算的新模型。`}
+        intro={`此报告按生成时的测算标准，结合${input.difficulty!.city || "全国"}覆盖范围和竞争强度估算。重新测评后会按当前内容数量和单价标准计算。`}
       />
       <View style={styles.signalStrip} wrap={false}>
         <View style={styles.signalItem}>
@@ -1567,13 +1567,13 @@ function ActionPage({ input }: { input: CommercialReportInput }) {
       <View style={styles.methodology}>
         <Text>方法说明</Text>
         <Text style={{ marginTop: 5 }}>1. 原始渗透率来自所选模型对真实疑问句的独立回答，模型回答与信源按原始结果保存。</Text>
-        <Text>2. 同义问题会独立请求模型，但在代表性统计中归为同一语义意图；七类问题均衡率用于降低单一推荐场景的重复放大。</Text>
+        <Text>2. 同义问题会分别提问，再在汇总时归为一类；七类问题综合汇总，用来避免某一种问题重复过多而放大结果。</Text>
         <Text>
           {isPersonReport(input)
             ? "3. 人物识别与同行判定在回答生成后完成，不把目标人物、同行名单或身份资料注入被测问题。"
             : "3. 品牌识别在回答生成后完成，不把目标品牌和优势信息注入被测问题。"}
         </Text>
-        <Text>4. 难度测评来自系统保存的五步评估结果，报告不额外调用 AI，也不补写未提供的事实。</Text>
+        <Text>4. 难度结论来自测评时已保存的结果，不补写未提供的事实。</Text>
         <Text>5. 本报告用于 GEO 策略与内容决策，不构成法律、财务或绝对排名承诺。</Text>
       </View>
     </Page>
@@ -1586,7 +1586,7 @@ function ProcessEvidencePage({ input }: { input: CommercialReportInput }) {
   return (
     <Page size="A4" style={styles.page} wrap>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="PROCESS EVIDENCE" title="测评过程证据" intro="按阶段保留调研、对比、评分、复核和报告形成过程，便于追溯最终结论。" />
+      <ChapterTitle kicker="ASSESSMENT BASIS" title="测评依据" intro="展示每一步使用的资料和结论依据，便于理解最终结果。" />
       {stages.map((stage, index) => (
         <View key={`${stage.title}-${index}`} style={styles.appendixItem} wrap={false}>
           <Text style={styles.appendixMeta}>{index + 1}. {stage.title}</Text>
@@ -1607,7 +1607,7 @@ function AppendixPages({ input, answers }: { input: CommercialReportInput; answe
   return (
     <Page size="A4" style={styles.page} wrap>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="APPENDIX" title="原始回答审计附录" intro={`按模型列出前 ${limited.length} 条回答；超长回答保留核心文本，完整原文仍可在系统中查看。`} />
+      <ChapterTitle kicker="APPENDIX" title="原始联网回答与来源" intro={`按模型列出前 ${limited.length} 条回答；超长回答保留核心文本，完整原文仍可在系统中查看。`} />
       {limited.map(({ model, item }, index) => (
         <View key={`${model}-${index}-${item.question}`} style={styles.appendixItem}>
           <Text style={styles.appendixMeta}>{MODEL_LABELS[model]} · Q{index + 1} · {item.webVerified ? "联网可验证" : "联网未验证"}</Text>

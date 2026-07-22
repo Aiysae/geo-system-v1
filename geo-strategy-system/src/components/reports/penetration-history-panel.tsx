@@ -28,6 +28,7 @@ import ModelRateTrend from "@/components/penetration/model-rate-trend"
 import PenetrationDonut from "@/components/penetration/penetration-donut"
 import PenetrationSampleQualityPanel from "@/components/penetration/sample-quality-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
 import type {
@@ -158,7 +159,7 @@ export default function PenetrationHistoryPanel({
       if (version === requestVersionRef.current) setPageData(data)
     } catch (caught) {
       if (version === requestVersionRef.current) {
-        setError(caught instanceof Error ? caught.message : "读取检测历史失败")
+        setError(toUserFacingError(caught, { fallback: "读取检测历史失败，请稍后重试。", subject: "检测历史" }))
       }
     } finally {
       if (!silent && version === requestVersionRef.current) setLoading(false)
@@ -190,7 +191,7 @@ export default function PenetrationHistoryPanel({
           if (!controller.signal.aborted) setDetail(data)
         } catch (caught) {
           if (!controller.signal.aborted) {
-            setError(caught instanceof Error ? caught.message : "读取检测历史详情失败")
+            setError(toUserFacingError(caught, { fallback: "读取检测历史详情失败，请稍后重试。", subject: "检测历史详情" }))
           }
         } finally {
           if (!controller.signal.aborted) setDetailLoading(false)
@@ -223,7 +224,7 @@ export default function PenetrationHistoryPanel({
       }
       await loadHistory(true)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "删除检测历史失败")
+      setError(toUserFacingError(caught, { fallback: "删除检测历史失败，请稍后重试。", subject: "删除检测历史" }))
     } finally {
       setBusyId(null)
     }
@@ -591,7 +592,7 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
           <div className="grid min-w-0 gap-4 sm:grid-cols-2">
             <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-1 text-[11px] font-semibold text-[#1677FF]">
-                {subjectType === "person" ? "原始槽位个人 IP 可见率" : "原始槽位渗透率"}
+                {subjectType === "person" ? "个人 IP 被提及率" : "品牌被提及率"}
               </div>
               <PenetrationDonut
                 rate={result.aggregated.penetrationRate}
@@ -805,7 +806,7 @@ function HistoryRawAnswers({
           </span>
           <div>
             <h4 className="text-sm font-semibold text-slate-800">原始联网回答与全部信源</h4>
-            <p className="mt-0.5 text-[11px] text-slate-500">保留本次独立请求返回的原文、来源网址和审计信息</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">保留本次独立提问返回的原文、来源网址和检测明细</p>
           </div>
         </div>
         <span className="text-[11px] text-slate-400">{items.length} 条回答</span>
@@ -872,7 +873,7 @@ function HistoryAnswerItem({ item, index }: { item: PenetrationItem; index: numb
             {searchModeLabel(item.searchMode)}
           </span>
           <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-slate-600">
-            {item.promptPurity === "raw_question_only" ? "纯问题盲测" : "带搜索工具信息"}
+            {item.promptPurity === "raw_question_only" ? "独立纯净提问" : "联网辅助提问"}
           </span>
           <span className="rounded border border-emerald-100 bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
             信源 {uniqueSources.length}

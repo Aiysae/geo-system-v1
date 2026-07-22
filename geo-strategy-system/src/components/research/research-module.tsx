@@ -10,6 +10,7 @@ import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type { BackgroundJobKind, BackgroundJobRef, Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import {
   BarChart3,
@@ -135,7 +136,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
     },
     onSucceeded: job => {
       if (!job.result?.generatedAt) {
-        setResearchError("后台调研任务返回数据不完整，请重新生成。")
+        setResearchError("调研结果不完整，请重新生成。")
         onChangeClient({ backgroundJobs: backgroundJobsWith("research") })
         return
       }
@@ -146,7 +147,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
       })
     },
     onFailed: message => {
-      setResearchError(message)
+      setResearchError(toUserFacingError(message, { fallback: "调研未完成，请稍后重试。", subject: "调研" }))
       onChangeClient({ backgroundJobs: backgroundJobsWith("research") })
     },
   })
@@ -175,7 +176,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
       })
     },
     onFailed: message => {
-      setCompareError(message)
+      setCompareError(toUserFacingError(message, { fallback: "对比报告未完成，请稍后重试。", subject: "竞品对比" }))
       onChangeClient({ backgroundJobs: backgroundJobsWith("competitorCompare") })
     },
   })
@@ -255,7 +256,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             <Brain className="h-5 w-5 text-white" />
           </span>
           <span className="geo-module-title min-w-0">
-            独立调研 · 豆包深度{isPerson ? "个人 IP 画像与同行对比" : "品牌画像与竞品对比"}
+            {isPerson ? "个人 IP 与同行调研" : "品牌与竞品调研"}
           </span>
         </CardTitle>
       </CardHeader>
@@ -267,9 +268,9 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                 <Search className="h-4 w-4 text-[#1677FF]" />
                 <div>
                   <div className="text-sm font-semibold text-slate-800">
-                    {isPerson ? "个人 IP · AI 心智调研" : "品牌 AI 心智调研"}
+                    {isPerson ? "个人 IP 现状调研" : "品牌现状调研"}
                   </div>
-                  <div className="text-[11px] text-slate-500">豆包视角 · 与疑问句检测结果独立保存</div>
+                  <div className="text-[11px] text-slate-500">可使用已有检测结果，也可以手动填写资料</div>
                 </div>
               </div>
               <div className="geo-segmented inline-grid grid-cols-2">
@@ -278,14 +279,14 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                   onClick={() => setMode("ai")}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${mode === "ai" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-600 hover:text-[#1677FF]"}`}
                 >
-                  AI 调研
+                  全面调研
                 </button>
                 <button
                   type="button"
                   onClick={() => setMode("hypothesis")}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${mode === "hypothesis" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-600 hover:text-[#1677FF]"}`}
                 >
-                  做假设
+                  验证判断
                 </button>
               </div>
             </div>
@@ -293,8 +294,8 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
             <SourceTabs
               value={researchSourceMode}
               onChange={updateResearchSourceMode}
-              moduleLabel="用渗透率情报信息"
-              manualLabel="手动填资料"
+              moduleLabel="使用已有检测结果"
+              manualLabel="手动填写资料"
             />
 
             {researchSourceMode === "manual" && (
@@ -313,8 +314,8 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                   onChange={event => setHypothesis(event.target.value)}
                   rows={4}
                   placeholder={isPerson
-                    ? "例如：豆包很少提及这位专家，是因为缺少权威资料页和专业案例信源。"
-                    : "例如：豆包不推荐我们，是因为缺少第三方测评和行业榜单信源。"}
+                    ? "例如：这位专家很少被提及，是因为缺少权威资料页和专业案例来源。"
+                    : "例如：品牌很少被推荐，是因为缺少第三方测评和行业榜单来源。"}
                   className="bg-white/80 text-xs"
                 />
               </div>
@@ -328,7 +329,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                 size="sm"
               >
                 {researchLoading && mode === "ai" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-                {research?.mode === "ai" ? "重新 AI 调研" : "开始 AI 调研"}
+                {research?.mode === "ai" ? "重新全面调研" : "开始全面调研"}
               </Button>
               <Button
                 onClick={() => runResearch("hypothesis")}
@@ -342,8 +343,8 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               </Button>
             </div>
             <div className="mb-4 flex flex-wrap gap-2">
-              <CreditCostBadge featureKey="researchAi" label="AI 调研预计" />
-              <CreditCostBadge featureKey="researchHypothesis" label="假设验证预计" />
+              <CreditCostBadge featureKey="researchAi" label="全面调研预计" />
+              <CreditCostBadge featureKey="researchHypothesis" label="验证判断预计" />
             </div>
 
             {researchLoading && (
@@ -377,7 +378,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                     {isPerson ? "同行人物对比" : "竞品优劣势对比"}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    基于检测{isPerson ? "同行人物" : "竞品"}与豆包心智生成对比报告
+                    根据已有检测结果和公开信息生成{isPerson ? "同行人物" : "竞品"}对比
                   </div>
                 </div>
               </div>
@@ -623,9 +624,9 @@ function BackgroundJobNotice({
     : "border-emerald-200 bg-emerald-50 text-emerald-800"
   return (
     <div className={`mb-4 rounded-lg border px-3 py-2 text-xs leading-5 ${classes}`}>
-      <div className="font-medium">{stage || "任务正在转入服务器后台"}</div>
+      <div className="font-medium">{stage || "正在生成调研结果"}</div>
       <div className="text-[11px] opacity-80">
-        {notice || "可以切换客户或刷新页面，结果会自动恢复。"}
+        {notice || "可以继续使用其他功能，完成后结果会自动保存。"}
       </div>
     </div>
   )
@@ -662,7 +663,7 @@ function ResearchReport({
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck className="h-4 w-4 text-[#1677FF]" />
           <div className="text-sm font-semibold text-slate-800">
-            {result.mode === "hypothesis" ? "假设验证结论" : "深度调研结论"}
+            {result.mode === "hypothesis" ? "判断验证结果" : "全面调研结论"}
           </div>
         </div>
         {result.hypothesis && (
@@ -675,7 +676,7 @@ function ResearchReport({
 
       <div className="grid gap-3 md:grid-cols-2">
         <MiniPanel title={subjectType === "person" ? "个人 IP 形象" : "品牌形象"} text={result.brandImage} />
-        <MiniPanel title="模型心智" text={result.modelMentality} />
+        <MiniPanel title="当前认知" text={result.modelMentality} />
       </div>
 
       {result.dimensions.length > 0 && (

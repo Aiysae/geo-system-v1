@@ -25,7 +25,6 @@ import {
 } from "@/lib/article-publishing/content"
 import {
   MULTIPOST_CHROME_STORE_URL,
-  MULTIPOST_PROJECT_URL,
   MultiPostBridgeError,
   checkMultiPostExtension,
   getMultiPostArticlePlatforms,
@@ -133,7 +132,7 @@ export default function ArticlePublishPanel({
       const result = await requestMultiPostTrust()
       if (!result.trusted) {
         setConnection("untrusted")
-        setError(result.message || "当前网站未获发布扩展授权。")
+        setError("请允许发布助手访问当前网站。")
         return
       }
       await connect()
@@ -174,7 +173,7 @@ export default function ArticlePublishPanel({
 
   async function publish() {
     if (connection !== "ready") {
-      setError("请先连接并授权本机发布扩展。")
+      setError("请先连接并授权多平台发布助手。")
       return
     }
 
@@ -257,7 +256,7 @@ export default function ArticlePublishPanel({
             {connection === "untrusted" && (
               <Button size="sm" onClick={() => void authorizeOrigin()} disabled={authorizing}>
                 {authorizing ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-                授权当前网站
+                允许访问当前网站
               </Button>
             )}
             {connection !== "checking" && connection !== "untrusted" && (
@@ -269,18 +268,11 @@ export default function ArticlePublishPanel({
             <Button size="sm" variant="outline" asChild>
               <a href={MULTIPOST_CHROME_STORE_URL} target="_blank" rel="noreferrer">
                 <ExternalLink />
-                安装发布扩展
+                安装发布助手
               </a>
             </Button>
           </div>
-          <a
-            href={MULTIPOST_PROJECT_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[11px] text-slate-400 underline-offset-2 hover:text-[#0958D9] hover:underline"
-          >
-            开源项目与权限说明
-          </a>
+
         </div>
       </div>
     )
@@ -312,7 +304,7 @@ export default function ArticlePublishPanel({
             <RefreshCw className={loadingPlatforms ? "animate-spin" : ""} />
             重新读取
           </Button>
-          <Button size="icon" variant="outline" onClick={() => void openOptions()} title="发布扩展设置">
+          <Button size="icon" variant="outline" onClick={() => void openOptions()} title="发布助手设置">
             <Settings />
           </Button>
         </div>
@@ -468,7 +460,7 @@ export default function ArticlePublishPanel({
       >
         {publishing ? <Loader2 className="animate-spin" /> : <Send />}
         {publishing
-          ? "正在交给本机发布器..."
+          ? "正在准备发布..."
           : settings.publishMode === "auto"
             ? `发布到 ${selected.size} 个平台`
             : `打开 ${selected.size} 个平台检查`}
@@ -478,10 +470,10 @@ export default function ArticlePublishPanel({
 }
 
 function connectionLabel(connection: ConnectionState): string {
-  if (connection === "checking") return "正在检测本机发布扩展"
-  if (connection === "untrusted") return "需要授权当前网站"
-  if (connection === "missing") return "未检测到 MultiPost 发布扩展"
-  return "本机发布扩展连接失败"
+  if (connection === "checking") return "正在连接多平台发布助手"
+  if (connection === "untrusted") return "需要允许发布助手访问当前网站"
+  if (connection === "missing") return "未检测到多平台发布助手"
+  return "多平台发布助手连接失败"
 }
 
 function handleBridgeFailure(
@@ -491,14 +483,20 @@ function handleBridgeFailure(
   keepReady = false,
 ) {
   if (error instanceof MultiPostBridgeError) {
-    if (error.code === 403) setConnection("untrusted")
-    else if (!keepReady && error.code === "TIMEOUT") setConnection("missing")
-    else if (!keepReady) setConnection("error")
-    setError(error.message)
+    if (error.code === 403) {
+      setConnection("untrusted")
+      setError("请允许发布助手访问当前网站。")
+    } else if (error.code === "TIMEOUT") {
+      if (!keepReady) setConnection("missing")
+      setError("未检测到发布助手，请确认已安装并启用。")
+    } else {
+      if (!keepReady) setConnection("error")
+      setError("发布助手连接失败，请重新连接。")
+    }
     return
   }
   if (!keepReady) setConnection("error")
-  setError(error instanceof Error ? error.message : "发布扩展调用失败。")
+  setError("发布助手连接失败，请重新连接。")
 }
 
 function comparePlatforms(a: MultiPostPlatform, b: MultiPostPlatform): number {

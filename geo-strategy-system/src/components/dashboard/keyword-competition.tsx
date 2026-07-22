@@ -103,7 +103,7 @@ export default function KeywordCompetition({
           </div>
           {!compact ? (
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">
-              已过滤 0 参与模型的拒答题
+              已排除无有效回答的问题
             </span>
           ) : null}
         </div>
@@ -136,7 +136,7 @@ export default function KeywordCompetition({
 
       {data.length === 0 ? (
         <div className="px-5 py-12 text-center text-sm text-slate-500">
-          暂无有效关键词数据（所有疑问句均被模型拒答 / 未参与）
+          暂无有效关键词数据
         </div>
       ) : (
         <div className={`${compact ? "flex min-h-0 flex-1 flex-col p-3" : "p-4"}`}>

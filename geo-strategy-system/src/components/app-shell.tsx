@@ -774,7 +774,7 @@ const DASHBOARD_MODULES: Array<{
   {
     key: "penetration",
     label: "渗透率情报",
-    desc: "多模型盲测",
+    desc: "多模型联网检测",
     icon: Target,
     activeClass: "bg-gradient-to-r from-[#1677FF] to-[#0958D9] text-white shadow-sm",
     iconClass: "bg-[#E6F4FF] text-[#1677FF]",
@@ -783,7 +783,7 @@ const DASHBOARD_MODULES: Array<{
   {
     key: "research",
     label: "独立调研",
-    desc: "品牌画像",
+    desc: "品牌与竞品调研",
     icon: Brain,
     activeClass: "bg-gradient-to-r from-[#13C2C2] to-[#1677FF] text-white shadow-sm",
     iconClass: "bg-cyan-50 text-[#08979C]",
@@ -792,7 +792,7 @@ const DASHBOARD_MODULES: Array<{
   {
     key: "diagnosis",
     label: "AI 诊断",
-    desc: "五维评分",
+    desc: "AI 可见度诊断",
     icon: Radar,
     activeClass: "bg-gradient-to-r from-[#2F54EB] to-[#597EF7] text-white shadow-sm",
     iconClass: "bg-indigo-50 text-[#2F54EB]",
@@ -801,7 +801,7 @@ const DASHBOARD_MODULES: Array<{
   {
     key: "difficulty",
     label: "难度测评",
-    desc: "行业垄断评分",
+    desc: "难度、周期与成本",
     icon: Gauge,
     activeClass: "bg-gradient-to-r from-[#0958D9] to-[#003EB3] text-white shadow-sm",
     iconClass: "bg-blue-50 text-[#0958D9]",
@@ -810,7 +810,7 @@ const DASHBOARD_MODULES: Array<{
   {
     key: "keyword",
     label: "关键词策略",
-    desc: "资料抽取与疑问句池",
+    desc: "资料整理与问题生成",
     icon: ListOrdered,
     activeClass: "bg-gradient-to-r from-[#4096FF] to-[#00C8FF] text-white shadow-sm",
     iconClass: "bg-sky-50 text-[#1677FF]",
@@ -819,7 +819,7 @@ const DASHBOARD_MODULES: Array<{
   {
     key: "article",
     label: "文章生成",
-    desc: "Prompt 内容生产",
+    desc: "多模板文章创作",
     icon: FileText,
     activeClass: "bg-gradient-to-r from-[#6C5CE7] to-[#2F54EB] text-white shadow-sm",
     iconClass: "bg-violet-50 text-[#6C5CE7]",
@@ -828,7 +828,7 @@ const DASHBOARD_MODULES: Array<{
   {
     key: "feedback",
     label: "执行反馈",
-    desc: "日历 · 周报月报",
+    desc: "日历、周报与月报",
     icon: CalendarRange,
     activeClass: "bg-gradient-to-r from-[#00AEEA] to-[#13C2C2] text-white shadow-sm",
     iconClass: "bg-cyan-50 text-[#08979C]",

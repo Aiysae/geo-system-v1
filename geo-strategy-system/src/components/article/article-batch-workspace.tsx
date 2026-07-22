@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   ArticleBatchItemRecord,
   ArticleBatchRecord,
@@ -44,7 +45,7 @@ const TERMINAL_BATCH = new Set(["succeeded", "partial", "failed", "cancelled"])
 function statusLabel(item: ArticleBatchItemRecord): string {
   if (item.status === "queued") return "排队中"
   if (item.status === "running") return "生成中"
-  if (item.status === "word_processing") return "Word 处理中"
+  if (item.status === "word_processing") return "正在整理文档"
   if (item.status === "succeeded") return "已完成"
   if (item.status === "cancelled") return "已停止"
   return "失败"
@@ -124,12 +125,12 @@ export default function ArticleBatchWorkspace({
       const response = await apiFetch(`/api/article-generation/batches?clientId=${encodeURIComponent(clientId)}`, {
         cache: "no-store",
       })
-      const data = await readApiJson<BatchListResponse>(response, "批量文章任务")
-      if (!response.ok) throw new Error(data.error || "批量文章任务读取失败")
+      const data = await readApiJson<BatchListResponse>(response, "批量文章")
+      if (!response.ok) throw new Error(data.error || "读取批量文章失败")
       applyBatches(data.batches || [])
       setError("")
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "批量文章任务读取失败")
+      setError(toUserFacingError(loadError, { fallback: "读取批量文章失败，请稍后重试。", subject: "批量文章" }))
     } finally {
       if (!quiet) setLoading(false)
     }
@@ -187,13 +188,13 @@ export default function ArticleBatchWorkspace({
           basePayload,
         }),
       })
-      const batch = await readApiJson<ArticleBatchRecord & { error?: string }>(response, "批量文章任务")
-      if (!response.ok) throw new Error(batch.error || "批量文章任务创建失败")
+      const batch = await readApiJson<ArticleBatchRecord & { error?: string }>(response, "批量文章")
+      if (!response.ok) throw new Error(batch.error || "批量生成未能开始")
       const next = [batch, ...batches.filter(item => item.id !== batch.id)]
       applyBatches(next)
       setSelectedBatchId(batch.id)
     } catch (startError) {
-      setError(startError instanceof Error ? startError.message : "批量文章任务创建失败")
+      setError(toUserFacingError(startError, { fallback: "批量生成未能开始，请稍后重试。", subject: "批量文章" }))
     } finally {
       setSubmitting(false)
     }
@@ -214,12 +215,12 @@ export default function ArticleBatchWorkspace({
             : {}),
         }),
       })
-      const batch = await readApiJson<ArticleBatchRecord & { error?: string }>(response, "批量文章任务")
-      if (!response.ok) throw new Error(batch.error || "批量任务操作失败")
+      const batch = await readApiJson<ArticleBatchRecord & { error?: string }>(response, "批量文章")
+      if (!response.ok) throw new Error(batch.error || "操作未完成")
       applyBatches([batch, ...batches.filter(item => item.id !== batch.id)])
       if (action === "restart") setSelectedBatchId(batch.id)
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "批量任务操作失败")
+      setError(toUserFacingError(actionError, { fallback: "操作未完成，请稍后重试。", subject: "批量文章" }))
     } finally {
       setActing(false)
     }
@@ -232,10 +233,10 @@ export default function ArticleBatchWorkspace({
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-[#003EB3]">
               <Files className="h-4 w-4" />
-              批量文章队列
+              批量文章
             </div>
             <div className="mt-1 text-[11px] leading-5 text-slate-500">
-              每篇独立调用模型，后台生成，不影响其他模块使用
+              每篇文章独立生成，可以同时使用系统中的其他功能
             </div>
           </div>
           <Button
@@ -244,8 +245,8 @@ export default function ArticleBatchWorkspace({
             variant="outline"
             onClick={() => void loadBatches()}
             disabled={loading}
-            title="刷新任务状态"
-            aria-label="刷新任务状态"
+            title="刷新生成状态"
+            aria-label="刷新生成状态"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </Button>
@@ -344,11 +345,11 @@ export default function ArticleBatchWorkspace({
             type="button"
             onClick={() => void startBatch()}
             disabled={!canStart}
-            title={blockedReason || "创建新的批量文章任务"}
+            title={blockedReason || "开始批量生成文章"}
             className="h-10 gap-2 bg-gradient-to-r from-[#1677FF] to-[#00B8D9] px-5 text-white shadow-sm hover:shadow-blue-200"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Files className="h-4 w-4" />}
-            {submitting ? "正在创建任务..." : `批量生成 ${count} 篇`}
+            {submitting ? "正在准备..." : `批量生成 ${count} 篇`}
           </Button>
         </div>
         {blockedReason && !submitting && (
@@ -427,7 +428,7 @@ export default function ArticleBatchWorkspace({
           <div className="flex flex-1 items-center justify-center border border-dashed border-slate-200 bg-slate-50/50 text-center">
             <div className="px-5">
               <Files className="mx-auto mb-3 h-8 w-8 text-blue-300" />
-              <div className="text-sm font-medium text-slate-500">还没有批量文章任务</div>
+              <div className="text-sm font-medium text-slate-500">还没有批量文章</div>
               <div className="mt-1 text-xs leading-5 text-slate-400">设置数量并开始后，每篇文章会独立排队并自动生成 Word 文档。</div>
             </div>
           </div>
