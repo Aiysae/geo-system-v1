@@ -4,10 +4,12 @@ import { Download, Inbox, ReceiptText, ShieldCheck, Sparkles } from "lucide-reac
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser } from "@/lib/auth"
 import { listAiProviderPublicSettings } from "@/lib/ai-settings"
+import { AI_GATEWAY_PRESETS, listAiGatewayProvidersPublic } from "@/lib/ai-gateways"
 import { listAllRequests } from "@/lib/recharge"
 import SiteFooter from "@/components/site-footer"
 import { AdminHeader } from "@/components/admin/admin-header"
 import { AiSettingsManager } from "./ai-settings-manager"
+import { AiGatewayManager } from "./ai-gateway-manager"
 import { RechargeRow } from "./recharge-row"
 
 export const dynamic = "force-dynamic"
@@ -32,9 +34,10 @@ export default async function AdminRechargePage() {
     )
   }
 
-  const [requests, aiSettings] = await Promise.all([
+  const [requests, aiSettings, aiGateways] = await Promise.all([
     listAllRequests(300),
     listAiProviderPublicSettings(),
+    listAiGatewayProvidersPublic(),
   ])
   const pending = requests.filter(item => item.status === "pending")
   const approved = requests.filter(item => item.status === "approved")
@@ -131,6 +134,7 @@ export default async function AdminRechargePage() {
         )}
 
         <AiSettingsManager settings={aiSettings} />
+        <AiGatewayManager gateways={aiGateways} presets={AI_GATEWAY_PRESETS} />
       </main>
       <SiteFooter />
     </div>

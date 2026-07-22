@@ -46,6 +46,14 @@ export interface ChatArgs {
   timeoutSec?: number
   /** Observe the public web sources used by local search adapters. */
   onSearchSources?: (event: SearchSourceEvent) => void
+  /** Observe token usage returned by the upstream provider. */
+  onUsage?: (usage: LlmTokenUsage) => void
+}
+
+export interface LlmTokenUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
 }
 
 const WEB_EVIDENCE_RESULTS_PER_CALL = 12
@@ -75,6 +83,7 @@ function parseOnlyAllowedTemperature(message: string): number | null {
 async function postChatCompletion(args: {
   url: string
   apiKey: string
+  authType?: "bearer" | "x-api-key"
   payload: Record<string, unknown>
   extraHeaders?: Record<string, string>
   signal?: AbortSignal
@@ -85,7 +94,9 @@ async function postChatCompletion(args: {
     signal: args.signal,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${args.apiKey}`,
+      ...(args.authType === "x-api-key"
+        ? { "x-api-key": args.apiKey }
+        : { Authorization: `Bearer ${args.apiKey}` }),
       ...args.extraHeaders,
     },
     body: JSON.stringify(args.payload),
@@ -129,6 +140,13 @@ export interface RawChatCompletionMessage {
 
 export interface RawChatCompletion {
   id?: string
+  usage?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+    input_tokens?: number
+    output_tokens?: number
+  }
   choices: Array<{
     finish_reason?: string
     message: RawChatCompletionMessage
@@ -138,6 +156,7 @@ export interface RawChatCompletion {
 export interface OpenAICompatRawArgs {
   url: string
   apiKey: string
+  authType?: "bearer" | "x-api-key"
   model: string
   label: string
   messages: Array<Record<string, unknown>>
@@ -158,6 +177,7 @@ export interface OpenAICompatRawArgs {
 export async function openaiCompatRaw({
   url,
   apiKey,
+  authType,
   model,
   label,
   messages,
@@ -194,23 +214,33 @@ export async function openaiCompatRaw({
 
   let res: Response
   try {
-    res = await postChatCompletion({ url, apiKey, payload, extraHeaders, signal: controller?.signal })
+    res = await postChatCompletion({ url, apiKey, authType, payload, extraHeaders, signal: controller?.signal })
+    const retryableStatuses = new Set([429, 500, 502, 503, 504])
+    for (let retry = 0; retry < 3 && retryableStatuses.has(res.status); retry++) {
+      const status = res.status
+      const rawTxt = await res.text().catch(() => "")
+      const txt = redactSecrets(rawTxt)
+      const delay = retryDelayMs(res.headers, txt, retry)
+      console.warn(
+        `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`,
+      )
+      await sleep(delay)
+      res = await postChatCompletion({
+        url,
+        apiKey,
+        authType,
+        payload,
+        extraHeaders,
+        signal: controller?.signal,
+      })
+    }
   } catch (fetchErr) {
-    if (timeout) clearTimeout(timeout)
     if (fetchErr instanceof DOMException && fetchErr.name === "AbortError") {
       throw new Error(`${label} 请求超时 (${(timeoutMs || 300000) / 1000}s)，图片/PDF 识别耗时较长，请在后台管理页增加模型超时时间`)
     }
     throw new Error(`${label} API 连接失败：${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
-  }
-  if (timeout) clearTimeout(timeout)
-
-  for (let retry = 0; retry < 3 && res.status === 429; retry++) {
-    const rawTxt = await res.text().catch(() => "")
-    const txt = redactSecrets(rawTxt)
-    const delay = retryDelayMs(res.headers, txt, retry)
-    console.warn(`[${label}·429] 请求触发限流，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`)
-    await sleep(delay)
-    res = await postChatCompletion({ url, apiKey, payload, extraHeaders })
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
 
   if (!res.ok) {
@@ -219,14 +249,14 @@ export async function openaiCompatRaw({
     const allowedTemperature = parseOnlyAllowedTemperature(txt)
     if (res.status === 400 && allowedTemperature !== null && payload.temperature !== allowedTemperature) {
       const retryPayload = { ...payload, temperature: allowedTemperature }
-      const retry = await postChatCompletion({ url, apiKey, payload: retryPayload, extraHeaders })
+      const retry = await postChatCompletion({ url, apiKey, authType, payload: retryPayload, extraHeaders })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
     // 部分供应商不支持 response_format=json_object，遇到 400/422 时去掉重试一次
     if (jsonMode && (res.status === 400 || res.status === 422)) {
       const fallback = { ...payload }
       delete (fallback as Record<string, unknown>).response_format
-      const retry = await postChatCompletion({ url, apiKey, payload: fallback, extraHeaders })
+      const retry = await postChatCompletion({ url, apiKey, authType, payload: fallback, extraHeaders })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
 
@@ -290,6 +320,20 @@ function extractMessageContent(message: RawChatCompletionMessage | undefined, la
   return String(content)
 }
 
+function emitTokenUsage(
+  data: RawChatCompletion,
+  onUsage?: (usage: LlmTokenUsage) => void,
+): void {
+  if (!onUsage || !data.usage) return
+  const promptTokens = Math.max(0, Number(data.usage.prompt_tokens ?? data.usage.input_tokens) || 0)
+  const completionTokens = Math.max(0, Number(data.usage.completion_tokens ?? data.usage.output_tokens) || 0)
+  const totalTokens = Math.max(
+    0,
+    Number(data.usage.total_tokens) || promptTokens + completionTokens,
+  )
+  onUsage({ promptTokens, completionTokens, totalTokens })
+}
+
 function toPenetrationSources(query: string, hits: SearchHit[]): PenetrationSource[] {
   return hits.map(hit => ({
     title: hit.title,
@@ -303,6 +347,7 @@ function toPenetrationSources(query: string, hits: SearchHit[]): PenetrationSour
 interface OpenAICompatArgs extends ChatArgs {
   url: string
   apiKey: string
+  authType?: "bearer" | "x-api-key"
   model: string
   label: string
   extraBody?: Record<string, unknown>
@@ -327,6 +372,7 @@ function trimDataUrl(dataUrl: string, maxBytes: number): { url: string; trimmed:
 export async function openaiCompatChat({
   url,
   apiKey,
+  authType,
   model,
   system,
   user,
@@ -345,6 +391,7 @@ export async function openaiCompatChat({
   images,
   timeoutSec,
   onSearchSources,
+  onUsage,
 }: OpenAICompatArgs): Promise<string> {
   if (!apiKey) {
     console.warn(`[${label}] API Key is undefined（请检查后台管理页中的模型配置）`)
@@ -389,6 +436,7 @@ export async function openaiCompatChat({
     const data = await openaiCompatRaw({
       url,
       apiKey,
+      authType,
       model,
       label,
       messages,
@@ -400,6 +448,7 @@ export async function openaiCompatChat({
       extraHeaders,
       timeoutMs,
     })
+    emitTokenUsage(data, onUsage)
     const nativeSources = onSearchSources ? extractSourcesFromUnknown(data, String(user)) : []
     if (nativeSources.length > 0) {
       onSearchSources?.({
@@ -460,6 +509,7 @@ export async function openaiCompatChat({
       const fallbackData = await openaiCompatRaw({
         url,
         apiKey,
+        authType,
         model,
         label,
         messages: fallbackMessages,
@@ -471,6 +521,7 @@ export async function openaiCompatChat({
         extraHeaders,
         timeoutMs,
       })
+      emitTokenUsage(fallbackData, onUsage)
       const fallbackChoice = fallbackData.choices?.[0]
       const fallbackContent = extractMessageContent(fallbackChoice?.message, label)
       if (!fallbackContent.trim()) {

@@ -1,22 +1,11 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
-import { listAiProviderPublicSettings } from "@/lib/ai-settings"
+import { listArticleModelCatalog } from "@/lib/article-models"
 import { ARTICLE_PROMPT_OPTIONS } from "@/lib/article-prompt-meta"
-import type { AiProviderKey } from "@/types/ai-settings"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const revalidate = 0
-
-const ARTICLE_MODEL_PROVIDERS: AiProviderKey[] = [
-  "article",
-  "deepseek",
-  "qwen",
-  "doubao",
-  "kimi",
-  "ernie",
-  "hunyuan",
-]
 
 export async function GET() {
   const user = await getCurrentUser()
@@ -24,13 +13,10 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const settings = await listAiProviderPublicSettings()
-  const providers = ARTICLE_MODEL_PROVIDERS
-    .map(key => settings.find(item => item.key === key))
-    .filter(Boolean)
+  const { providers, gateways } = await listArticleModelCatalog()
 
   return NextResponse.json(
-    { prompts: ARTICLE_PROMPT_OPTIONS, providers },
+    { prompts: ARTICLE_PROMPT_OPTIONS, providers, gateways },
     {
       headers: {
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
