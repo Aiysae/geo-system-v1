@@ -626,6 +626,73 @@ async function fetchAiGatewayModelList(
   }
 }
 
+function generationTestUrl(runtime: AiGatewayProviderRuntime, model: string): string {
+  const path = cleanAiPath(runtime.chatPath.replace("{model}", encodeURIComponent(model)))
+  const url = new URL(`${validateAiBaseUrl(runtime.baseUrl)}${path}`)
+  if (runtime.authType === "query-key") url.searchParams.set("key", runtime.apiKey)
+  return url.toString()
+}
+
+function generationTestBody(runtime: AiGatewayProviderRuntime, model: string): Record<string, unknown> {
+  if (runtime.protocol === "openai_responses") {
+    return {
+      model,
+      input: "Reply with exactly: OK",
+      max_output_tokens: 16,
+    }
+  }
+  if (runtime.protocol === "anthropic_messages") {
+    return {
+      model,
+      max_tokens: 16,
+      messages: [{ role: "user", content: "Reply with exactly: OK" }],
+    }
+  }
+  if (runtime.protocol === "gemini_generate") {
+    return {
+      contents: [{ role: "user", parts: [{ text: "Reply with exactly: OK" }] }],
+      generationConfig: { maxOutputTokens: 16 },
+    }
+  }
+  return {
+    model,
+    messages: [{ role: "user", content: "Reply with exactly: OK" }],
+    max_tokens: 16,
+  }
+}
+
+async function fetchAiGatewayGeneration(
+  runtime: AiGatewayProviderRuntime,
+  timeoutSeconds: number,
+): Promise<number> {
+  const model = normalizeModelId(runtime.primaryModel)
+  if (!model) throw new Error("请先选择主模型")
+  const startedAt = Date.now()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutSeconds) * 1000)
+  try {
+    const response = await fetch(generationTestUrl(runtime, model), {
+      method: "POST",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...authHeaders(runtime),
+      },
+      body: JSON.stringify(generationTestBody(runtime, model)),
+    })
+    const raw = await response.text()
+    if (!response.ok) throw new Error(describeAiGatewayHttpFailure(response.status, raw))
+    return Date.now() - startedAt
+  } catch (error) {
+    if (error instanceof Error && (error.message.startsWith("服务器线路已连通") || error.message === "请先选择主模型")) throw error
+    throw new Error(describeAiGatewayNetworkFailure(error))
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export async function testAiGatewayConnection(
   providerId: string,
   adminUserId: string,
@@ -634,17 +701,20 @@ export async function testAiGatewayConnection(
   if (!runtime.apiKey) throw new Error("请先配置 API Key")
   const startedAt = Date.now()
   try {
-    const result = await fetchAiGatewayModelList(runtime, Math.min(15, runtime.timeout))
+    const listResult = await fetchAiGatewayModelList(runtime, Math.min(15, runtime.timeout))
     let modelCount = 0
     try {
-      modelCount = extractModelValues(JSON.parse(result.raw)).length
+      modelCount = extractModelValues(JSON.parse(listResult.raw)).length
     } catch {
       modelCount = 0
     }
+    await fetchAiGatewayGeneration(runtime, Math.min(30, runtime.timeout))
+    const latencyMs = Date.now() - startedAt
+    const model = runtime.primaryModel || "主模型"
     const message = modelCount > 0
-      ? `服务器线路已连通，API Key 校验通过，发现 ${modelCount} 个模型（${result.latencyMs} ms）`
-      : `服务器线路已连通，API Key 校验通过（${result.latencyMs} ms）`
-    return updateGatewayHealth(providerId, "healthy", message, result.latencyMs, adminUserId)
+      ? `实际生成测试通过，${model} 可用；模型列表共 ${modelCount} 个（${latencyMs} ms）`
+      : `实际生成测试通过，${model} 可用（${latencyMs} ms）`
+    return updateGatewayHealth(providerId, "healthy", message, latencyMs, adminUserId)
   } catch (error) {
     const message = error instanceof Error ? error.message : "服务器线路检测失败"
     await updateGatewayHealth(providerId, "unhealthy", message, Date.now() - startedAt, adminUserId)
