@@ -83,19 +83,19 @@ export default function ClientFeedbackReportView({
       delta: signedPercent(snapshot.comparison.penetrationDelta),
     },
     {
-      label: "均衡渗透率",
+      label: "综合提及率",
       before: percent(baseline?.balancedPenetrationRate),
       after: percent(current?.balancedPenetrationRate),
       delta: signedPercent(snapshot.comparison.balancedPenetrationDelta),
     },
     {
-      label: "独立信源",
+      label: "不同来源网址",
       before: baseline ? String(baseline.uniqueSourceCount) : "暂无",
       after: current ? String(current.uniqueSourceCount) : "暂无",
       delta: signedNumber(snapshot.comparison.sourceDelta),
     },
     {
-      label: "独立域名",
+      label: "不同来源网站",
       before: baseline ? String(baseline.uniqueDomainCount) : "暂无",
       after: current ? String(current.uniqueDomainCount) : "暂无",
       delta: signedNumber(snapshot.comparison.domainDelta),
@@ -112,7 +112,7 @@ export default function ClientFeedbackReportView({
               <span className="h-2 w-2 rounded-full bg-[#53F3FF] shadow-[0_0_16px_rgba(83,243,255,.9)]" />
               GEO EXECUTION INTELLIGENCE
             </span>
-            <span>{report.type === "weekly" ? "周度反馈" : "月度反馈"} · V{report.version}</span>
+            <span>{report.type === "weekly" ? "周度反馈" : "月度反馈"}</span>
           </div>
           <h1 className="mt-8 max-w-4xl break-words text-3xl font-bold leading-tight sm:text-5xl">
             {snapshot.reportTitle}
@@ -202,7 +202,7 @@ export default function ClientFeedbackReportView({
               <p className="mt-1 text-xs text-[#7E91A7]">{snapshot.comparison.comparabilityNote}</p>
             </div>
             <span className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-semibold ${snapshot.comparison.comparable ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-              {snapshot.comparison.comparable ? "样本可比" : "仅供观察"}
+              {snapshot.comparison.comparable ? "可直接对比" : "仅供参考"}
             </span>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -282,16 +282,16 @@ export default function ClientFeedbackReportView({
             <Globe2 className="h-6 w-6 text-[#1677FF]" />
             <h2 className="mt-4 text-base font-bold">可信数据说明</h2>
             <p className="mt-2 text-xs leading-5 text-[#526A83]">
-              本报告由客户执行记录与平台历史检测快照生成。效果变化仅在检测模型一致、疑问句样本重合度达到标准时标注为“样本可比”。
+              仅对使用相同检测模型且问题范围接近的结果进行前后对比，其他变化仅供参考。
             </p>
-            {publicView ? <p className="mt-3 text-[10px] text-[#7E91A7]">本页面为只读验证页面，数据以报告生成时快照为准。</p> : null}
+            {publicView ? <p className="mt-3 text-[10px] text-[#7E91A7]">此页面仅供查看，数据以报告生成时为准。</p> : null}
           </div>
         </section>
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[#DCE8F4] bg-[#F6FAFD] px-5 py-4 text-[10px] text-[#7E91A7] sm:px-9">
         <span>由势途 GEO 全链路操作工具生成</span>
-        <span>报告 ID：{report.id} · 生成于 {formatDate(snapshot.generatedAt)}</span>
+        <span>生成于 {formatDate(snapshot.generatedAt)}</span>
       </footer>
     </article>
   )

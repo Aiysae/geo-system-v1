@@ -30,6 +30,7 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import {
   estimateGeoContentCost,
   isContentVolumeCostEstimate,
@@ -69,26 +70,26 @@ interface Props {
 }
 
 const INDUSTRY_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string }> = [
-  { key: "research", title: "调研取样", desc: "问题样本与信源分布" },
-  { key: "comparison", title: "品牌/渠道对比", desc: "推荐池和渠道集中度" },
-  { key: "scoring", title: "指标审计", desc: "品牌合并与原始指标复核" },
-  { key: "review", title: "一致性复核", desc: "证据与分数校验" },
+  { key: "research", title: "信息采集", desc: "问题与来源分布" },
+  { key: "comparison", title: "品牌与渠道对比", desc: "推荐品牌和渠道集中度" },
+  { key: "scoring", title: "结果整理", desc: "品牌合并与指标计算" },
+  { key: "review", title: "结果复核", desc: "证据与分数检查" },
   { key: "report", title: "生成报告", desc: "结论和策略建议" },
 ]
 
 const BRAND_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string }> = [
-  { key: "research", title: "行业调研", desc: "行业问题与头部占位" },
-  { key: "comparison", title: "品牌现状", desc: "可见度和信任资产" },
-  { key: "scoring", title: "竞品指标审计", desc: "差距和商业指标复核" },
-  { key: "review", title: "复核", desc: "置信度和资料缺口" },
+  { key: "research", title: "行业调研", desc: "行业问题与头部品牌表现" },
+  { key: "comparison", title: "品牌现状", desc: "可见度和可信资料" },
+  { key: "scoring", title: "竞品对比", desc: "差距和商业因素" },
+  { key: "review", title: "结果复核", desc: "可信程度和资料缺口" },
   { key: "report", title: "路径报告", desc: "突破入口和动作" },
 ]
 
 const PERSON_STAGES: Array<{ key: DifficultyStageKey; title: string; desc: string }> = [
-  { key: "research", title: "行业与同行调研", desc: "问题样本与同行人物占位" },
-  { key: "comparison", title: "个人 IP 现状", desc: "可见度和专业信任资产" },
-  { key: "scoring", title: "同行指标审计", desc: "人物机构分离与指标复核" },
-  { key: "review", title: "个人 IP 复核", desc: "同名歧义、置信度和资料缺口" },
+  { key: "research", title: "行业与同行调研", desc: "问题与同行人物表现" },
+  { key: "comparison", title: "个人 IP 现状", desc: "可见度和专业可信资料" },
+  { key: "scoring", title: "同行对比", desc: "人物、机构和差距分析" },
+  { key: "review", title: "结果复核", desc: "同名情况和资料缺口" },
   { key: "report", title: "突破路径报告", desc: "个人 IP 内容和信源动作" },
 ]
 
@@ -177,7 +178,7 @@ const BRAND_SCORE_STANDARDS = [
     super: "12-15 几乎无公开信号",
   },
   {
-    name: "信任资产差距",
+    name: "可信资料差距",
     max: 15,
     easy: "0-4 资质案例背书完整",
     medium: "5-8 有基础但缺交叉验证",
@@ -322,28 +323,28 @@ const SAMPLE_RESULT: DifficultyAssessmentResult = {
   ],
   process: {
     research: {
-      title: "调研取样",
+      title: "信息采集",
       summary: "围绕全国除甲醛、城市除甲醛、新房入住、母婴安全、甲醛检测等场景生成问题样本。",
       evidence: ["样本覆盖全国大词、本地服务、细分人群和检测流程", "AI 回答常出现固定品牌和服务榜单", "本地真实商家信息弱于全国连锁内容"],
       tags: ["12个问题样本", "榜单内容", "本地服务"],
     },
     comparison: {
-      title: "品牌/渠道对比",
+      title: "品牌与渠道对比",
       summary: "头部品牌在多类问题中重复出现，本地服务商被外地品牌和内容平台稀释。",
       evidence: ["TOP 品牌重复率高", "推荐池约 12-15 个品牌", "新闻、博客、问答平台贡献主要引用"],
       tags: ["TOP3集中", "有效竞品", "渠道集中"],
     },
     scoring: {
-      title: "指标审计",
-      summary: "别名合并、地域层级和商业压力完成审计，再由后端固定公式计算总分。",
+      title: "结果整理",
+      summary: "合并同一品牌的不同名称，并结合地域范围和行业价值计算总分。",
       evidence: ["别名合并后统计竞品", "全国采用固定高分区间", "商业压力进入总分"],
-      tags: ["72分", "困难", "V2七维"],
+      tags: ["72分", "困难", "七维评分"],
     },
     review: {
-      title: "一致性复核",
+      title: "结果复核",
       summary: "总分与证据匹配：行业竞争分散，但 AI 搜索呈现层已被少数品牌和渠道压缩。",
       evidence: ["总分与困难级区间一致", "维度高分均有对应证据", "来源单一性较低，保留突围空间"],
-      tags: ["置信度中高", "证据匹配", "可突围"],
+      tags: ["参考可靠度较高", "证据匹配", "可突围"],
     },
     report: {
       title: "生成报告",
@@ -368,7 +369,7 @@ const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
   level: "困难",
   stableMentionPeriod: `约${BRAND_SAMPLE_STABLE_MILESTONE.days.min}-${BRAND_SAMPLE_STABLE_MILESTONE.days.max}天`,
   summary:
-    "净居家在除甲醛赛道具备本地服务切入机会，但公开信任资产、第三方提及和结构化案例不足。做 GEO 的核心难点不是行业完全封闭，而是要先让 AI 能验证品牌真实存在、服务可靠、案例可引用，再逐步进入城市词和母婴/新房等细分答案。",
+    "净居家在除甲醛赛道具备本地服务切入机会，但公开可信资料、第三方提及和结构化案例不足。做 GEO 的核心难点不是行业完全封闭，而是要先让 AI 能验证品牌真实存在、服务可靠、案例可引用，再逐步进入城市词和母婴/新房等细分答案。",
   dimensions: {
     dimension1: {
       name: "行业竞争与头部封锁",
@@ -385,7 +386,7 @@ const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
       analysis: "品牌公开提及和可搜索材料偏少，AI 缺少足够稳定的引用信号，容易被更高频出现的竞品覆盖。",
     },
     dimension3: {
-      name: "信任资产差距",
+      name: "可信资料差距",
       score: 10,
       max: 15,
       level: "困难",
@@ -435,29 +436,29 @@ const BRAND_SAMPLE_RESULT: DifficultyAssessmentResult = {
       title: "行业调研",
       summary: "除甲醛行业大词已有固定答案和榜单渠道，本地与细分场景仍有可切入空间。",
       evidence: ["头部品牌在全国大词中更容易出现", "用户问题覆盖新房、母婴、检测、价格和口碑", "本地服务词存在真实需求"],
-      tags: ["行业调研", "头部占位", "本地机会"],
+      tags: ["行业调研", "头部品牌表现", "本地机会"],
     },
     comparison: {
       title: "品牌现状识别",
       summary: "目标品牌公开信号偏弱，需要补足官网、案例、资质、第三方提及和客户评价。",
-      evidence: ["公开可见度不足", "信任资产需要交叉验证", "内容矩阵还不系统"],
+      evidence: ["公开可见度不足", "可信资料需要多方验证", "内容矩阵还不系统"],
       tags: ["品牌现状", "资料缺口", "可信信号"],
     },
     scoring: {
-      title: "竞品指标审计",
+      title: "竞品结果整理",
       summary: "头部封锁、品牌可见度差距和内容矩阵缺口拉高了品牌 GEO 难度。",
       evidence: ["行业头部封锁 11/15", "品牌可见度差距 11/15", "内容矩阵缺口 10/15"],
       tags: ["66分", "困难", "品牌评分"],
     },
     review: {
       title: "品牌难度复核",
-      summary: "总分与证据匹配，但品牌资料不足会影响置信度，建议补充官网和案例后复测。",
+      summary: "总分与证据匹配，但品牌资料较少会影响参考可靠度，建议补充官网和案例后复测。",
       evidence: ["分数落在困难区间", "本地/场景维度仍有机会", "部分品牌信号需人工补充"],
-      tags: ["置信度中", "需补资料", "可突围"],
+      tags: ["参考可靠度中等", "需补资料", "可突围"],
     },
     report: {
       title: "突破路径报告",
-      summary: "优先从城市服务词和细分场景词切入，以结构化案例和第三方背书建立 AI 可引用资产。",
+      summary: "优先从城市服务词和细分场景词切入，以结构化案例和第三方背书建立 AI 可引用内容。",
       evidence: ["城市服务页优先", "案例和资质补强", "定期复测品牌提及"],
       tags: ["品牌路径", "GEO动作", "复测"],
     },
@@ -642,8 +643,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
   const [activeEntry, setActiveEntry] = useState<DifficultyAssessmentEntry | null>(
     () => client.difficultyAssessments?.[0] ?? null
   )
+  const [showSample, setShowSample] = useState(false)
 
   const history = useMemo(() => client.difficultyAssessments ?? [], [client.difficultyAssessments])
+  const hasReportToShow = Boolean(activeEntry) || showSample
   const result = activeEntry?.result ?? sampleForMode(mode)
   const reportMode = activeEntry ? modeForEntry(activeEntry) : result.mode ?? mode
   const reportSubjectType = activeEntry?.subjectType ?? result.subjectType ?? subjectType
@@ -706,8 +709,8 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           const modelLabel = job.currentModel ? MODEL_LABELS[job.currentModel] : ""
           setProgressLabel(
             job.status === "queued"
-              ? "后台任务排队中，切换客户或关闭页面都不会中断。"
-              : `${stageTitle ? `正在${stageTitle}` : "后台测评中"} · ${job.completedStages}/${job.totalStages}${modelLabel ? ` · ${modelLabel}` : ""}`,
+              ? "正在等待开始，切换客户或关闭页面都不会中断。"
+              : `${stageTitle ? `正在${stageTitle}` : "正在测评"} · ${job.completedStages}/${job.totalStages}${modelLabel ? ` · ${modelLabel}` : ""}`,
           )
 
           if (job.status === "succeeded" && job.result) {
@@ -721,7 +724,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 scope: job.scope ?? job.result.scope,
                 targetBrand: job.targetBrand,
                 website: job.website,
-                source: job.result.providerLabel || "服务端模型",
+                source: job.result.providerLabel || "在线智能测评",
                 result: job.result,
               }),
               id: `difficulty_${job.id}`,
@@ -730,6 +733,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             const next = [entry, ...history.filter(item => item.id !== entry.id)].slice(0, 30)
             onChangeClient({ difficultyAssessments: next, difficultyJobId: undefined })
             setActiveEntry(entry)
+            setShowSample(false)
             setError(null)
             setLoading(false)
             setProgressLabel("")
@@ -740,14 +744,14 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 
           if (job.status === "failed") {
             if (!job.creditsRefunded) {
-              setError(`${job.error || "难度测评后台任务失败"}，积分正在自动退回，请勿重新发起。`)
+              setError(`${toUserFacingError(job.error, { fallback: "难度测评未完成，请稍后重试。", subject: "难度测评" })} 积分正在自动退回，请勿重新发起。`)
               setLoading(true)
-              setProgressLabel("任务已结束，正在确认积分退款...")
+              setProgressLabel("测评未完成，正在退回积分...")
               await new Promise(resolve => window.setTimeout(resolve, 3000))
               continue
             }
             onChangeClient({ difficultyJobId: undefined })
-            setError(`${job.error || "难度测评后台任务失败"}，本次预扣积分已自动退回。`)
+            setError(`${toUserFacingError(job.error, { fallback: "难度测评未完成，请稍后重试。", subject: "难度测评" })} 本次预扣积分已自动退回。`)
             setLoading(false)
             setProgressLabel("")
             window.dispatchEvent(new Event("credits:refresh"))
@@ -773,7 +777,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           if (stopped || controller.signal.aborted) return
           failedPolls += 1
           if (failedPolls >= 3) {
-            setError("后台测评仍在继续，刚才进度刷新失败；系统会自动重试，不需要重新发起任务。")
+            setError("测评仍在继续，刚才没有取到最新进度；系统会自动重试，不需要重新发起。")
           }
         }
 
@@ -788,29 +792,9 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
     }
   }, [client.difficultyJobId, history, onChangeClient])
 
-  function saveEntry(entry: DifficultyAssessmentEntry) {
-    const next = [entry, ...history.filter(item => item.id !== entry.id)].slice(0, 30)
-    onChangeClient({ difficultyAssessments: next })
-    setActiveEntry(entry)
-  }
-
   function loadSample() {
-    const targetIndustry = industry.trim() || client.industry || "除甲醛"
-    const sample = sampleForMode(mode)
-    const brandName = targetBrand.trim() || client.ourBrand || sample.targetBrand || "净居家"
-    const entry = createEntry({
-      mode,
-      subjectType,
-      personProfile: client.personProfile,
-      industry: targetIndustry,
-      city: scope === "national" ? "全国" : city.trim() || "未指定地区",
-      scope,
-      targetBrand: mode === "brand" ? brandName : undefined,
-      website: mode === "brand" ? website.trim() || sample.website : undefined,
-      source: "示例",
-      result: sample,
-    })
-    saveEntry(entry)
+    setActiveEntry(null)
+    setShowSample(true)
     setError(null)
   }
 
@@ -832,10 +816,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
       return
     }
 
+    setShowSample(false)
     setLoading(true)
     setError(null)
     setProgressPercent(0)
-    setProgressLabel("正在创建后台测评任务...")
+    setProgressLabel("正在准备测评...")
     try {
       const job = await createIdempotentApiJob<DifficultyJobRecord & { error?: string }>({
         endpoint: "/api/difficulty-assessment/jobs",
@@ -861,18 +846,18 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
         },
         onRetry: () => {
           setProgressLabel("网络暂时中断，正在确认测评任务是否已经创建...")
-          setError("请勿重复点击，系统正在用同一请求编号自动确认任务。")
+          setError("请勿重复点击，系统正在确认本次测评。")
         },
       })
-      if (!job.id) throw new Error("评估任务创建失败：未返回任务 ID")
+      if (!job.id) throw new Error("测评未能开始，请稍后重试。")
       setError(null)
       onChangeClient({ difficultyJobId: job.id })
-      setProgressLabel("后台任务已创建，正在排队...")
+      setProgressLabel("测评已创建，正在等待开始...")
       window.dispatchEvent(new Event("credits:refresh"))
       if (!client.industry && targetIndustry) onChangeClient({ industry: targetIndustry })
       if (!client.ourBrand && mode === "brand" && brandName) onChangeClient({ ourBrand: brandName })
     } catch (err) {
-      setError(err instanceof Error ? err.message : "未知错误")
+      setError(toUserFacingError(err, { fallback: "难度测评未能开始，请稍后重试。", subject: "难度测评" }))
       setLoading(false)
       setProgressLabel("")
     }
@@ -881,7 +866,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
   async function stopAssessment() {
     const jobId = client.difficultyJobId
     if (!jobId) return
-    setProgressLabel("正在停止后台测评...")
+    setProgressLabel("正在停止测评...")
     try {
       const response = await apiFetch(`/api/difficulty-assessment/jobs/${jobId}`, {
         method: "PATCH",
@@ -903,8 +888,8 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
       setProgressLabel("")
       setError("测评已停止，本次预扣积分已自动退回。")
     } catch (err) {
-      setError(`${err instanceof Error ? err.message : "停止测评失败"}；任务号已保留，系统会继续查询状态。`)
-      setProgressLabel("后台任务状态仍在查询中...")
+      setError(`${toUserFacingError(err, { fallback: "暂时无法停止测评。", subject: "停止测评" })} 系统仍会继续确认测评状态。`)
+      setProgressLabel("正在确认测评状态...")
     } finally {
       window.dispatchEvent(new Event("credits:refresh"))
     }
@@ -913,12 +898,16 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
   function deleteEntry(id: string) {
     const next = history.filter(item => item.id !== id)
     onChangeClient({ difficultyAssessments: next })
-    if (activeEntry?.id === id) setActiveEntry(next[0] ?? null)
+    if (activeEntry?.id === id) {
+      setActiveEntry(next[0] ?? null)
+      setShowSample(false)
+    }
   }
 
   function switchMode(nextMode: DifficultyAssessmentMode) {
     setMode(nextMode)
     setActiveEntry(null)
+    setShowSample(false)
     setError(null)
   }
 
@@ -1041,7 +1030,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 <option value="auto">自动推荐（失败自动切换）</option>
                 {modelOptions.map(option => (
                   <option key={option.key} value={option.key} disabled={!option.configured}>
-                    {option.label}{option.configured ? "" : "（未配置）"}
+                    {option.label}{option.configured ? "" : "（暂不可用）"}
                   </option>
                 ))}
               </Select>
@@ -1124,11 +1113,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
         <div className="mt-4 flex flex-col gap-3 border-t border-slate-200/70 pt-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <CreditCostBadge featureKey="difficultyAssessment" className="w-fit" />
-            <p className="mt-1 text-[11px] text-slate-500">任务在后台逐步保存，首选模型失败时会自动重试并切换可用模型。</p>
+            <p className="mt-1 text-[11px] text-slate-500">评估完成后会自动保存，可以在历史测评中随时查看。</p>
           </div>
           <div className="grid w-full grid-cols-2 gap-2 lg:w-auto lg:min-w-[300px]">
             <Button type="button" variant="outline" onClick={loadSample} disabled={loading}>
-              示例
+              查看示例报告
             </Button>
             {loading && client.difficultyJobId ? (
               <Button type="button" variant="outline" onClick={stopAssessment} className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
@@ -1166,7 +1155,14 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                   activeEntry?.id === entry.id ? "border-[#1677FF] bg-blue-50/70" : "border-slate-200 bg-white"
                 }`}
               >
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setActiveEntry(entry)}>
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => {
+                    setActiveEntry(entry)
+                    setShowSample(false)
+                  }}
+                >
                   <span className="block truncate font-semibold text-slate-800">{formatEntryTitle(entry)}</span>
                   <span className="mt-1 flex items-center justify-between gap-2 text-slate-500">
                     <span>{entry.result.totalScore}分 · {entry.result.level}</span>
@@ -1194,7 +1190,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             <CardContent className="space-y-3 py-4 text-sm text-[#003EB3]">
               <div className="flex items-center gap-3">
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                <span>{progressLabel || "后台测评正在启动..."}</span>
+                <span>{progressLabel || "评估正在启动..."}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-blue-100" aria-label={`测评进度 ${progressPercent}%`}>
                 <div
@@ -1202,26 +1198,23 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                   style={{ width: `${Math.max(2, Math.min(100, progressPercent))}%` }}
                 />
               </div>
-              <p className="text-[11px] text-slate-500">可以切换到其他客户继续工作，当前客户的任务不会被覆盖或中断。</p>
+              <p className="text-[11px] text-slate-500">可以离开本页继续使用其他功能，评估完成后会自动保存。</p>
             </CardContent>
           </Card>
         )}
 
+        {hasReportToShow ? (
+          <>
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-slate-100 pb-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-[#1677FF]">
-                    {activeEntry?.source ?? "示例"} · {reportIsPerson
-                      ? "Personal IP GEO difficulty"
-                      : reportMode === "brand" ? "Brand GEO difficulty" : "GEO/AEO monopoly score"}
+                    {activeEntry?.source ?? "示例报告"}
                   </span>
                   <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">
                     {reportIsPerson ? "个人 IP 报告" : reportMode === "brand" ? "品牌报告" : "行业报告"}
-                  </span>
-                  <span className="rounded-full border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-[11px] font-medium text-cyan-700">
-                    {result.scoreVersion === "v2" ? "V2 固定公式" : "V1 历史报告"}
                   </span>
                   <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${levelClasses(result.level)}`}>
                     {result.level}
@@ -1278,13 +1271,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                   GEO 执行成本测算
                 </div>
                 {costEstimate ? (
-                  <span className="text-[11px] text-slate-500">
-                    {isContentVolumeV3CostEstimate(costEstimate)
-                      ? "四档逐分模型"
-                      : isContentVolumeCostEstimate(costEstimate)
-                        ? "内容量模型"
-                        : "旧版预算模型"} · 测算置信度：{costEstimate.confidence}
-                  </span>
+                  <span className="text-[11px] text-slate-500">预计内容量、周期与累计成本</span>
                 ) : null}
               </div>
               {costEstimate ? (
@@ -1311,7 +1298,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
             <section>
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
                 <CheckCircle2 className="h-4 w-4 text-[#1677FF]" />
-                评估过程证据
+                评估依据
               </div>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {stages.map((stage, index) => {
@@ -1348,14 +1335,14 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-sm text-slate-700">
-              <Table2 className="h-4 w-4 text-[#1677FF]" />
-              分数标准说明
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <details className="group overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+            <Table2 className="h-4 w-4 text-[#1677FF]" />
+            查看评分标准
+            <span className="ml-auto text-[11px] font-normal text-slate-400 group-open:hidden">展开</span>
+            <span className="ml-auto hidden text-[11px] font-normal text-slate-400 group-open:inline">收起</span>
+          </summary>
+          <div className="space-y-4 border-t border-slate-100 px-5 pb-5 pt-4">
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="min-w-[640px] w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500">
@@ -1406,8 +1393,26 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 </tbody>
               </table>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </details>
+          </>
+        ) : (
+          <Card className="no-print border-dashed border-slate-200 bg-white/80">
+            <CardContent className="flex min-h-[240px] flex-col items-center justify-center px-6 py-10 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-50 text-[#1677FF]">
+                <Gauge className="h-6 w-6" />
+              </span>
+              <h2 className="mt-4 text-base font-semibold text-slate-800">尚未生成难度测评报告</h2>
+              <p className="mt-2 max-w-md text-xs leading-6 text-slate-500">
+                填写上方信息并开始评估，完成后将在这里展示难度、周期、预计成本和行动建议。
+              </p>
+              <Button type="button" variant="outline" className="mt-5" onClick={loadSample}>
+                <FileText className="h-4 w-4" />
+                查看示例报告
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )
@@ -1424,12 +1429,16 @@ function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostE
   return (
     <div className="space-y-4">
       {v3 ? (
-        <div className="overflow-hidden border-y border-blue-100 bg-[linear-gradient(110deg,#F0F7FF_0%,#FFFFFF_55%,#F0FDFF_100%)]">
+        <details className="group overflow-hidden rounded-lg border border-blue-100 bg-[linear-gradient(110deg,#F0F7FF_0%,#FFFFFF_55%,#F0FDFF_100%)]">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-xs font-semibold text-[#003EB3]">
+            <TrendingUp className="h-4 w-4" />
+            查看分数与行业系数的测算依据
+            <span className="ml-auto text-[10px] font-normal text-slate-400 group-open:hidden">展开</span>
+            <span className="ml-auto hidden text-[10px] font-normal text-slate-400 group-open:inline">收起</span>
+          </summary>
+          <div className="border-t border-blue-100/80">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100/80 px-4 py-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-[#003EB3]">
-              <TrendingUp className="h-4 w-4" />
-              四档逐分成本推导
-            </div>
+            <div className="text-xs font-semibold text-slate-700">当前难度与成本变化</div>
             <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${levelClasses(v3.difficultyBand.level)}`}>
               {v3.difficultyBand.score} 分 · {v3.difficultyBand.level}
             </span>
@@ -1491,7 +1500,8 @@ function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostE
           <p className="border-t border-blue-100/80 px-4 py-2.5 text-[10px] leading-5 text-slate-500">
             {v3.industryProfile.reason}；{v3.industryProfile.valueReason}。
           </p>
-        </div>
+          </div>
+        </details>
       ) : null}
 
       <div className="grid gap-3 lg:grid-cols-3">
@@ -1540,9 +1550,16 @@ function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostE
         ))}
       </div>
 
+      <details className="group overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <summary className="flex cursor-pointer list-none items-center px-4 py-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50">
+          查看单价与计算说明
+          <span className="ml-auto text-[10px] font-normal text-slate-400 group-open:hidden">展开</span>
+          <span className="ml-auto hidden text-[10px] font-normal text-slate-400 group-open:inline">收起</span>
+        </summary>
+        <div className="border-t border-slate-100">
       {v3 ? (
         <>
-          <div className="grid overflow-hidden border-y border-slate-200 bg-slate-50/70 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-slate-200">
+          <div className="grid overflow-hidden bg-slate-50/70 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-slate-200">
             <CostBasis label="基础建设" value={`¥${formatMoney(v3.foundationCost)}`} detail="官网和第三方站，只计一次" />
             <CostBasis label="信任与合规准备" value={`¥${formatMoney(v3.riskPreparationCost)}`} detail={`调整后基础投入 ¥${formatMoney(v3.effectiveFoundationCost)}`} />
             <CostBasis label="基准综合单价" value={`¥${v3.baselineWeightedUnitCost.toFixed(1)}/条`} detail="按 70/20/10 基准结构折算" />
@@ -1563,11 +1580,13 @@ function ContentVolumeCostPanel({ estimate }: { estimate: DifficultyContentCostE
         </div>
       )}
 
-      <div className="grid gap-1 text-[11px] leading-5 text-slate-500 md:grid-cols-2">
+      <div className="grid gap-1 border-t border-slate-100 px-4 py-3 text-[11px] leading-5 text-slate-500 md:grid-cols-2">
         {estimate.assumptions.slice(0, v3 ? 6 : 4).map((item, index) => (
           <p key={`${index}-${item}`} className="pr-3">{item}</p>
         ))}
       </div>
+        </div>
+      </details>
     </div>
   )
 }
@@ -1588,7 +1607,7 @@ function LegacyCostPanel({ estimate }: { estimate: DifficultyLegacyCostEstimate 
         <CostLine label="每月监测复盘" value={formatMoneyRange(estimate.monthlyMonitoring)} />
       </div>
       <p className="text-xs leading-5 text-slate-500">
-        这是历史报告采用的旧版预算池测算。重新评估后会切换为按内容数量、渠道比例和固定单价计算的新模型。
+        这是较早生成的报告。重新评估后会提供更完整的内容数量、渠道分配和成本说明。
       </p>
     </div>
   )

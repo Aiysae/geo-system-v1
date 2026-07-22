@@ -25,6 +25,7 @@ import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { DEFAULT_REPORT_BRANDING, resolveReportBranding } from "@/lib/report-branding"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   Client,
   CommercialReportDetail,
@@ -341,7 +342,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
       const logoDataUrl = await optimizeLogo(file)
       setBranding(current => ({ ...current, logoDataUrl }))
     } catch (caught) {
-      setBrandingError(caught instanceof Error ? caught.message : "Logo 处理失败")
+      setBrandingError(toUserFacingError(caught, { fallback: "Logo 处理失败，请更换图片后重试。", subject: "Logo" }))
     } finally {
       setLogoProcessing(false)
     }
@@ -416,7 +417,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
       if (current.status === "failed") throw new Error(current.error || "专业报告生成失败")
       await downloadReport(current)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "专业报告生成失败")
+      setError(toUserFacingError(caught, { fallback: "专业报告生成失败，请稍后重试。", subject: "专业报告" }))
     } finally {
       setGenerating(false)
     }
@@ -443,7 +444,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                 </span>
                 <div className="min-w-0">
                   <h2 id="report-export-title" className="geo-display-title text-xl">生成专业可视化报告</h2>
-                  <p className="mt-1 truncate text-xs text-cyan-100/70">{client.name} · A4 商业版式 · 可点击信源</p>
+                  <p className="mt-1 truncate text-xs text-cyan-100/70">{client.name} · 专业版式 · 可点击信源</p>
                 </div>
               </div>
               <button
@@ -534,11 +535,11 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                       disabled={generating}
                       className={`rounded-md px-3 py-2.5 text-xs font-semibold transition ${detail === "full" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500"}`}
                     >
-                      审计附录版
+                      完整证据版
                     </button>
                   </div>
                   <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                    {detail === "full" ? "增加最多 120 条原始回答审计附录，适合交付、复盘和信源核验。" : "突出管理层摘要、核心图表和行动路线，文件更轻、生成更快。"}
+                    {detail === "full" ? "增加最多 120 条原始回答与来源，适合交付、复盘和信源核验。" : "突出管理层摘要、核心图表和行动路线，文件更轻、生成更快。"}
                   </p>
                 </section>
 
@@ -719,7 +720,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
 
                 <div className="mt-5 flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-3 text-xs leading-5 text-emerald-900">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                  报告仅使用当前客户已保存的数据生成，不额外调用 AI，也不会把其他客户的数据混入本报告。
+                  报告将使用当前客户的检测与测评结果，不会混入其他客户资料。
                 </div>
 
                 {(job || generating) && (
@@ -727,7 +728,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                     <div className="flex items-center justify-between gap-3 text-xs">
                       <span className="flex items-center gap-2 font-semibold text-[#003EB3]">
                         {job?.status === "succeeded" ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Loader2 className="h-4 w-4 animate-spin" />}
-                        {job?.stage || "正在提交报告任务"}
+                        {job?.stage || "正在生成专业报告"}
                       </span>
                       <span className="font-mono font-bold text-[#003EB3]">{job?.progress || 0}%</span>
                     </div>

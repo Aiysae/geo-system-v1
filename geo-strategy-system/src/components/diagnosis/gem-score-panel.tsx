@@ -14,7 +14,7 @@ export default function GemScorePanel({ score }: Props) {
   return (
     <div className={`rounded-lg border ${tier.border} ${tier.bg} flex min-h-[320px] flex-col items-center justify-center p-6 text-center`}>
       <div className="mb-1 text-[11px] font-semibold text-slate-500">
-        GEM Score · 全局预估分
+        综合诊断分
       </div>
       <div className={`text-6xl font-bold ${tier.color} leading-none`}>{score}</div>
       <div className="text-slate-400 text-xs mt-1">/ 100</div>

@@ -44,9 +44,9 @@ export default function PenetrationSampleQualityPanel({
     <section className="overflow-hidden rounded-lg border border-[#CFE1F5] bg-white">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#E5EEF8] bg-[#F7FBFF] px-4 py-3">
         <div>
-          <h3 className="text-xs font-semibold text-[#17324D]">样本可信度与统计口径</h3>
+          <h3 className="text-xs font-semibold text-[#17324D]">检测可信度</h3>
           <p className="mt-0.5 text-[10px] leading-4 text-[#70869C]">
-            原始槽位率保留全部有效回答；语义与七类均衡率用于抑制相似问题重复放大。
+            综合问题覆盖、完成度和来源分布，避免相似问题或重复来源放大结果。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -66,17 +66,17 @@ export default function PenetrationSampleQualityPanel({
       </div>
 
       <div className={`grid divide-x divide-y divide-[#EAF1F8] sm:divide-y-0 ${compact ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 lg:grid-cols-5"}`}>
-        <Metric label="原始槽位命中率" value={percent(aggregated.penetrationRate)} />
-        <Metric label="语义意图均衡率" value={percent(aggregated.intentBalancedRate)} />
-        <Metric label="七类问题均衡率" value={percent(aggregated.categoryBalancedRate)} />
+        <Metric label="品牌被提及率" value={percent(aggregated.penetrationRate)} />
+        <Metric label="问题覆盖质量" value={percent(aggregated.intentBalancedRate)} />
+        <Metric label="问题类型均衡度" value={percent(aggregated.categoryBalancedRate)} />
         <Metric
-          label="有效槽位完成率"
+          label="检测完成度"
           value={percent(aggregated.completionRate)}
           note={`${quality.completedSlots}/${quality.plannedSlots}`}
         />
         {!compact ? (
           <Metric
-            label="独立语义 / 问题"
+            label="有效问题类型 / 问题总数"
             value={`${quality.semanticIntentCount}/${quality.questionCount}`}
             note={`覆盖 ${quality.categoryCoverageCount}/7 类`}
           />
@@ -107,14 +107,14 @@ export default function PenetrationSampleQualityPanel({
           <div>
             <div className="mb-2 text-[10px] font-semibold text-[#526A83]">信源多样性</div>
             <div className="grid grid-cols-3 gap-2">
-              <MiniMetric label="引用事件" value={source?.citationEvents || 0} />
-              <MiniMetric label="唯一网址" value={source?.uniqueUrlCount || 0} />
-              <MiniMetric label="唯一域名" value={source?.uniqueDomainCount || 0} />
+              <MiniMetric label="引用次数" value={source?.citationEvents || 0} />
+              <MiniMetric label="不同网址" value={source?.uniqueUrlCount || 0} />
+              <MiniMetric label="不同网站" value={source?.uniqueDomainCount || 0} />
             </div>
             {source && source.citationEvents > 0 ? (
               <div className="mt-2 text-[9px] leading-4 text-[#70869C]">
                 重复引用占比 {percent(source.duplicateCitationRate)}
-                {source.topDomain ? ` · 最高集中域名 ${source.topDomain}（${percent(source.topDomainShare)}）` : ""}
+                {source.topDomain ? ` · 引用最多的网站 ${source.topDomain}（${percent(source.topDomainShare)}）` : ""}
               </div>
             ) : null}
           </div>

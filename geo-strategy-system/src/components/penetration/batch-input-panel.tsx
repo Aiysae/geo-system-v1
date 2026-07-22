@@ -580,7 +580,7 @@ export default function BatchInputPanel({
 
       <details className="rounded-lg border border-[#DCE6F2] bg-[#F8FAFD]">
         <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-xs font-semibold text-[#526A83]">
-          <span>{subjectType === "person" ? "姓名归一与同行设置" : "品牌归一与竞品设置"}</span>
+          <span>{subjectType === "person" ? "姓名别名与同行设置" : "品牌别名与竞品设置"}</span>
           <span className="text-[10px] font-normal text-[#7E91A7]">
             {subjectType === "person" ? "姓名变体、公开称呼和已知同行" : "别名、公司全称和已知竞品"}
           </span>
@@ -590,8 +590,8 @@ export default function BatchInputPanel({
             label={subjectCopy.aliasesLabel}
             aside="每行一个"
             help={subjectType === "person"
-              ? "只用于回答后的同名消歧与姓名归一，不会发送给被测模型。"
-              : "只用于回答后的品牌识别与统计归一，不会发送给被测模型。"}
+              ? "只用于回答后区分同名人物和合并不同叫法，不会发送给被测模型。"
+              : "只用于回答后识别并合并同一品牌的不同名称，不会发送给被测模型。"}
           >
             <Textarea
               value={brandAliasesText}
@@ -869,7 +869,7 @@ export default function BatchInputPanel({
 
             {aiLoading && (
               <div className="rounded-lg border border-[#BAE0FF] bg-white px-3 py-2 text-[11px] leading-5 text-[#0958D9]">
-                <div className="font-medium">{aiJobState.currentJob?.stage || "疑问句正在转入服务器后台"}</div>
+                <div className="font-medium">{aiJobState.currentJob?.stage || "正在生成疑问句"}</div>
                 <div className="text-[#526A83]">
                   {aiJobState.connectionNotice || "可以切换客户或刷新页面，生成结果会自动追加到疑问句列表。"}
                 </div>
@@ -878,12 +878,12 @@ export default function BatchInputPanel({
 
             {!client.industry.trim() && !client.ourBrand.trim() && (
               <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                请先在上方填写「{subjectCopy.subjectShortLabel}」或「{subjectCopy.industryLabel}」，豆包需要据此推演用户疑问句。
+                请先填写「{subjectCopy.subjectShortLabel}」或「{subjectCopy.industryLabel}」，系统将据此生成相关疑问句。
               </div>
             )}
 
             <div className="text-[11px] text-slate-500 leading-relaxed">
-              生成结果将自动追加到「手动录入」文本框，并切回手动 Tab 以便你审核 / 微调后再开始检测。
+              生成结果会自动加入疑问句列表，可以确认或调整后开始检测。
             </div>
           </div>
         )}
@@ -893,9 +893,9 @@ export default function BatchInputPanel({
         <div className="rounded-lg border border-[#CFE1F5] bg-white p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="text-xs font-semibold text-[#17324D]">检测前样本质量</div>
+              <div className="text-xs font-semibold text-[#17324D]">问题覆盖情况</div>
               <div className="mt-0.5 text-[10px] text-[#7A8EA3]">
-                同义问题仍会独立请求模型，但统计时会归为同一语义意图。
+                相似问题会分别检测，统计时会合并展示，避免重复问题放大结果。
               </div>
             </div>
             <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
@@ -915,7 +915,7 @@ export default function BatchInputPanel({
             </div>
             <div className="rounded-md bg-[#F5FAFF] px-2 py-2 text-center">
               <div className="text-sm font-bold text-[#0958D9]">{sampleQuality.semanticIntentCount}</div>
-              <div className="text-[9px] text-[#7A8EA3]">独立语义意图</div>
+              <div className="text-[9px] text-[#7A8EA3]">有效问题类型</div>
             </div>
             <div className="rounded-md bg-[#F5FAFF] px-2 py-2 text-center">
               <div className="text-sm font-bold text-[#0958D9]">{sampleQuality.categoryCoverageCount}/7</div>
@@ -975,7 +975,7 @@ export default function BatchInputPanel({
       <div className="flex items-start gap-2 rounded-lg border border-cyan-200 bg-cyan-50/70 p-2.5 text-[11px] leading-relaxed text-cyan-900">
         <Globe2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-700" />
         <span>
-          每条疑问句会逐模型单独请求；严格模式只接受模型官方联网搜索返回的原始回复和可审计来源。渗透率情报不会把目标品牌、竞品清单或资料包交给被测模型。
+          每个问题都会独立联网检测，品牌资料和竞品清单不会影响模型的原始回答。
         </span>
       </div>
 
@@ -983,7 +983,7 @@ export default function BatchInputPanel({
         <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
           <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <span>
-            以下模型未通过严格联网预检，已在任务开始前跳过且不计费：<b>{skipped.join("、")}</b>
+            以下模型暂不可用，已自动跳过且不扣积分：<b>{skipped.join("、")}</b>
           </span>
         </div>
       )}
@@ -1005,7 +1005,7 @@ export default function BatchInputPanel({
                 <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
               )}
               <span>
-                <b>{MODEL_LABELS[m]} {loading ? "正在自动补采：" : "需要处理："}</b>
+                <b>{MODEL_LABELS[m]} {loading ? "正在补全：" : "未完成："}</b>
                 {msg}
               </span>
             </div>
@@ -1051,7 +1051,7 @@ export default function BatchInputPanel({
             className="w-full gap-2 border-rose-200 px-6 py-5 text-sm font-medium text-rose-700 hover:bg-rose-50 hover:text-rose-800 lg:w-auto lg:min-w-[300px]"
           >
             <XCircle className="h-4 w-4" />
-            停止检测 · {progressLabel || "后台任务运行中"}
+            停止检测 · {progressLabel || "检测进行中"}
           </Button>
         ) : (
           <Button

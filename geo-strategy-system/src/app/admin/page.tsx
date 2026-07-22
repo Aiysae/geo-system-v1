@@ -31,7 +31,7 @@ export default async function AdminPage() {
           </div>
           <h1 className="text-lg font-bold text-slate-900">无权限访问</h1>
           <p className="text-sm text-slate-500 mt-2 leading-relaxed">
-            该页面仅限管理员访问。如认为是配置问题，请检查 `ADMIN_EMAILS` 环境变量。
+            当前账号没有管理员权限，请使用管理员账号登录。
           </p>
         </div>
       </div>

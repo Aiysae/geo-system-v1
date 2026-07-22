@@ -6,6 +6,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowRight, KeyRound, Loader2, LockKeyhole, Mail, MailCheck, UserRound } from "lucide-react"
 import { EmailVerificationField } from "@/components/auth/email-verification-field"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 
 type Mode = "sign-in" | "sign-up"
 
@@ -58,13 +59,17 @@ export function LocalAuthForm({
       const data = await res.json().catch(() => null)
 
       if (!res.ok) {
-        setError(data?.error || (isSignUp ? "注册失败" : "登录失败"))
+        setError(toUserFacingError(data?.error, {
+          status: res.status,
+          fallback: isSignUp ? "注册失败，请稍后重试。" : "登录失败，请检查账号信息。",
+          subject: isSignUp ? "注册" : "登录",
+        }))
         return
       }
 
       const sessionReady = await waitForSessionReady()
       if (!sessionReady) {
-        setError("账号已创建，但登录状态尚未建立，请稍后重试或直接登录。")
+        setError("登录状态确认失败，请重新登录。")
         return
       }
       router.replace(nextUrl)

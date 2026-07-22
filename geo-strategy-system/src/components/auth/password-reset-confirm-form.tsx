@@ -3,6 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { ArrowRight, Loader2, LockKeyhole } from "lucide-react"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 
 export function PasswordResetConfirmForm({ token }: { token: string }) {
   const [password, setPassword] = useState("")
@@ -24,12 +25,12 @@ export function PasswordResetConfirmForm({ token }: { token: string }) {
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
-        setError(data?.error || "密码重置失败")
+        setError(toUserFacingError(data?.error, { status: res.status, fallback: "密码重置失败，请稍后重试。", subject: "密码重置" }))
         return
       }
       setSuccess(true)
-    } catch {
-      setError("网络连接失败，请稍后重试")
+    } catch (caught) {
+      setError(toUserFacingError(caught, { fallback: "网络连接失败，请稍后重试。", subject: "密码重置" }))
     } finally {
       setPending(false)
     }

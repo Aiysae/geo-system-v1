@@ -63,7 +63,7 @@ interface MarkdownTheme {
 const MARKDOWN_THEMES: Record<ThemeKey, MarkdownTheme> = {
   default: {
     label: "默认文章",
-    description: "适合后台留档、博客和文档导出",
+    description: "适合长期保存、博客发布和文档导出",
     page: {
       background: "#f8fafc",
       color: "#0f172a",
@@ -395,7 +395,7 @@ export default function ArticleMarkdownWorkspace({
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={copyMarkdown} disabled={!hasContent}>
               {copyState === "markdown" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copyState === "markdown" ? "已复制" : "复制 MD"}
+              {copyState === "markdown" ? "已复制" : "复制文章"}
             </Button>
             <Button size="sm" variant="outline" onClick={copyFormattedHtml} disabled={!hasContent}>
               {copyState === "html" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />}
@@ -408,7 +408,7 @@ export default function ArticleMarkdownWorkspace({
           <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1 text-xs font-semibold md:w-[440px]">
             <button type="button" onClick={() => setActiveTab("edit")} className={tabClass(activeTab === "edit")}>
               <Code2 className="h-3.5 w-3.5" />
-              源码
+              编辑
             </button>
             <button type="button" onClick={() => setActiveTab("preview")} className={tabClass(activeTab === "preview")}>
               <Eye className="h-3.5 w-3.5" />
@@ -484,7 +484,7 @@ export default function ArticleMarkdownWorkspace({
               <FileText className="h-5 w-5 text-cyan-700" />
               <span>
                 <span className="block text-sm font-semibold text-slate-900">Markdown</span>
-                <span className="mt-1 block text-xs text-slate-500">保留源码，适合二次编辑</span>
+                <span className="mt-1 block text-xs text-slate-500">保留排版标记，适合继续编辑</span>
               </span>
             </button>
             <button

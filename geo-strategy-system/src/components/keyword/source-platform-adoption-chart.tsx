@@ -116,7 +116,7 @@ function PlatformRow({
               {platform.unique_url_count} 个不同网址
             </span>
             <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-500">
-              {platform.intent_count ?? platform.question_count} 个独立语义
+              {platform.intent_count ?? platform.question_count} 类有效问题
             </span>
             {platform.intent_adoption_rate != null ? (
               <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-500">
@@ -236,7 +236,7 @@ export function SourcePlatformAdoptionChart({ snapshot }: { snapshot?: SourcePla
         <div className="mt-3 border-l-2 border-amber-300 pl-2 text-[10px] leading-4 text-amber-700">
           当前样本
           {snapshot.sample_confidence === "medium" ? "属于方向性结果" : "属于探索性结果"}
-          ：覆盖 {snapshot.semantic_intent_count ?? snapshot.distinct_question_count ?? 0} 个独立语义意图。
+          ：覆盖 {snapshot.semantic_intent_count ?? snapshot.distinct_question_count ?? 0} 类有效问题。
           平台排序会保留不同模型的重复采信事件，但建议结合唯一网址和唯一域名一起判断稳定权重。
         </div>
       ) : null}

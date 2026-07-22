@@ -99,7 +99,7 @@ export default function ArticleRewriteBrandMapper({
               原文主要品牌分析
             </div>
             <p className="mt-1 text-[11px] leading-5 text-slate-500">
-              主要按介绍篇幅、独立区块、标题/表格和推荐角色排序，提及次数仅作辅助。
+              系统会结合介绍篇幅、文章结构和推荐角色，判断原文中的主要品牌。
             </p>
           </div>
           <Button
@@ -140,18 +140,21 @@ export default function ArticleRewriteBrandMapper({
                       </span>
                     )}
                   </div>
-                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
-                    <span>介绍 {candidate.descriptionChars} 字</span>
-                    <span>{candidate.blockCount} 个内容区块</span>
-                    <span>{candidate.headingCount} 个小标题</span>
-                    <span>{candidate.tableRowCount} 个表格行</span>
-                    <span>提及 {candidate.mentionCount} 次</span>
-                  </div>
-                  {(candidate.detailSignals.length > 0 || candidate.evidence.length > 0) && (
-                    <div className="mt-1.5 text-[10px] leading-4 text-slate-400">
-                      {[...candidate.detailSignals, ...candidate.evidence].slice(0, 5).join(" · ")}
+                  <details className="mt-2 text-[10px] text-slate-500">
+                    <summary className="cursor-pointer font-medium text-[#0958D9]">查看判断依据</summary>
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                      <span>介绍篇幅 {candidate.descriptionChars} 字</span>
+                      <span>{candidate.blockCount} 个内容区块</span>
+                      <span>{candidate.headingCount} 个小标题</span>
+                      <span>{candidate.tableRowCount} 个表格行</span>
+                      <span>提及 {candidate.mentionCount} 次</span>
                     </div>
-                  )}
+                    {(candidate.detailSignals.length > 0 || candidate.evidence.length > 0) && (
+                      <div className="mt-1.5 leading-4 text-slate-400">
+                        {[...candidate.detailSignals, ...candidate.evidence].slice(0, 5).join(" · ")}
+                      </div>
+                    )}
+                  </details>
                 </div>
               ))}
             </div>

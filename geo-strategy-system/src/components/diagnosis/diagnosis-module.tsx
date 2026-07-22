@@ -13,6 +13,7 @@ import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { getClientSubjectType } from "@/lib/analysis-subject"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type { BackgroundJobRef, Client, Diagnosis } from "@/types"
 
 interface Props {
@@ -54,7 +55,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
     },
     onSucceeded: job => {
       if (!job.result?.generatedAt) {
-        setError("后台诊断任务返回数据不完整，请重新生成。")
+        setError("诊断结果不完整，请重新生成。")
         onChangeClient({ backgroundJobs: backgroundJobsWith() })
         return
       }
@@ -65,7 +66,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
       })
     },
     onFailed: message => {
-      setError(message)
+      setError(toUserFacingError(message, { fallback: "诊断未完成，请稍后重试。", subject: "诊断" }))
       onChangeClient({ backgroundJobs: backgroundJobsWith() })
     },
   })
@@ -91,7 +92,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
               <Radar className="h-5 w-5 text-white" />
             </span>
             <span className="geo-module-title min-w-0 text-base sm:text-lg">
-              {isPerson ? "个人 IP 多维 AI 诊断面板" : "多维 AI 诊断面板"}
+              {isPerson ? "个人 IP 可见度诊断" : "AI 可见度诊断"}
             </span>
           </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -134,9 +135,9 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
 
         {loading && (
           <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-800">
-            <div className="font-medium">{jobState.currentJob?.stage || "诊断任务正在转入服务器后台"}</div>
+            <div className="font-medium">{jobState.currentJob?.stage || "正在生成诊断结果"}</div>
             <div className="text-[11px] text-violet-700/80">
-              {jobState.connectionNotice || "可以切换客户或刷新页面，诊断结果会自动恢复。"}
+              {jobState.connectionNotice || "可以继续使用其他功能，完成后结果会自动保存。"}
             </div>
           </div>
         )}
@@ -158,7 +159,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
               <GemScorePanel score={diag.gemScore} />
               <div className="geo-panel bg-white p-3">
                 <div className="mb-2 px-2 text-[11px] font-semibold text-[#60758D]">
-                  五维诊断雷达图
+                  五维表现
                 </div>
                 <RadarFiveDim dimensions={diag.dimensions} subjectType={subjectType} />
               </div>
@@ -166,7 +167,7 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
 
             <div className="geo-panel bg-white p-4">
               <div className="mb-3 text-[11px] font-semibold text-[#60758D]">
-                国内派系差异化诊断
+                各模型表现
               </div>
               <ModelTabs data={diag.modelDiagnosis} />
             </div>

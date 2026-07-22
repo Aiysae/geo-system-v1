@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -20,6 +20,7 @@
     "test:wechat-payment": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-wechat-payment.mts",
     "test:workspace-sync": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-workspace-sync.mts",
     "test:chart-labels": "tsx scripts/test-chart-labels.mts",
+    "test:user-facing-errors": "tsx scripts/test-user-facing-errors.mts",
     "test:recharge-notifications": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-recharge-notifications.mts",
     "test:client-accounts": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-client-account-access.mts",
     "test:client-feedback": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-client-feedback.mts",

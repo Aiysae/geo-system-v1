@@ -14,7 +14,7 @@ export default function SiteFooter({ className = "" }: SiteFooterProps) {
           © 2026 杭州势途数字科技有限公司 版权所有
         </div>
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
-          <span>势途 GEO 生成式引擎优化提效终端</span>
+          <span>势途 GEO 全链路操作工具</span>
           <span className="hidden text-slate-300 sm:inline">|</span>
           <span>域名：shitugeo.top</span>
           <span className="hidden text-slate-300 sm:inline">|</span>

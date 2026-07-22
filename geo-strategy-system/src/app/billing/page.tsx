@@ -153,7 +153,7 @@ export default async function BillingPage() {
             <div className="text-4xl font-bold tracking-tight text-slate-900">{unlimited ? "无限" : credits}</div>
             {unlimited && <div className="mt-1 font-mono text-[11px] text-slate-400">账面余额 {credits}</div>}
             <p className="mt-2 text-xs leading-5 text-slate-500">
-              所有功能扣费、失败退回、充值到账都会进入下方消费流水。
+              所有积分消耗、失败退回和充值到账都会记录在下方积分明细中。
             </p>
             <div className={`mt-4 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold ring-1 ${
               unlimited || membership.active
@@ -293,7 +293,7 @@ export default async function BillingPage() {
         <section className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
           <div className="border-b border-slate-100 px-5 py-4">
             <h2 className="text-sm font-semibold text-slate-900">充值记录</h2>
-            <p className="mt-1 text-xs text-slate-500">展示人工充值申请和官方支付订单的到账状态。</p>
+            <p className="mt-1 text-xs text-slate-500">查看每笔充值的付款方式和到账状态。</p>
           </div>
           {recharges.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-slate-400">暂无充值记录</div>
@@ -431,11 +431,11 @@ export default async function BillingPage() {
 
         <section className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
           <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-slate-900">消费流水</h2>
+            <h2 className="text-sm font-semibold text-slate-900">积分明细</h2>
             <p className="mt-1 text-xs text-slate-500">扣费、退回、充值到账和管理员调整都会保留记录。</p>
           </div>
           {ledger.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-slate-400">暂无消费流水</div>
+            <div className="px-5 py-10 text-center text-sm text-slate-400">暂无积分记录</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-left">

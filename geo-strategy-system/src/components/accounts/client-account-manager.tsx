@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react"
 import type { MembershipSnapshot } from "@/types"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 
 type ClientOption = {
   id: string
@@ -90,10 +91,10 @@ export default function ClientAccountManager() {
     try {
       const response = await fetch("/api/client-accounts", { cache: "no-store" })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "客户账号读取失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "客户账号读取失败，请稍后重试。", subject: "客户账号" }))
       setPayload(body as AccountPayload)
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "客户账号读取失败")
+      setError(toUserFacingError(loadError, { fallback: "客户账号读取失败，请稍后重试。", subject: "客户账号" }))
     } finally {
       setLoading(false)
     }
@@ -126,7 +127,7 @@ export default function ClientAccountManager() {
         }),
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "客户子账号创建失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "客户子账号创建失败，请稍后重试。", subject: "创建客户账号" }))
       setCredential({
         email: body.account.email,
         temporaryPassword: body.temporaryPassword,
@@ -134,7 +135,7 @@ export default function ClientAccountManager() {
       setShowCreate(false)
       await load()
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "客户子账号创建失败")
+      setError(toUserFacingError(createError, { fallback: "客户子账号创建失败，请稍后重试。", subject: "创建客户账号" }))
     } finally {
       setPending("")
     }
@@ -156,13 +157,13 @@ export default function ClientAccountManager() {
               : { action: "status", status: account.status === "active" ? "suspended" : "active" }),
           })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "客户账号操作失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "客户账号操作失败，请稍后重试。", subject: "客户账号操作" }))
       if (action === "reset") {
         setCredential({ email: body.email, temporaryPassword: body.temporaryPassword })
       }
       await load()
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "客户账号操作失败")
+      setError(toUserFacingError(actionError, { fallback: "客户账号操作失败，请稍后重试。", subject: "客户账号操作" }))
     } finally {
       setPending("")
     }
@@ -193,12 +194,12 @@ export default function ClientAccountManager() {
         body: JSON.stringify({ operationId: transferOperationId, amount }),
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "积分分配失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "积分分配失败，请稍后重试。", subject: "积分分配" }))
       setNotice(`已向 ${transferTarget.clientName} 分配 ${amount} 积分`)
       setTransferTarget(null)
       await load()
     } catch (transferError) {
-      setError(transferError instanceof Error ? transferError.message : "积分分配失败")
+      setError(toUserFacingError(transferError, { fallback: "积分分配失败，请稍后重试。", subject: "积分分配" }))
     } finally {
       setPending("")
     }

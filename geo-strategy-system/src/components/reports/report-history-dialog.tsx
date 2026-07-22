@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import PenetrationHistoryPanel from "@/components/reports/penetration-history-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   Client,
   CommercialReportJobRecord,
@@ -131,7 +132,7 @@ export default function ReportHistoryDialog({
       if (requestVersion === requestVersionRef.current) setJobs(data.jobs || [])
     } catch (caught) {
       if (requestVersion === requestVersionRef.current) {
-        setError(caught instanceof Error ? caught.message : "读取历史报告失败")
+        setError(toUserFacingError(caught, { fallback: "读取历史报告失败，请稍后重试。", subject: "历史报告" }))
       }
     } finally {
       if (!silent && requestVersion === requestVersionRef.current) setLoading(false)
@@ -184,7 +185,7 @@ export default function ReportHistoryDialog({
           if (!controller.signal.aborted) setPreviewUrl(objectUrl)
         } catch (caught) {
           if (!controller.signal.aborted) {
-            setError(caught instanceof Error ? caught.message : "报告预览失败")
+            setError(toUserFacingError(caught, { fallback: "报告预览失败，请稍后重试。", subject: "报告预览" }))
           }
         } finally {
           if (!controller.signal.aborted) setPreviewLoading(false)
@@ -209,7 +210,7 @@ export default function ReportHistoryDialog({
       }
       saveBlob(await response.blob(), job.fileName || "GEO-专业报告.pdf")
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "报告下载失败")
+      setError(toUserFacingError(caught, { fallback: "报告下载失败，请稍后重试。", subject: "报告下载" }))
     } finally {
       setBusyId(null)
     }
@@ -226,7 +227,7 @@ export default function ReportHistoryDialog({
       setJobs(current => current.filter(item => item.id !== job.id))
       if (selectedId === job.id) setSelectedId(null)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "删除报告失败")
+      setError(toUserFacingError(caught, { fallback: "删除报告失败，请稍后重试。", subject: "删除报告" }))
     } finally {
       setBusyId(null)
     }
