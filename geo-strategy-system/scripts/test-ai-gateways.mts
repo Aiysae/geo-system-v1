@@ -40,7 +40,6 @@ const dnsError = new TypeError("fetch failed") as TypeError & { cause?: { code: 
 dnsError.cause = { code: "ENOTFOUND" }
 assert.match(describeAiGatewayNetworkFailure(dnsError), /无法解析/)
 
-
 const secret = "test-bai-super-secret-key"
 const created = await saveAiGatewayProvider({
   name: "B.AI 测试",
@@ -55,6 +54,7 @@ const created = await saveAiGatewayProvider({
   timeout: 600,
   maxConcurrency: 2,
   manualModels: ["gpt-manual"],
+  primaryModel: "gpt-manual",
 }, "admin-test")
 
 assert.ok(parseGatewayProviderKey(created.providerKey))
@@ -90,7 +90,7 @@ assert.deepEqual(
 
 const tested = await testAiGatewayConnection(created.id, "admin-test")
 assert.equal(tested.healthStatus, "healthy")
-assert.match(tested.healthMessage || "", /API Key 校验通过/)
+assert.match(tested.healthMessage || "", /实际生成测试通过/)
 
 globalThis.fetch = (async () => new Response('{"error":"invalid key"}', { status: 401 })) as typeof fetch
 await assert.rejects(
@@ -101,6 +101,20 @@ assert.equal(
   (await listAiGatewayProvidersPublic()).find(provider => provider.id === created.id)?.healthStatus,
   "unhealthy",
 )
+
+let generationCalls = 0
+globalThis.fetch = (async () => {
+  generationCalls += 1
+  if (generationCalls === 1) {
+    return new Response(JSON.stringify({ data: [{ id: "gpt-manual" }] }), { status: 200 })
+  }
+  return new Response('{"error":"account overdue"}', { status: 403 })
+}) as typeof fetch
+await assert.rejects(
+  () => testAiGatewayConnection(created.id, "admin-test"),
+  /权限、余额/,
+)
+assert.equal(generationCalls, 2, "connection test must verify an actual generation request")
 
 globalThis.fetch = (async () => new Response(JSON.stringify({
   data: [

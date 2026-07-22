@@ -350,7 +350,7 @@ function ConnectionCard({
             </label>
             <button
               type="button"
-              title="测试服务器线路"
+              title="测试线路和实际生成"
               disabled={working}
               onClick={() => run(() => testModelConnectionAction(connection.id))}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 transition hover:bg-cyan-100 disabled:opacity-60"
