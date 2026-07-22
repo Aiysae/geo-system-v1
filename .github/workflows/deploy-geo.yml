@@ -125,16 +125,9 @@ jobs:
             set -euo pipefail
             cd "$DEPLOY_PATH"
 
-            APP_DIR=""
-            while IFS= read -r package_file; do
-              if grep -q '"name"[[:space:]]*:[[:space:]]*"geo-strategy-system"' "$package_file"; then
-                APP_DIR="$(dirname "$package_file")"
-                break
-              fi
-            done < <(find "$DEPLOY_PATH" -maxdepth 5 -name package.json -not -path '*/node_modules/*' -print)
-
-            if [ -z "$APP_DIR" ]; then
-              echo "Could not find geo-strategy-system package.json under $DEPLOY_PATH"
+            APP_DIR="${DEPLOY_PATH%/}/geo-strategy-system"
+            if [ ! -f "$APP_DIR/package.json" ] || ! grep -q '"name"[[:space:]]*:[[:space:]]*"geo-strategy-system"' "$APP_DIR/package.json"; then
+              echo "Could not find geo-strategy-system package.json at $APP_DIR"
               exit 1
             fi
 
