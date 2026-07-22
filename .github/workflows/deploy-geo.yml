@@ -7,10 +7,16 @@ on:
       - "geo-strategy-system/**"
       - ".github/workflows/deploy-geo.yml"
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner label used for this deployment"
+        required: false
+        default: "ubuntu-latest"
+        type: string
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,24 +41,28 @@ jobs:
           DEPLOY_PATH="${DEPLOY_PATH:-/var/www/geo-strategy-system/geo-system-v1}"
           REMOTE_APP_DIR="${DEPLOY_PATH%/}/geo-strategy-system"
           printf -v REMOTE_APP_DIR_Q '%q' "$REMOTE_APP_DIR"
+          KEY_FILE="${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_key"
+          KNOWN_HOSTS_FILE="${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_known_hosts"
+          printf -v KEY_FILE_Q '%q' "$KEY_FILE"
+          printf -v KNOWN_HOSTS_FILE_Q '%q' "$KNOWN_HOSTS_FILE"
           SSH_OPTS=(
-            -i ~/.ssh/geo_ecs_key
+            -i "$KEY_FILE"
             -p "$PORT"
             -o StrictHostKeyChecking=accept-new
-            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o UserKnownHostsFile="$KNOWN_HOSTS_FILE"
             -o ConnectTimeout=20
             -o ServerAliveInterval=15
             -o ServerAliveCountMax=2
           )
-          SSH_RSYNC="ssh -i ~/.ssh/geo_ecs_key -p $PORT -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
+          SSH_RSYNC="ssh -i $KEY_FILE_Q -p $PORT -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KNOWN_HOSTS_FILE_Q -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
 
-          mkdir -p ~/.ssh
-          printf '%s\n' "$ECS_SSH_KEY" > ~/.ssh/geo_ecs_key
-          chmod 600 ~/.ssh/geo_ecs_key
+          mkdir -p "$(dirname "$KEY_FILE")"
+          printf '%s\n' "$ECS_SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
 
           keyscan_ok=0
           for attempt in 1 2 3; do
-            if ssh-keyscan -T 20 -p "$PORT" -H "$ECS_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+            if ssh-keyscan -T 20 -p "$PORT" -H "$ECS_HOST" >> "$KNOWN_HOSTS_FILE" 2>/dev/null; then
               keyscan_ok=1
               break
             fi
@@ -75,20 +85,32 @@ jobs:
             -e "$SSH_RSYNC" \
             geo-strategy-system/ "$ECS_USER@$ECS_HOST:$REMOTE_APP_DIR/"
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.ECS_HOST }}
-          username: ${{ secrets.ECS_USER }}
-          key: ${{ secrets.ECS_SSH_KEY }}
-          port: ${{ secrets.ECS_SSH_PORT || 22 }}
-          script_stop: true
-          script: |
+      - name: Build and restart application
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+          ECS_SSH_PORT: ${{ secrets.ECS_SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          PORT="${ECS_SSH_PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/var/www/geo-strategy-system/geo-system-v1}"
+          KEY_FILE="${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_key"
+          KNOWN_HOSTS_FILE="${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_known_hosts"
+          printf -v DEPLOY_PATH_Q '%q' "$DEPLOY_PATH"
+
+          ssh \
+            -i "$KEY_FILE" \
+            -p "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            "$ECS_USER@$ECS_HOST" \
+            "DEPLOY_PATH=$DEPLOY_PATH_Q bash -s" <<'REMOTE_SCRIPT'
             set -euo pipefail
-            DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
-            if [ -z "$DEPLOY_PATH" ]; then
-              DEPLOY_PATH="/var/www/geo-strategy-system/geo-system-v1"
-            fi
             cd "$DEPLOY_PATH"
 
             APP_DIR=""
@@ -139,3 +161,11 @@ jobs:
               pm2 start ecosystem.config.cjs
             fi
             pm2 save
+          REMOTE_SCRIPT
+
+      - name: Clean up deployment credentials
+        if: always()
+        run: |
+          rm -f \
+            "${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_key" \
+            "${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_known_hosts"
