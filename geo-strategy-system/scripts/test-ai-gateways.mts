@@ -10,6 +10,8 @@ process.env.LOCAL_KV_FILE = kvFile
 process.env.AUTH_SECRET = "test-only-auth-secret-with-enough-entropy"
 
 const {
+  describeAiGatewayHttpFailure,
+  describeAiGatewayNetworkFailure,
   inferAiGatewayModelFamily,
   getAiGatewayPreset,
   getAiGatewayProviderRuntime,
@@ -18,6 +20,7 @@ const {
   saveAiGatewayProvider,
   setAiGatewayModelEnabled,
   syncAiGatewayModels,
+  testAiGatewayConnection,
 } = await import("../src/lib/ai-gateways")
 const { resolveArticleModel } = await import("../src/lib/article-models")
 const { runArticleModelChat } = await import("../src/lib/article-model-runtime")
@@ -30,6 +33,13 @@ assert.equal(getAiGatewayPreset("openai").protocol, "openai_responses")
 assert.equal(getAiGatewayPreset("openai").defaultModel, "gpt-5.6-terra")
 assert.equal(getAiGatewayPreset("anthropic").defaultModel, "claude-sonnet-5")
 assert.equal(getAiGatewayPreset("gemini").defaultModel, "gemini-3.6-flash")
+assert.match(describeAiGatewayHttpFailure(401, '{"error":"bad key"}'), /API Key 无效/)
+assert.match(describeAiGatewayHttpFailure(403, '{"error":"insufficient balance"}'), /权限、余额/)
+assert.match(describeAiGatewayHttpFailure(429, "rate limited"), /频率或额度/)
+const dnsError = new TypeError("fetch failed") as TypeError & { cause?: { code: string } }
+dnsError.cause = { code: "ENOTFOUND" }
+assert.match(describeAiGatewayNetworkFailure(dnsError), /无法解析/)
+
 
 const secret = "test-bai-super-secret-key"
 const created = await saveAiGatewayProvider({
@@ -77,6 +87,29 @@ assert.deepEqual(
   new Set(synced.models.map(model => model.id)),
   new Set(["gpt-5.2", "claude-sonnet-4-6", "gemini-3-pro", "gpt-manual"]),
 )
+
+const tested = await testAiGatewayConnection(created.id, "admin-test")
+assert.equal(tested.healthStatus, "healthy")
+assert.match(tested.healthMessage || "", /API Key 校验通过/)
+
+globalThis.fetch = (async () => new Response('{"error":"invalid key"}', { status: 401 })) as typeof fetch
+await assert.rejects(
+  () => testAiGatewayConnection(created.id, "admin-test"),
+  /API Key 无效/,
+)
+assert.equal(
+  (await listAiGatewayProvidersPublic()).find(provider => provider.id === created.id)?.healthStatus,
+  "unhealthy",
+)
+
+globalThis.fetch = (async () => new Response(JSON.stringify({
+  data: [
+    { id: "gpt-5.2", supported_endpoint_types: ["chat.completions"] },
+    { id: "claude-sonnet-4-6", supported_endpoint_types: ["chat.completions"] },
+    { id: "gemini-3-pro", supported_endpoint_types: ["chat.completions"] },
+  ],
+}), { status: 200 })) as typeof fetch
+await syncAiGatewayModels(created.id, "admin-test")
 
 await setAiGatewayModelEnabled(created.id, "gpt-5.2", false, "admin-test")
 await assert.rejects(

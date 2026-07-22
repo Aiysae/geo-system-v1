@@ -12,6 +12,7 @@ import {
   setAiGatewayPrimaryModel,
   syncAiGatewayModels,
   syncAllAiGatewayModels,
+  testAiGatewayConnection,
 } from "@/lib/ai-gateways"
 import { getAiProviderRuntimeSetting, saveAiProviderSetting } from "@/lib/ai-settings"
 import type { AiProviderKey } from "@/types/ai-settings"
@@ -142,6 +143,22 @@ export async function syncModelConnectionAction(providerId: string): Promise<Mod
     return { ok: true, id: providerId, message: provider.healthMessage || "模型已更新" }
   } catch (error) {
     return { ok: false, id: providerId, error: error instanceof Error ? error.message : "模型更新失败" }
+  }
+}
+
+export async function testModelConnectionAction(providerId: string): Promise<ModelCenterActionResult> {
+  let adminId: string
+  try {
+    adminId = await assertAdmin()
+  } catch {
+    return { ok: false, error: "无权限" }
+  }
+  try {
+    const provider = await testAiGatewayConnection(providerId, adminId)
+    refreshModelPaths()
+    return { ok: true, id: providerId, message: provider.healthMessage || "服务器线路已连通" }
+  } catch (error) {
+    return { ok: false, id: providerId, error: error instanceof Error ? error.message : "服务器线路检测失败" }
   }
 }
 
