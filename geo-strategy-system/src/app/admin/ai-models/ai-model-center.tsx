@@ -24,6 +24,7 @@ import {
   Sparkles,
   Trash2,
   WandSparkles,
+  Wifi,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import {
@@ -32,6 +33,7 @@ import {
   setPrimaryModelAction,
   syncAllModelConnectionsAction,
   syncModelConnectionAction,
+  testModelConnectionAction,
   toggleConnectionModelAction,
   toggleModelConnectionAction,
   type ModelCenterActionResult,
@@ -229,6 +231,10 @@ export function AiModelCenter({
             />
           ))}
         </div>
+        <div className="mt-4 flex items-start gap-2 rounded-xl bg-cyan-50 px-4 py-3 text-xs leading-relaxed text-cyan-900 ring-1 ring-cyan-200">
+          <Wifi className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>网站服务器不会使用你电脑上的 VPN。海外官方接口无法连通时，请在下方配置可从中国大陆访问的中转站。</p>
+        </div>
       </section>
 
       <RelaySection
@@ -327,7 +333,7 @@ function ConnectionCard({
         </div>
 
         {connection ? (
-          <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+          <div className="mt-4 grid grid-cols-[1fr_auto_auto] gap-2">
             <label className="min-w-0">
               <span className="sr-only">主模型</span>
               <select
@@ -344,6 +350,15 @@ function ConnectionCard({
             </label>
             <button
               type="button"
+              title="测试服务器线路"
+              disabled={working}
+              onClick={() => run(() => testModelConnectionAction(connection.id))}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 transition hover:bg-cyan-100 disabled:opacity-60"
+            >
+              {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wifi className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
               title="更新模型列表"
               disabled={working}
               onClick={() => run(() => syncModelConnectionAction(connection.id))}
@@ -358,7 +373,7 @@ function ConnectionCard({
           <p className="mt-2 text-xs text-rose-600">当前主模型已下架，请手动选择其他模型。</p>
         ) : null}
         {connection?.healthMessage ? (
-          <p className={`mt-2 line-clamp-2 text-[11px] leading-relaxed ${connection.healthStatus === "unhealthy" ? "text-rose-600" : "text-slate-500"}`}>
+          <p className={`mt-2 line-clamp-3 text-[11px] leading-relaxed ${connection.healthStatus === "unhealthy" ? "text-rose-600" : "text-slate-500"}`}>
             {connection.healthMessage}
           </p>
         ) : null}
@@ -441,7 +456,8 @@ function StatusPill({ connection, legacyConfigured }: { connection?: AiGatewayPr
   }
   if (!connection.enabled) return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">已停用</span>
   if (connection.healthStatus === "unhealthy") return <span className="rounded-full bg-rose-50 px-2 py-0.5 text-rose-700 ring-1 ring-rose-200">需检查</span>
-  return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700 ring-1 ring-emerald-200">已配置</span>
+  if (connection.healthStatus === "unchecked") return <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 ring-1 ring-amber-200">待测试</span>
+  return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700 ring-1 ring-emerald-200">已连通</span>
 }
 
 function ModelList({

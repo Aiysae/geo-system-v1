@@ -556,17 +556,55 @@ function modelListUrl(runtime: AiGatewayProviderRuntime): string {
   return url.toString()
 }
 
-export async function syncAiGatewayModels(
-  providerId: string,
-  adminUserId: string,
-): Promise<AiGatewayProviderPublic> {
-  const runtime = await getAiGatewayProviderRuntime(providerId)
-  if (!runtime.apiKey) throw new Error("请先配置 API Key")
+function nestedErrorCode(error: unknown): string {
+  let current: unknown = error
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!current || typeof current !== "object") return ""
+    const record = current as Record<string, unknown>
+    if (typeof record.code === "string") return record.code.toUpperCase()
+    current = record.cause
+  }
+  return ""
+}
 
+export function describeAiGatewayNetworkFailure(error: unknown): string {
+  const name = error instanceof Error ? error.name : ""
+  const code = nestedErrorCode(error)
+  if (name === "AbortError" || name === "TimeoutError" || code === "ETIMEDOUT") {
+    return "网站服务器连接该渠道超时。电脑上的 VPN 不会作用于服务器，请改用可从中国大陆访问的中转站"
+  }
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return "网站服务器无法解析该渠道域名，请检查地址或 DNS"
+  }
+  if (code === "ECONNREFUSED") {
+    return "渠道服务器拒绝连接，请检查地址、端口或服务状态"
+  }
+  if (/CERT|TLS|SSL/.test(code) || /certificate|tls|ssl/i.test(name)) {
+    return "渠道的 HTTPS 证书校验失败，请检查中转站证书"
+  }
+  return `网站服务器无法连接该渠道${code ? `（${code}）` : ""}，请检查地址和服务器网络`
+}
+
+export function describeAiGatewayHttpFailure(status: number, raw: unknown): string {
+  const detail = sanitizeAiUpstreamMessage(raw, 140)
+  const suffix = detail ? `：${detail}` : ""
+  if (status === 400) return `服务器线路已连通，但请求参数或模型列表路径不正确（HTTP 400）${suffix}`
+  if (status === 401) return `服务器线路已连通，但 API Key 无效或未授权（HTTP 401）${suffix}`
+  if (status === 403) return `服务器线路已连通，但账号权限、余额或区域访问受限（HTTP 403）${suffix}`
+  if (status === 404) return `服务器线路已连通，但模型列表路径不存在（HTTP 404）${suffix}`
+  if (status === 408 || status === 504) return `服务器线路已连通，但上游处理超时（HTTP ${status}）${suffix}`
+  if (status === 429) return `服务器线路已连通，但请求频率或额度受限（HTTP 429）${suffix}`
+  if (status >= 500) return `服务器线路已连通，但上游服务暂时异常（HTTP ${status}）${suffix}`
+  return `服务器线路已连通，但渠道返回 HTTP ${status}${suffix}`
+}
+
+async function fetchAiGatewayModelList(
+  runtime: AiGatewayProviderRuntime,
+  timeoutSeconds: number,
+): Promise<{ raw: string; latencyMs: number }> {
   const startedAt = Date.now()
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), Math.min(60, runtime.timeout) * 1000)
-  let modelValues: Array<Record<string, unknown>>
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutSeconds) * 1000)
   try {
     const response = await fetch(modelListUrl(runtime), {
       method: "GET",
@@ -578,20 +616,58 @@ export async function syncAiGatewayModels(
       },
     })
     const raw = await response.text()
-    if (!response.ok) {
-      throw new Error(`模型同步失败 HTTP ${response.status}：${sanitizeAiUpstreamMessage(raw, 180) || "无响应内容"}`)
-    }
-    modelValues = extractModelValues(JSON.parse(raw))
+    if (!response.ok) throw new Error(describeAiGatewayHttpFailure(response.status, raw))
+    return { raw, latencyMs: Date.now() - startedAt }
   } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError"
-      ? "模型同步超时，请检查渠道地址或网络"
-      : error instanceof Error
-        ? error.message
-        : "模型同步失败"
-    await updateGatewayHealth(providerId, "unhealthy", message, Date.now() - startedAt, adminUserId)
-    throw new Error(message)
+    if (error instanceof Error && error.message.startsWith("服务器线路已连通")) throw error
+    throw new Error(describeAiGatewayNetworkFailure(error))
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+export async function testAiGatewayConnection(
+  providerId: string,
+  adminUserId: string,
+): Promise<AiGatewayProviderPublic> {
+  const runtime = await getAiGatewayProviderRuntime(providerId)
+  if (!runtime.apiKey) throw new Error("请先配置 API Key")
+  const startedAt = Date.now()
+  try {
+    const result = await fetchAiGatewayModelList(runtime, Math.min(15, runtime.timeout))
+    let modelCount = 0
+    try {
+      modelCount = extractModelValues(JSON.parse(result.raw)).length
+    } catch {
+      modelCount = 0
+    }
+    const message = modelCount > 0
+      ? `服务器线路已连通，API Key 校验通过，发现 ${modelCount} 个模型（${result.latencyMs} ms）`
+      : `服务器线路已连通，API Key 校验通过（${result.latencyMs} ms）`
+    return updateGatewayHealth(providerId, "healthy", message, result.latencyMs, adminUserId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "服务器线路检测失败"
+    await updateGatewayHealth(providerId, "unhealthy", message, Date.now() - startedAt, adminUserId)
+    throw new Error(message)
+  }
+}
+
+export async function syncAiGatewayModels(
+  providerId: string,
+  adminUserId: string,
+): Promise<AiGatewayProviderPublic> {
+  const runtime = await getAiGatewayProviderRuntime(providerId)
+  if (!runtime.apiKey) throw new Error("请先配置 API Key")
+
+  const startedAt = Date.now()
+  let modelValues: Array<Record<string, unknown>>
+  try {
+    const result = await fetchAiGatewayModelList(runtime, Math.min(60, runtime.timeout))
+    modelValues = extractModelValues(JSON.parse(result.raw))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "模型同步失败"
+    await updateGatewayHealth(providerId, "unhealthy", message, Date.now() - startedAt, adminUserId)
+    throw new Error(message)
   }
 
   const now = new Date().toISOString()
