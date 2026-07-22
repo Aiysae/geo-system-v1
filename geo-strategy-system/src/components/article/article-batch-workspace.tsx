@@ -13,6 +13,7 @@ import {
   RefreshCw,
   RotateCcw,
   Square,
+  Trash2,
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -226,6 +227,26 @@ export default function ArticleBatchWorkspace({
     }
   }
 
+  async function deleteBatch() {
+    if (!selectedBatch || acting || !TERMINAL_BATCH.has(selectedBatch.status)) return
+    if (!window.confirm(`确认删除这次批量任务吗？对应的 ${selectedBatch.completedCount} 篇 Word 文件也会一并清理。`)) return
+    setActing(true)
+    setError("")
+    try {
+      const response = await apiFetch(`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}`, {
+        method: "DELETE",
+      })
+      const body = await readApiJson<{ ok?: boolean; error?: string }>(response, "批量文章")
+      if (!response.ok) throw new Error(body.error || "批量任务删除失败")
+      applyBatches(batches.filter(batch => batch.id !== selectedBatch.id))
+      setCompletionNotice("批量任务记录及对应 Word 文件已删除。")
+    } catch (deleteError) {
+      setError(toUserFacingError(deleteError, { fallback: "批量任务删除失败，请稍后重试。", subject: "批量文章" }))
+    } finally {
+      setActing(false)
+    }
+  }
+
   return (
     <section className="flex min-h-[680px] min-w-0 flex-col overflow-hidden rounded-lg border border-[#d6e7ff] bg-white/95 shadow-sm">
       <div className="border-b border-blue-100 bg-gradient-to-r from-[#EAF4FF] via-white to-[#E8FBFF] px-4 py-4">
@@ -412,6 +433,20 @@ export default function ArticleBatchWorkspace({
                   >
                     <Square className="h-3 w-3" />
                     停止剩余
+                  </Button>
+                )}
+                {TERMINAL_BATCH.has(selectedBatch.status) && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    onClick={() => void deleteBatch()}
+                    disabled={acting}
+                    className="h-8 w-8 border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                    title="删除本次批量任务和 Word 文件"
+                    aria-label="删除本次批量任务"
+                  >
+                    {acting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </Button>
                 )}
               </div>

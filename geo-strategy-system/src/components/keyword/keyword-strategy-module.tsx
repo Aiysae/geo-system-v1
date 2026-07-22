@@ -1568,10 +1568,19 @@ function InputStep({
         {/* Left: Upload Area */}
         <div className="lg:col-span-1 space-y-4">
           <div className="geo-section-panel p-4 sm:p-5">
-            <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-              <CloudUpload className="h-4 w-4 text-blue-500" />
-              上传资料
-            </h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <CloudUpload className="h-4 w-4 text-blue-500" />
+                上传资料
+              </h2>
+              <a
+                href={`/api/geo-strategy/material-template?subjectType=${isPerson ? "person" : "brand"}`}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#91CAFF] bg-[#F0F8FF] px-2.5 text-[11px] font-semibold text-[#0958D9] transition hover:border-[#1677FF] hover:bg-[#E6F4FF]"
+                title={isPerson ? "下载个人 IP 资料填写模板" : "下载品牌资料填写模板"}
+              >
+                <Download className="h-3.5 w-3.5" />下载{isPerson ? "个人 IP" : "品牌"}资料模板
+              </a>
+            </div>
             <div
               className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition"
               onClick={() => fileInputRef.current?.click()}

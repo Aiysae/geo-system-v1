@@ -1,11 +1,20 @@
 import assert from "node:assert/strict"
+import fs from "node:fs/promises"
 import { createRequire } from "node:module"
+import os from "node:os"
+import path from "node:path"
 import JSZip from "jszip"
 import type * as ArticleDocxModule from "../src/lib/article-batches/docx"
 import type * as ArticlePlanningModule from "../src/lib/article-batches/planning"
 
+const directory = await fs.mkdtemp(path.join(os.tmpdir(), "geo-article-batches-"))
+process.env.ARTICLE_BATCH_STORE = "kv"
+process.env.KV_BACKEND = "file"
+process.env.LOCAL_KV_FILE = path.join(directory, "kv.json")
+process.env.ARTICLE_ARTIFACTS_DIR = path.join(directory, "artifacts")
+
 const require = createRequire(import.meta.url)
-const { buildArticleDocxBuffer } = require("../src/lib/article-batches/docx.ts") as typeof ArticleDocxModule
+const { buildArticleDocxBuffer, writeArticleDocxArtifact } = require("../src/lib/article-batches/docx.ts") as typeof ArticleDocxModule
 const {
   ARTICLE_SIMILARITY_RETRY_THRESHOLD,
   articleSimilarity,
@@ -58,4 +67,84 @@ const documentXml = await zip.file("word/document.xml")!.async("string")
 assert.match(documentXml, /GEO 批量文章测试/)
 assert.match(documentXml, /独立请求/)
 
+const {
+  createStoredArticleBatchInput,
+  getOwnedStoredArticleBatch,
+  saveStoredArticleBatch,
+} = await import("../src/lib/article-batches/store")
+const { deleteArticleBatch } = await import("../src/lib/article-batches/manager")
+
+function storedBatch(id: string, status: "running" | "succeeded") {
+  const markdown = "# 待清理文章\n\n这是批量任务删除测试。"
+  const batch = createStoredArticleBatchInput({
+    id,
+    ownerUserId: "article-batch-owner",
+    clientId: "article-batch-client",
+    requestId: `request_${id}`,
+    promptKey: "thirdPartyObservation",
+    promptTitle: "第三方观察",
+    modelProvider: "article",
+    model: "deepseek-chat",
+    topicMode: "auto",
+    similarityRetry: true,
+    basePayload: {
+      promptKey: "thirdPartyObservation",
+      modelProvider: "article",
+      model: "deepseek-chat",
+      clientName: "测试客户",
+      brandName: "测试品牌",
+      subjectType: "brand",
+      subjectContext: "",
+      industry: "企业服务",
+      website: "",
+      coreQuestion: "企业如何做 GEO",
+      keywords: "GEO",
+      region: "全国",
+      business: "GEO 服务",
+      advantages: "",
+      audience: "企业客户",
+      extraRequirements: "",
+    },
+    items: [{
+      id: `item_${id}`,
+      position: 1,
+      topic: "企业如何做 GEO",
+      brief: "独立主题",
+      requestId: `item_request_${id}`,
+      status: status === "succeeded" ? "succeeded" : "running",
+      progressPercent: status === "succeeded" ? 100 : 50,
+      stage: status === "succeeded" ? "已完成" : "生成中",
+      attempt: 1,
+      markdown,
+      title: "待清理文章",
+      updatedAt: new Date().toISOString(),
+    }],
+  })
+  batch.status = status
+  batch.stage = status === "succeeded" ? "已完成" : "生成中"
+  batch.completedCount = status === "succeeded" ? 1 : 0
+  if (status === "succeeded") batch.finishedAt = new Date().toISOString()
+  return batch
+}
+
+const active = storedBatch("abatch_active_delete_test", "running")
+await saveStoredArticleBatch(active)
+assert.equal(await deleteArticleBatch(active.id, active.ownerUserId), "active")
+assert.ok(await getOwnedStoredArticleBatch(active.id, active.ownerUserId))
+
+const finished = storedBatch("abatch_finished_delete_test", "succeeded")
+await saveStoredArticleBatch(finished)
+const artifact = await writeArticleDocxArtifact({
+  batchId: finished.id,
+  itemId: finished.items[0].id,
+  position: 1,
+  markdown: finished.items[0].markdown || "",
+  title: "待清理文章",
+})
+assert.equal(await deleteArticleBatch(finished.id, "another-owner"), "not_found")
+assert.equal(await deleteArticleBatch(finished.id, finished.ownerUserId), "deleted")
+assert.equal(await getOwnedStoredArticleBatch(finished.id, finished.ownerUserId), null)
+await assert.rejects(() => fs.access(artifact.artifactPath))
+
+await fs.rm(directory, { recursive: true, force: true })
 console.log("article batch tests passed")

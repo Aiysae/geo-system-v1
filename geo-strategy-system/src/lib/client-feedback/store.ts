@@ -347,6 +347,25 @@ export async function saveClientFeedbackReport(
   return report
 }
 
+export async function deleteClientFeedbackReport(input: {
+  ownerUserId: string
+  clientId: string
+  reportId: string
+}): Promise<"deleted" | "not_found" | "published"> {
+  const report = await getClientFeedbackReport(input.ownerUserId, input.reportId)
+  if (!report || report.clientId !== input.clientId) return "not_found"
+  if (report.status !== "draft") return "published"
+
+  if (report.shareTokenHash) {
+    await kv.del(shareKey(report.shareTokenHash))
+  }
+  await Promise.all([
+    kv.del(reportKey(report.id)),
+    kv.srem(reportIndexKey(report.ownerUserId, report.clientId), report.id),
+  ])
+  return "deleted"
+}
+
 function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("base64url")
 }

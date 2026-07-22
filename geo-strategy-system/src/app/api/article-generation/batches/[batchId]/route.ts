@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   cancelArticleBatch,
+  deleteArticleBatch,
   getArticleBatch,
   restartArticleBatch,
   retryFailedArticleBatchItems,
@@ -34,6 +35,30 @@ export async function GET(
   return NextResponse.json(batch, {
     headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
   })
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  context: { params: Promise<{ batchId: string }> },
+) {
+  const auth = await requireUserId()
+  if (!auth.ok) return auth.response
+  const accountAccess = await requireStandardAccountMode(auth.userId)
+  if (!accountAccess.ok) {
+    return NextResponse.json(
+      { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
+      { status: 403 },
+    )
+  }
+  const { batchId } = await context.params
+  const result = await deleteArticleBatch(batchId, auth.userId)
+  if (result === "not_found") {
+    return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
+  }
+  if (result === "active") {
+    return NextResponse.json({ error: "批量任务仍在进行，请先停止任务再删除" }, { status: 409 })
+  }
+  return NextResponse.json({ ok: true })
 }
 
 export async function PATCH(

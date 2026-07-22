@@ -53,7 +53,7 @@ const KIND_OPTIONS: Array<{
 }> = [
   { kind: "combined", title: "综合商业报告", description: "渗透率、信源、难度与行动建议", icon: Layers3 },
   { kind: "penetration", title: "渗透率情报", description: "品牌声量、模型表现与联网信源", icon: BarChart3 },
-  { kind: "difficulty", title: "难度测评", description: "六维评分、关键洞察与执行路径", icon: Gauge },
+  { kind: "difficulty", title: "难度测评", description: "七维评分、关键洞察与执行路径", icon: Gauge },
 ]
 
 const MAX_SOURCE_LOGO_BYTES = 8 * 1024 * 1024
