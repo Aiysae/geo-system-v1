@@ -60,30 +60,42 @@ jobs:
           printf '%s\n' "$ECS_SSH_KEY" > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
 
-          keyscan_ok=0
-          for attempt in 1 2 3; do
-            if ssh-keyscan -T 20 -p "$PORT" -H "$ECS_HOST" >> "$KNOWN_HOSTS_FILE" 2>/dev/null; then
-              keyscan_ok=1
+          ssh_ok=0
+          for attempt in 1 2 3 4 5 6; do
+            if ssh "${SSH_OPTS[@]}" "$ECS_USER@$ECS_HOST" true; then
+              ssh_ok=1
               break
             fi
-            echo "SSH host key scan failed (attempt $attempt/3); retrying..."
-            sleep $((attempt * 5))
+            echo "SSH connection failed (attempt $attempt/6); retrying..."
+            sleep $((attempt * 10))
           done
-          if [ "$keyscan_ok" -ne 1 ]; then
+          if [ "$ssh_ok" -ne 1 ]; then
             echo "::error::Unable to reach the ECS SSH port. Check the ECS public IP, security group SSH ingress, and instance status."
             exit 1
           fi
 
           ssh "${SSH_OPTS[@]}" "$ECS_USER@$ECS_HOST" "mkdir -p $REMOTE_APP_DIR_Q"
-          rsync -az --delete \
-            --timeout=60 \
-            --contimeout=20 \
-            --exclude 'node_modules' \
-            --exclude '.next' \
-            --exclude '.env.local' \
-            --exclude '.env.production' \
-            -e "$SSH_RSYNC" \
-            geo-strategy-system/ "$ECS_USER@$ECS_HOST:$REMOTE_APP_DIR/"
+          upload_ok=0
+          for attempt in 1 2 3; do
+            if rsync -az --delete \
+              --timeout=60 \
+              --contimeout=20 \
+              --exclude 'node_modules' \
+              --exclude '.next' \
+              --exclude '.env.local' \
+              --exclude '.env.production' \
+              -e "$SSH_RSYNC" \
+              geo-strategy-system/ "$ECS_USER@$ECS_HOST:$REMOTE_APP_DIR/"; then
+              upload_ok=1
+              break
+            fi
+            echo "Source upload failed (attempt $attempt/3); retrying..."
+            sleep $((attempt * 10))
+          done
+          if [ "$upload_ok" -ne 1 ]; then
+            echo "::error::Unable to upload source to ECS after retries."
+            exit 1
+          fi
 
       - name: Build and restart application
         env:
