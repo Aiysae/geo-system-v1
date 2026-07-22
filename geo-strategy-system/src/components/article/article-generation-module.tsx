@@ -39,6 +39,7 @@ import { cancelBackgroundJob, createBackgroundRequestId, createIdempotentApiJob 
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
+import type { AiGatewayArticleOption, AiGatewayModelFamily } from "@/types/ai-gateway"
 import type {
   ArticleGenerationState,
   ArticlePublishingSettings,
@@ -61,6 +62,7 @@ interface Props {
 interface ArticleSettingsResponse {
   prompts?: ArticlePromptOption[]
   providers?: AiProviderPublicSetting[]
+  gateways?: AiGatewayArticleOption[]
   error?: string
 }
 
@@ -196,6 +198,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     client.articleGeneration?.promptKey === "rewrite" ? "rewrite" : "single"
   ))
   const [providers, setProviders] = useState<AiProviderPublicSetting[]>([])
+  const [gateways, setGateways] = useState<AiGatewayArticleOption[]>([])
   const [prompts, setPrompts] = useState<ArticlePromptOption[]>(ARTICLE_PROMPT_OPTIONS)
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [preferredSourceModel, setPreferredSourceModel] = useState<ModelKey | null>(null)
@@ -216,16 +219,30 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         if (!res.ok) throw new Error(data.error || "配置读取失败")
         if (cancelled) return
         const nextProviders = data.providers || []
+        const nextGateways = data.gateways || []
         setProviders(nextProviders)
+        setGateways(nextGateways)
         setPrompts(data.prompts?.length ? data.prompts : ARTICLE_PROMPT_OPTIONS)
         setSettingsError(null)
 
         const currentArticle = articleRef.current
-        if (!currentArticle.model) {
-          const provider = nextProviders.find(item => item.key === currentArticle.modelProvider)
-            || nextProviders.find(item => item.key === "article")
-          if (provider?.model) {
-            const next = { ...currentArticle, model: provider.model }
+        const currentProvider = nextProviders.find(item => item.key === currentArticle.modelProvider)
+        const currentGateway = nextGateways.find(item => item.providerKey === currentArticle.modelProvider)
+        const sourceExists = Boolean(currentProvider || currentGateway)
+        if (!sourceExists || !currentArticle.model) {
+          const provider = sourceExists
+            ? currentProvider
+            : nextProviders.find(item => item.key === "article")
+          const gateway = sourceExists ? currentGateway : undefined
+          const defaultModel = provider?.model || gateway?.models.find(item => item.enabled)?.id || ""
+          if (provider || gateway) {
+            const next = {
+              ...currentArticle,
+              modelProvider: sourceExists
+                ? currentArticle.modelProvider
+                : (provider?.key || "article") as ArticleModelProviderKey,
+              model: defaultModel,
+            }
             articleRef.current = next
             setArticle(next)
             onChangeClient({ articleGeneration: next })
@@ -253,6 +270,14 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const activeProvider = useMemo(
     () => providers.find(item => item.key === article.modelProvider),
     [article.modelProvider, providers]
+  )
+  const activeGateway = useMemo(
+    () => gateways.find(item => item.providerKey === article.modelProvider),
+    [article.modelProvider, gateways],
+  )
+  const activeGatewayModels = useMemo(
+    () => activeGateway?.models.filter(model => model.enabled) || [],
+    [activeGateway],
   )
   const keywordQuestions = client.keywordStrategy?.questions || []
   const keywordAdvantages = useMemo(() => collectKeywordAdvantages(client), [client])
@@ -470,10 +495,11 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
   function updateProvider(key: ArticleModelProviderKey) {
     const provider = providers.find(item => item.key === key)
+    const gateway = gateways.find(item => item.providerKey === key)
     persist({
       ...article,
       modelProvider: key,
-      model: provider?.model || "",
+      model: provider?.model || gateway?.models.find(item => item.enabled)?.id || "",
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
     })
@@ -785,22 +811,54 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                   value={article.modelProvider}
                   onChange={event => updateProvider(event.target.value as ArticleModelProviderKey)}
                 >
-                  {providers.length === 0 && <option value="article">文章生成</option>}
-                  {providers.map(provider => (
-                    <option key={provider.key} value={provider.key}>
-                      {provider.label}
-                    </option>
-                  ))}
+                  {providers.length === 0 && gateways.length === 0 && <option value="article">文章生成</option>}
+                  {providers.length > 0 && (
+                    <optgroup label="系统模型">
+                      {providers.map(provider => (
+                        <option key={provider.key} value={provider.key}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {gateways.length > 0 && (
+                    <optgroup label="海外模型中转站">
+                      {gateways.map(gateway => (
+                        <option key={gateway.id} value={gateway.providerKey}>
+                          {gateway.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </Select>
               </label>
               <Label className="text-xs">
                 <span className="mb-1.5 block font-medium text-slate-500">具体模型</span>
-                <Input
-                  value={article.model}
-                  onChange={event => updateField("model", event.target.value)}
-                  placeholder={activeProvider?.model || activePrompt.defaultModelHint}
-                  className="h-10 rounded-lg bg-white"
-                />
+                {activeGateway && activeGatewayModels.length > 0 ? (
+                  <Select
+                    value={article.model}
+                    onChange={event => updateField("model", event.target.value)}
+                  >
+                    {(["gpt", "claude", "gemini", "other"] as AiGatewayModelFamily[]).map(family => {
+                      const familyModels = activeGatewayModels.filter(model => model.family === family)
+                      if (familyModels.length === 0) return null
+                      return (
+                        <optgroup key={family} label={gatewayFamilyLabel(family)}>
+                          {familyModels.map(model => (
+                            <option key={model.id} value={model.id}>{model.displayName || model.id}</option>
+                          ))}
+                        </optgroup>
+                      )
+                    })}
+                  </Select>
+                ) : (
+                  <Input
+                    value={article.model}
+                    onChange={event => updateField("model", event.target.value)}
+                    placeholder={activeProvider?.model || activePrompt.defaultModelHint}
+                    className="h-10 rounded-lg bg-white"
+                  />
+                )}
               </Label>
             </div>
             {settingsError && (
@@ -1285,6 +1343,15 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 function buildFileBaseName(client: Client, prompt: ArticlePromptOption): string {
   const pieces = [client.ourBrand || client.name || "文章", prompt.title]
   return sanitizeFileName(pieces.filter(Boolean).join("_"))
+}
+
+function gatewayFamilyLabel(family: AiGatewayModelFamily): string {
+  switch (family) {
+    case "gpt": return "GPT"
+    case "claude": return "Claude"
+    case "gemini": return "Gemini"
+    default: return "其他模型"
+  }
 }
 
 function sanitizeFileName(name: string): string {

@@ -12,22 +12,16 @@ import {
   resolveWorkspaceAccess,
 } from "@/lib/client-accounts"
 import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
+import {
+  isRecognizedArticleModelProviderKey,
+  resolveArticleModel,
+} from "@/lib/article-models"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
 const TOPIC_MODES = new Set<ArticleBatchTopicMode>(["auto", "questions", "custom"])
-const PROVIDERS = new Set<ArticleModelProviderKey>([
-  "article",
-  "deepseek",
-  "qwen",
-  "doubao",
-  "kimi",
-  "ernie",
-  "hunyuan",
-])
-
 function text(value: unknown, max: number): string {
   return String(value ?? "").trim().slice(0, max)
 }
@@ -72,7 +66,7 @@ export async function POST(req: NextRequest) {
     const topicMode = text(body.topicMode, 24) as ArticleBatchTopicMode
     const promptKey = text(base.promptKey, 80) as ArticlePromptKey
     const prompt = getArticlePromptOption(promptKey)
-    const modelProvider = text(base.modelProvider, 40) as ArticleModelProviderKey
+    const modelProvider = text(base.modelProvider, 80) as ArticleModelProviderKey
 
     if (!/^[A-Za-z0-9_-]{16,160}$/.test(requestId)) {
       return NextResponse.json({ error: "批次请求编号无效，请刷新后重试" }, { status: 400 })
@@ -87,8 +81,15 @@ export async function POST(req: NextRequest) {
     if (!prompt || promptKey === "rewrite") {
       return NextResponse.json({ error: "批量生成暂不支持文章改写模板" }, { status: 400 })
     }
-    if (!PROVIDERS.has(modelProvider)) {
+    if (!isRecognizedArticleModelProviderKey(modelProvider)) {
       return NextResponse.json({ error: "文章模型来源无效" }, { status: 400 })
+    }
+    const resolvedModel = await resolveArticleModel(modelProvider, text(base.model, 200))
+    if (!resolvedModel.apiKey) {
+      return NextResponse.json({ error: `${resolvedModel.label} API Key 未配置` }, { status: 400 })
+    }
+    if (!resolvedModel.model) {
+      return NextResponse.json({ error: `${resolvedModel.label}模型名未配置` }, { status: 400 })
     }
 
     const coreQuestion = text(base.coreQuestion, 500)
@@ -106,8 +107,8 @@ export async function POST(req: NextRequest) {
       similarityRetry: body.similarityRetry !== false,
       basePayload: {
         promptKey,
-        modelProvider,
-        model: text(base.model, 160),
+        modelProvider: resolvedModel.providerKey,
+        model: resolvedModel.model,
         clientName: text(base.clientName, 160),
         brandName: text(base.brandName, 160),
         subjectType: normalizeAnalysisSubjectType(base.subjectType),

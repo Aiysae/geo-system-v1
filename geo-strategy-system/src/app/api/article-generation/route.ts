@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import {
+  normalizeArticleModelProviderKey,
+  resolveArticleModel,
+} from "@/lib/article-models"
+import { runArticleModelChat } from "@/lib/article-model-runtime"
 import { getArticlePromptTemplate } from "@/lib/article-prompts"
 import {
   createRewriteAudit,
@@ -9,7 +13,6 @@ import {
   validateRewriteMappings,
   validateRewriteOutput,
 } from "@/lib/article-rewrite"
-import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import {
   authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
@@ -18,7 +21,6 @@ import {
 } from "@/lib/with-credits"
 import type {
   AnalysisSubjectType,
-  ArticleModelProviderKey,
   ArticlePromptKey,
   ArticleRewriteAnalysis,
   ArticleRewriteAudit,
@@ -32,18 +34,8 @@ import {
 import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
 
 export const runtime = "nodejs"
-export const maxDuration = 300
+export const maxDuration = 900
 export const dynamic = "force-dynamic"
-
-const ARTICLE_MODEL_PROVIDERS: ArticleModelProviderKey[] = [
-  "article",
-  "deepseek",
-  "qwen",
-  "doubao",
-  "kimi",
-  "ernie",
-  "hunyuan",
-]
 
 const ARTICLE_PROMPTS: ArticlePromptKey[] = [
   "thirdPartyObservation",
@@ -75,12 +67,6 @@ const THREE_INPUT_ARTICLE_PROMPTS = new Set<ArticlePromptKey>([
 
 function asPromptKey(value: unknown): ArticlePromptKey | null {
   return ARTICLE_PROMPTS.includes(value as ArticlePromptKey) ? value as ArticlePromptKey : null
-}
-
-function asProviderKey(value: unknown): ArticleModelProviderKey {
-  return ARTICLE_MODEL_PROVIDERS.includes(value as ArticleModelProviderKey)
-    ? value as ArticleModelProviderKey
-    : "article"
 }
 
 function text(value: unknown, max = 4000): string {
@@ -374,9 +360,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const modelProvider = asProviderKey(body.modelProvider)
-    const config = await getAiProviderRuntimeSetting(modelProvider)
-    const model = text(body.model, 160) || config.model
+    const modelProvider = normalizeArticleModelProviderKey(body.modelProvider)
+    const config = await resolveArticleModel(modelProvider, text(body.model, 200))
+    const model = config.model
 
     if (!config.apiKey) {
       return NextResponse.json(
@@ -407,10 +393,7 @@ export async function POST(req: NextRequest) {
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 
-    const raw = await openaiCompatChat({
-      url: buildAiChatUrl(config),
-      apiKey: config.apiKey,
-      model,
+    const generation = await runArticleModelChat(config, {
       system: buildSystemPrompt(template.template, subjectType),
       user: buildUserPrompt({
         promptKey,
@@ -436,11 +419,15 @@ export async function POST(req: NextRequest) {
       }),
       temperature: template.temperature,
       maxTokens: template.maxTokens,
-      timeoutSec: config.timeout,
       label: "文章生成",
+      usageContext: {
+        userId: creditGuard.userId,
+        task: isRewrite ? "article_rewrite" : "article_generate",
+      },
     })
+    let effectiveConfig = generation.model
 
-    let article = stripCodeFence(raw)
+    let article = stripCodeFence(generation.content)
     if (!article) {
       await refundReservedCreditsQuietly(reservation)
       reservation = null
@@ -458,10 +445,10 @@ export async function POST(req: NextRequest) {
       let repaired = false
 
       if (validation.issues.length > 0) {
-        const repairedRaw = await openaiCompatChat({
-          url: buildAiChatUrl(config),
-          apiKey: config.apiKey,
-          model,
+        const repairResult = await runArticleModelChat({
+          ...effectiveConfig,
+          timeout: Math.min(effectiveConfig.timeout, 180),
+        }, {
           system: "你是文章品牌映射校对器。只修复明确列出的品牌替换错误，严格保留文章结构和未映射品牌，输出完整 Markdown，不作解释。",
           user: buildRewriteRepairPrompt({
             sourceMarkdown,
@@ -472,10 +459,14 @@ export async function POST(req: NextRequest) {
           }),
           temperature: 0.15,
           maxTokens: template.maxTokens,
-          timeoutSec: Math.min(config.timeout, 180),
           label: "文章品牌映射修复",
+          usageContext: {
+            userId: creditGuard.userId,
+            task: "article_rewrite_repair",
+          },
         })
-        article = stripCodeFence(repairedRaw)
+        effectiveConfig = repairResult.model
+        article = stripCodeFence(repairResult.content)
         repaired = true
         validation = validateRewriteOutput({
           sourceMarkdown,
@@ -510,8 +501,8 @@ export async function POST(req: NextRequest) {
       {
         article,
         promptKey,
-        modelProvider,
-        model,
+        modelProvider: effectiveConfig.providerKey,
+        model: effectiveConfig.model,
         rewriteAudit,
         generatedAt: new Date().toISOString(),
       },

@@ -1,37 +1,24 @@
 import { NextRequest, NextResponse } from "next/server"
-import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import {
+  normalizeArticleModelProviderKey,
+  resolveArticleModel,
+} from "@/lib/article-models"
+import { runArticleModelChat } from "@/lib/article-model-runtime"
 import {
   finalizeRewriteBrandAnalysis,
   splitRewriteMarkdownBlocks,
   type RawRewriteBrandCandidate,
 } from "@/lib/article-rewrite"
-import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { hitRateLimit } from "@/lib/rate-limit"
 import { requireUserId } from "@/lib/with-credits"
-import type { ArticleModelProviderKey } from "@/types"
 import { requireStandardAccountMode } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
 export const dynamic = "force-dynamic"
 
-const PROVIDERS = new Set<ArticleModelProviderKey>([
-  "article",
-  "deepseek",
-  "qwen",
-  "doubao",
-  "kimi",
-  "ernie",
-  "hunyuan",
-])
-
 function text(value: unknown, max: number): string {
   return String(value ?? "").trim().slice(0, max)
-}
-
-function providerKey(value: unknown): ArticleModelProviderKey {
-  const key = String(value ?? "") as ArticleModelProviderKey
-  return PROVIDERS.has(key) ? key : "article"
 }
 
 function parseJsonObject(value: string): Record<string, unknown> {
@@ -103,9 +90,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "原文内容过短，暂时无法分析主要品牌。" }, { status: 400 })
     }
 
-    const selectedProvider = providerKey(body.modelProvider)
-    const config = await getAiProviderRuntimeSetting(selectedProvider)
-    const model = text(body.model, 160) || config.model
+    const selectedProvider = normalizeArticleModelProviderKey(body.modelProvider)
+    const config = await resolveArticleModel(selectedProvider, text(body.model, 200))
+    const model = config.model
     if (!config.apiKey) {
       return NextResponse.json({ error: `${config.label} API Key 未配置` }, { status: 400 })
     }
@@ -122,28 +109,31 @@ export async function POST(req: NextRequest) {
       .join("\n\n")
       .slice(0, 58000)
 
-    const raw = await openaiCompatChat({
-      url: buildAiChatUrl(config),
-      apiKey: config.apiKey,
-      model,
+    const result = await runArticleModelChat({
+      ...config,
+      timeout: Math.min(config.timeout, 180),
+    }, {
       system: analysisSystemPrompt(),
       user: `请分析下面按编号切分的 Markdown 原文。区块标记格式为[编号|类型|有效字数]。\n\n${numberedBlocks}`,
       temperature: 0.1,
       maxTokens: 5000,
       jsonMode: true,
       mode: "judge",
-      timeoutSec: Math.min(config.timeout, 180),
       label: "文章品牌分析",
+      usageContext: {
+        userId: userGuard.userId,
+        task: "article_rewrite_brand_analysis",
+      },
     })
-    const parsed = parseJsonObject(raw)
+    const parsed = parseJsonObject(result.content)
     const candidates = Array.isArray(parsed.brands)
       ? parsed.brands as RawRewriteBrandCandidate[]
       : []
     const analysis = finalizeRewriteBrandAnalysis({
       sourceMarkdown,
       rawCandidates: candidates,
-      provider: selectedProvider,
-      model,
+      provider: result.model.providerKey,
+      model: result.model.model,
     })
 
     return NextResponse.json(

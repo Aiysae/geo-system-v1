@@ -327,7 +327,7 @@ function cleanUrl(value: string): string {
   return value.trim().replace(/\/+$/, "")
 }
 
-function validateAiBaseUrl(value: string): string {
+export function validateAiBaseUrl(value: string): string {
   const cleaned = cleanUrl(value)
   let parsed: URL
   try {
@@ -352,7 +352,7 @@ function validateAiBaseUrl(value: string): string {
   return cleanUrl(parsed.toString())
 }
 
-function cleanPath(value: string): string {
+export function cleanAiPath(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return "/v1/chat/completions"
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
@@ -421,7 +421,7 @@ function mergeRuntime(
     key: def.key,
     label: def.label,
     baseUrl: cleanUrl(stored?.baseUrl || envBaseUrl || def.defaultBaseUrl),
-    chatPath: cleanPath(stored?.chatPath || envChatPath || def.defaultChatPath),
+    chatPath: cleanAiPath(stored?.chatPath || envChatPath || def.defaultChatPath),
     apiKey: stored?.apiKey || firstEnv(def.apiKeyEnv),
     model: (stored?.model || firstEnv(def.modelEnv) || def.defaultModel).trim(),
     timeout: Math.min(1800, Math.max(30, Math.round(timeoutRaw))),
@@ -430,7 +430,7 @@ function mergeRuntime(
 }
 
 export function buildAiChatUrl(config: Pick<AiProviderRuntimeSetting, "baseUrl" | "chatPath">): string {
-  return `${validateAiBaseUrl(config.baseUrl)}${cleanPath(config.chatPath)}`
+  return `${validateAiBaseUrl(config.baseUrl)}${cleanAiPath(config.chatPath)}`
 }
 
 export async function getAiProviderRuntimeSetting(
@@ -492,7 +492,7 @@ export async function saveAiProviderSetting(
 
   const next: StoredAiProviderSetting = {
     baseUrl: validateAiBaseUrl(input.baseUrl || def.defaultBaseUrl),
-    chatPath: cleanPath(input.chatPath || def.defaultChatPath),
+    chatPath: cleanAiPath(input.chatPath || def.defaultChatPath),
     model: input.model.trim() || def.defaultModel,
     timeout: Math.min(1800, Math.max(30, Math.round(input.timeout || def.defaultTimeout))),
     extra,

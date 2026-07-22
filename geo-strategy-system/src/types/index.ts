@@ -95,7 +95,7 @@ export type ArticlePromptKey =
   | "shortVideoScript"
   | "rewrite"
 
-export type ArticleModelProviderKey = ModelKey | "article"
+export type ArticleModelProviderKey = ModelKey | "article" | `gateway:${string}`
 
 export type ArticleRewriteBrandRole = "primary" | "featured" | "listed" | "background"
 
