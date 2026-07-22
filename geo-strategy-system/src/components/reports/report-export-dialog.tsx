@@ -23,6 +23,7 @@ import {
 import { BillingLink } from "@/components/billing/billing-link"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { DEFAULT_REPORT_BRANDING, resolveReportBranding } from "@/lib/report-branding"
 import type {
   Client,
@@ -390,7 +391,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
     try {
       if (rememberBranding && branding.mode === "custom") await persistBranding()
       const requestId = reportRequestIdRef.current
-        || `report_${crypto.randomUUID().replace(/-/g, "")}`
+        || createBackgroundRequestId("report")
       reportRequestIdRef.current = requestId
       const response = await apiFetch("/api/reports/jobs", {
         method: "POST",

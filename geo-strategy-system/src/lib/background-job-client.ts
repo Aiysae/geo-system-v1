@@ -42,7 +42,7 @@ function requestSignal(parent?: AbortSignal | null): {
 }
 
 export function createBackgroundRequestId(prefix: string): string {
-  const suffix = typeof crypto !== "undefined" && "randomUUID" in crypto
+  const suffix = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
     ? crypto.randomUUID().replace(/-/g, "")
     : `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`
   return `${prefix}_${suffix}`
