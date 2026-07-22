@@ -3,13 +3,9 @@ import Link from "next/link"
 import { Download, Inbox, ReceiptText, ShieldCheck, Sparkles } from "lucide-react"
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser } from "@/lib/auth"
-import { listAiProviderPublicSettings } from "@/lib/ai-settings"
-import { AI_GATEWAY_PRESETS, listAiGatewayProvidersPublic } from "@/lib/ai-gateways"
 import { listAllRequests } from "@/lib/recharge"
 import SiteFooter from "@/components/site-footer"
 import { AdminHeader } from "@/components/admin/admin-header"
-import { AiSettingsManager } from "./ai-settings-manager"
-import { AiGatewayManager } from "./ai-gateway-manager"
 import { RechargeRow } from "./recharge-row"
 
 export const dynamic = "force-dynamic"
@@ -34,11 +30,7 @@ export default async function AdminRechargePage() {
     )
   }
 
-  const [requests, aiSettings, aiGateways] = await Promise.all([
-    listAllRequests(300),
-    listAiProviderPublicSettings(),
-    listAiGatewayProvidersPublic(),
-  ])
+  const requests = await listAllRequests(300)
   const pending = requests.filter(item => item.status === "pending")
   const approved = requests.filter(item => item.status === "approved")
   const rejected = requests.filter(item => item.status === "rejected")
@@ -48,7 +40,7 @@ export default async function AdminRechargePage() {
     <div className="min-h-screen geo-saturated-bg">
       <AdminHeader
         title="势途 GEO · 管理后台"
-        subtitle="积分充值审批与模型配置"
+        subtitle="积分充值申请与到账审批"
         icon={<ShieldCheck className="h-5 w-5 text-white" />}
         active="recharge"
       />
@@ -132,9 +124,6 @@ export default async function AdminRechargePage() {
             </div>
           </div>
         )}
-
-        <AiSettingsManager settings={aiSettings} />
-        <AiGatewayManager gateways={aiGateways} presets={AI_GATEWAY_PRESETS} />
       </main>
       <SiteFooter />
     </div>

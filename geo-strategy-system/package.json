@@ -14,6 +14,7 @@
     "test:article-publishing": "tsx scripts/test-article-publishing.mts",
     "test:article-batches": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-batches.mts",
     "test:ai-gateways": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-gateways.mts",
+    "test:native-model-chat": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-native-model-chat.mts",
     "test:article-batch-restart": "NODE_ENV=test tsx scripts/test-article-batch-restart.mts",
     "test:geo-article-prompts": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-geo-article-prompts.mts",
     "test:payment-orders": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-payment-orders.mts",

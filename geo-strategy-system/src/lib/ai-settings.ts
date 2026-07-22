@@ -1,5 +1,6 @@
 import "server-only"
 
+import { decryptAiSecret, encryptAiSecret, maskAiSecret } from "@/lib/ai-secrets"
 import { kv } from "@/lib/kv"
 import { isIP } from "net"
 import type {
@@ -31,7 +32,10 @@ interface AiProviderDefinition {
 }
 
 interface StoredAiProviderSetting {
+  /** @deprecated 仅用于兼容旧数据，下一次保存后会移除。 */
   apiKey?: string
+  encryptedApiKey?: string
+  apiKeyPreview?: string
   baseUrl?: string
   chatPath?: string
   model?: string
@@ -358,12 +362,6 @@ export function cleanAiPath(value: string): string {
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
 }
 
-function maskKey(key: string): string {
-  if (!key) return ""
-  const tail = key.slice(-4)
-  return `••••${tail}`
-}
-
 function splitFullChatUrl(url: string): { baseUrl: string; chatPath: string } | null {
   try {
     const parsed = new URL(url)
@@ -417,12 +415,16 @@ function mergeRuntime(
       ? stored.timeout
       : Number(firstEnv(def.timeoutEnv)) || def.defaultTimeout
 
+  const storedApiKey = stored?.encryptedApiKey
+    ? decryptAiSecret(stored.encryptedApiKey)
+    : stored?.apiKey || ""
+
   return {
     key: def.key,
     label: def.label,
     baseUrl: cleanUrl(stored?.baseUrl || envBaseUrl || def.defaultBaseUrl),
     chatPath: cleanAiPath(stored?.chatPath || envChatPath || def.defaultChatPath),
-    apiKey: stored?.apiKey || firstEnv(def.apiKeyEnv),
+    apiKey: storedApiKey || firstEnv(def.apiKeyEnv),
     model: (stored?.model || firstEnv(def.modelEnv) || def.defaultModel).trim(),
     timeout: Math.min(1800, Math.max(30, Math.round(timeoutRaw))),
     extra,
@@ -455,13 +457,36 @@ export async function listAiProviderPublicSettings(): Promise<AiProviderPublicSe
       model: runtime.model,
       timeout: runtime.timeout,
       hasApiKey: Boolean(runtime.apiKey),
-      apiKeyPreview: maskKey(runtime.apiKey),
+      apiKeyPreview: stored[def.key]?.apiKeyPreview || maskAiSecret(runtime.apiKey),
       extra: runtime.extra,
       extraFields: def.extraFields || [],
       presets: def.presets || [],
       updatedAt: stored[def.key]?.updatedAt,
     }
   })
+}
+
+export async function migrateLegacyAiProviderSecrets(adminUserId: string): Promise<number> {
+  const all = await readStoredSettings()
+  let migrated = 0
+  const next = { ...all }
+  for (const key of Object.keys(next) as AiProviderKey[]) {
+    const setting = next[key]
+    if (!setting?.apiKey || setting.encryptedApiKey) continue
+    const apiKey = setting.apiKey
+    const migratedSetting: StoredAiProviderSetting = {
+      ...setting,
+      encryptedApiKey: encryptAiSecret(apiKey),
+      apiKeyPreview: maskAiSecret(apiKey),
+      updatedAt: new Date().toISOString(),
+      updatedBy: adminUserId,
+    }
+    delete migratedSetting.apiKey
+    next[key] = migratedSetting
+    migrated += 1
+  }
+  if (migrated > 0) await kv.set(SETTINGS_KEY, next)
+  return migrated
 }
 
 export async function saveAiProviderSetting(
@@ -482,7 +507,11 @@ export async function saveAiProviderSetting(
 
   const all = await readStoredSettings()
   const prev = all[key] || {}
-  const apiKey = input.clearApiKey ? undefined : (input.apiKey?.trim() || prev.apiKey)
+  const inputApiKey = input.apiKey?.trim() || ""
+  const previousApiKey = prev.encryptedApiKey
+    ? decryptAiSecret(prev.encryptedApiKey)
+    : prev.apiKey || ""
+  const apiKey = input.clearApiKey ? undefined : (inputApiKey || previousApiKey)
   const extra: Record<string, string | boolean> = { ...(input.extra || {}) }
   for (const field of def.extraFields || []) {
     if (field.inputType === "checkbox" && extra[field.key] !== true) {
@@ -500,7 +529,10 @@ export async function saveAiProviderSetting(
     updatedBy: adminUserId,
   }
 
-  if (apiKey) next.apiKey = apiKey
+  if (apiKey) {
+    next.encryptedApiKey = encryptAiSecret(apiKey)
+    next.apiKeyPreview = maskAiSecret(apiKey)
+  }
 
   await kv.set(SETTINGS_KEY, {
     ...all,

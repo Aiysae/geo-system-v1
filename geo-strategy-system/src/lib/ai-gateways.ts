@@ -1,16 +1,17 @@
 import "server-only"
 
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-  randomBytes,
-  randomUUID,
-} from "crypto"
+import { randomUUID } from "crypto"
 import { cleanAiPath, validateAiBaseUrl } from "@/lib/ai-settings"
+import {
+  decryptAiSecret,
+  encryptAiSecret,
+  maskAiSecret,
+  sanitizeAiUpstreamMessage,
+} from "@/lib/ai-secrets"
 import { kv } from "@/lib/kv"
 import type {
   AiGatewayAuthType,
+  AiGatewayChannel,
   AiGatewayHealthStatus,
   AiGatewayModel,
   AiGatewayModelFamily,
@@ -20,16 +21,21 @@ import type {
   AiGatewayProviderKey,
   AiGatewayProviderPublic,
   AiGatewayProviderRuntime,
+  AiGatewaySyncSummary,
+  AiGatewayVendor,
 } from "@/types/ai-gateway"
 
 interface StoredAiGatewayProvider {
   id: string
   name: string
   preset: AiGatewayPresetKey
+  vendor: AiGatewayVendor
+  channel: AiGatewayChannel
   protocol: AiGatewayProtocol
   baseUrl: string
   chatPath: string
   modelsPath: string
+  modelsUrl?: string
   authType: AiGatewayAuthType
   encryptedApiKey?: string
   apiKeyPreview?: string
@@ -37,11 +43,13 @@ interface StoredAiGatewayProvider {
   priority: number
   timeout: number
   maxConcurrency: number
+  primaryModel?: string
   models: AiGatewayModel[]
   healthStatus: AiGatewayHealthStatus
   healthMessage?: string
   lastCheckedAt?: string
   lastLatencyMs?: number
+  lastSyncSummary?: AiGatewaySyncSummary
   createdAt: string
   updatedAt: string
   updatedBy: string
@@ -54,80 +62,177 @@ let mutationQueue: Promise<void> = Promise.resolve()
 
 export const AI_GATEWAY_PRESETS: AiGatewayPreset[] = [
   {
+    key: "openai",
+    vendor: "openai",
+    channel: "official",
+    label: "ChatGPT / OpenAI",
+    description: "OpenAI 官方接口",
+    baseUrl: "https://api.openai.com",
+    chatPath: "/v1/responses",
+    modelsPath: "/v1/models",
+    protocol: "openai_responses",
+    authType: "bearer",
+    defaultModel: "gpt-5.6-terra",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
+    key: "anthropic",
+    vendor: "anthropic",
+    channel: "official",
+    label: "Claude / Anthropic",
+    description: "Anthropic 官方接口",
+    baseUrl: "https://api.anthropic.com",
+    chatPath: "/v1/messages",
+    modelsPath: "/v1/models",
+    modelsUrl: "https://api.anthropic.com/v1/models?limit=1000",
+    protocol: "anthropic_messages",
+    authType: "x-api-key",
+    defaultModel: "claude-sonnet-5",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
+    key: "gemini",
+    vendor: "gemini",
+    channel: "official",
+    label: "Gemini / Google",
+    description: "Google AI Studio 官方接口",
+    baseUrl: "https://generativelanguage.googleapis.com",
+    chatPath: "/v1beta/models/{model}:generateContent",
+    modelsPath: "/v1beta/models",
+    modelsUrl: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+    protocol: "gemini_generate",
+    authType: "query-key",
+    defaultModel: "gemini-3.6-flash",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
+    key: "doubao",
+    vendor: "doubao",
+    channel: "official",
+    label: "豆包 / 火山方舟",
+    description: "火山方舟官方接口",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    chatPath: "/chat/completions",
+    modelsPath: "/models",
+    protocol: "openai_chat",
+    authType: "bearer",
+    defaultModel: "doubao-seed-2-0-lite-260215",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
+    key: "qwen",
+    vendor: "qwen",
+    channel: "official",
+    label: "通义千问 / 百炼",
+    description: "阿里云百炼官方接口",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
+    chatPath: "/v1/chat/completions",
+    modelsPath: "/v1/models",
+    modelsUrl: "https://dashscope.aliyuncs.com/api/v1/deployments/models?page_no=1&page_size=100&version=v1.0&model_source=base",
+    protocol: "openai_chat",
+    authType: "bearer",
+    defaultModel: "qwen-plus",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
+    key: "hunyuan",
+    vendor: "hunyuan",
+    channel: "official",
+    label: "腾讯混元 / TokenHub",
+    description: "腾讯 TokenHub 官方兼容接口",
+    baseUrl: "https://tokenhub.tencentmaas.com",
+    chatPath: "/v1/chat/completions",
+    modelsPath: "/v1/models",
+    protocol: "openai_chat",
+    authType: "bearer",
+    defaultModel: "hy3-preview",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
+    key: "deepseek",
+    vendor: "deepseek",
+    channel: "official",
+    label: "DeepSeek",
+    description: "DeepSeek 官方接口",
+    baseUrl: "https://api.deepseek.com",
+    chatPath: "/chat/completions",
+    modelsPath: "/models",
+    protocol: "openai_chat",
+    authType: "bearer",
+    defaultModel: "deepseek-chat",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
+    key: "kimi",
+    vendor: "kimi",
+    channel: "official",
+    label: "Kimi / Moonshot",
+    description: "Moonshot 官方接口",
+    baseUrl: "https://api.moonshot.cn",
+    chatPath: "/v1/chat/completions",
+    modelsPath: "/v1/models",
+    protocol: "openai_chat",
+    authType: "bearer",
+    defaultModel: "kimi-k2.6",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
+    key: "ernie",
+    vendor: "ernie",
+    channel: "official",
+    label: "文心一言 / 千帆",
+    description: "百度千帆官方接口",
+    baseUrl: "https://qianfan.baidubce.com",
+    chatPath: "/v2/chat/completions",
+    modelsPath: "/v2/models",
+    protocol: "openai_chat",
+    authType: "bearer",
+    defaultModel: "ernie-4.5-turbo-32k",
+    timeout: 600,
+    maxConcurrency: 3,
+  },
+  {
     key: "bai",
-    label: "B.AI",
-    description: "B.AI 的 OpenAI 兼容接口，可同步 GPT、Claude、Gemini 等可用模型。",
+    vendor: "relay",
+    channel: "relay",
+    label: "B.AI 中转站",
+    description: "B.AI 的 OpenAI 兼容接口",
     baseUrl: "https://api.b.ai",
     chatPath: "/v1/chat/completions",
     modelsPath: "/v1/models",
     protocol: "openai_chat",
     authType: "bearer",
+    configurableBaseUrl: true,
     timeout: 600,
     maxConcurrency: 2,
   },
   {
     key: "openai-compatible",
-    label: "自定义 OpenAI 兼容中转站",
-    description: "适用于提供 /v1/chat/completions 的其他中转站服务商。",
+    vendor: "relay",
+    channel: "relay",
+    label: "自定义中转站",
+    description: "适用于提供 OpenAI 兼容接口的其他服务商",
     baseUrl: "https://api.example.com",
     chatPath: "/v1/chat/completions",
     modelsPath: "/v1/models",
     protocol: "openai_chat",
     authType: "bearer",
+    configurableBaseUrl: true,
     timeout: 600,
     maxConcurrency: 2,
   },
 ]
 
-function encryptionKey(): Buffer {
-  const secret = String(
-    process.env.AI_CONFIG_ENCRYPTION_KEY
-      || process.env.AUTH_SECRET
-      || "",
-  ).trim()
-  if (!secret) {
-    throw new Error("服务器缺少 AI_CONFIG_ENCRYPTION_KEY，暂时不能保存中转站密钥")
-  }
-  return createHash("sha256").update(secret, "utf8").digest()
-}
-
-function encryptSecret(value: string): string {
-  const iv = randomBytes(12)
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv)
-  const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()])
-  const tag = cipher.getAuthTag()
-  return ["v1", iv.toString("base64url"), tag.toString("base64url"), encrypted.toString("base64url")].join(":")
-}
-
-function decryptSecret(value: string): string {
-  const [version, ivRaw, tagRaw, encryptedRaw] = value.split(":")
-  if (version !== "v1" || !ivRaw || !tagRaw || !encryptedRaw) {
-    throw new Error("中转站密钥格式无效，请重新保存 API Key")
-  }
-  try {
-    const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(ivRaw, "base64url"))
-    decipher.setAuthTag(Buffer.from(tagRaw, "base64url"))
-    return Buffer.concat([
-      decipher.update(Buffer.from(encryptedRaw, "base64url")),
-      decipher.final(),
-    ]).toString("utf8")
-  } catch {
-    throw new Error("中转站密钥无法解密，请重新保存 API Key")
-  }
-}
-
-function maskApiKey(value: string): string {
-  return value ? `••••${value.slice(-4)}` : ""
-}
-
-function safeUpstreamMessage(value: unknown, max = 300): string {
-  return String(value || "")
-    .replace(/sk-[A-Za-z0-9_.-]{6,}/g, "sk-***")
-    .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, "Bearer ***")
-    .replace(/x-api-key["':=\s]+[A-Za-z0-9._~-]+/gi, "x-api-key: ***")
-    .replace(/\s+/g, " ")
-    .slice(0, max)
-}
+export const AI_OFFICIAL_PRESETS = AI_GATEWAY_PRESETS.filter(preset => preset.channel === "official")
+export const AI_RELAY_PRESETS = AI_GATEWAY_PRESETS.filter(preset => preset.channel === "relay")
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
   const parsed = Math.round(Number(value))
@@ -136,7 +241,7 @@ function clampInteger(value: unknown, min: number, max: number, fallback: number
 
 function normalizeName(value: unknown): string {
   const name = String(value || "").trim().slice(0, 60)
-  if (!name) throw new Error("请填写中转站名称")
+  if (!name) throw new Error("请填写渠道名称")
   return name
 }
 
@@ -146,10 +251,24 @@ function normalizeModelsPath(value: unknown): string {
   return path
 }
 
+function normalizeModelsUrl(value: unknown): string | undefined {
+  const raw = String(value || "").trim()
+  if (!raw) return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    throw new Error("模型列表地址无效")
+  }
+  validateAiBaseUrl(`${parsed.origin}${parsed.pathname}`)
+  if (parsed.username || parsed.password) throw new Error("模型列表地址不能包含用户名或密码")
+  parsed.hash = ""
+  return parsed.toString()
+}
+
 function normalizeModelId(value: unknown): string {
-  const id = String(value || "").trim()
-  if (!MODEL_ID_PATTERN.test(id)) return ""
-  return id
+  const raw = String(value || "").trim().replace(/^models\//, "")
+  return MODEL_ID_PATTERN.test(raw) ? raw : ""
 }
 
 export function inferAiGatewayModelFamily(modelId: string): AiGatewayModelFamily {
@@ -160,8 +279,14 @@ export function inferAiGatewayModelFamily(modelId: string): AiGatewayModelFamily
   return "other"
 }
 
+export function getAiGatewayPreset(key: AiGatewayPresetKey): AiGatewayPreset {
+  const preset = AI_GATEWAY_PRESETS.find(item => item.key === key)
+  if (!preset) throw new Error("模型渠道预设无效")
+  return preset
+}
+
 export function toGatewayProviderKey(providerId: string): AiGatewayProviderKey {
-  if (!PROVIDER_ID_PATTERN.test(providerId)) throw new Error("中转站编号无效")
+  if (!PROVIDER_ID_PATTERN.test(providerId)) throw new Error("模型渠道编号无效")
   return `gateway:${providerId}`
 }
 
@@ -173,15 +298,28 @@ export function parseGatewayProviderKey(value: unknown): string | null {
 }
 
 function cloneModels(models: AiGatewayModel[]): AiGatewayModel[] {
-  return models.map(model => ({ ...model, endpointTypes: [...model.endpointTypes] }))
+  return models.map(model => ({
+    ...model,
+    endpointTypes: Array.isArray(model.endpointTypes) ? [...model.endpointTypes] : [],
+    status: model.status || "available",
+  }))
 }
 
 function normalizeStoredProvider(value: unknown): StoredAiGatewayProvider | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const provider = value as StoredAiGatewayProvider
   if (!PROVIDER_ID_PATTERN.test(provider.id) || !provider.name || !provider.baseUrl) return null
+  const preset = AI_GATEWAY_PRESETS.find(item => item.key === provider.preset)
+    || AI_GATEWAY_PRESETS.find(item => item.key === "openai-compatible")!
   return {
     ...provider,
+    preset: preset.key,
+    vendor: provider.vendor || preset.vendor,
+    channel: provider.channel || preset.channel,
+    protocol: provider.protocol || preset.protocol,
+    modelsPath: provider.modelsPath || preset.modelsPath,
+    modelsUrl: provider.modelsUrl || preset.modelsUrl,
+    authType: provider.authType || preset.authType,
     models: Array.isArray(provider.models) ? cloneModels(provider.models) : [],
     healthStatus: provider.healthStatus || "unchecked",
   }
@@ -219,10 +357,13 @@ function toPublic(provider: StoredAiGatewayProvider): AiGatewayProviderPublic {
     providerKey: toGatewayProviderKey(provider.id),
     name: provider.name,
     preset: provider.preset,
+    vendor: provider.vendor,
+    channel: provider.channel,
     protocol: provider.protocol,
     baseUrl: provider.baseUrl,
     chatPath: provider.chatPath,
     modelsPath: provider.modelsPath,
+    modelsUrl: provider.modelsUrl,
     authType: provider.authType,
     hasApiKey: Boolean(provider.encryptedApiKey),
     apiKeyPreview: provider.apiKeyPreview || "",
@@ -230,11 +371,13 @@ function toPublic(provider: StoredAiGatewayProvider): AiGatewayProviderPublic {
     priority: provider.priority,
     timeout: provider.timeout,
     maxConcurrency: provider.maxConcurrency,
+    primaryModel: provider.primaryModel,
     models: cloneModels(provider.models),
     healthStatus: provider.healthStatus,
     healthMessage: provider.healthMessage,
     lastCheckedAt: provider.lastCheckedAt,
     lastLatencyMs: provider.lastLatencyMs,
+    lastSyncSummary: provider.lastSyncSummary,
     updatedAt: provider.updatedAt,
   }
 }
@@ -246,16 +389,13 @@ export async function listAiGatewayProvidersPublic(): Promise<AiGatewayProviderP
     .map(toPublic)
 }
 
-export async function getAiGatewayProviderRuntime(
-  providerId: string,
-): Promise<AiGatewayProviderRuntime> {
-  if (!PROVIDER_ID_PATTERN.test(providerId)) throw new Error("中转站编号无效")
+export async function getAiGatewayProviderRuntime(providerId: string): Promise<AiGatewayProviderRuntime> {
+  if (!PROVIDER_ID_PATTERN.test(providerId)) throw new Error("模型渠道编号无效")
   const provider = (await readProviders()).find(item => item.id === providerId)
-  if (!provider) throw new Error("中转站不存在或已经移除")
-  const apiKey = provider.encryptedApiKey ? decryptSecret(provider.encryptedApiKey) : ""
+  if (!provider) throw new Error("模型渠道不存在或已经移除")
   return {
     ...toPublic(provider),
-    apiKey,
+    apiKey: provider.encryptedApiKey ? decryptAiSecret(provider.encryptedApiKey) : "",
   }
 }
 
@@ -264,42 +404,58 @@ export async function saveAiGatewayProvider(
     id?: string
     name: string
     preset: AiGatewayPresetKey
-    baseUrl: string
-    chatPath: string
-    modelsPath: string
-    authType: AiGatewayAuthType
+    baseUrl?: string
+    chatPath?: string
+    modelsPath?: string
+    modelsUrl?: string
+    authType?: AiGatewayAuthType
     apiKey?: string
     clearApiKey?: boolean
     enabled?: boolean
     priority?: number
     timeout?: number
     maxConcurrency?: number
+    primaryModel?: string
     manualModels?: string[]
   },
   adminUserId: string,
 ): Promise<AiGatewayProviderPublic> {
   return mutateProviders(providers => {
     const now = new Date().toISOString()
+    const preset = getAiGatewayPreset(input.preset)
     const existingIndex = input.id
       ? providers.findIndex(provider => provider.id === input.id)
-      : -1
-    if (input.id && existingIndex < 0) throw new Error("中转站不存在或已经移除")
+      : preset.channel === "official"
+        ? providers.findIndex(provider => provider.channel === "official" && provider.vendor === preset.vendor)
+        : -1
+    if (input.id && existingIndex < 0) throw new Error("模型渠道不存在或已经移除")
     const previous = existingIndex >= 0 ? providers[existingIndex] : undefined
-    const preset = AI_GATEWAY_PRESETS.find(item => item.key === input.preset)
-    if (!preset) throw new Error("中转站预设无效")
 
     const apiKey = String(input.apiKey || "").trim()
     const encryptedApiKey = input.clearApiKey
       ? undefined
       : apiKey
-        ? encryptSecret(apiKey)
+        ? encryptAiSecret(apiKey)
         : previous?.encryptedApiKey
     if (!encryptedApiKey && input.enabled !== false) {
-      throw new Error("请填写中转站 API Key，或先将该中转站停用")
+      throw new Error("请填写 API Key，或先停用该渠道")
     }
 
-    const manualModelIds = [...new Set((input.manualModels || []).map(normalizeModelId).filter(Boolean))]
-    const syncedModels = (previous?.models || []).filter(model => model.source === "synced")
+    const fixedOfficial = preset.channel === "official"
+    const baseUrl = validateAiBaseUrl(fixedOfficial ? preset.baseUrl : input.baseUrl || preset.baseUrl)
+    const chatPath = cleanAiPath(fixedOfficial ? preset.chatPath : input.chatPath || preset.chatPath)
+    const modelsPath = normalizeModelsPath(fixedOfficial ? preset.modelsPath : input.modelsPath || preset.modelsPath)
+    const modelsUrl = normalizeModelsUrl(fixedOfficial ? preset.modelsUrl : input.modelsUrl || preset.modelsUrl)
+    const manualModelIds = [...new Set([
+      ...(input.manualModels && input.manualModels.length > 0
+        ? input.manualModels
+        : previous?.models.filter(model => model.source === "manual").map(model => model.id) || []),
+      input.primaryModel || "",
+      previous ? "" : preset.defaultModel || "",
+    ].map(normalizeModelId).filter(Boolean))]
+    const priorModels = previous?.models || []
+    const priorById = new Map(priorModels.map(model => [model.id, model]))
+    const syncedModels = priorModels.filter(model => model.source === "synced")
     const syncedIds = new Set(syncedModels.map(model => model.id))
     const manualModels: AiGatewayModel[] = manualModelIds
       .filter(id => !syncedIds.has(id))
@@ -308,35 +464,43 @@ export async function saveAiGatewayProvider(
         displayName: id,
         family: inferAiGatewayModelFamily(id),
         endpointTypes: ["chat.completions"],
-        enabled: previous?.models.find(model => model.id === id)?.enabled ?? true,
+        enabled: priorById.get(id)?.enabled ?? true,
         source: "manual",
+        status: "available",
+        discoveredAt: priorById.get(id)?.discoveredAt || now,
+        lastSeenAt: now,
         updatedAt: now,
       }))
 
     const provider: StoredAiGatewayProvider = {
       id: previous?.id || `gw_${randomUUID().replace(/-/g, "").slice(0, 24)}`,
-      name: normalizeName(input.name),
+      name: normalizeName(input.name || preset.label),
       preset: preset.key,
-      protocol: "openai_chat",
-      baseUrl: validateAiBaseUrl(input.baseUrl || preset.baseUrl),
-      chatPath: cleanAiPath(input.chatPath || preset.chatPath),
-      modelsPath: normalizeModelsPath(input.modelsPath || preset.modelsPath),
-      authType: input.authType === "x-api-key" ? "x-api-key" : "bearer",
+      vendor: preset.vendor,
+      channel: preset.channel,
+      protocol: preset.protocol,
+      baseUrl,
+      chatPath,
+      modelsPath,
+      modelsUrl,
+      authType: fixedOfficial ? preset.authType : input.authType || preset.authType,
       encryptedApiKey,
       apiKeyPreview: input.clearApiKey
         ? undefined
         : apiKey
-          ? maskApiKey(apiKey)
+          ? maskAiSecret(apiKey)
           : previous?.apiKeyPreview,
       enabled: input.enabled !== false,
       priority: clampInteger(input.priority, 1, 999, previous?.priority || providers.length + 1),
       timeout: clampInteger(input.timeout, 30, 1800, preset.timeout),
       maxConcurrency: clampInteger(input.maxConcurrency, 1, 20, preset.maxConcurrency),
+      primaryModel: normalizeModelId(input.primaryModel) || previous?.primaryModel || preset.defaultModel,
       models: [...syncedModels, ...manualModels],
       healthStatus: previous?.healthStatus || "unchecked",
       healthMessage: previous?.healthMessage,
       lastCheckedAt: previous?.lastCheckedAt,
       lastLatencyMs: previous?.lastLatencyMs,
+      lastSyncSummary: previous?.lastSyncSummary,
       createdAt: previous?.createdAt || now,
       updatedAt: now,
       updatedBy: adminUserId,
@@ -348,17 +512,48 @@ export async function saveAiGatewayProvider(
   })
 }
 
-function authHeaders(authType: AiGatewayAuthType, apiKey: string): Record<string, string> {
-  return authType === "x-api-key"
-    ? { "x-api-key": apiKey }
-    : { Authorization: `Bearer ${apiKey}` }
+function authHeaders(runtime: Pick<AiGatewayProviderRuntime, "authType" | "apiKey" | "protocol">): Record<string, string> {
+  if (runtime.authType === "query-key") return {}
+  if (runtime.authType === "x-api-key") {
+    return {
+      "x-api-key": runtime.apiKey,
+      ...(runtime.protocol === "anthropic_messages" ? { "anthropic-version": "2023-06-01" } : {}),
+    }
+  }
+  return { Authorization: `Bearer ${runtime.apiKey}` }
 }
 
 function modelEndpointTypes(value: Record<string, unknown>): string[] {
-  const raw = value.supported_endpoint_types ?? value.endpoint_types ?? value.endpoints
+  const raw = value.supported_endpoint_types
+    ?? value.endpoint_types
+    ?? value.endpoints
+    ?? value.supportedGenerationMethods
   return Array.isArray(raw)
     ? raw.map(item => String(item || "").trim()).filter(Boolean).slice(0, 20)
     : []
+}
+
+function extractModelValues(parsed: unknown): Array<Record<string, unknown>> {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return []
+  const root = parsed as Record<string, unknown>
+  const output = root.output && typeof root.output === "object" ? root.output as Record<string, unknown> : undefined
+  const result = root.result && typeof root.result === "object" ? root.result as Record<string, unknown> : undefined
+  const candidates = [root.data, root.models, output?.models, output?.data, result?.models, result?.data]
+  const values = candidates.find(Array.isArray) as unknown[] | undefined
+  return (values || []).flatMap(item => {
+    if (typeof item === "string") return [{ id: item }]
+    return item && typeof item === "object" && !Array.isArray(item)
+      ? [item as Record<string, unknown>]
+      : []
+  })
+}
+
+function modelListUrl(runtime: AiGatewayProviderRuntime): string {
+  const raw = runtime.modelsUrl
+    || `${validateAiBaseUrl(runtime.baseUrl)}${cleanAiPath(runtime.modelsPath)}`
+  const url = new URL(raw)
+  if (runtime.authType === "query-key") url.searchParams.set("key", runtime.apiKey)
+  return url.toString()
 }
 
 export async function syncAiGatewayModels(
@@ -366,32 +561,30 @@ export async function syncAiGatewayModels(
   adminUserId: string,
 ): Promise<AiGatewayProviderPublic> {
   const runtime = await getAiGatewayProviderRuntime(providerId)
-  if (!runtime.apiKey) throw new Error("请先配置中转站 API Key")
+  if (!runtime.apiKey) throw new Error("请先配置 API Key")
 
   const startedAt = Date.now()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), Math.min(60, runtime.timeout) * 1000)
   let modelValues: Array<Record<string, unknown>>
   try {
-    const response = await fetch(`${validateAiBaseUrl(runtime.baseUrl)}${cleanAiPath(runtime.modelsPath)}`, {
+    const response = await fetch(modelListUrl(runtime), {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
       headers: {
         Accept: "application/json",
-        ...authHeaders(runtime.authType, runtime.apiKey),
+        ...authHeaders(runtime),
       },
     })
     const raw = await response.text()
     if (!response.ok) {
-      throw new Error(`模型同步失败 HTTP ${response.status}：${safeUpstreamMessage(raw, 180) || "无响应内容"}`)
+      throw new Error(`模型同步失败 HTTP ${response.status}：${sanitizeAiUpstreamMessage(raw, 180) || "无响应内容"}`)
     }
-    const parsed = JSON.parse(raw) as { data?: unknown[]; models?: unknown[] }
-    const values = Array.isArray(parsed.data) ? parsed.data : Array.isArray(parsed.models) ? parsed.models : []
-    modelValues = values.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    modelValues = extractModelValues(JSON.parse(raw))
   } catch (error) {
     const message = error instanceof Error && error.name === "AbortError"
-      ? "模型同步超时，请检查中转站地址或网络"
+      ? "模型同步超时，请检查渠道地址或网络"
       : error instanceof Error
         ? error.message
         : "模型同步失败"
@@ -404,56 +597,86 @@ export async function syncAiGatewayModels(
   const now = new Date().toISOString()
   const syncedCandidates = modelValues
     .flatMap<AiGatewayModel>(item => {
-      const id = normalizeModelId(item.id ?? item.model ?? item.name)
+      const id = normalizeModelId(item.id ?? item.model ?? item.model_name ?? item.name)
       if (!id) return []
       const endpointTypes = modelEndpointTypes(item)
       return [{
         id,
-        displayName: String(item.display_name ?? item.displayName ?? id).trim().slice(0, 200) || id,
+        displayName: String(item.display_name ?? item.displayName ?? item.model_name ?? id).trim().slice(0, 200) || id,
         family: inferAiGatewayModelFamily(id),
         endpointTypes,
         enabled: true,
         source: "synced" as const,
+        status: "available" as const,
+        lastSeenAt: now,
         updatedAt: now,
       }]
     })
-    .filter(model => model.endpointTypes.length === 0
-      || model.endpointTypes.some(type => /chat|completion/i.test(type)))
+    .filter(model => {
+      if (/embedding|rerank|moderation|tts|whisper|image|realtime|transcribe|sora/i.test(model.id)) return false
+      return model.endpointTypes.length === 0
+        || model.endpointTypes.some(type => /chat|completion|generatecontent|messages/i.test(type))
+    })
   const synced = [...new Map(syncedCandidates.map(model => [model.id, model])).values()]
 
   if (synced.length === 0) {
-    const message = "中转站连接成功，但模型列表为空；可在配置中手动填写模型名"
-    return updateGatewayModels(providerId, [], message, Date.now() - startedAt, adminUserId)
+    const message = "连接成功，但没有发现可用于文本生成的模型；可手动填写模型名"
+    return updateGatewayHealth(providerId, "healthy", message, Date.now() - startedAt, adminUserId)
   }
-  return updateGatewayModels(providerId, synced, `已同步 ${synced.length} 个模型`, Date.now() - startedAt, adminUserId)
+  return updateGatewayModels(providerId, synced, "", Date.now() - startedAt, adminUserId)
 }
 
 async function updateGatewayModels(
   providerId: string,
   synced: AiGatewayModel[],
-  message: string,
+  emptyMessage: string,
   latencyMs: number,
   adminUserId: string,
 ): Promise<AiGatewayProviderPublic> {
   return mutateProviders(providers => {
     const index = providers.findIndex(provider => provider.id === providerId)
-    if (index < 0) throw new Error("中转站不存在或已经移除")
+    if (index < 0) throw new Error("模型渠道不存在或已经移除")
     const provider = providers[index]
+    const now = new Date().toISOString()
     const prior = new Map(provider.models.map(model => [model.id, model]))
-    const manual = provider.models.filter(model => model.source === "manual")
-    const manualIds = new Set(manual.map(model => model.id))
-    provider.models = [
-      ...synced
-        .filter(model => !manualIds.has(model.id))
-        .map(model => ({ ...model, enabled: prior.get(model.id)?.enabled ?? true })),
-      ...manual,
-    ].sort((a, b) => a.family.localeCompare(b.family) || a.id.localeCompare(b.id))
+    const incomingIds = new Set(synced.map(model => model.id))
+    const manual = provider.models
+      .filter(model => model.source === "manual")
+      .map(model => ({ ...model, status: "available" as const }))
+    const removed = provider.models
+      .filter(model => model.source === "synced" && !incomingIds.has(model.id))
+      .map(model => ({ ...model, enabled: false, status: "removed" as const, updatedAt: now }))
+    const available = synced.map(model => ({
+      ...model,
+      enabled: prior.get(model.id)?.enabled ?? true,
+      status: "available" as const,
+      discoveredAt: prior.get(model.id)?.discoveredAt || now,
+      lastSeenAt: now,
+    }))
+    const added = available.filter(model => !prior.has(model.id)).length
+    provider.models = [...available, ...manual, ...removed]
+      .sort((a, b) => Number(a.status === "removed") - Number(b.status === "removed")
+        || a.family.localeCompare(b.family)
+        || a.id.localeCompare(b.id))
+    const summary: AiGatewaySyncSummary = {
+      added,
+      removed: removed.length,
+      available: available.length + manual.length,
+      syncedAt: now,
+    }
+    provider.lastSyncSummary = summary
     provider.healthStatus = "healthy"
-    provider.healthMessage = message
-    provider.lastCheckedAt = new Date().toISOString()
+    provider.healthMessage = emptyMessage
+      || `已同步 ${summary.available} 个模型${added ? `，新增 ${added} 个` : ""}${removed.length ? `，下架 ${removed.length} 个` : ""}`
+    provider.lastCheckedAt = now
     provider.lastLatencyMs = Math.max(0, Math.round(latencyMs))
-    provider.updatedAt = provider.lastCheckedAt
+    provider.updatedAt = now
     provider.updatedBy = adminUserId
+    if (!provider.primaryModel) {
+      provider.primaryModel = available.find(model => model.id === getAiGatewayPreset(provider.preset).defaultModel)?.id
+        || available[0]?.id
+        || manual[0]?.id
+    }
     return toPublic(provider)
   })
 }
@@ -467,15 +690,38 @@ async function updateGatewayHealth(
 ): Promise<AiGatewayProviderPublic> {
   return mutateProviders(providers => {
     const provider = providers.find(item => item.id === providerId)
-    if (!provider) throw new Error("中转站不存在或已经移除")
+    if (!provider) throw new Error("模型渠道不存在或已经移除")
     provider.healthStatus = status
-    provider.healthMessage = safeUpstreamMessage(message)
+    provider.healthMessage = sanitizeAiUpstreamMessage(message)
     provider.lastCheckedAt = new Date().toISOString()
     provider.lastLatencyMs = Math.max(0, Math.round(latencyMs))
     provider.updatedAt = provider.lastCheckedAt
     provider.updatedBy = adminUserId
     return toPublic(provider)
   })
+}
+
+export async function syncAllAiGatewayModels(adminUserId: string): Promise<{
+  success: number
+  failed: number
+  errors: Array<{ id: string; name: string; message: string }>
+}> {
+  const providers = (await listAiGatewayProvidersPublic()).filter(item => item.enabled && item.hasApiKey)
+  const errors: Array<{ id: string; name: string; message: string }> = []
+  const results = await Promise.allSettled(
+    providers.map(provider => syncAiGatewayModels(provider.id, adminUserId)),
+  )
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled") return
+    const provider = providers[index]
+    errors.push({
+      id: provider.id,
+      name: provider.name,
+      message: result.reason instanceof Error ? result.reason.message : "同步失败",
+    })
+  })
+  const success = providers.length - errors.length
+  return { success, failed: errors.length, errors }
 }
 
 export async function setAiGatewayEnabled(
@@ -485,7 +731,7 @@ export async function setAiGatewayEnabled(
 ): Promise<AiGatewayProviderPublic> {
   return mutateProviders(providers => {
     const provider = providers.find(item => item.id === providerId)
-    if (!provider) throw new Error("中转站不存在或已经移除")
+    if (!provider) throw new Error("模型渠道不存在或已经移除")
     provider.enabled = enabled
     provider.updatedAt = new Date().toISOString()
     provider.updatedBy = adminUserId
@@ -501,9 +747,10 @@ export async function setAiGatewayModelEnabled(
 ): Promise<AiGatewayProviderPublic> {
   return mutateProviders(providers => {
     const provider = providers.find(item => item.id === providerId)
-    if (!provider) throw new Error("中转站不存在或已经移除")
+    if (!provider) throw new Error("模型渠道不存在或已经移除")
     const model = provider.models.find(item => item.id === modelId)
     if (!model) throw new Error("模型不存在，请重新同步模型列表")
+    if (model.status === "removed" && enabled) throw new Error("该模型已从渠道下架，不能重新启用")
     model.enabled = enabled
     model.updatedAt = new Date().toISOString()
     provider.updatedAt = model.updatedAt
@@ -512,9 +759,39 @@ export async function setAiGatewayModelEnabled(
   })
 }
 
+export async function setAiGatewayPrimaryModel(
+  providerId: string,
+  modelId: string,
+  adminUserId: string,
+): Promise<AiGatewayProviderPublic> {
+  return mutateProviders(providers => {
+    const provider = providers.find(item => item.id === providerId)
+    if (!provider) throw new Error("模型渠道不存在或已经移除")
+    const model = provider.models.find(item => item.id === modelId)
+    if (!model || model.status === "removed" || !model.enabled) {
+      throw new Error("主模型必须是当前已启用的可用模型")
+    }
+    provider.primaryModel = model.id
+    provider.updatedAt = new Date().toISOString()
+    provider.updatedBy = adminUserId
+    return toPublic(provider)
+  })
+}
+
+export async function deleteAiGatewayProvider(providerId: string): Promise<void> {
+  await mutateProviders(providers => {
+    const index = providers.findIndex(item => item.id === providerId)
+    if (index < 0) throw new Error("模型渠道不存在或已经移除")
+    providers.splice(index, 1)
+  })
+}
+
 export function aiGatewayAuthHeaders(
   authType: AiGatewayAuthType,
   apiKey: string,
 ): Record<string, string> {
-  return authHeaders(authType, apiKey)
+  if (authType === "query-key") return {}
+  return authType === "x-api-key"
+    ? { "x-api-key": apiKey }
+    : { Authorization: `Bearer ${apiKey}` }
 }
