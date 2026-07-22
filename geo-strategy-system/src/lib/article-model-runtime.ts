@@ -5,6 +5,7 @@ import { listAiGatewayProvidersPublic } from "@/lib/ai-gateways"
 import { resolveArticleModel, type ResolvedArticleModel } from "@/lib/article-models"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import type { LlmTokenUsage } from "@/lib/llm/openai-compat"
+import { nativeModelChat } from "@/lib/llm/native-chat"
 import { recordAiUsageQuietly } from "@/lib/ai-usage"
 import type { LlmMode } from "@/types"
 
@@ -135,29 +136,46 @@ async function callModel(
   const startedAt = Date.now()
   let usage: LlmTokenUsage | undefined
   try {
-    const content = await openaiCompatChat({
-      url: buildAiChatUrl(model),
-      apiKey: model.apiKey,
-      authType: model.authType,
-      model: model.model,
-      system: input.system,
-      user: input.user,
-      temperature: input.temperature,
-      maxTokens: input.maxTokens,
-      jsonMode: input.jsonMode,
-      mode: input.mode,
-      timeoutSec: model.timeout,
-      label: `${model.label}·${input.label}`,
-      onUsage: value => {
-        usage = usage
-          ? {
-              promptTokens: usage.promptTokens + value.promptTokens,
-              completionTokens: usage.completionTokens + value.completionTokens,
-              totalTokens: usage.totalTokens + value.totalTokens,
-            }
-          : value
-      },
-    })
+    const onUsage = (value: LlmTokenUsage) => {
+      usage = usage
+        ? {
+            promptTokens: usage.promptTokens + value.promptTokens,
+            completionTokens: usage.completionTokens + value.completionTokens,
+            totalTokens: usage.totalTokens + value.totalTokens,
+          }
+        : value
+    }
+    const content = model.protocol === "openai_chat"
+      ? await openaiCompatChat({
+          url: buildAiChatUrl(model),
+          apiKey: model.apiKey,
+          authType: model.authType === "query-key" ? "bearer" : model.authType,
+          model: model.model,
+          system: input.system,
+          user: input.user,
+          temperature: input.temperature,
+          maxTokens: input.maxTokens,
+          jsonMode: input.jsonMode,
+          mode: input.mode,
+          timeoutSec: model.timeout,
+          label: `${model.label}·${input.label}`,
+          onUsage,
+        })
+      : await nativeModelChat({
+          protocol: model.protocol,
+          baseUrl: model.baseUrl,
+          chatPath: model.chatPath,
+          apiKey: model.apiKey,
+          model: model.model,
+          system: input.system,
+          user: input.user,
+          temperature: input.temperature,
+          maxTokens: input.maxTokens,
+          jsonMode: input.jsonMode,
+          timeoutSec: model.timeout,
+          label: `${model.label}·${input.label}`,
+          onUsage,
+        })
     recordSuccess(model)
     if (input.usageContext) {
       await recordAiUsageQuietly({
@@ -206,7 +224,7 @@ async function fallbackModels(primary: ResolvedArticleModel): Promise<ResolvedAr
     gateway.enabled
     && gateway.hasApiKey
     && gateway.id !== primary.providerId
-    && gateway.models.some(model => model.enabled && model.id === primary.model),
+    && gateway.models.some(model => model.enabled && model.status === "available" && model.id === primary.model),
   )
   const resolved: ResolvedArticleModel[] = []
   for (const gateway of candidates) {

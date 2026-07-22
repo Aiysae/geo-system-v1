@@ -11,6 +11,7 @@ import type { AiProviderKey, AiProviderPublicSetting } from "@/types/ai-settings
 import type {
   AiGatewayAuthType,
   AiGatewayArticleOption,
+  AiGatewayProtocol,
 } from "@/types/ai-gateway"
 
 export const LEGACY_ARTICLE_MODEL_PROVIDERS: AiProviderKey[] = [
@@ -35,6 +36,7 @@ export interface ResolvedArticleModel {
   model: string
   timeout: number
   authType: AiGatewayAuthType
+  protocol: AiGatewayProtocol
   maxConcurrency?: number
 }
 
@@ -68,13 +70,13 @@ export async function listArticleModelCatalog(): Promise<ArticleModelCatalog> {
       .filter(gateway =>
         gateway.enabled
         && gateway.hasApiKey
-        && gateway.models.some(model => model.enabled),
+        && gateway.models.some(model => model.enabled && model.status === "available"),
       )
       .map(gateway => ({
         id: gateway.id,
         providerKey: gateway.providerKey,
         name: gateway.name,
-        models: gateway.models.filter(model => model.enabled),
+        models: gateway.models.filter(model => model.enabled && model.status === "available"),
       })),
   }
 }
@@ -98,13 +100,14 @@ export async function resolveArticleModel(
       model: requested || config.model,
       timeout: config.timeout,
       authType: "bearer",
+      protocol: "openai_chat",
     }
   }
 
   const gateway = await getAiGatewayProviderRuntime(gatewayId)
   if (!gateway.enabled) throw new Error(`${gateway.name} 当前已停用，请选择其他模型`)
-  const enabledModels = gateway.models.filter(model => model.enabled)
-  const model = requested || enabledModels[0]?.id || ""
+  const enabledModels = gateway.models.filter(model => model.enabled && model.status === "available")
+  const model = requested || gateway.primaryModel || enabledModels[0]?.id || ""
   if (gateway.models.length > 0 && model && !enabledModels.some(item => item.id === model)) {
     throw new Error(`${gateway.name} 中的模型 ${model} 未开放，请重新选择`)
   }
@@ -119,6 +122,7 @@ export async function resolveArticleModel(
     model,
     timeout: gateway.timeout,
     authType: gateway.authType,
+    protocol: gateway.protocol,
     maxConcurrency: gateway.maxConcurrency,
   }
 }

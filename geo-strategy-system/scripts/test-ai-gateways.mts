@@ -11,6 +11,7 @@ process.env.AUTH_SECRET = "test-only-auth-secret-with-enough-entropy"
 
 const {
   inferAiGatewayModelFamily,
+  getAiGatewayPreset,
   getAiGatewayProviderRuntime,
   listAiGatewayProvidersPublic,
   parseGatewayProviderKey,
@@ -20,10 +21,15 @@ const {
 } = await import("../src/lib/ai-gateways")
 const { resolveArticleModel } = await import("../src/lib/article-models")
 const { runArticleModelChat } = await import("../src/lib/article-model-runtime")
+const { getAiProviderRuntimeSetting, saveAiProviderSetting } = await import("../src/lib/ai-settings")
 
 assert.equal(inferAiGatewayModelFamily("gpt-5.2"), "gpt")
 assert.equal(inferAiGatewayModelFamily("claude-sonnet-4-6"), "claude")
 assert.equal(inferAiGatewayModelFamily("gemini-3-pro"), "gemini")
+assert.equal(getAiGatewayPreset("openai").protocol, "openai_responses")
+assert.equal(getAiGatewayPreset("openai").defaultModel, "gpt-5.6-terra")
+assert.equal(getAiGatewayPreset("anthropic").defaultModel, "claude-sonnet-5")
+assert.equal(getAiGatewayPreset("gemini").defaultModel, "gemini-3.6-flash")
 
 const secret = "test-bai-super-secret-key"
 const created = await saveAiGatewayProvider({
@@ -114,6 +120,40 @@ assert.equal(fallback.content, "备用线路回答")
 assert.equal(fallback.usedFallback, true)
 assert.equal(fallback.model.providerKey, backup.providerKey)
 
+globalThis.fetch = (async () => new Response(JSON.stringify({
+  data: [{ id: "gpt-5.2", supported_endpoint_types: ["chat.completions"] }],
+}), { status: 200 })) as typeof fetch
+const afterRemoval = await syncAiGatewayModels(created.id, "admin-test")
+assert.equal(afterRemoval.models.find(model => model.id === "claude-sonnet-4-6")?.status, "removed")
+assert.equal(afterRemoval.models.find(model => model.id === "claude-sonnet-4-6")?.enabled, false)
+assert.equal(afterRemoval.lastSyncSummary?.removed, 2)
+
+const officialFirst = await saveAiGatewayProvider({
+  name: "OpenAI 官方",
+  preset: "openai",
+  apiKey: "openai-key-one",
+  primaryModel: "gpt-5.6-terra",
+}, "admin-test")
+const officialUpdated = await saveAiGatewayProvider({
+  name: "OpenAI 官方更新",
+  preset: "openai",
+  apiKey: "openai-key-two",
+  primaryModel: "gpt-5.6-terra",
+}, "admin-test")
+assert.equal(officialUpdated.id, officialFirst.id, "each official vendor must have one connection")
+
+const legacySecret = "test-legacy-provider-secret"
+await saveAiProviderSetting("qwen", {
+  apiKey: legacySecret,
+  baseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
+  chatPath: "/v1/chat/completions",
+  model: "qwen-plus",
+  timeout: 300,
+  extra: { enableSearch: true },
+}, "admin-test")
+assert.equal((await getAiProviderRuntimeSetting("qwen")).apiKey, legacySecret)
+assert.equal(readFileSync(kvFile, "utf8").includes(legacySecret), false, "legacy AI settings must be encrypted")
+
 await assert.rejects(
   () => saveAiGatewayProvider({
     name: "Unsafe",
@@ -128,7 +168,7 @@ await assert.rejects(
 )
 
 globalThis.fetch = originalFetch
-assert.equal((await listAiGatewayProvidersPublic()).length, 2)
+assert.equal((await listAiGatewayProvidersPublic()).length, 3)
 rmSync(tempDir, { recursive: true, force: true })
 
 console.log("AI gateway registry, encryption, sync, and resolver tests passed")
