@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
-import { listArticleModelCatalog } from "@/lib/article-models"
+import { chooseDefaultArticleModel, listArticleModelCatalog } from "@/lib/article-models"
 import { ARTICLE_PROMPT_OPTIONS } from "@/lib/article-prompt-meta"
 
 export const runtime = "nodejs"
@@ -13,10 +13,16 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { providers, gateways } = await listArticleModelCatalog()
+  const catalog = await listArticleModelCatalog()
+  const defaultModel = chooseDefaultArticleModel(catalog)
 
   return NextResponse.json(
-    { prompts: ARTICLE_PROMPT_OPTIONS, providers, gateways },
+    {
+      prompts: ARTICLE_PROMPT_OPTIONS,
+      providers: catalog.providers,
+      gateways: catalog.gateways,
+      defaultModel,
+    },
     {
       headers: {
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",

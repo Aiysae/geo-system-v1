@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getAiProviderRuntimeSetting, listAiProviderPublicSettings } from "@/lib/ai-settings"
+import { DEFAULT_ARTICLE_MODEL_PROVIDER } from "@/lib/article-model-default"
 import {
   getAiGatewayProviderRuntime,
   listAiGatewayProvidersPublic,
@@ -45,11 +46,17 @@ export interface ArticleModelCatalog {
   gateways: AiGatewayArticleOption[]
 }
 
+export interface DefaultArticleModel {
+  providerKey: ArticleModelProviderKey
+  model: string
+  preferredProviderAvailable: boolean
+}
+
 export function normalizeArticleModelProviderKey(value: unknown): ArticleModelProviderKey {
   const key = String(value || "")
   if (LEGACY_PROVIDER_SET.has(key)) return key as ArticleModelProviderKey
   if (parseGatewayProviderKey(key)) return key as ArticleModelProviderKey
-  return "article"
+  return DEFAULT_ARTICLE_MODEL_PROVIDER
 }
 
 export function isRecognizedArticleModelProviderKey(value: unknown): boolean {
@@ -78,6 +85,50 @@ export async function listArticleModelCatalog(): Promise<ArticleModelCatalog> {
         name: gateway.name,
         models: gateway.models.filter(model => model.enabled && model.status === "available"),
       })),
+  }
+}
+
+export function chooseDefaultArticleModel(catalog: ArticleModelCatalog): DefaultArticleModel {
+  const preferred = catalog.providers.find(
+    provider => provider.key === DEFAULT_ARTICLE_MODEL_PROVIDER,
+  )
+  if (preferred?.hasApiKey && preferred.model) {
+    return {
+      providerKey: DEFAULT_ARTICLE_MODEL_PROVIDER,
+      model: preferred.model,
+      preferredProviderAvailable: true,
+    }
+  }
+
+  const configuredProvider = catalog.providers.find(
+    provider => provider.hasApiKey && provider.model,
+  )
+  if (configuredProvider) {
+    return {
+      providerKey: configuredProvider.key as ArticleModelProviderKey,
+      model: configuredProvider.model,
+      preferredProviderAvailable: false,
+    }
+  }
+
+  const configuredGateway = catalog.gateways.find(
+    gateway => gateway.models.some(model => model.enabled && model.status === "available"),
+  )
+  const gatewayModel = configuredGateway?.models.find(
+    model => model.enabled && model.status === "available",
+  )
+  if (configuredGateway && gatewayModel) {
+    return {
+      providerKey: configuredGateway.providerKey,
+      model: gatewayModel.id,
+      preferredProviderAvailable: false,
+    }
+  }
+
+  return {
+    providerKey: DEFAULT_ARTICLE_MODEL_PROVIDER,
+    model: preferred?.model || "",
+    preferredProviderAvailable: false,
   }
 }
 

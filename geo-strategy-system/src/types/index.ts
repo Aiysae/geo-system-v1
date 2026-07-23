@@ -176,6 +176,7 @@ export interface ArticleGenerationState {
   promptKey: ArticlePromptKey
   modelProvider: ArticleModelProviderKey
   model: string
+  modelSelectionSource?: "default" | "user"
   sourceUrl?: string
   sourceTitle?: string
   sourceMarkdown?: string
@@ -933,10 +934,123 @@ export interface ModelDiagnosisItem {
   fix: string
 }
 
+export type GeoAuditCheckStatus = "pass" | "warning" | "fail" | "not_applicable"
+
+export type GeoAuditCategory =
+  | "crawlability"
+  | "discoverability"
+  | "contentStructure"
+  | "structuredData"
+  | "trust"
+  | "aiReadability"
+
+export interface GeoAuditCheck {
+  id: string
+  category: GeoAuditCategory
+  label: string
+  status: GeoAuditCheckStatus
+  score: number
+  maxScore: number
+  summary: string
+  evidence: string[]
+  urls: string[]
+  recommendation: string
+  priority: "P0" | "P1" | "P2"
+}
+
+export interface GeoAuditDimension {
+  key: GeoAuditCategory
+  label: string
+  score: number
+  maxScore: number
+}
+
+export interface GeoAuditResource {
+  kind: "robots" | "sitemap" | "llms"
+  url: string
+  status?: number
+  available: boolean
+  valid: boolean
+  summary: string
+  error?: string
+}
+
+export interface GeoAuditBotPolicy {
+  key: "generic" | "oaiSearch" | "gptBot" | "googlebot" | "claudeBot" | "bytespider"
+  label: string
+  userAgent: string
+  status: "allowed" | "blocked" | "unknown"
+  explicit: boolean
+  matchingLine?: number
+  note: string
+}
+
+export interface GeoAuditPage {
+  url: string
+  finalUrl: string
+  status: number
+  title: string
+  description: string
+  language: string
+  canonical: string
+  robotsMeta: string
+  xRobotsTag: string
+  wordCount: number
+  textLength: number
+  leadText: string
+  h1: string[]
+  h2: string[]
+  h3: string[]
+  headingLevelSkips: number
+  visibleQuestionCount: number
+  structuredDataTypes: string[]
+  structuredDataErrors: number
+  entityNames: string[]
+  authorSignals: string[]
+  credentialSignals: string[]
+  dateSignals: string[]
+  trustLinks: string[]
+  internalLinkCount: number
+  externalCitationCount: number
+  semanticLandmarks: string[]
+  jsShellRisk: boolean
+  loadTimeMs: number
+  error?: string
+}
+
+export interface GeoAuditAiSummary {
+  executiveSummary: string
+  strengths: string[]
+  risks: string[]
+  actions: string[]
+  generatedBy?: string
+}
+
+export interface WebsiteGeoAudit {
+  version: 2
+  requestUrl: string
+  finalUrl: string
+  auditedAt: string
+  durationMs: number
+  pagesRequested: number
+  pagesFetched: number
+  confidence: "high" | "medium" | "low"
+  confidenceLabel: string
+  resources: GeoAuditResource[]
+  botPolicies: GeoAuditBotPolicy[]
+  pages: GeoAuditPage[]
+  checks: GeoAuditCheck[]
+  dimensions: GeoAuditDimension[]
+  score: number
+  aiSummary: GeoAuditAiSummary
+}
+
 export interface Diagnosis {
+  version?: 1 | 2
   gemScore: number
   dimensions: DiagnosisDimensions
   modelDiagnosis: Record<"doubao" | "qwen" | "deepseek" | "kimi", ModelDiagnosisItem>
+  audit?: WebsiteGeoAudit
   generatedAt: string
 }
 
