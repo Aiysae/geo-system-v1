@@ -32,6 +32,10 @@ import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { ARTICLE_PROMPT_PRICE_KEYS, estimateFeatureCredits } from "@/lib/pricing"
 import { buildArticleSourceModelGroups } from "@/lib/article-source-options"
 import {
+  DEFAULT_ARTICLE_MODEL_PROVIDER,
+  hasExplicitArticleModelSelection,
+} from "@/lib/article-model-default"
+import {
   formatPersonSubjectContext,
   getClientSubjectType,
 } from "@/lib/analysis-subject"
@@ -63,6 +67,11 @@ interface ArticleSettingsResponse {
   prompts?: ArticlePromptOption[]
   providers?: AiProviderPublicSetting[]
   gateways?: AiGatewayArticleOption[]
+  defaultModel?: {
+    providerKey: ArticleModelProviderKey
+    model: string
+    preferredProviderAvailable: boolean
+  }
   error?: string
 }
 
@@ -121,8 +130,9 @@ function createInitialArticle(client: Client): ArticleGenerationState {
     && !client.backgroundJobs?.articleGeneration
   const initial: ArticleGenerationState = {
     promptKey: "thirdPartyObservation",
-    modelProvider: "article",
+    modelProvider: DEFAULT_ARTICLE_MODEL_PROVIDER,
     model: "",
+    modelSelectionSource: "default",
     sourceUrl: "",
     sourceTitle: "",
     sourceMarkdown: "",
@@ -146,6 +156,9 @@ function createInitialArticle(client: Client): ArticleGenerationState {
         }
       : {}),
   }
+  initial.modelSelectionSource = saved && hasExplicitArticleModelSelection(saved)
+    ? "user"
+    : "default"
   const savedMappings = normalizeRewriteMappings(initial.rewriteMappings)
   initial.rewriteMappings = savedMappings.length > 0
     ? savedMappings
@@ -194,6 +207,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const isPersonSubject = subjectType === "person"
   const [article, setArticle] = useState<ArticleGenerationState>(() => createInitialArticle(client))
   const articleRef = useRef(article)
+  const hasExplicitSavedModelRef = useRef(
+    hasExplicitArticleModelSelection(client.articleGeneration),
+  )
   const [workspaceMode, setWorkspaceMode] = useState<ArticleWorkspaceMode>(() => (
     client.articleGeneration?.promptKey === "rewrite" ? "rewrite" : "single"
   ))
@@ -229,19 +245,25 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         const currentProvider = nextProviders.find(item => item.key === currentArticle.modelProvider)
         const currentGateway = nextGateways.find(item => item.providerKey === currentArticle.modelProvider)
         const sourceExists = Boolean(currentProvider || currentGateway)
-        if (!sourceExists || !currentArticle.model) {
-          const provider = sourceExists
-            ? currentProvider
-            : nextProviders.find(item => item.key === "article")
-          const gateway = sourceExists ? currentGateway : undefined
-          const defaultModel = provider?.model || gateway?.models.find(item => item.enabled)?.id || ""
+        const shouldUseRecommendedDefault = !hasExplicitSavedModelRef.current || !sourceExists
+        if (shouldUseRecommendedDefault || !currentArticle.model) {
+          const recommendedKey = data.defaultModel?.providerKey || DEFAULT_ARTICLE_MODEL_PROVIDER
+          const targetKey = shouldUseRecommendedDefault
+            ? recommendedKey
+            : currentArticle.modelProvider
+          const provider = nextProviders.find(item => item.key === targetKey)
+          const gateway = nextGateways.find(item => item.providerKey === targetKey)
+          const defaultModel = shouldUseRecommendedDefault
+            ? data.defaultModel?.model || provider?.model || gateway?.models.find(item => item.enabled)?.id || ""
+            : provider?.model || gateway?.models.find(item => item.enabled)?.id || ""
           if (provider || gateway) {
             const next = {
               ...currentArticle,
-              modelProvider: sourceExists
-                ? currentArticle.modelProvider
-                : (provider?.key || "article") as ArticleModelProviderKey,
+              modelProvider: targetKey,
               model: defaultModel,
+              modelSelectionSource: shouldUseRecommendedDefault
+                ? "default" as const
+                : currentArticle.modelSelectionSource,
             }
             articleRef.current = next
             setArticle(next)
@@ -500,6 +522,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       ...article,
       modelProvider: key,
       model: provider?.model || gateway?.models.find(item => item.enabled)?.id || "",
+      modelSelectionSource: "user",
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
     })

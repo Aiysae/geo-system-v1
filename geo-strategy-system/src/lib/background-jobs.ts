@@ -387,7 +387,9 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
     job = await patchJob(jobId, {
       status: "running",
       progressPercent: 10,
-      stage: "AI 正在后台处理",
+      stage: job.kind === "diagnosis"
+        ? "正在读取网站并核验页面结构"
+        : "任务正在后台处理",
       startedAt: job.startedAt || nowIso(),
       error: undefined,
     }) || job
