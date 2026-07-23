@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Crown, House, LogOut, ReceiptText, ShieldCheck, UserRound, UsersRound } from "lucide-react"
+import { Crown, GraduationCap, House, LogOut, ReceiptText, ShieldCheck, UserRound, UsersRound } from "lucide-react"
 import { BillingLink } from "@/components/billing/billing-link"
 import type { MembershipSnapshot, WorkspaceAccountAccess } from "@/types"
 
@@ -100,6 +100,15 @@ export function AccountMenu() {
           >
             <House className="h-4 w-4 text-[#1677FF]" />
             品牌主页
+          </Link>
+
+          <Link
+            href="/workspace/tutorial?manual=1"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
+            onClick={() => setOpen(false)}
+          >
+            <GraduationCap className="h-4 w-4 text-[#00AEEA]" />
+            新手体验教程
           </Link>
 
           {access?.mode === "standard" && membership.clientAccountLimit > 0 ? (

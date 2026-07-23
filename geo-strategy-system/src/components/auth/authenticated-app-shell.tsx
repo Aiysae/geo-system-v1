@@ -9,6 +9,7 @@ import { AdminRechargeNotifier } from "@/components/admin/admin-recharge-notifie
 import { useCredits } from "@/components/credits/credits-provider"
 import type { PublicUser } from "@/lib/auth"
 import type { WorkspaceAccountAccess } from "@/types"
+import type { OnboardingSummary } from "@/types/onboarding"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 
 type AuthState = "checking" | "authenticated" | "error"
@@ -36,8 +37,19 @@ export function AuthenticatedAppShell() {
             user?: PublicUser
             access?: WorkspaceAccountAccess
             isAdmin?: boolean
+            onboarding?: OnboardingSummary
           }
           if (!body.user?.id) throw new Error("登录账号信息不完整")
+          const accountIsSuspended = body.access?.mode === "client"
+            && body.access.status === "suspended"
+          if (
+            body.onboarding?.autoLaunch
+            && !body.user.mustChangePassword
+            && !accountIsSuspended
+          ) {
+            window.location.replace("/workspace/tutorial")
+            return
+          }
           setUser(body.user)
           setIsAdmin(body.isAdmin === true || body.user.role === "admin")
           setAccess(body.access || {
