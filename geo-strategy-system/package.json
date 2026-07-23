@@ -43,6 +43,7 @@
     "test:penetration-provider-concurrency": "tsx scripts/test-penetration-provider-concurrency.mts",
     "test:penetration-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-history.mts",
     "test:person-subject": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-person-subject.mts",
+    "test:onboarding": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-onboarding.mts",
     "test:source-platforms": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-source-platform-intelligence.mts",
     "smoke:penetration-live": "NODE_OPTIONS=--conditions=react-server tsx scripts/smoke-penetration-live.mts",
     "stress:penetration-live": "NODE_OPTIONS=--conditions=react-server tsx scripts/stress-penetration-live.mts",

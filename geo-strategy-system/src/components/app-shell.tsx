@@ -28,6 +28,7 @@ import {
   FileText,
   Gauge,
   Grid3X3,
+  GraduationCap,
   History,
   ListOrdered,
   LockKeyhole,
@@ -302,6 +303,14 @@ function StickyHeader({
         </div>
 
         <div className="no-print hidden items-center gap-2 lg:flex">
+          <Link
+            href="/workspace/tutorial?manual=1"
+            className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/20 bg-white/8 px-3 text-xs font-semibold text-white transition hover:bg-white/14"
+            title="重新体验新手教程"
+          >
+            <GraduationCap className="h-3.5 w-3.5" />
+            新手教程
+          </Link>
           <button
             type="button"
             onClick={onOpenReportHistory}
@@ -348,6 +357,14 @@ function StickyHeader({
                   onClick={() => setMobileActionsOpen(false)}
                 />
                 <div className="absolute right-0 top-11 z-50 w-48 overflow-hidden rounded-lg border border-[#C8D7E8] bg-white p-1.5 text-[#38536E] shadow-xl">
+                  <Link
+                    href="/workspace/tutorial?manual=1"
+                    onClick={() => setMobileActionsOpen(false)}
+                    className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold hover:bg-[#EEF5FC]"
+                  >
+                    <GraduationCap className="h-4 w-4 text-[#00AEEA]" />
+                    新手体验教程
+                  </Link>
                   <button
                     type="button"
                     onClick={() => {
@@ -643,6 +660,13 @@ function EmptyState({
             创建
           </button>
         </div>
+        <Link
+          href="/workspace/tutorial?manual=1"
+          className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[#B7D9FF] bg-[#EAF5FF] text-xs font-semibold text-[#0958D9] transition hover:bg-[#DCEEFF]"
+        >
+          <GraduationCap className="h-4 w-4" />
+          先用 3 分钟体验完整成果
+        </Link>
       </div> : null}
     </div>
   )
