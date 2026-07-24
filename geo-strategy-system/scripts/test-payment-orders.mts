@@ -31,8 +31,14 @@ const {
   rechargeUnitPrice,
   RECHARGE_PACKAGES,
 } = await import("../src/lib/pricing")
+const { PAYMENT_SCHEMA_SQL } = await import("../src/lib/payment-schema")
 
 try {
+  assert.match(
+    PAYMENT_SCHEMA_SQL,
+    /product_type TEXT NOT NULL DEFAULT 'credits'/,
+    "payment schema must use a PostgreSQL string literal for the product type default",
+  )
   assert.equal(yuanFromCents(990), "9.90")
   assert.equal(centsFromYuan("9.9"), 990)
   assert.equal(centsFromYuan("9.90"), 990)

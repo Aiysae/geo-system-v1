@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS geo_payment_orders (
 );
 
 ALTER TABLE geo_payment_orders
-  ADD COLUMN IF NOT EXISTS product_type TEXT NOT NULL DEFAULT credits;
+  ADD COLUMN IF NOT EXISTS product_type TEXT NOT NULL DEFAULT 'credits';
 
 ALTER TABLE geo_payment_orders
   ADD COLUMN IF NOT EXISTS managed_service_order_id TEXT;
