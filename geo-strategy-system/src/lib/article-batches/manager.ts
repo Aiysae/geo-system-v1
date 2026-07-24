@@ -58,6 +58,14 @@ export interface CreateArticleBatchInput {
   basePayload: ArticleBatchBasePayload
 }
 
+export type ArticleBatchExecutionContext = {
+  actorUserId: string
+  billingUserId?: string
+  runtimeUserId?: string
+  workspaceOwnerUserId?: string
+  teamId?: string
+}
+
 export type CreateArticleBatchResult =
   | { ok: true; batch: ArticleBatchRecord; reused: boolean }
   | { ok: false; response: Response }
@@ -256,6 +264,10 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
             requestId: item.requestId,
             payload: itemJobPayload(batch, item, true),
             ownerUserId: batch.ownerUserId,
+            billingUserId: batch.billingUserId,
+            runtimeUserId: batch.runtimeUserId,
+            workspaceOwnerUserId: batch.workspaceOwnerUserId,
+            teamId: batch.teamId,
             reason: "相似度偏高，正在免费重新生成",
           })
           item.jobId = retryJob.id
@@ -367,8 +379,9 @@ export async function runArticleBatchFromWorker(
 
 export async function createArticleBatch(
   input: CreateArticleBatchInput,
-  ownerUserId: string,
+  context: ArticleBatchExecutionContext,
 ): Promise<CreateArticleBatchResult> {
+  const ownerUserId = context.actorUserId
   const existing = await findStoredArticleBatchByRequest(ownerUserId, input.requestId)
   if (existing) {
     scheduleArticleBatchMonitor(existing.id)
@@ -398,6 +411,10 @@ export async function createArticleBatch(
   const stored = createStoredArticleBatchInput({
     id: batchId,
     ownerUserId,
+    billingUserId: context.billingUserId,
+    runtimeUserId: context.runtimeUserId,
+    workspaceOwnerUserId: context.workspaceOwnerUserId,
+    teamId: context.teamId,
     clientId: input.clientId,
     requestId: input.requestId,
     promptKey: input.basePayload.promptKey,
@@ -422,6 +439,10 @@ export async function createArticleBatch(
     kind: "articleGeneration",
     clientId: input.clientId,
     ownerUserId,
+    billingUserId: context.billingUserId,
+    runtimeUserId: context.runtimeUserId,
+    workspaceOwnerUserId: context.workspaceOwnerUserId,
+    teamId: context.teamId,
     batchId,
     items: items.map(item => ({
       requestId: item.requestId,
@@ -551,7 +572,13 @@ export async function restartArticleBatch(
     customTopics,
     similarityRetry: batch.similarityRetry,
     basePayload: batch.basePayload,
-  }, ownerUserId)
+  }, {
+    actorUserId: ownerUserId,
+    billingUserId: batch.billingUserId,
+    runtimeUserId: batch.runtimeUserId,
+    workspaceOwnerUserId: batch.workspaceOwnerUserId,
+    teamId: batch.teamId,
+  })
 }
 
 export async function retryFailedArticleBatchItems(
@@ -578,6 +605,10 @@ export async function retryFailedArticleBatchItems(
       kind: "articleGeneration",
       clientId: batch.clientId,
       ownerUserId,
+      billingUserId: batch.billingUserId,
+      runtimeUserId: batch.runtimeUserId,
+      workspaceOwnerUserId: batch.workspaceOwnerUserId,
+      teamId: batch.teamId,
       requestId: requests[0].requestId,
       payload: requests[0].payload,
     })
@@ -588,6 +619,10 @@ export async function retryFailedArticleBatchItems(
       kind: "articleGeneration",
       clientId: batch.clientId,
       ownerUserId,
+      billingUserId: batch.billingUserId,
+      runtimeUserId: batch.runtimeUserId,
+      workspaceOwnerUserId: batch.workspaceOwnerUserId,
+      teamId: batch.teamId,
       batchId: batch.id,
       items: requests,
     })

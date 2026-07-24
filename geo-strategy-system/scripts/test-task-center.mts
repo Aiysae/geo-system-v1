@@ -15,6 +15,9 @@ const {
   markTaskCenterTaskRead,
   upsertTaskCenterTask,
 } = await import("../src/lib/task-center/store")
+const {
+  saveClientAccountLink,
+} = await import("../src/lib/client-accounts")
 
 const now = new Date().toISOString()
 const standardTask = {
@@ -92,6 +95,15 @@ const childTask = {
   updatedAt: now,
   finishedAt: now,
 }
+
+await saveClientAccountLink({
+  userId: childTask.actorUserId,
+  ownerUserId: childTask.workspaceOwnerUserId,
+  clientId: childTask.clientId,
+  clientName: childTask.clientName,
+  monthlyCredits: 1000,
+  operatorUserId: childTask.workspaceOwnerUserId,
+})
 
 await upsertTaskCenterTask(childTask)
 

@@ -43,6 +43,7 @@ import type {
 
 type Props = {
   client: Client
+  teamId?: string
   preset?: ReportExportPreset
   onClose: () => void
 }
@@ -218,7 +219,7 @@ async function reportFetch(input: RequestInfo | URL, init?: RequestInit): Promis
   }
 }
 
-export default function ReportExportDialog({ client, preset, onClose }: Props) {
+export default function ReportExportDialog({ client, teamId, preset, onClose }: Props) {
   const kinds = useMemo(() => availableKinds(client), [client])
   const initialKind = preset?.kind && kinds.includes(preset.kind) ? preset.kind : kinds[0] || "combined"
   const [kind, setKind] = useState<CommercialReportKind>(initialKind)
@@ -287,7 +288,9 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
     let active = true
     async function loadBranding() {
       try {
-        const response = await reportFetch("/api/reports/branding")
+        const params = new URLSearchParams({ clientId: client.id })
+        if (teamId) params.set("teamId", teamId)
+        const response = await reportFetch(`/api/reports/branding?${params.toString()}`)
         const data = await readApiJson<{
           branding?: ReportBrandingSettings
           access?: ReportBrandingAccess
@@ -311,7 +314,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
     }
     void loadBranding()
     return () => { active = false }
-  }, [])
+  }, [client.id, teamId])
 
   function buildInput(): CommercialReportInput {
     const includePenetration = kind === "combined" || kind === "penetration"
@@ -368,7 +371,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
       const response = await reportFetch("/api/reports/branding", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branding }),
+        body: JSON.stringify({ clientId: client.id, teamId, branding }),
       })
       const data = await readApiJson<{
         branding?: ReportBrandingSettings
@@ -411,7 +414,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
       const response = await apiFetch("/api/reports/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: buildInput(), requestId }),
+        body: JSON.stringify({ input: buildInput(), requestId, teamId }),
       })
       let current = await readApiJson<CommercialReportJobRecord & { error?: string }>(response, "专业报告任务")
       if (!response.ok) {

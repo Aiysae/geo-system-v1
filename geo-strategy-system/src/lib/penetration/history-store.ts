@@ -59,6 +59,7 @@ type FileHistoryState = {
 
 type HistoryRow = {
   id: string
+  owner_user_id?: string
   actor_user_id?: string | null
   client_id: string
   client_name: string
@@ -273,6 +274,35 @@ export async function getPenetrationHistoryRecord(
     const record = state.records[fileRecordKey(ownerUserId, id)]
     if (!record || record.deletedAt) return null
     return stripStoredFields(record)
+  })
+}
+
+export async function getPenetrationHistoryRecordScope(id: string): Promise<{
+  ownerUserId: string
+  clientId: string
+} | null> {
+  if (backend() === "postgres") {
+    await ensurePenetrationHistorySchema()
+    const result = await pool().query<HistoryRow>(
+      `SELECT owner_user_id, id, client_id, client_name, operation, status, source,
+              summary, created_at, updated_at
+       FROM geo_penetration_history_v1
+       WHERE id = $1 AND deleted_at IS NULL
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [id],
+    )
+    const row = result.rows[0]
+    if (!row?.owner_user_id) return null
+    return { ownerUserId: row.owner_user_id, clientId: row.client_id }
+  }
+  return withFileState(state => {
+    const record = Object.values(state.records)
+      .filter(candidate => candidate.id === id && !candidate.deletedAt)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+    return record
+      ? { ownerUserId: record.ownerUserId, clientId: record.clientId }
+      : null
   })
 }
 

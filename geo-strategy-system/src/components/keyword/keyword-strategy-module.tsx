@@ -476,9 +476,10 @@ function hasFileSignature(bytes: Uint8Array, signature: number[]): boolean {
   return signature.every((value, index) => bytes[index] === value)
 }
 
-async function extractWordOnServer(file: File): Promise<string> {
+async function extractWordOnServer(file: File, clientId: string): Promise<string> {
   const formData = new FormData()
   formData.append("file", file)
+  formData.append("clientId", clientId)
 
   const res = await apiFetch("/api/geo-strategy/parse-word", {
     method: "POST",
@@ -495,13 +496,13 @@ async function extractWordOnServer(file: File): Promise<string> {
   return data.content
 }
 
-async function readWordDocument(file: File): Promise<string> {
+async function readWordDocument(file: File, clientId: string): Promise<string> {
   const buffer = await readFileAsArrayBuffer(file)
   const bytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 8))
   let rawContent: string
 
   if (hasFileSignature(bytes, OLE_SIGNATURE)) {
-    rawContent = await extractWordOnServer(file)
+    rawContent = await extractWordOnServer(file, clientId)
   } else if (hasFileSignature(bytes, ZIP_SIGNATURE)) {
     try {
       const mammoth = await import("mammoth")
@@ -509,7 +510,7 @@ async function readWordDocument(file: File): Promise<string> {
       rawContent = result.value
     } catch (error) {
       console.warn("[keyword-strategy] DOCX browser parse failed, retrying on server:", error)
-      rawContent = await extractWordOnServer(file)
+      rawContent = await extractWordOnServer(file, clientId)
     }
   } else {
     throw new Error("文件后缀虽然是 Word，但实际内容不是有效的 .doc 或 .docx 文档")
@@ -850,7 +851,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           throw new Error("暂不支持旧版 .xls，请在 Excel 中另存为 .xlsx 或 .csv 后上传")
         }
         if (lowerName.endsWith(".docx") || lowerName.endsWith(".doc")) {
-          const content = await readWordDocument(file)
+          const content = await readWordDocument(file, client.id)
           processed.push({ id: genId(), name: file.name, type: "word", content, size: file.size })
         } else if (lowerName.endsWith(".xlsx")) {
           const content = await readExcelWorkbook(file)
@@ -890,7 +891,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       extractionError: uploadErrors.join("；"),
     })
     if (e.target) e.target.value = ""
-  }, [activeBrand.uploadedFiles, updateBrand])
+  }, [activeBrand.uploadedFiles, client.id, updateBrand])
 
   const removeFile = useCallback((id: string) => {
     updateBrand({ uploadedFiles: activeBrand.uploadedFiles.filter(f => f.id !== id) })

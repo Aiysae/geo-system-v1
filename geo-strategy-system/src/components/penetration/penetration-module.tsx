@@ -46,6 +46,7 @@ interface Props {
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
   identityReadOnly?: boolean
+  questionReadOnly?: boolean
 }
 
 type PenetrationRunParams = {
@@ -62,6 +63,7 @@ export default function PenetrationModule({
   client,
   onChangeClient,
   identityReadOnly = false,
+  questionReadOnly = false,
 }: Props) {
   const subjectType = getClientSubjectType(client)
   const [loading, setLoading] = useState(Boolean(client.penetrationJobId))
@@ -352,6 +354,7 @@ export default function PenetrationModule({
               modelProgress={modelProgress}
               progressLabel={progressLabel}
               identityReadOnly={identityReadOnly}
+              questionReadOnly={questionReadOnly}
             />
         </div>
 

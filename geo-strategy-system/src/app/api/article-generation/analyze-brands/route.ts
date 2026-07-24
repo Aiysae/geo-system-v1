@@ -11,7 +11,10 @@ import {
 } from "@/lib/article-rewrite"
 import { hitRateLimit } from "@/lib/rate-limit"
 import { requireUserId } from "@/lib/with-credits"
-import { requireStandardAccountMode } from "@/lib/client-accounts"
+import {
+  isOperationAccessError,
+  requireOperationAccess,
+} from "@/lib/team-access"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -69,13 +72,13 @@ export async function POST(req: NextRequest) {
   try {
     const userGuard = await requireUserId()
     if (!userGuard.ok) return userGuard.response
-    const accountAccess = await requireStandardAccountMode(userGuard.userId)
-    if (!accountAccess.ok) {
-      return NextResponse.json(
-        { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
-        { status: 403 },
-      )
-    }
+    const body = await req.json()
+    await requireOperationAccess({
+      userId: userGuard.userId,
+      clientId: text(body.clientId, 200),
+      module: "article",
+      action: "execute",
+    })
     const limited = await hitRateLimit("article:rewrite-brand-analysis", userGuard.userId, 12, 10 * 60)
     if (!limited.ok) {
       return NextResponse.json(
@@ -84,7 +87,6 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const body = await req.json()
     const sourceMarkdown = text(body.sourceMarkdown, 60000)
     if (sourceMarkdown.length < 80) {
       return NextResponse.json({ error: "原文内容过短，暂时无法分析主要品牌。" }, { status: 400 })
@@ -143,7 +145,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "品牌分析失败"
     console.error("[article-rewrite-brand-analysis]", message)
-    const status = /timeout|timed out|超时/i.test(message) ? 504 : 500
+    const status = isOperationAccessError(error)
+      ? 403
+      : /timeout|timed out|超时/i.test(message) ? 504 : 500
     return NextResponse.json({ error: `品牌分析失败：${message}` }, { status })
   }
 }

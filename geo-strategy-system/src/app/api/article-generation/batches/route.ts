@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getArticlePromptOption } from "@/lib/article-prompt-meta"
 import { createArticleBatch, listArticleBatches } from "@/lib/article-batches/manager"
+import { requireOperationAccess } from "@/lib/team-access"
+import { isTeamAccessError } from "@/lib/article-batches/access"
 import { requireUserId } from "@/lib/with-credits"
 import type {
   ArticleBatchTopicMode,
   ArticleModelProviderKey,
   ArticlePromptKey,
 } from "@/types"
-import {
-  requireStandardAccountMode,
-  resolveWorkspaceAccess,
-} from "@/lib/client-accounts"
 import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
 import {
   isRecognizedArticleModelProviderKey,
@@ -22,6 +20,7 @@ export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
 const TOPIC_MODES = new Set<ArticleBatchTopicMode>(["auto", "questions", "custom"])
+
 function text(value: unknown, max: number): string {
   return String(value ?? "").trim().slice(0, max)
 }
@@ -35,33 +34,38 @@ function record(value: unknown): Record<string, unknown> {
 export async function GET(req: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
-  const clientId = text(req.nextUrl.searchParams.get("clientId"), 200)
-  if (!clientId) return NextResponse.json({ error: "客户标识缺失" }, { status: 400 })
-  const access = await resolveWorkspaceAccess(auth.userId, clientId)
-  if (!access.ok) {
-    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+  try {
+    const clientId = text(req.nextUrl.searchParams.get("clientId"), 200)
+    const teamId = text(req.nextUrl.searchParams.get("teamId"), 200) || undefined
+    if (!clientId) return NextResponse.json({ error: "客户标识缺失" }, { status: 400 })
+    const access = await requireOperationAccess({
+      userId: auth.userId,
+      clientId,
+      module: "article",
+      action: "view",
+      teamId,
+    })
+    const batches = await listArticleBatches(access.actorUserId, clientId)
+    return NextResponse.json({ batches }, {
+      headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
+    })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "读取批量文章失败" },
+      { status: isTeamAccessError(error) ? 403 : 500 },
+    )
   }
-  const batches = await listArticleBatches(access.ownerUserId, clientId)
-  return NextResponse.json({ batches }, {
-    headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
-  })
 }
 
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireUserId()
     if (!auth.ok) return auth.response
-    const accountAccess = await requireStandardAccountMode(auth.userId)
-    if (!accountAccess.ok) {
-      return NextResponse.json(
-        { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
-        { status: 403 },
-      )
-    }
     const body = record(await req.json())
     const base = record(body.basePayload)
     const requestId = text(body.requestId, 160)
     const clientId = text(body.clientId, 200)
+    const teamId = text(body.teamId, 200) || undefined
     const count = Math.floor(Number(body.count))
     const topicMode = text(body.topicMode, 24) as ArticleBatchTopicMode
     const promptKey = text(base.promptKey, 80) as ArticlePromptKey
@@ -84,6 +88,14 @@ export async function POST(req: NextRequest) {
     if (!isRecognizedArticleModelProviderKey(modelProvider)) {
       return NextResponse.json({ error: "文章模型来源无效" }, { status: 400 })
     }
+
+    const access = await requireOperationAccess({
+      userId: auth.userId,
+      clientId,
+      module: "article",
+      action: "execute",
+      teamId,
+    })
     const resolvedModel = await resolveArticleModel(modelProvider, text(base.model, 200))
     if (!resolvedModel.apiKey) {
       return NextResponse.json({ error: `${resolvedModel.label} API Key 未配置` }, { status: 400 })
@@ -123,7 +135,13 @@ export async function POST(req: NextRequest) {
         audience: text(base.audience, 2_000),
         extraRequirements: text(base.extraRequirements, 5_000),
       },
-    }, auth.userId)
+    }, {
+      actorUserId: access.actorUserId,
+      billingUserId: access.billingUserId,
+      runtimeUserId: access.billingUserId,
+      workspaceOwnerUserId: access.dataOwnerUserId,
+      teamId: access.teamId,
+    })
     if (!result.ok) return result.response
     return NextResponse.json(result.batch, {
       status: result.reused ? 200 : 202,
@@ -132,6 +150,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "批量文章任务创建失败"
     const inputError = /(请选择|请先|缺失|无效|至少|补足|2 到 50)/.test(message)
-    return NextResponse.json({ error: message }, { status: inputError ? 400 : 500 })
+    return NextResponse.json(
+      { error: message },
+      { status: isTeamAccessError(error) ? 403 : inputError ? 400 : 500 },
+    )
   }
 }

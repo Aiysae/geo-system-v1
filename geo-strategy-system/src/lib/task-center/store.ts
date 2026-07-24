@@ -3,6 +3,7 @@ import "server-only"
 import { createHash } from "crypto"
 import { Pool } from "pg"
 import { kv } from "@/lib/kv"
+import { resolveOperationAccess } from "@/lib/team-access"
 import {
   isTaskCenterTerminalStatus,
   type TaskCenterListResponse,
@@ -255,6 +256,27 @@ function isVisible(task: StoredTaskCenterTask, userId: string): boolean {
   return task.actorUserId === userId || task.workspaceOwnerUserId === userId
 }
 
+async function isAuthorizedVisible(
+  task: StoredTaskCenterTask,
+  userId: string,
+): Promise<boolean> {
+  if (!isVisible(task, userId)) return false
+  if (task.workspaceOwnerUserId === userId || task.workspaceOwnerUserId === task.actorUserId) {
+    return true
+  }
+  if (task.actorUserId !== userId || !task.clientId) return false
+  const result = await resolveOperationAccess({
+    userId,
+    clientId: task.clientId,
+    module: task.module,
+    action: "view",
+    teamId: typeof task.metadata?.teamId === "string"
+      ? task.metadata.teamId
+      : undefined,
+  })
+  return result.ok && result.access.dataOwnerUserId === task.workspaceOwnerUserId
+}
+
 async function publicTask(
   task: StoredTaskCenterTask,
   userId: string,
@@ -388,9 +410,17 @@ async function listPostgres(userId: string, limit: number): Promise<TaskCenterTa
        CASE WHEN task.status IN ('queued', 'running', 'retrying') THEN 0 ELSE 1 END,
        task.updated_at DESC
      LIMIT $2`,
-    [userId, limit],
+    [userId, Math.min(500, Math.max(limit, limit * 4))],
   )
-  return Promise.all(result.rows.map(row => publicTask(fromRow(row), userId, row.read_at)))
+  const checked = await Promise.all(result.rows.map(async row => ({
+    row,
+    task: fromRow(row),
+    allowed: await isAuthorizedVisible(fromRow(row), userId),
+  })))
+  return Promise.all(checked
+    .filter(item => item.allowed)
+    .slice(0, limit)
+    .map(item => publicTask(item.task, userId, item.row.read_at)))
 }
 
 async function listKv(userId: string, limit: number): Promise<TaskCenterTask[]> {
@@ -407,9 +437,12 @@ async function listKv(userId: string, limit: number): Promise<TaskCenterTask[]> 
       kv.srem(workspaceIndexKey(userId), ...missing),
     ])
   }
-  const tasks = loaded
+  const candidates = loaded
     .map(normalizeStored)
     .filter((task): task is StoredTaskCenterTask => Boolean(task && isVisible(task, userId)))
+  const allowed = await Promise.all(candidates.map(task => isAuthorizedVisible(task, userId)))
+  const tasks = candidates
+    .filter((_, index) => allowed[index])
     .sort((left, right) => {
       const leftActive = isTaskCenterTerminalStatus(left.status) ? 1 : 0
       const rightActive = isTaskCenterTerminalStatus(right.status) ? 1 : 0
@@ -454,7 +487,7 @@ export async function markTaskCenterTaskRead(
   userId: string,
 ): Promise<boolean> {
   const task = await getStored(taskIdValue)
-  if (!task || !isVisible(task, userId)) return false
+  if (!task || !await isAuthorizedVisible(task, userId)) return false
   const readAt = new Date().toISOString()
   if (backend() === "postgres") {
     await ensureSchema()
@@ -471,23 +504,8 @@ export async function markTaskCenterTaskRead(
 }
 
 export async function markAllTaskCenterTasksRead(userId: string): Promise<number> {
-  if (backend() === "postgres") {
-    await ensureSchema()
-    const result = await pool().query(
-      `INSERT INTO geo_task_reads_v1 (task_id, user_id, read_at)
-       SELECT task.id, $1, NOW()
-       FROM geo_tasks_v1 task
-       WHERE (task.actor_user_id = $1 OR task.workspace_owner_user_id = $1)
-         AND task.status IN ('succeeded', 'partial', 'failed', 'cancelled', 'blocked')
-       ON CONFLICT (task_id, user_id) DO UPDATE SET read_at = EXCLUDED.read_at`,
-      [userId],
-    )
-    return result.rowCount || 0
-  }
   const response = await listTaskCenterTasks(userId, MAX_LIST_LIMIT)
   const unread = response.tasks.filter(task => task.unread)
-  await Promise.all(unread.map(task => (
-    kv.set(readKey(task.id, userId), new Date().toISOString(), { ex: TASK_TTL_SECONDS })
-  )))
+  await Promise.all(unread.map(task => markTaskCenterTaskRead(task.id, userId)))
   return unread.length
 }

@@ -18,7 +18,8 @@ import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
 import type { ModelKey, PenetrationJobOperation, PenetrationResult } from "@/types"
-import { resolveWorkspaceAccess } from "@/lib/client-accounts"
+import { requireOperationAccess } from "@/lib/team-access"
+import { hasTeamPermission } from "@/lib/team-permissions"
 import {
   normalizeAnalysisSubjectType,
   normalizePersonSubjectProfile,
@@ -73,25 +74,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请至少选择一个模型" }, { status: 400 })
     }
 
-    const access = await resolveWorkspaceAccess(userGuard.userId, clientId)
-    if (!access.ok) {
-      return NextResponse.json(
-        { error: access.message, code: access.code },
-        { status: 403 },
-      )
-    }
-    const currentClient = (await listWorkspaceClients(access.ownerUserId))
+    const access = await requireOperationAccess({
+      userId: userGuard.userId,
+      clientId,
+      module: "penetration",
+      action: "execute",
+      teamId: String(body.teamId || "").trim() || undefined,
+    })
+    const currentClient = (await listWorkspaceClients(access.dataOwnerUserId))
       .find(item => item.client.id === clientId)?.client
     if (!currentClient) {
       return NextResponse.json({ error: "当前客户不存在或已被删除，请刷新页面后重试" }, { status: 404 })
     }
-    const ourBrand = access.mode === "client"
+    const identityLocked = access.mode === "client"
+      || (access.mode === "team" && !hasTeamPermission(access.permissionKeys, "client", "edit"))
+    const ourBrand = identityLocked
       ? currentClient.ourBrand.trim()
       : requestedOurBrand
-    const subjectType = access.mode === "client"
+    const subjectType = identityLocked
       ? normalizeAnalysisSubjectType(currentClient.subjectType)
       : requestedSubjectType
-    const personProfile = access.mode === "client"
+    const personProfile = identityLocked
       ? normalizePersonSubjectProfile(currentClient.personProfile)
       : requestedPersonProfile
     if (!ourBrand) {
@@ -100,13 +103,13 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       )
     }
-    const brandAliases = access.mode === "client"
+    const brandAliases = identityLocked
       ? currentClient.brandAliases ?? []
       : stringList(body.brandAliases)
-    const competitors = access.mode === "client"
+    const competitors = identityLocked
       ? currentClient.competitors
       : stringList(body.competitors)
-    const industry = access.mode === "client"
+    const industry = identityLocked
       ? currentClient.industry
       : String(body.industry || "").trim()
 
@@ -159,7 +162,7 @@ export async function POST(req: NextRequest) {
       : undefined
     const slotCount = questions.length * activeModels.length
     const credits = estimateFeatureCredits("penetrationSlot", slotCount)
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, credits, {
+    const creditGuard = await reserveCreditsForUser(access.billingUserId, credits, {
       featureKey: "penetrationSlot",
       source: "api:penetration:jobs",
       sourceId: jobId,
@@ -170,6 +173,10 @@ export async function POST(req: NextRequest) {
         questionCount: questions.length,
         slotCount,
         subjectType,
+        actorUserId: access.actorUserId,
+        billingUserId: access.billingUserId,
+        workspaceOwnerUserId: access.dataOwnerUserId,
+        teamId: access.teamId,
       },
     })
     if (!creditGuard.ok) {
@@ -182,8 +189,9 @@ export async function POST(req: NextRequest) {
     const job = await createPenetrationJob({
       id: jobId,
       request,
-      ownerUserId: userGuard.userId,
-      workspaceOwnerUserId: access.ownerUserId,
+      ownerUserId: access.actorUserId,
+      workspaceOwnerUserId: access.dataOwnerUserId,
+      teamId: access.teamId,
       reservation,
       skipped,
       baseResult,
@@ -195,9 +203,14 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     await releaseJobRequestClaim(requestClaim)
     await refundReservedCreditsQuietly(reservation)
+    const forbidden = error instanceof Error && (
+      error.name.startsWith("TEAM_")
+      || error.name.startsWith("CLIENT_")
+      || /权限|无权|只读|VIP4/.test(error.message)
+    )
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "创建疑问句检测任务失败" },
-      { status: 400 },
+      { error: error instanceof Error ? error.message : "创建疑问句检测任务失败", code: error instanceof Error ? error.name : undefined },
+      { status: forbidden ? 403 : 400 },
     )
   }
 }

@@ -53,9 +53,12 @@ const CLIENT_ACCOUNT_PATCH_FIELDS = new Set<keyof Client>([
 
 export function useWorkspaceSync(
   userId: string,
-  options: { restrictedClientId?: string } = {},
+  options: { restrictedClientId?: string; teamId?: string } = {},
 ) {
   const restrictedClientId = options.restrictedClientId
+  const teamId = String(options.teamId || "").trim()
+  const storageUserId = teamId ? `${userId}:team:${teamId}` : userId
+  const teamQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : ""
   const filterRestrictedClients = useCallback(
     (values: Client[]) => restrictedClientId
       ? values.filter(client => client.id === restrictedClientId)
@@ -63,17 +66,17 @@ export function useWorkspaceSync(
     [restrictedClientId],
   )
   const [clients, setClients] = useState<Client[]>(() => {
-    const cached = listCachedClients(userId)
+    const cached = listCachedClients(storageUserId)
     return restrictedClientId
       ? cached.filter(client => client.id === restrictedClientId)
       : cached
   })
   const [activeId, setActiveIdState] = useState<string | null>(() => {
-    const allCached = listCachedClients(userId)
+    const allCached = listCachedClients(storageUserId)
     const cached = restrictedClientId
       ? allCached.filter(client => client.id === restrictedClientId)
       : allCached
-    const preferred = getActiveId(userId)
+    const preferred = getActiveId(storageUserId)
     return preferred && cached.some(client => client.id === preferred) ? preferred : cached[0]?.id || null
   })
   const [hydrated, setHydrated] = useState(false)
@@ -99,8 +102,8 @@ export function useWorkspaceSync(
   const commitClients = useCallback((nextClients: Client[]) => {
     clientsRef.current = nextClients
     setClients(nextClients)
-    saveCachedClients(userId, nextClients)
-  }, [userId])
+    saveCachedClients(storageUserId, nextClients)
+  }, [storageUserId])
 
   const applySyncedClients = useCallback((records: SyncedClient[]) => {
     const scopedRecords = restrictedClientId
@@ -125,17 +128,17 @@ export function useWorkspaceSync(
     }))
     commitClients(nextClients)
     setActiveIdState(previous => {
-      const preferred = previous || getActiveId(userId)
+      const preferred = previous || getActiveId(storageUserId)
       const resolved = preferred && nextClients.some(client => client.id === preferred)
         ? preferred
         : nextClients[0]?.id || null
-      persistActiveId(userId, resolved)
+      persistActiveId(storageUserId, resolved)
       return resolved
     })
-  }, [commitClients, filterRestrictedClients, restrictedClientId, userId])
+  }, [commitClients, filterRestrictedClients, restrictedClientId, storageUserId])
 
   const fetchCloudClients = useCallback(async (silent = false): Promise<SyncedClient[]> => {
-    const response = await fetch("/api/workspace/clients", {
+    const response = await fetch(`/api/workspace/clients${teamQuery}`, {
       cache: "no-store",
       credentials: "same-origin",
     })
@@ -149,7 +152,7 @@ export function useWorkspaceSync(
     }
     if (!silent) applySyncedClients(body.clients)
     return body.clients
-  }, [applySyncedClients])
+  }, [applySyncedClients, teamQuery])
 
   useEffect(() => {
     let cancelled = false
@@ -172,8 +175,9 @@ export function useWorkspaceSync(
       if (
         !cancelled
         && !restrictedClientId
-        && !isLegacyMigrationComplete(userId)
-        && canClaimLegacyWorkspace(userId)
+        && !teamId
+        && !isLegacyMigrationComplete(storageUserId)
+        && canClaimLegacyWorkspace(storageUserId)
       ) {
         const legacy = listLegacyClients()
         if (legacy.length > 0) {
@@ -186,14 +190,14 @@ export function useWorkspaceSync(
     return () => {
       cancelled = true
     }
-  }, [applySyncedClients, fetchCloudClients, restrictedClientId, userId])
+  }, [applySyncedClients, fetchCloudClients, restrictedClientId, storageUserId, teamId])
 
   useEffect(() => {
     clientsRef.current = clients
     if (!hydrated) return
-    const timer = setTimeout(() => saveCachedClients(userId, clients), SAVE_DELAY_MS)
+    const timer = setTimeout(() => saveCachedClients(storageUserId, clients), SAVE_DELAY_MS)
     return () => clearTimeout(timer)
-  }, [clients, hydrated, userId])
+  }, [clients, hydrated, storageUserId])
 
   const persistCreate = useCallback(async (client: Client) => {
     if (creatingClientsRef.current.has(client.id)) return
@@ -201,7 +205,7 @@ export function useWorkspaceSync(
     pendingCreatesRef.current[client.id] = client
     setSyncState({ phase: "saving", message: "正在创建云端客户" })
     try {
-      const response = await fetch("/api/workspace/clients", {
+      const response = await fetch(`/api/workspace/clients${teamQuery}`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -232,7 +236,7 @@ export function useWorkspaceSync(
     } finally {
       creatingClientsRef.current.delete(client.id)
     }
-  }, [commitClients])
+  }, [commitClients, teamQuery])
 
   const flushClient = useCallback(async (clientId: string, force = false) => {
     if (savingClientsRef.current.has(clientId)) return
@@ -250,7 +254,7 @@ export function useWorkspaceSync(
 
     let didConflict = false
     try {
-      const response = await fetch(`/api/workspace/clients/${encodeURIComponent(clientId)}`, {
+      const response = await fetch(`/api/workspace/clients/${encodeURIComponent(clientId)}${teamQuery}`, {
         method: "PATCH",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -297,7 +301,7 @@ export function useWorkspaceSync(
         saveTimersRef.current[clientId] = setTimeout(() => flushClientRef.current(clientId), 150)
       }
     }
-  }, [])
+  }, [teamQuery])
 
   useEffect(() => {
     flushClientRef.current = (clientId, force) => {
@@ -312,25 +316,25 @@ export function useWorkspaceSync(
 
   const handleSelect = useCallback((id: string) => {
     setActiveIdState(id)
-    persistActiveId(userId, id)
-  }, [userId])
+    persistActiveId(storageUserId, id)
+  }, [storageUserId])
 
   const handleCreate = useCallback((
     name: string,
     subjectType: AnalysisSubjectType = "brand",
   ) => {
-    if (restrictedClientId) return
+    if (restrictedClientId || teamId) return
     const client = createClient(name, subjectType)
     pendingCreatesRef.current[client.id] = client
     localCreatesRef.current[client.id] = client
     commitClients([client, ...clientsRef.current.filter(item => item.id !== client.id)])
     setActiveIdState(client.id)
-    persistActiveId(userId, client.id)
+    persistActiveId(storageUserId, client.id)
     void persistCreate(client)
-  }, [commitClients, persistCreate, restrictedClientId, userId])
+  }, [commitClients, persistCreate, restrictedClientId, storageUserId, teamId])
 
   const handleDelete = useCallback((id: string) => {
-    if (restrictedClientId) return
+    if (restrictedClientId || teamId) return
     const snapshot = clientsRef.current
     const next = snapshot.filter(client => client.id !== id)
     delete localCreatesRef.current[id]
@@ -339,11 +343,11 @@ export function useWorkspaceSync(
     if (activeId === id) {
       const replacement = next[0]?.id || null
       setActiveIdState(replacement)
-      persistActiveId(userId, replacement)
+      persistActiveId(storageUserId, replacement)
     }
     void (async () => {
       try {
-        const response = await fetch(`/api/workspace/clients/${encodeURIComponent(id)}`, {
+        const response = await fetch(`/api/workspace/clients/${encodeURIComponent(id)}${teamQuery}`, {
           method: "DELETE",
           credentials: "same-origin",
         })
@@ -359,7 +363,7 @@ export function useWorkspaceSync(
         setSyncState({ phase: "error", message: error instanceof Error ? error.message : "删除失败" })
       }
     })()
-  }, [activeId, commitClients, restrictedClientId, userId])
+  }, [activeId, commitClients, restrictedClientId, storageUserId, teamId, teamQuery])
 
   const handleChangeClient = useCallback((patch: Partial<Client>) => {
     if (!activeId) return
@@ -443,7 +447,7 @@ export function useWorkspaceSync(
       if (!response.ok || !Array.isArray(body.clients)) {
         throw new Error(body.error || `历史数据导入失败（HTTP ${response.status}）`)
       }
-      markLegacyMigrationComplete(userId)
+      markLegacyMigrationComplete(storageUserId)
       setShowMigration(false)
       applySyncedClients(body.clients)
       const duplicateText = body.duplicatedCount > 0 ? `，${body.duplicatedCount} 个冲突客户已保留副本` : ""
@@ -455,7 +459,7 @@ export function useWorkspaceSync(
     } catch (error) {
       setSyncState({ phase: "error", message: error instanceof Error ? error.message : "历史数据导入失败" })
     }
-  }, [applySyncedClients, legacyClients, userId])
+  }, [applySyncedClients, legacyClients, storageUserId])
 
   const loadCloudConflictVersion = useCallback(() => {
     if (!conflict) return

@@ -49,6 +49,7 @@ import { RechargeButton } from "@/components/credits/recharge-button"
 import { ManagedServiceCard } from "@/components/managed-services/managed-service-card"
 import ReportHistoryDialog from "@/components/reports/report-history-dialog"
 import SiteFooter from "@/components/site-footer"
+import { TeamCenter } from "@/components/team/team-center"
 import type { BillingRechargeRecord, BillingRechargeStatus } from "@/lib/billing-records"
 import type { CreditLedgerEntry } from "@/lib/credit-ledger"
 import {
@@ -66,7 +67,7 @@ import type {
   WorkspaceAccountAccess,
 } from "@/types"
 
-type AccountTab = "overview" | "clients" | "services" | "billing" | "reports" | "vip" | "settings"
+type AccountTab = "overview" | "clients" | "teams" | "services" | "billing" | "reports" | "vip" | "settings"
 
 type AccountUser = {
   id: string
@@ -125,6 +126,7 @@ type Props = {
 const TABS: Array<{ id: AccountTab; label: string; icon: typeof LayoutDashboard }> = [
   { id: "overview", label: "概览", icon: LayoutDashboard },
   { id: "clients", label: "我的客户", icon: BriefcaseBusiness },
+  { id: "teams", label: "团队协作", icon: UsersRound },
   { id: "services", label: "官方代运营", icon: Handshake },
   { id: "billing", label: "账单积分", icon: ReceiptText },
   { id: "reports", label: "历史报告", icon: FileClock },
@@ -266,6 +268,13 @@ export function AccountCenter(props: Props) {
           ) : null}
           {activeTab === "clients" ? (
             <ClientsTab userId={currentUser.id} access={props.access} clients={clients} setClients={setClients} />
+          ) : null}
+          {activeTab === "teams" ? (
+            <TeamCenter
+              membership={props.membership}
+              isAdmin={props.isAdmin}
+              isClientAccount={props.access.mode === "client"}
+            />
           ) : null}
           {activeTab === "services" ? <ServicesTab services={props.managedServices} /> : null}
           {activeTab === "billing" ? <BillingTab {...props} /> : null}

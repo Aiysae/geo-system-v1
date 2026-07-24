@@ -3,8 +3,11 @@ import {
   deletePenetrationHistoryRecord,
   getPenetrationHistoryRecord,
 } from "@/lib/penetration/history-store"
+import {
+  isPenetrationHistoryAccessError,
+  requirePenetrationHistoryAccess,
+} from "@/lib/penetration/history-access"
 import { requireUserId } from "@/lib/with-credits"
-import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -15,21 +18,29 @@ export async function GET(
 ) {
   const userGuard = await requireUserId()
   if (!userGuard.ok) return userGuard.response
-  const { historyId } = await context.params
-  const access = await resolveWorkspaceAccess(userGuard.userId)
-  if (!access.ok) {
-    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+  try {
+    const { historyId } = await context.params
+    const authorized = await requirePenetrationHistoryAccess({
+      historyId,
+      userId: userGuard.userId,
+      action: "view",
+    })
+    if (!authorized) {
+      return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
+    }
+    const record = await getPenetrationHistoryRecord(authorized.scope.ownerUserId, historyId)
+    if (!record) {
+      return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
+    }
+    return NextResponse.json(record, {
+      headers: { "Cache-Control": "private, no-store, max-age=0" },
+    })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "读取检测历史失败" },
+      { status: isPenetrationHistoryAccessError(error) ? 403 : 500 },
+    )
   }
-  const record = await getPenetrationHistoryRecord(access.ownerUserId, historyId)
-  if (record && access.mode === "client" && record.clientId !== access.clientId) {
-    return NextResponse.json({ error: "检测历史不存在或无权查看" }, { status: 404 })
-  }
-  if (!record) {
-    return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
-  }
-  return NextResponse.json(record, {
-    headers: { "Cache-Control": "private, no-store, max-age=0" },
-  })
 }
 
 export async function DELETE(
@@ -38,20 +49,28 @@ export async function DELETE(
 ) {
   const userGuard = await requireUserId()
   if (!userGuard.ok) return userGuard.response
-  const { historyId } = await context.params
-  const access = await resolveWorkspaceAccess(userGuard.userId)
-  if (!access.ok || access.mode === "client") {
-    return NextResponse.json({
-      error: access.ok ? "客户专属账号不能删除检测历史" : access.message,
-      code: "CLIENT_ACCOUNT_READ_ONLY",
-    }, { status: 403 })
+  try {
+    const { historyId } = await context.params
+    const authorized = await requirePenetrationHistoryAccess({
+      historyId,
+      userId: userGuard.userId,
+      action: "manage",
+    })
+    if (!authorized) {
+      return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
+    }
+    const deleted = await deletePenetrationHistoryRecord(authorized.scope.ownerUserId, historyId)
+    if (!deleted) {
+      return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
+    }
+    return NextResponse.json(
+      { ok: true },
+      { headers: { "Cache-Control": "private, no-store, max-age=0" } },
+    )
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "删除检测历史失败" },
+      { status: isPenetrationHistoryAccessError(error) ? 403 : 500 },
+    )
   }
-  const deleted = await deletePenetrationHistoryRecord(access.ownerUserId, historyId)
-  if (!deleted) {
-    return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
-  }
-  return NextResponse.json(
-    { ok: true },
-    { headers: { "Cache-Control": "private, no-store, max-age=0" } },
-  )
 }

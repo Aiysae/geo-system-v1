@@ -14,6 +14,7 @@ import {
 } from "@/lib/job-request-idempotency"
 import { ADAPTERS, MODEL_LABELS } from "@/lib/llm"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import { requireOperationAccess } from "@/lib/team-access"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import {
   refundReservedCreditsQuietly,
@@ -58,11 +59,18 @@ export async function POST(req: NextRequest) {
     if (!clientId) {
       return NextResponse.json({ error: "客户标识缺失，请刷新页面后重试" }, { status: 400 })
     }
+    const access = await requireOperationAccess({
+      userId: userGuard.userId,
+      clientId,
+      module: "difficulty",
+      action: "execute",
+      teamId: String(body.teamId || "").trim() || undefined,
+    })
     const requestId = normalizeJobRequestId(body.requestId)
     const jobId = jobIdFromRequest("djob", userGuard.userId, requestId)
     const request = normalizeDifficultyInput(body)
     try {
-      const workspaceClient = (await listWorkspaceClients(userGuard.userId))
+      const workspaceClient = (await listWorkspaceClients(access.dataOwnerUserId))
         .find(item => item.client.id === clientId)?.client
       if (workspaceClient) {
         request.subjectType = workspaceClient.subjectType
@@ -117,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     const featureKey = "difficultyAssessment"
     const cost = estimateFeatureCredits(featureKey)
-    const creditGuard = await reserveCreditsForUser(userGuard.userId, cost, {
+    const creditGuard = await reserveCreditsForUser(access.billingUserId, cost, {
       featureKey,
       source: "api:difficulty-assessment:jobs",
       sourceId: jobId,
@@ -127,6 +135,10 @@ export async function POST(req: NextRequest) {
         mode: request.mode,
         subjectType: request.subjectType,
         requestedModel: selected,
+        actorUserId: access.actorUserId,
+        billingUserId: access.billingUserId,
+        workspaceOwnerUserId: access.dataOwnerUserId,
+        teamId: access.teamId,
       },
     })
     if (!creditGuard.ok) {
@@ -142,7 +154,9 @@ export async function POST(req: NextRequest) {
       request,
       requestedModel: selected,
       modelCandidates,
-      ownerUserId: userGuard.userId,
+      ownerUserId: access.actorUserId,
+      workspaceOwnerUserId: access.dataOwnerUserId,
+      teamId: access.teamId,
       reservation,
     })
     reservation = null
@@ -152,9 +166,14 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     await releaseJobRequestClaim(requestClaim)
     await refundReservedCreditsQuietly(reservation)
+    const forbidden = error instanceof Error && (
+      error.name.startsWith("TEAM_")
+      || error.name.startsWith("CLIENT_")
+      || /权限|无权|只读|VIP4/.test(error.message)
+    )
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "创建难度测评任务失败" },
-      { status: 400 },
+      { error: error instanceof Error ? error.message : "创建难度测评任务失败", code: error instanceof Error ? error.name : undefined },
+      { status: forbidden ? 403 : 400 },
     )
   }
 }

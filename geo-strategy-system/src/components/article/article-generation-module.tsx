@@ -617,7 +617,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         endpoint: "/api/article-generation/extract-url",
         requestId: createBackgroundRequestId("article_extract"),
         label: "文章读取",
-        payload: { url: sourceUrl },
+        payload: { url: sourceUrl, clientId: client.id },
         onRetry: () => {
           persist({
             ...extracting,
@@ -659,6 +659,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          clientId: client.id,
           sourceMarkdown,
           modelProvider: article.modelProvider,
           model: article.model,

@@ -55,6 +55,9 @@ type StoredQuestionJobRecord = QuestionJobRecord & {
   request: QuestionJobRequest
   batchBaseUrls: string[]
   ownerUserId: string
+  billingUserId?: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   reservedCredits: number
   creditsSettledAt?: string
 }
@@ -84,6 +87,9 @@ function toPublicJob(job: StoredQuestionJobRecord): QuestionJobRecord {
   delete publicJob.request
   delete publicJob.batchBaseUrls
   delete publicJob.ownerUserId
+  delete publicJob.billingUserId
+  delete publicJob.workspaceOwnerUserId
+  delete publicJob.teamId
   delete publicJob.reservedCredits
   delete publicJob.creditsSettledAt
   return publicJob as QuestionJobRecord
@@ -706,7 +712,7 @@ async function settleQuestionJobCredits(id: string, used: number): Promise<void>
   if (!job || job.creditsSettledAt) return
 
   const reservation: CreditReservation = {
-    userId: job.ownerUserId,
+    userId: job.billingUserId || job.ownerUserId,
     amount: Math.max(1, Math.floor(job.reservedCredits || job.totalCount || 1)),
     balanceAfterReserve: 0,
     ledgerContext: {
@@ -952,6 +958,9 @@ export async function createQuestionJob(
   ownerUserId?: string,
   reservedCredits?: number,
   id?: string,
+  billingUserId?: string,
+  workspaceOwnerUserId?: string,
+  teamId?: string,
 ): Promise<QuestionJobRecord> {
   if (!input.strategy) {
     throw new Error("请提供策略方案")
@@ -976,6 +985,7 @@ export async function createQuestionJob(
   const now = nowIso()
   const stored: StoredQuestionJobRecord = {
     id: id || `qjob_${randomUUID().replace(/-/g, "")}`,
+    clientId: String(input.clientId || "").trim() || undefined,
     status: "queued",
     totalCount,
     completedCount: 0,
@@ -1001,6 +1011,9 @@ export async function createQuestionJob(
     },
     batchBaseUrls: buildBatchBaseUrls(publicOrigin),
     ownerUserId,
+    billingUserId: billingUserId || ownerUserId,
+    workspaceOwnerUserId: workspaceOwnerUserId || ownerUserId,
+    teamId,
     reservedCredits: Math.max(1, Math.floor(Number(reservedCredits) || totalCount)),
   }
 

@@ -45,6 +45,7 @@ import type {
 type Props = {
   clients: Array<Pick<Client, "id" | "name">>
   activeClientId: string | null
+  teamId?: string
   onExportPenetration?: (client: Client) => void
 }
 
@@ -115,6 +116,7 @@ function historyClient(record: PenetrationHistoryRecord): Client {
 export default function PenetrationHistoryPanel({
   clients,
   activeClientId,
+  teamId,
   onExportPenetration,
 }: Props) {
   const [pageData, setPageData] = useState<PenetrationHistoryListPage>({
@@ -146,6 +148,7 @@ export default function PenetrationHistoryPanel({
         page: String(page),
         pageSize: "20",
       })
+      if (teamId) params.set("teamId", teamId)
       if (clientFilter !== "all") params.set("clientId", clientFilter)
       if (statusFilter !== "all") params.set("status", statusFilter)
       if (operationFilter !== "all") params.set("operation", operationFilter)
@@ -164,7 +167,7 @@ export default function PenetrationHistoryPanel({
     } finally {
       if (!silent && version === requestVersionRef.current) setLoading(false)
     }
-  }, [clientFilter, daysFilter, operationFilter, page, statusFilter])
+  }, [clientFilter, daysFilter, operationFilter, page, statusFilter, teamId])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadHistory(), 0)

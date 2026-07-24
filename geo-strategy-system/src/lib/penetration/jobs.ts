@@ -62,6 +62,7 @@ type StoredPenetrationJob = PenetrationJobRecord & {
   request: PenetrationJobRequest
   ownerUserId: string
   workspaceOwnerUserId: string
+  teamId?: string
   reservedCredits: number
   creditReservation?: CreditReservation
   batchBaseUrls: string[]
@@ -147,6 +148,7 @@ function toPublicJob(job: StoredPenetrationJob): PenetrationJobRecord {
   delete publicJob.request
   delete publicJob.ownerUserId
   delete publicJob.workspaceOwnerUserId
+  delete publicJob.teamId
   delete publicJob.reservedCredits
   delete publicJob.creditReservation
   delete publicJob.batchBaseUrls
@@ -1192,6 +1194,7 @@ export async function createPenetrationJob(args: {
   request: PenetrationJobRequest
   ownerUserId: string
   workspaceOwnerUserId?: string
+  teamId?: string
   reservation: CreditReservation
   skipped: string[]
   baseResult?: PenetrationResult
@@ -1218,6 +1221,7 @@ export async function createPenetrationJob(args: {
     request: args.request,
     ownerUserId: args.ownerUserId,
     workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
+    teamId: args.teamId,
     reservedCredits: args.reservation.amount,
     creditReservation: args.reservation,
     batchBaseUrls: buildBatchBaseUrls(),

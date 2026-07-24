@@ -33,6 +33,8 @@ import type {
 
 type StoredDifficultyJob = DifficultyJobRecord & {
   ownerUserId: string
+  workspaceOwnerUserId: string
+  teamId?: string
   request: DifficultyAssessmentInput
   context: DifficultyStageContext
   modelCandidates: ModelKey[]
@@ -88,6 +90,8 @@ export function isRetryableDifficultyError(error: unknown): boolean {
 function toPublicJob(job: StoredDifficultyJob): DifficultyJobRecord {
   const publicJob: Partial<StoredDifficultyJob> = { ...job }
   delete publicJob.ownerUserId
+  delete publicJob.workspaceOwnerUserId
+  delete publicJob.teamId
   delete publicJob.request
   delete publicJob.context
   delete publicJob.modelCandidates
@@ -219,7 +223,7 @@ async function persistJobResultToWorkspace(job: StoredDifficultyJob): Promise<vo
   if (!entry) return
   try {
     const saved = await mutateWorkspaceClientLatest({
-      userId: job.ownerUserId,
+      userId: job.workspaceOwnerUserId || job.ownerUserId,
       clientId: job.clientId,
       mutate: current => {
         if (current.difficultyJobId && current.difficultyJobId !== job.id) return null
@@ -415,6 +419,8 @@ export async function createDifficultyJob(args: {
   requestedModel: DifficultyModelSelection
   modelCandidates: ModelKey[]
   ownerUserId: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   reservation: CreditReservation
 }): Promise<DifficultyJobRecord> {
   const now = nowIso()
@@ -440,6 +446,8 @@ export async function createDifficultyJob(args: {
     createdAt: now,
     updatedAt: now,
     ownerUserId: args.ownerUserId,
+    workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
+    teamId: args.teamId,
     request: args.request,
     context: createDifficultyStageContext(args.request),
     modelCandidates: args.modelCandidates,

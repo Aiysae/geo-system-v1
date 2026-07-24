@@ -24,9 +24,9 @@ import {
   normalizePersonSubjectProfile,
 } from "@/lib/analysis-subject"
 import {
-  authAndReserveCredits,
   refundReservedCreditsQuietly,
   requireUserId,
+  reserveCreditsForUser,
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
@@ -40,7 +40,8 @@ import {
 import { runPenetrationProviderCall } from "@/lib/penetration/provider-concurrency"
 import { isCompletePenetrationItem } from "@/lib/penetration/slot-policy"
 import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
-import { resolveWorkspaceAccess } from "@/lib/client-accounts"
+import { requireOperationAccess, type OperationAccessContext } from "@/lib/team-access"
+import { hasTeamPermission } from "@/lib/team-permissions"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 
 export const runtime = "nodejs"
@@ -1011,6 +1012,7 @@ function modelConcurrency(model: ModelKey): number {
 
 async function handler(req: NextRequest) {
   let reservation: CreditReservation | null = null
+  let directAccess: OperationAccessContext | null = null
   try {
     const internalJobRequest = isInternalApiRequest(req, "penetration-job")
     const body = await req.json()
@@ -1047,16 +1049,27 @@ async function handler(req: NextRequest) {
       const userGuard = await requireUserId()
       if (!userGuard.ok) return userGuard.response
       const clientId = String(body.clientId || "").trim()
-      const access = await resolveWorkspaceAccess(userGuard.userId, clientId || undefined)
-      if (!access.ok) {
-        return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+      if (!clientId) {
+        return NextResponse.json({ error: "客户标识缺失，请刷新页面后重试" }, { status: 400 })
       }
-      if (access.mode === "client") {
-        const client = (await listWorkspaceClients(access.ownerUserId))
-          .find(record => record.client.id === access.clientId)?.client
-        if (!client) {
-          return NextResponse.json({ error: "已授权的客户面板不存在，请联系管理员" }, { status: 404 })
-        }
+      directAccess = await requireOperationAccess({
+        userId: userGuard.userId,
+        clientId,
+        module: "penetration",
+        action: "execute",
+        teamId: String(body.teamId || "").trim() || undefined,
+      })
+      const client = (await listWorkspaceClients(directAccess.dataOwnerUserId))
+        .find(record => record.client.id === clientId)?.client
+      if (!client) {
+        return NextResponse.json({ error: "当前客户不存在或已被删除，请刷新页面后重试" }, { status: 404 })
+      }
+      const identityLocked = directAccess.mode === "client"
+        || (
+          directAccess.mode === "team"
+          && !hasTeamPermission(directAccess.permissionKeys, "client", "edit")
+        )
+      if (identityLocked) {
         ourBrand = client.ourBrand.trim()
         subjectType = normalizeAnalysisSubjectType(client.subjectType)
         personProfile = normalizePersonSubjectProfile(client.personProfile)
@@ -1115,16 +1128,24 @@ async function handler(req: NextRequest) {
     }
 
     if (!internalJobRequest) {
-      const guard = await authAndReserveCredits(requiredCredits, {
+      if (!directAccess) {
+        return NextResponse.json({ error: "检测权限校验失败，请刷新页面后重试" }, { status: 403 })
+      }
+      const guard = await reserveCreditsForUser(directAccess.billingUserId, requiredCredits, {
         featureKey,
         source: "api:penetration",
         description: getFeaturePrice(featureKey).label,
         metadata: {
+          clientId: directAccess.clientId,
           modelCount: activeModels.length,
           questionCount: questions.length,
           slotCount,
           brandAliasCount: brandAliases.length,
           subjectType,
+          actorUserId: directAccess.actorUserId,
+          billingUserId: directAccess.billingUserId,
+          workspaceOwnerUserId: directAccess.dataOwnerUserId,
+          teamId: directAccess.teamId,
         },
       })
       if (!guard.ok) return guard.response
