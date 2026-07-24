@@ -659,7 +659,7 @@ function EmptyState({ access }: { access: WorkspaceAccountAccess }) {
       {!restricted ? (
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href={teamSpace ? "/account?tab=team" : "/account?tab=clients"}
+            href={teamSpace ? "/account?tab=teams" : "/account?tab=clients"}
             className="inline-flex h-10 items-center justify-center rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-5 text-xs font-semibold text-white shadow-sm"
           >
             {teamSpace ? "打开团队协作" : "管理我的客户"}
