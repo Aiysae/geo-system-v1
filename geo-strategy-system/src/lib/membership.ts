@@ -7,25 +7,20 @@ import {
 } from "@/lib/payment-store"
 import type { PaymentOrder } from "@/lib/payment-types"
 import type { MembershipSnapshot, MembershipSource, MembershipTier } from "@/types"
+import {
+  MEMBERSHIP_LEVELS,
+  membershipLevelForTier,
+  type ActiveMembershipTier,
+  type MembershipLevelDefinition,
+} from "@/lib/membership-catalog"
 
 export type { MembershipSnapshot, MembershipSource, MembershipTier } from "@/types"
-
-export type ActiveMembershipTier = Exclude<MembershipTier, "free">
-
-export type MembershipLevelDefinition = {
-  tier: ActiveMembershipTier
-  minPaidCents: number
-  clientAccountLimit: number
-}
-
-export const MEMBERSHIP_LEVELS: readonly MembershipLevelDefinition[] = [
-  { tier: "vip1", minPaidCents: 1, clientAccountLimit: 0 },
-  { tier: "vip2", minPaidCents: 10_000, clientAccountLimit: 1 },
-  { tier: "vip3", minPaidCents: 60_000, clientAccountLimit: 3 },
-  { tier: "vip4", minPaidCents: 150_000, clientAccountLimit: 10 },
-  { tier: "vip5", minPaidCents: 300_000, clientAccountLimit: 30 },
-  { tier: "vip6", minPaidCents: 1_000_000, clientAccountLimit: 100 },
-] as const
+export {
+  MEMBERSHIP_LEVELS,
+  membershipTierLabel,
+  type ActiveMembershipTier,
+  type MembershipLevelDefinition,
+} from "@/lib/membership-catalog"
 
 type StoredMembership = {
   version?: 1 | 2
@@ -69,7 +64,7 @@ const TIER_RANK: Record<MembershipTier, number> = {
 }
 
 function levelForTier(tier: MembershipTier): MembershipLevelDefinition | undefined {
-  return MEMBERSHIP_LEVELS.find(level => level.tier === tier)
+  return membershipLevelForTier(tier)
 }
 
 export function membershipTierRank(tier: MembershipTier): number {
@@ -95,10 +90,6 @@ export function hasMembershipTier(
   required: ActiveMembershipTier,
 ): boolean {
   return membershipTierRank(membership.tier) >= membershipTierRank(required)
-}
-
-export function membershipTierLabel(tier: MembershipTier): string {
-  return tier === "free" ? "普通用户" : tier.toUpperCase()
 }
 
 function nextLevel(tier: MembershipTier): MembershipLevelDefinition | undefined {

@@ -43,9 +43,9 @@ import type {
 } from "@/types"
 
 type Props = {
-  clients: Client[]
+  clients: Array<Pick<Client, "id" | "name">>
   activeClientId: string | null
-  onExportPenetration: (client: Client) => void
+  onExportPenetration?: (client: Client) => void
 }
 
 const STATUS_META: Record<PenetrationHistoryStatus, {
@@ -247,7 +247,7 @@ export default function PenetrationHistoryPanel({
           </button>
           {detail ? (
             <div className="flex items-center gap-2">
-              {detail.result ? (
+              {detail.result && onExportPenetration ? (
                 <button
                   type="button"
                   onClick={() => onExportPenetration(historyClient(detail))}

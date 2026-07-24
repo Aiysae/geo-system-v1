@@ -2,7 +2,7 @@ import "server-only"
 
 import nodemailer, { type Transporter } from "nodemailer"
 
-export type AuthEmailPurpose = "sign-up" | "sign-in" | "password-reset"
+export type AuthEmailPurpose = "sign-up" | "sign-in" | "password-reset" | "email-change"
 
 type AuthEmailConfig = {
   host: string
@@ -31,6 +31,10 @@ const PURPOSE_COPY: Record<AuthEmailPurpose, { subject: string; action: string }
   "password-reset": {
     subject: "势途 GEO 密码重置验证码",
     action: "重置账号密码",
+  },
+  "email-change": {
+    subject: "势途 GEO 新邮箱验证码",
+    action: "绑定新的登录邮箱",
   },
 }
 

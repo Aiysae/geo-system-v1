@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import type { AuthEmailPurpose } from "../src/lib/auth-email"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "geo-email-verification-"))
 process.env.KV_BACKEND = "file"
@@ -23,7 +24,7 @@ const deliveries: Array<{ email: string; code: string; purpose: string }> = []
 const deliver = async (input: {
   email: string
   code: string
-  purpose: "sign-up" | "sign-in" | "password-reset"
+  purpose: AuthEmailPurpose
   expiresInMinutes: number
 }) => {
   deliveries.push({ email: input.email, code: input.code, purpose: input.purpose })
@@ -138,9 +139,20 @@ try {
     code: "678901",
   })
 
+  const changedEmail = "changed-email@example.com"
+  await issueEmailVerificationCode(
+    { email: changedEmail, purpose: "email-change" },
+    { code: "789012", deliver },
+  )
+  await consumeEmailVerificationCode({
+    email: changedEmail,
+    purpose: "email-change",
+    code: "789012",
+  })
+
   assert.deepEqual(
     deliveries.map(item => item.purpose),
-    ["sign-up", "sign-in", "password-reset", "sign-up", "sign-up"],
+    ["sign-up", "sign-in", "password-reset", "sign-up", "sign-up", "email-change"],
   )
   console.log("Email verification tests passed.")
 } finally {
