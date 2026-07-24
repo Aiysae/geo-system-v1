@@ -837,7 +837,12 @@ export interface PenetrationHistoryListPage {
   hasMore: boolean
 }
 
-export type CommercialReportKind = "combined" | "penetration" | "difficulty"
+export type CommercialReportKind =
+  | "combined"
+  | "penetration"
+  | "research"
+  | "diagnosis"
+  | "difficulty"
 export type CommercialReportDetail = "concise" | "full"
 export type CommercialReportJobStatus = "queued" | "running" | "succeeded" | "failed"
 export type ReportBrandingMode = "shitu" | "custom"
@@ -869,6 +874,9 @@ export interface CommercialReportInput {
     website: string
   }
   penetration?: PenetrationResult
+  research?: ResearchResult
+  competitorCompare?: CompetitorCompareResult
+  diagnosis?: Diagnosis
   difficulty?: DifficultyAssessmentEntry
 }
 

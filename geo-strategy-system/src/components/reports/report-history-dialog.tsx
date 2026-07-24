@@ -35,8 +35,10 @@ type Props = {
 }
 
 const KIND_LABELS: Record<CommercialReportKind, string> = {
-  combined: "综合商业报告",
+  combined: "四模块综合报告",
   penetration: "渗透率情报",
+  research: "独立调研",
+  diagnosis: "AI 诊断",
   difficulty: "难度测评",
 }
 
@@ -381,6 +383,8 @@ export default function ReportHistoryDialog({
                   <option value="all">全部类型</option>
                   <option value="combined">综合报告</option>
                   <option value="penetration">渗透率</option>
+                  <option value="research">独立调研</option>
+                  <option value="diagnosis">AI 诊断</option>
                   <option value="difficulty">难度测评</option>
                 </select>
                 <select

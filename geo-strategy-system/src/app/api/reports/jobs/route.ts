@@ -25,8 +25,11 @@ import type {
   CommercialReportDetail,
   CommercialReportInput,
   CommercialReportKind,
+  CompetitorCompareResult,
+  Diagnosis,
   DifficultyAssessmentEntry,
   PenetrationResult,
+  ResearchResult,
 } from "@/types"
 import {
   requireStandardAccountMode,
@@ -42,7 +45,13 @@ export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
 const MAX_REPORT_PAYLOAD_BYTES = 20 * 1024 * 1024
-const REPORT_KINDS = new Set<CommercialReportKind>(["combined", "penetration", "difficulty"])
+const REPORT_KINDS = new Set<CommercialReportKind>([
+  "combined",
+  "penetration",
+  "research",
+  "diagnosis",
+  "difficulty",
+])
 const REPORT_DETAILS = new Set<CommercialReportDetail>(["concise", "full"])
 const MODEL_KEYS = new Set(["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"])
 
@@ -75,7 +84,7 @@ function validPenetration(value: unknown): value is PenetrationResult {
       if (!isRecord(item) || typeof item.question !== "string" || typeof item.answer !== "string") return false
       if (!Array.isArray(item.mentionedBrands)) return false
       if (item.hitOur !== undefined && typeof item.hitOur !== "boolean") return false
-      if (item.searchSources !== undefined && (!Array.isArray(item.searchSources) || item.searchSources.length > 200)) return false
+      if (item.searchSources !== undefined && (!Array.isArray(item.searchSources) || item.searchSources.length > 1_000)) return false
     }
   }
 
@@ -106,6 +115,37 @@ function validDifficulty(value: unknown): value is DifficultyAssessmentEntry {
     && Array.isArray(value.result.suggestions)
 }
 
+function validResearch(value: unknown): value is ResearchResult {
+  if (!isRecord(value) || typeof value.generatedAt !== "string") return false
+  if (typeof value.executiveSummary !== "string" || typeof value.brandImage !== "string" || typeof value.modelMentality !== "string") return false
+  if (!Array.isArray(value.dimensions) || value.dimensions.length > 20) return false
+  for (const dimension of value.dimensions) {
+    if (!isRecord(dimension) || typeof dimension.name !== "string" || typeof dimension.score !== "number") return false
+    if (typeof dimension.insight !== "string" || !Array.isArray(dimension.evidence) || dimension.evidence.length > 20) return false
+  }
+  return ["audiencePerception", "trustSignals", "evidenceGaps", "risks", "opportunities", "recommendations"]
+    .every(key => Array.isArray(value[key]) && (value[key] as unknown[]).length <= 100)
+}
+
+function validCompetitorCompare(value: unknown): value is CompetitorCompareResult {
+  if (!isRecord(value) || typeof value.generatedAt !== "string") return false
+  const comparisons = value.comparisons
+  if (comparisons !== undefined && (!Array.isArray(comparisons) || comparisons.length > 20 || comparisons.some(item => !isRecord(item)))) return false
+  return typeof value.competitor === "string" || (Array.isArray(comparisons) && comparisons.length > 0)
+}
+
+function validDiagnosis(value: unknown): value is Diagnosis {
+  if (!isRecord(value) || typeof value.generatedAt !== "string") return false
+  if (typeof value.gemScore !== "number" || !isRecord(value.dimensions) || !isRecord(value.modelDiagnosis)) return false
+  if (value.audit === undefined) return true
+  if (!isRecord(value.audit) || value.audit.version !== 2 || typeof value.audit.score !== "number") return false
+  return Array.isArray(value.audit.resources) && value.audit.resources.length <= 20
+    && Array.isArray(value.audit.botPolicies) && value.audit.botPolicies.length <= 20
+    && Array.isArray(value.audit.pages) && value.audit.pages.length <= 20
+    && Array.isArray(value.audit.checks) && value.audit.checks.length <= 100
+    && Array.isArray(value.audit.dimensions) && value.audit.dimensions.length <= 20
+}
+
 function parseInput(value: unknown): CommercialReportInput | null {
   if (!isRecord(value) || !isRecord(value.client)) return null
   const kind = value.kind as CommercialReportKind
@@ -125,12 +165,20 @@ function parseInput(value: unknown): CommercialReportInput | null {
   if (!client.id || !client.name) return null
 
   const penetration = value.penetration === undefined ? undefined : value.penetration
+  const research = value.research === undefined ? undefined : value.research
+  const competitorCompare = value.competitorCompare === undefined ? undefined : value.competitorCompare
+  const diagnosis = value.diagnosis === undefined ? undefined : value.diagnosis
   const difficulty = value.difficulty === undefined ? undefined : value.difficulty
   if (penetration !== undefined && !validPenetration(penetration)) return null
+  if (research !== undefined && !validResearch(research)) return null
+  if (competitorCompare !== undefined && !validCompetitorCompare(competitorCompare)) return null
+  if (diagnosis !== undefined && !validDiagnosis(diagnosis)) return null
   if (difficulty !== undefined && !validDifficulty(difficulty)) return null
   if (kind === "penetration" && !penetration) return null
+  if (kind === "research" && !research && !competitorCompare) return null
+  if (kind === "diagnosis" && !diagnosis) return null
   if (kind === "difficulty" && !difficulty) return null
-  if (kind === "combined" && !penetration && !difficulty) return null
+  if (kind === "combined" && !penetration && !research && !competitorCompare && !diagnosis && !difficulty) return null
 
   return {
     kind,
@@ -138,6 +186,9 @@ function parseInput(value: unknown): CommercialReportInput | null {
     branding: validateReportBranding(value.branding),
     client,
     penetration: penetration as PenetrationResult | undefined,
+    research: research as ResearchResult | undefined,
+    competitorCompare: competitorCompare as CompetitorCompareResult | undefined,
+    diagnosis: diagnosis as Diagnosis | undefined,
     difficulty: difficulty as DifficultyAssessmentEntry | undefined,
   }
 }

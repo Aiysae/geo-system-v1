@@ -6,7 +6,9 @@ import {
   Font,
   Image,
   Link,
+  Line,
   Page,
+  Polygon,
   StyleSheet,
   Svg,
   Text,
@@ -14,12 +16,17 @@ import {
 } from "@react-pdf/renderer"
 import type {
   CommercialReportInput,
+  CompetitorComparison,
   DifficultyContentCostEstimate,
   DifficultyDimensionResult,
   DifficultyLegacyCostEstimate,
+  GeoAuditCheck,
+  GeoAuditCheckStatus,
+  GeoAuditDimension,
   ModelKey,
   PenetrationItem,
   PenetrationSource,
+  ResearchDimension,
   ReportBrandingSettings,
 } from "@/types"
 import {
@@ -432,6 +439,91 @@ const styles = StyleSheet.create({
   },
   tableNote: { marginTop: 6, color: COLORS.muted, fontSize: 6.8, lineHeight: 1.4 },
   continuationLabel: { marginBottom: 8, color: COLORS.muted, fontSize: 7.2 },
+  modulePills: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginBottom: 15 },
+  modulePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "#EAF5FF",
+    color: "#0958D9",
+    fontSize: 7,
+    fontWeight: 700,
+  },
+  visualPanel: {
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+  },
+  radarLayout: { flexDirection: "row", alignItems: "center", gap: 14 },
+  radarBox: { width: 196, height: 190, alignItems: "center", justifyContent: "center" },
+  radarLegend: { flex: 1, minWidth: 0 },
+  radarLegendRow: {
+    minHeight: 25,
+    marginBottom: 3,
+    paddingVertical: 4,
+    paddingHorizontal: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 4,
+    backgroundColor: "#F5FAFF",
+  },
+  radarLegendDot: { width: 6, height: 6, marginRight: 6, borderRadius: 3, backgroundColor: COLORS.blue },
+  radarLegendLabel: { flex: 1, minWidth: 0, color: COLORS.text, fontSize: 7.2, fontWeight: 700 },
+  radarLegendScore: { marginLeft: 6, color: COLORS.ink, fontSize: 8, fontWeight: 700 },
+  twoColumn: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
+  halfColumn: { width: "49%", minWidth: 0 },
+  compactPanel: {
+    marginBottom: 9,
+    padding: 9,
+    borderRadius: 6,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+  },
+  compactPanelTitle: { marginBottom: 5, color: COLORS.ink, fontSize: 9, fontWeight: 700 },
+  compactPanelText: { color: COLORS.text, fontSize: 7.7, lineHeight: 1.55 },
+  compactListRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 5 },
+  compactBullet: { width: 5, height: 5, marginTop: 4, marginRight: 6, borderRadius: 2.5, backgroundColor: COLORS.blue },
+  compactListText: { flex: 1, minWidth: 0, color: COLORS.text, fontSize: 7.4, lineHeight: 1.48 },
+  statusStrip: { flexDirection: "row", gap: 7, marginBottom: 14 },
+  statusCard: {
+    flex: 1,
+    minWidth: 0,
+    padding: 9,
+    borderRadius: 6,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+  },
+  statusCardLabel: { color: COLORS.muted, fontSize: 7 },
+  statusCardValue: { marginTop: 4, color: COLORS.ink, fontSize: 15, fontWeight: 700 },
+  auditCheck: {
+    marginBottom: 9,
+    padding: 10,
+    borderRadius: 6,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+  },
+  auditCheckHeader: { flexDirection: "row", alignItems: "center", marginBottom: 5 },
+  auditCheckStatus: {
+    width: 42,
+    marginRight: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    textAlign: "center",
+    color: COLORS.white,
+    fontSize: 6.2,
+    fontWeight: 700,
+  },
+  auditCheckTitle: { flex: 1, minWidth: 0, color: COLORS.ink, fontSize: 8.7, fontWeight: 700 },
+  auditCheckScore: { marginLeft: 6, color: COLORS.ink, fontSize: 7.5, fontWeight: 700 },
+  auditCheckSummary: { color: COLORS.text, fontSize: 7.6, lineHeight: 1.5 },
+  auditCheckMeta: { marginTop: 4, color: COLORS.muted, fontSize: 6.8, lineHeight: 1.45 },
+  auditLink: { marginTop: 3, color: COLORS.blue, fontSize: 6.8, lineHeight: 1.35, textDecoration: "none" },
   closingContent: {
     position: "relative",
     height: "100%",
@@ -706,6 +798,39 @@ function reportVocabulary(input: CommercialReportInput) {
       }
 }
 
+function reportModuleLabels(input: CommercialReportInput): string[] {
+  const modules: string[] = []
+  if (input.penetration) modules.push("渗透率情报")
+  if (input.research || input.competitorCompare) modules.push("独立调研")
+  if (input.diagnosis) modules.push("AI 诊断")
+  if (input.difficulty) modules.push("难度测评")
+  return modules
+}
+
+function competitorComparisons(input: CommercialReportInput): CompetitorComparison[] {
+  const result = input.competitorCompare
+  if (!result) return []
+  if (result.comparisons?.length) return result.comparisons
+  if (!result.competitor) return []
+  return [{
+    competitor: result.competitor,
+    positioningSummary: result.positioningSummary,
+    ourAdvantages: result.ourAdvantages,
+    competitorAdvantages: result.competitorAdvantages,
+    ourWeaknesses: result.ourWeaknesses,
+    competitorWeaknesses: result.competitorWeaknesses,
+    differentiators: result.differentiators,
+    userChoiceDrivers: result.userChoiceDrivers,
+    contentActions: result.contentActions,
+  }]
+}
+
+function averageResearchScore(input: CommercialReportInput): number | null {
+  const dimensions = input.research?.dimensions || []
+  if (dimensions.length === 0) return null
+  return Math.round(dimensions.reduce((sum, item) => sum + item.score, 0) / dimensions.length)
+}
+
 function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer[]): string {
   const sections: string[] = []
   const penetration = input.penetration?.aggregated
@@ -720,6 +845,23 @@ function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer
       + (penetration.categoryBalancedRate != null ? `，七类问题均衡率为 ${percent(penetration.categoryBalancedRate)}` : "")
       + `，样本属于${sampleConfidenceLabel(penetration.sampleQuality?.confidence)}结果，${rank}。`,
     )
+  }
+  if (input.research) {
+    sections.push(`独立调研结论：${input.research.executiveSummary}`)
+  }
+  const comparisons = competitorComparisons(input)
+  if (comparisons.length > 0) {
+    sections.push(`竞品对比覆盖 ${comparisons.length} 个主要竞争主体，已分别整理定位、优势、短板、差异点和内容动作。`)
+  }
+  if (input.diagnosis) {
+    const audit = input.diagnosis.audit
+    if (audit) {
+      const blockers = audit.checks.filter(check => check.status === "fail").length
+      const warnings = audit.checks.filter(check => check.status === "warning").length
+      sections.push(`AI 诊断总分为 ${audit.score} 分，可信度为${audit.confidenceLabel}；发现 ${blockers} 项未通过、${warnings} 项需优化，诊断覆盖 ${audit.pagesFetched}/${audit.pagesRequested} 个计划页面。`)
+    } else {
+      sections.push(`AI 诊断历史评分为 ${input.diagnosis.gemScore} 分，具体结论按当时保存的五维口径呈现。`)
+    }
   }
   if (input.difficulty) {
     const cost = input.difficulty.result.costEstimate
@@ -743,6 +885,24 @@ function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer
 
 function actionItems(input: CommercialReportInput): string[] {
   const actions: string[] = []
+  const auditChecks = input.diagnosis?.audit?.checks || []
+  for (const check of auditChecks
+    .filter(item => item.status === "fail" || item.status === "warning")
+    .sort((a, b) => ({ P0: 0, P1: 1, P2: 2 }[a.priority] - { P0: 0, P1: 1, P2: 2 }[b.priority]))) {
+    if (check.recommendation.trim()) actions.push(check.recommendation.trim())
+    if (actions.length >= 4) break
+  }
+  for (const recommendation of input.research?.recommendations || []) {
+    if (recommendation.trim()) actions.push(recommendation.trim())
+    if (actions.length >= 6) break
+  }
+  for (const comparison of competitorComparisons(input)) {
+    for (const action of comparison.contentActions) {
+      if (action.trim()) actions.push(action.trim())
+      if (actions.length >= 7) break
+    }
+    if (actions.length >= 7) break
+  }
   const missed = input.penetration?.aggregated.missedQuestions || []
   for (const question of missed.slice(0, 3)) {
     actions.push(`围绕“${question}”补齐可被模型引用的权威问答、案例与第三方信源。`)
@@ -760,7 +920,7 @@ function actionItems(input: CommercialReportInput): string[] {
     )
   }
   if (actions.length === 0) actions.push("完成更多疑问句检测和难度测评后，再形成分阶段 GEO 行动路线。")
-  return actions.slice(0, 8)
+  return Array.from(new Set(actions)).slice(0, 8)
 }
 
 function HeaderFooter({ input }: { input: CommercialReportInput }) {
@@ -980,6 +1140,125 @@ function HorizontalBar({ label, value, display, color }: { label: string; value:
   )
 }
 
+function radarPoints(values: number[], radius: number, center = 90): string {
+  const count = Math.max(3, values.length)
+  return values.map((value, index) => {
+    const angle = -Math.PI / 2 + (Math.PI * 2 * index) / count
+    const normalized = Math.max(0, Math.min(1, value))
+    return `${center + Math.cos(angle) * radius * normalized},${center + Math.sin(angle) * radius * normalized}`
+  }).join(" ")
+}
+
+function RadarScoreChart({ dimensions }: { dimensions: GeoAuditDimension[] }) {
+  const values = dimensions.map(item => item.maxScore > 0 ? item.score / item.maxScore : 0)
+  const axisValues = dimensions.map(() => 1)
+  const center = 90
+  const radius = 70
+  return (
+    <View style={styles.radarLayout} wrap={false}>
+      <View style={styles.radarBox}>
+        <Svg width={180} height={180} viewBox="0 0 180 180">
+          {[0.25, 0.5, 0.75, 1].map(level => (
+            <Polygon
+              key={level}
+              points={radarPoints(axisValues.map(() => level), radius, center)}
+              fill="none"
+              stroke={level === 1 ? "#B9D8F8" : "#DCEBFA"}
+              strokeWidth={level === 1 ? 1.2 : 0.8}
+            />
+          ))}
+          {dimensions.map((dimension, index) => {
+            const angle = -Math.PI / 2 + (Math.PI * 2 * index) / dimensions.length
+            return (
+              <Line
+                key={dimension.key}
+                x1={center}
+                y1={center}
+                x2={center + Math.cos(angle) * radius}
+                y2={center + Math.sin(angle) * radius}
+                stroke="#D2E6F9"
+                strokeWidth={0.8}
+              />
+            )
+          })}
+          <Polygon
+            points={radarPoints(values, radius, center)}
+            fill="#1677FF"
+            fillOpacity={0.28}
+            stroke="#1677FF"
+            strokeWidth={2}
+          />
+        </Svg>
+      </View>
+      <View style={styles.radarLegend}>
+        {dimensions.map(dimension => (
+          <View key={dimension.key} style={styles.radarLegendRow}>
+            <View style={styles.radarLegendDot} />
+            <Text style={styles.radarLegendLabel}>{dimension.label}</Text>
+            <Text style={styles.radarLegendScore}>{dimension.score}/{dimension.maxScore}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
+function ResearchScoreBars({ dimensions }: { dimensions: ResearchDimension[] }) {
+  const colors = [COLORS.blue, COLORS.cyan, COLORS.violet, COLORS.green, COLORS.amber, COLORS.silver]
+  return (
+    <View style={styles.visualPanel} wrap={false}>
+      {dimensions.map((dimension, index) => (
+        <HorizontalBar
+          key={`${dimension.name}-${index}`}
+          label={dimension.name}
+          value={Math.max(0, Math.min(100, dimension.score)) / 100}
+          display={`${Math.round(dimension.score)} 分`}
+          color={colors[index % colors.length]}
+        />
+      ))}
+    </View>
+  )
+}
+
+function CompactList({ items, color = COLORS.blue }: { items: string[]; color?: string }) {
+  return (
+    <View>
+      {items.map((item, index) => (
+        <View key={`${index}-${item}`} style={styles.compactListRow} wrap={false}>
+          <View style={[styles.compactBullet, { backgroundColor: color }]} />
+          <Text style={styles.compactListText}>{item}</Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function auditStatusMeta(status: GeoAuditCheckStatus): { label: string; color: string } {
+  if (status === "pass") return { label: "已通过", color: COLORS.green }
+  if (status === "warning") return { label: "需优化", color: COLORS.amber }
+  if (status === "fail") return { label: "未通过", color: COLORS.red }
+  return { label: "不适用", color: COLORS.slate }
+}
+
+function AuditCheckCard({ check }: { check: GeoAuditCheck }) {
+  const status = auditStatusMeta(check.status)
+  return (
+    <View style={styles.auditCheck} wrap={false}>
+      <View style={styles.auditCheckHeader}>
+        <Text style={[styles.auditCheckStatus, { backgroundColor: status.color }]}>{status.label}</Text>
+        <Text style={styles.auditCheckTitle}>{check.label} · {check.priority}</Text>
+        <Text style={styles.auditCheckScore}>{check.score}/{check.maxScore}</Text>
+      </View>
+      <Text style={styles.auditCheckSummary}>{check.summary}</Text>
+      {check.evidence.length > 0 ? <Text style={styles.auditCheckMeta}>证据：{check.evidence.join("；")}</Text> : null}
+      <Text style={styles.auditCheckMeta}>建议：{check.recommendation}</Text>
+      {check.urls.map((url, index) => (
+        <Link key={`${url}-${index}`} src={url} style={styles.auditLink}>页面 {index + 1}：{url}</Link>
+      ))}
+    </View>
+  )
+}
+
 function NumberedList({ items, startIndex = 0 }: { items: string[]; startIndex?: number }) {
   return (
     <View>
@@ -1019,11 +1298,13 @@ function PublisherLockup({ branding }: { branding: ReportBrandingSettings }) {
 function CoverPage({ input }: { input: CommercialReportInput }) {
   const branding = brandingForInput(input)
   const terms = reportVocabulary(input)
-  const kindLabel = input.kind === "combined"
-    ? "GEO 综合商业洞察报告"
-    : input.kind === "penetration"
-      ? "GEO 渗透率情报报告"
-      : "GEO 难度测评报告"
+  const kindLabel: Record<CommercialReportInput["kind"], string> = {
+    combined: "GEO 四模块综合报告",
+    penetration: "GEO 渗透率情报报告",
+    research: "GEO 独立调研报告",
+    diagnosis: "GEO AI 诊断报告",
+    difficulty: "GEO 难度测评报告",
+  }
   return (
     <Page size="A4" style={styles.cover} wrap={false}>
       {/* react-pdf Image is not a DOM img and has no alt prop. */}
@@ -1034,7 +1315,7 @@ function CoverPage({ input }: { input: CommercialReportInput }) {
         <PublisherLockup branding={branding} />
         <View style={styles.coverSignal} />
         <Text style={styles.coverKicker}>GEO INTELLIGENCE REPORT</Text>
-        <Text style={styles.coverTitle}>{kindLabel}</Text>
+        <Text style={styles.coverTitle}>{kindLabel[input.kind]}</Text>
         <Text style={styles.coverSubtitle}>
           {isPersonReport(input)
             ? "AI 专业认知 · 个人 IP 可见度 · 同行竞争 · 行动路径"
@@ -1063,6 +1344,11 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
   const penetration = input.penetration?.aggregated
   const difficulty = input.difficulty?.result
   const terms = reportVocabulary(input)
+  const modules = reportModuleLabels(input)
+  const researchAverage = averageResearchScore(input)
+  const comparisons = competitorComparisons(input)
+  const audit = input.diagnosis?.audit
+  const auditIssues = audit?.checks.filter(check => check.status === "fail" || check.status === "warning").length || 0
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
@@ -1073,27 +1359,46 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
           ? "把复杂模型检测压缩为可决策的个人专业认知与同行竞争信号。"
           : "把复杂模型检测压缩为可决策的品牌心智信号。"}
       />
+      <View style={styles.modulePills}>
+        {modules.map(module => <Text key={module} style={styles.modulePill}>{module} · 已纳入</Text>)}
+      </View>
       <View style={styles.metricsGrid}>
-        <MetricCard
-          label={terms.visibility}
-          value={penetration ? percent(penetration.penetrationRate) : "未检测"}
-          note={penetration
-            ? `${penetration.ourMentions}/${penetration.totalSlots} 个槽位命中 · ${penetration.ourRanking ? `${terms.ranking}第 ${penetration.ourRanking}` : "未上榜"}`
-            : undefined}
-        />
-        <MetricCard
-          label="七类问题均衡率"
-          value={penetration?.categoryBalancedRate != null ? percent(penetration.categoryBalancedRate) : "历史口径"}
-          note="七类搜索意图先分别计算，再等权汇总"
-        />
-        <MetricCard
-          label="样本可信度"
-          value={penetration ? sampleConfidenceLabel(penetration.sampleQuality?.confidence) : "未检测"}
-          note={penetration?.sampleQuality
-            ? `${penetration.sampleQuality.semanticIntentCount} 类有效问题 · 完成率 ${percent(penetration.sampleQuality.completionRate)}`
-            : `${sources.length} 条去重信源`}
-        />
-        <MetricCard label="GEO 难度" value={difficulty ? `${difficulty.totalScore} 分` : "未测评"} note={difficulty ? `${difficulty.level} · ${concisePeriod(difficulty.stableMentionPeriod)}` : undefined} />
+        {penetration ? (
+          <>
+            <MetricCard
+              label={terms.visibility}
+              value={percent(penetration.penetrationRate)}
+              note={`${penetration.ourMentions}/${penetration.totalSlots} 个槽位命中 · ${penetration.ourRanking ? `${terms.ranking}第 ${penetration.ourRanking}` : "未上榜"}`}
+            />
+            <MetricCard
+              label="样本可信度"
+              value={sampleConfidenceLabel(penetration.sampleQuality?.confidence)}
+              note={penetration.sampleQuality
+                ? `${penetration.sampleQuality.semanticIntentCount} 类有效问题 · 完成率 ${percent(penetration.sampleQuality.completionRate)}`
+                : `${sources.length} 条去重信源`}
+            />
+          </>
+        ) : null}
+        {input.research ? (
+          <MetricCard
+            label="独立调研维度均分"
+            value={researchAverage == null ? "已完成" : `${researchAverage} 分`}
+            note={`${input.research.dimensions.length} 个认知维度 · ${input.research.evidenceGaps.length} 项证据缺口`}
+          />
+        ) : null}
+        {comparisons.length > 0 ? (
+          <MetricCard label="竞品对比" value={`${comparisons.length} 个`} note="定位、优势、短板、差异点与行动建议" />
+        ) : null}
+        {input.diagnosis ? (
+          <MetricCard
+            label="AI 诊断"
+            value={`${audit?.score ?? input.diagnosis.gemScore} 分`}
+            note={audit ? `${auditIssues} 项待处理 · ${audit.confidenceLabel}` : "历史五维诊断口径"}
+          />
+        ) : null}
+        {difficulty ? (
+          <MetricCard label="GEO 难度" value={`${difficulty.totalScore} 分`} note={`${difficulty.level} · ${concisePeriod(difficulty.stableMentionPeriod)}`} />
+        ) : null}
       </View>
       <View style={styles.insightBox} wrap={false}>
         <Text style={styles.insightTitle}>核心结论</Text>
@@ -1261,7 +1566,7 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
 function QuestionCoveragePages({ input, answers }: { input: CommercialReportInput; answers: FlattenedAnswer[] }) {
   const rows = questionCoverageRows(answers)
   const terms = reportVocabulary(input)
-  const limit = input.detail === "full" ? 80 : 20
+  const limit = input.detail === "full" ? rows.length : 20
   const pages = paginateQuestionRows(rows.slice(0, limit))
   return pages.map((pageRows, pageIndex) => (
     <Page key={`question-coverage-${pageIndex}`} size="A4" style={styles.page}>
@@ -1355,7 +1660,7 @@ function SourcesPage({ input, answers, sources }: { input: CommercialReportInput
 }
 
 function SourceIndexPages({ input, sources }: { input: CommercialReportInput; sources: PenetrationSource[] }) {
-  const sourceLimit = input.detail === "full" ? 80 : 24
+  const sourceLimit = input.detail === "full" ? sources.length : 24
   const visible = sources.slice(0, sourceLimit)
   const pages = chunk(visible, 12)
   return pages.map((pageSources, pageIndex) => (
@@ -1382,6 +1687,338 @@ function SourceIndexPages({ input, sources }: { input: CommercialReportInput; so
       ) : null}
     </Page>
   ))
+}
+
+function ResearchOverviewPage({ input }: { input: CommercialReportInput }) {
+  const result = input.research!
+  const modeLabel = result.mode === "hypothesis" ? "判断验证" : "全面调研"
+  const sourceModeLabel = result.sourceMode === "manual" ? "手动填写资料" : "当前客户资料"
+  return (
+    <Page size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="INDEPENDENT RESEARCH"
+        title={isPersonReport(input) ? "个人 IP 独立调研" : "品牌独立调研"}
+        intro="完整呈现当前认知、模型心智、维度评分及调研结论，不在导出时重新生成或改写数据。"
+      />
+      <View style={styles.statusStrip}>
+        <View style={styles.statusCard}><Text style={styles.statusCardLabel}>调研模式</Text><Text style={styles.statusCardValue}>{modeLabel}</Text></View>
+        <View style={styles.statusCard}><Text style={styles.statusCardLabel}>地区</Text><Text style={styles.statusCardValue}>{result.region || "未指定"}</Text></View>
+        <View style={styles.statusCard}><Text style={styles.statusCardLabel}>评分维度</Text><Text style={styles.statusCardValue}>{result.dimensions.length} 个</Text></View>
+        <View style={styles.statusCard}><Text style={styles.statusCardLabel}>生成时间</Text><Text style={[styles.statusCardValue, { fontSize: 8.5 }]}>{formatDateToMinute(result.generatedAt)}</Text></View>
+      </View>
+      <View style={styles.compactPanel} wrap={false}>
+        <Text style={styles.compactPanelTitle}>调研对象口径</Text>
+        <Text style={styles.compactPanelText}>资料来源：{sourceModeLabel}{result.aliases?.length ? `；对象别名：${result.aliases.join("、")}` : "；未填写对象别名"}</Text>
+      </View>
+      {result.hypothesis ? (
+        <View style={styles.compactPanel} wrap={false}>
+          <Text style={styles.compactPanelTitle}>本次验证判断</Text>
+          <Text style={styles.compactPanelText}>{result.hypothesis}</Text>
+        </View>
+      ) : null}
+      <View style={styles.insightBox} wrap={false}>
+        <Text style={styles.insightTitle}>调研结论</Text>
+        <Text style={styles.insightText}>{result.executiveSummary}</Text>
+      </View>
+      <View style={styles.twoColumn}>
+        <View style={styles.halfColumn}>
+          <View style={styles.compactPanel} wrap={false}>
+            <Text style={styles.compactPanelTitle}>{isPersonReport(input) ? "个人 IP 形象" : "品牌形象"}</Text>
+            <Text style={styles.compactPanelText}>{result.brandImage}</Text>
+          </View>
+        </View>
+        <View style={styles.halfColumn}>
+          <View style={styles.compactPanel} wrap={false}>
+            <Text style={styles.compactPanelTitle}>当前模型认知</Text>
+            <Text style={styles.compactPanelText}>{result.modelMentality}</Text>
+          </View>
+        </View>
+      </View>
+      {result.dimensions.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>调研维度评分</Text>
+          <ResearchScoreBars dimensions={result.dimensions} />
+        </View>
+      ) : null}
+    </Page>
+  )
+}
+
+function ResearchDimensionEvidencePages({ input }: { input: CommercialReportInput }) {
+  const dimensions = input.research?.dimensions || []
+  return chunk(dimensions, 4).map((pageDimensions, pageIndex) => (
+    <Page key={`research-dimensions-${pageIndex}`} size="A4" style={styles.page} wrap>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="RESEARCH EVIDENCE"
+        title={pageIndex === 0 ? "调研维度与依据" : "调研维度与依据（续）"}
+        intro="每个维度保留原始洞察与证据，便于客户理解评分依据。"
+      />
+      {pageDimensions.map((dimension, index) => (
+        <View key={`${dimension.name}-${index}`} style={styles.auditCheck} wrap={false}>
+          <View style={styles.auditCheckHeader}>
+            <Text style={[styles.auditCheckStatus, { backgroundColor: COLORS.blue }]}>{Math.round(dimension.score)} 分</Text>
+            <Text style={styles.auditCheckTitle}>{dimension.name}</Text>
+          </View>
+          <Text style={styles.auditCheckSummary}>{dimension.insight}</Text>
+          {dimension.evidence.length > 0 ? <Text style={styles.auditCheckMeta}>依据：{dimension.evidence.join("；")}</Text> : null}
+        </View>
+      ))}
+    </Page>
+  ))
+}
+
+function ResearchFindingsPages({ input }: { input: CommercialReportInput }) {
+  const result = input.research!
+  const sections = [
+    { title: "用户感知", items: result.audiencePerception, color: COLORS.cyan },
+    { title: "信任信号", items: result.trustSignals, color: COLORS.green },
+    { title: "证据缺口", items: result.evidenceGaps, color: COLORS.amber },
+    { title: "风险暴露", items: result.risks, color: COLORS.red },
+    { title: "增长机会", items: result.opportunities, color: COLORS.violet },
+    { title: "行动建议", items: result.recommendations, color: COLORS.blue },
+  ].filter(section => section.items.length > 0)
+  return chunk(sections, 2).map((pageSections, pageIndex) => (
+    <Page key={`research-findings-${pageIndex}`} size="A4" style={styles.page} wrap>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="RESEARCH FINDINGS"
+        title={pageIndex === 0 ? "调研发现与行动" : "调研发现与行动（续）"}
+        intro="把认知信号、证据缺口和增长机会转化为可检查、可执行的清单。"
+      />
+      {pageSections.map(section => (
+        <View key={section.title} style={styles.compactPanel} wrap={false}>
+          <Text style={styles.compactPanelTitle}>{section.title} · {section.items.length} 项</Text>
+          <CompactList items={section.items} color={section.color} />
+        </View>
+      ))}
+    </Page>
+  ))
+}
+
+function CompetitorComparisonPages({ input }: { input: CommercialReportInput }) {
+  const comparisons = competitorComparisons(input)
+  const result = input.competitorCompare
+  const target = input.client.ourBrand || (isPersonReport(input) ? "目标人物" : "我方品牌")
+  return comparisons.map((comparison, comparisonIndex) => (
+    <Page key={`${comparison.competitor}-${comparisonIndex}`} size="A4" style={styles.page} wrap>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="COMPETITOR COMPARISON"
+        title={`${target} vs ${comparison.competitor}`}
+        intro={`第 ${comparisonIndex + 1}/${comparisons.length} 组对比，完整保留双方优势、短板、差异点、选择因素与内容动作。`}
+      />
+      {comparisonIndex === 0 && result?.ourWeaknessSummary?.length ? (
+        <View style={styles.compactPanel} wrap={false}>
+          <Text style={styles.compactPanelTitle}>我方共性短板</Text>
+          <CompactList items={result.ourWeaknessSummary} color={COLORS.amber} />
+        </View>
+      ) : null}
+      <View style={styles.insightBox} wrap={false}>
+        <Text style={styles.insightTitle}>定位判断</Text>
+        <Text style={styles.insightText}>{comparison.positioningSummary}</Text>
+      </View>
+      <View style={styles.twoColumn}>
+        <View style={styles.halfColumn}>
+          <View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>{target}优势</Text><CompactList items={comparison.ourAdvantages} color={COLORS.green} /></View>
+          <View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>{target}短板</Text><CompactList items={comparison.ourWeaknesses} color={COLORS.amber} /></View>
+        </View>
+        <View style={styles.halfColumn}>
+          <View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>{comparison.competitor}优势</Text><CompactList items={comparison.competitorAdvantages} color={COLORS.red} /></View>
+          <View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>{comparison.competitor}短板</Text><CompactList items={comparison.competitorWeaknesses} color={COLORS.slate} /></View>
+        </View>
+      </View>
+      <View style={styles.twoColumn}>
+        <View style={styles.halfColumn}><View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>核心差异点</Text><CompactList items={comparison.differentiators} color={COLORS.violet} /></View></View>
+        <View style={styles.halfColumn}><View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>用户选择因素</Text><CompactList items={comparison.userChoiceDrivers} color={COLORS.cyan} /></View></View>
+      </View>
+      <View style={styles.compactPanel} wrap={false}>
+        <Text style={styles.compactPanelTitle}>建议内容动作</Text>
+        <CompactList items={comparison.contentActions} color={COLORS.blue} />
+      </View>
+    </Page>
+  ))
+}
+
+function coreAuditGroups(checks: GeoAuditCheck[]) {
+  const definitions = [
+    { title: "H1 / H2 标题", ids: ["title-h1", "heading-hierarchy"] },
+    { title: "Q&A 问答", ids: ["visible-qa", "qa-schema"] },
+    { title: "Robots 协议", ids: ["robots-generic", "robots-oai-search"] },
+    { title: "LLMs 文本", ids: ["llms-txt"] },
+  ]
+  return definitions.map(definition => {
+    const matched = checks.filter(check => definition.ids.includes(check.id))
+    const status = matched.some(check => check.status === "fail")
+      ? "fail" as const
+      : matched.some(check => check.status === "warning")
+        ? "warning" as const
+        : matched.length > 0 && matched.every(check => check.status === "pass")
+          ? "pass" as const
+          : "not_applicable" as const
+    return { ...definition, status, matched }
+  })
+}
+
+function DiagnosisOverviewPage({ input }: { input: CommercialReportInput }) {
+  const diagnosis = input.diagnosis!
+  const audit = diagnosis.audit
+  if (!audit) return <LegacyDiagnosisPage input={input} />
+  const pass = audit.checks.filter(check => check.status === "pass").length
+  const warning = audit.checks.filter(check => check.status === "warning").length
+  const fail = audit.checks.filter(check => check.status === "fail").length
+  return (
+    <Page size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="WEBSITE GEO AUDIT"
+        title="AI 可检索性诊断"
+        intro={`真实读取 ${audit.pagesFetched}/${audit.pagesRequested} 个计划页面，检查页面结构、爬虫协议、结构化数据、信任证据与 AI 可读性。`}
+      />
+      <View style={styles.penetrationHero} wrap={false}>
+        <DonutChart value={audit.score / 100} display={`${audit.score}`} label="GEO 总分 / 100" color={COLORS.violet} />
+        <View style={styles.heroMetrics}>
+          <HeroMetric label="诊断可信度" value={audit.confidenceLabel} />
+          <HeroMetric label="读取页面" value={`${audit.pagesFetched}/${audit.pagesRequested}`} />
+          <HeroMetric label="未通过" value={`${fail} 项`} />
+          <HeroMetric label="需优化" value={`${warning} 项`} />
+        </View>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>六维 GEO 表现</Text>
+        <View style={styles.visualPanel}><RadarScoreChart dimensions={audit.dimensions} /></View>
+      </View>
+      <View style={styles.statusStrip}>
+        <View style={styles.statusCard}><Text style={styles.statusCardLabel}>已通过</Text><Text style={[styles.statusCardValue, { color: COLORS.green }]}>{pass}</Text></View>
+        <View style={styles.statusCard}><Text style={styles.statusCardLabel}>需优化</Text><Text style={[styles.statusCardValue, { color: COLORS.amber }]}>{warning}</Text></View>
+        <View style={styles.statusCard}><Text style={styles.statusCardLabel}>未通过</Text><Text style={[styles.statusCardValue, { color: COLORS.red }]}>{fail}</Text></View>
+        <View style={styles.statusCard}><Text style={styles.statusCardLabel}>诊断耗时</Text><Text style={[styles.statusCardValue, { fontSize: 10 }]}>{(audit.durationMs / 1000).toFixed(1)} 秒</Text></View>
+      </View>
+      <View style={styles.twoColumn}>
+        {coreAuditGroups(audit.checks).map(group => {
+          const status = auditStatusMeta(group.status)
+          return (
+            <View key={group.title} style={styles.halfColumn}>
+              <View style={styles.compactPanel} wrap={false}>
+                <Text style={[styles.compactPanelTitle, { color: status.color }]}>{group.title} · {status.label}</Text>
+                <Text style={styles.compactPanelText}>{group.matched.map(check => check.summary).join("；") || "本次未形成有效检查结果。"}</Text>
+              </View>
+            </View>
+          )
+        })}
+      </View>
+    </Page>
+  )
+}
+
+function DiagnosisAccessPage({ input }: { input: CommercialReportInput }) {
+  const audit = input.diagnosis!.audit!
+  return (
+    <Page size="A4" style={styles.page} wrap>
+      <HeaderFooter input={input} />
+      <ChapterTitle kicker="ACCESS & RESOURCES" title="爬虫访问与关键资源" intro="分别呈现 AI 爬虫访问状态，以及 Robots、Sitemap、LLMs.txt 等关键资源的实际读取结果。" />
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>AI 爬虫访问矩阵</Text>
+        <View style={styles.table}>
+          <View style={[styles.tableRow, styles.tableHeader]}>
+            <TableCell width="24%" header>爬虫</TableCell><TableCell width="18%" header>状态</TableCell><TableCell width="18%" header>是否显式</TableCell><TableCell width="40%" header>判断说明</TableCell>
+          </View>
+          {audit.botPolicies.map((policy, index) => (
+            <View key={policy.key} style={[styles.tableRow, index === audit.botPolicies.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+              <TableCell width="24%" strong>{policy.label}</TableCell><TableCell width="18%">{policy.status === "allowed" ? "允许" : policy.status === "blocked" ? "阻止" : "未知"}</TableCell><TableCell width="18%">{policy.explicit ? "是" : "否"}</TableCell><TableCell width="40%">{policy.note}</TableCell>
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>关键资源状态</Text>
+        {audit.resources.map(resource => (
+          <View key={resource.kind} style={styles.sourceRow} wrap={false}>
+            <Text style={styles.sourceTitle}>{resource.kind.toUpperCase()} · {resource.available && resource.valid ? "有效" : resource.available ? "可访问但需修复" : "未发现"}</Text>
+            <Text style={styles.sourceMeta}>{resource.summary}{resource.error ? ` · ${resource.error}` : ""}</Text>
+            <Link src={resource.url} style={styles.sourceLink}>{resource.url}</Link>
+          </View>
+        ))}
+      </View>
+      <View style={styles.insightBox} wrap={false}>
+        <Text style={styles.insightTitle}>诊断结论</Text>
+        <Text style={styles.insightText}>{audit.aiSummary.executiveSummary}</Text>
+      </View>
+      <View style={styles.twoColumn}>
+        <View style={styles.halfColumn}><View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>当前优势</Text><CompactList items={audit.aiSummary.strengths} color={COLORS.green} /></View></View>
+        <View style={styles.halfColumn}><View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>主要风险</Text><CompactList items={audit.aiSummary.risks} color={COLORS.red} /></View></View>
+      </View>
+      <View style={styles.compactPanel} wrap={false}><Text style={styles.compactPanelTitle}>优先整改动作</Text><CompactList items={audit.aiSummary.actions} color={COLORS.blue} /></View>
+    </Page>
+  )
+}
+
+function DiagnosisCheckPages({ input }: { input: CommercialReportInput }) {
+  const checks = input.diagnosis!.audit!.checks
+  const ordered = [...checks].sort((a, b) => ({ P0: 0, P1: 1, P2: 2 }[a.priority] - { P0: 0, P1: 1, P2: 2 }[b.priority]) || a.label.localeCompare(b.label))
+  return chunk(ordered, 5).map((pageChecks, pageIndex) => (
+    <Page key={`diagnosis-checks-${pageIndex}`} size="A4" style={styles.page} wrap>
+      <HeaderFooter input={input} />
+      <ChapterTitle kicker="AUDIT EVIDENCE" title={pageIndex === 0 ? "检查明细、证据与建议" : "检查明细、证据与建议（续）"} intro="逐项保留状态、分值、证据、改进建议和对应页面网址。" />
+      <Text style={styles.continuationLabel}>第 {pageIndex + 1} 组 · 共 {checks.length} 项检查</Text>
+      {pageChecks.map(check => <AuditCheckCard key={check.id} check={check} />)}
+    </Page>
+  ))
+}
+
+function DiagnosisPageRecordPages({ input }: { input: CommercialReportInput }) {
+  const pages = input.diagnosis!.audit!.pages
+  return chunk(pages, 6).map((pageRows, pageIndex) => (
+    <Page key={`diagnosis-pages-${pageIndex}`} size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle kicker="PAGE RECORDS" title={pageIndex === 0 ? "页面读取记录" : "页面读取记录（续）"} intro="保留本次诊断实际读取的页面、标题层级、问答、结构化数据、状态和耗时。" />
+      <View style={styles.table}>
+        <View style={[styles.tableRow, styles.tableHeader]}>
+          <TableCell width="36%" header>页面</TableCell><TableCell width="10%" header>HTTP</TableCell><TableCell width="12%" header>H1/H2</TableCell><TableCell width="10%" header>问答</TableCell><TableCell width="22%" header>Schema</TableCell><TableCell width="10%" header>耗时</TableCell>
+        </View>
+        {pageRows.map((page, index) => (
+          <View key={`${page.url}-${index}`} style={[styles.tableRow, index === pageRows.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+            <View style={[styles.tableCell, { width: "36%" }]}><Link src={page.finalUrl} style={styles.sourceLink}>{page.title || page.finalUrl}</Link>{page.error ? <Text style={styles.auditCheckMeta}>{page.error}</Text> : null}</View>
+            <TableCell width="10%">{page.status || "-"}</TableCell><TableCell width="12%">{page.h1.length}/{page.h2.length}</TableCell><TableCell width="10%">{page.visibleQuestionCount}</TableCell><TableCell width="22%">{page.structuredDataTypes.join("、") || "-"}</TableCell><TableCell width="10%">{page.loadTimeMs ? `${page.loadTimeMs}ms` : "-"}</TableCell>
+          </View>
+        ))}
+      </View>
+    </Page>
+  ))
+}
+
+function LegacyDiagnosisPage({ input }: { input: CommercialReportInput }) {
+  const diagnosis = input.diagnosis!
+  const labels: Record<keyof typeof diagnosis.dimensions, string> = {
+    authority: "权威性",
+    structure: "结构清晰度",
+    traceability: "信息可追溯",
+    coverage: "内容覆盖",
+    sentiment: "推荐友好度",
+  }
+  const dimensions = Object.entries(diagnosis.dimensions) as Array<[keyof typeof diagnosis.dimensions, number]>
+  return (
+    <Page size="A4" style={styles.page} wrap>
+      <HeaderFooter input={input} />
+      <ChapterTitle kicker="LEGACY GEO DIAGNOSIS" title="AI 诊断 · 历史版本" intro="该结果沿用生成时保存的五维诊断口径，不用当前规则重新改写历史分数。" />
+      <View style={styles.penetrationHero} wrap={false}>
+        <DonutChart value={diagnosis.gemScore / 100} display={`${diagnosis.gemScore}`} label="GEO 总分 / 100" color={COLORS.violet} />
+        <View style={styles.heroMetrics}>{dimensions.map(([key, value]) => <HeroMetric key={key} label={labels[key]} value={`${value} 分`} />)}</View>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>各模型表现</Text>
+        {Object.entries(diagnosis.modelDiagnosis).map(([model, item]) => (
+          <View key={model} style={styles.auditCheck} wrap={false}>
+            <Text style={styles.auditCheckTitle}>{MODEL_LABELS[model as ModelKey] || model}</Text>
+            <Text style={styles.auditCheckMeta}>偏好：{item.preference}</Text>
+            <Text style={styles.auditCheckMeta}>短板：{item.weakness}</Text>
+            <Text style={styles.auditCheckMeta}>建议：{item.fix}</Text>
+          </View>
+        ))}
+      </View>
+    </Page>
+  )
 }
 
 function DifficultyPage({ input }: { input: CommercialReportInput }) {
@@ -1559,7 +2196,7 @@ function DifficultyContentCostPage({
         {estimate.milestones.map((item, index) => (
           <Text key={item.key} style={styles.insightText}>{index + 1}. {item.label}：{item.successDefinition}。</Text>
         ))}
-        {estimate.assumptions.slice(0, 4).map((item, index) => (
+        {estimate.assumptions.map((item, index) => (
           <Text key={`${index}-${item}`} style={styles.insightText}>{index + 4}. {item}</Text>
         ))}
       </View>
@@ -1679,6 +2316,26 @@ function DifficultyInsightsPages({ input }: { input: CommercialReportInput }) {
 
 function ActionPage({ input }: { input: CommercialReportInput }) {
   const terms = reportVocabulary(input)
+  const methodology = [
+    input.penetration
+      ? "渗透率来自所选模型对真实疑问句的独立联网回答；同义问题在汇总时归类，避免重复样本放大结果。"
+      : "",
+    input.penetration
+      ? isPersonReport(input)
+        ? "人物识别与同行判定在回答生成后完成，不把目标人物、同行名单或身份资料注入被测问题。"
+        : "品牌识别在回答生成后完成，不把目标品牌和优势信息注入被测问题。"
+      : "",
+    input.research || input.competitorCompare
+      ? "独立调研与竞品对比使用生成时已经保存的结论、评分和证据，导出过程不重新调用模型。"
+      : "",
+    input.diagnosis
+      ? "AI 诊断分数来自实际页面读取、爬虫协议和结构化证据；AI 只负责解释，不能修改确定性评分。"
+      : "",
+    input.difficulty
+      ? "难度评分、周期和成本结论均采用测评时保存的版本，不按当前规则回写历史结果。"
+      : "",
+    "本报告用于 GEO 策略与内容决策，不构成法律、财务或绝对排名承诺。",
+  ].filter(Boolean)
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
@@ -1689,15 +2346,7 @@ function ActionPage({ input }: { input: CommercialReportInput }) {
       </View>
       <View style={styles.methodology}>
         <Text>方法说明</Text>
-        <Text style={{ marginTop: 5 }}>1. 原始渗透率来自所选模型对真实疑问句的独立回答，模型回答与信源按原始结果保存。</Text>
-        <Text>2. 同义问题会分别提问，再在汇总时归为一类；七类问题综合汇总，用来避免某一种问题重复过多而放大结果。</Text>
-        <Text>
-          {isPersonReport(input)
-            ? "3. 人物识别与同行判定在回答生成后完成，不把目标人物、同行名单或身份资料注入被测问题。"
-            : "3. 品牌识别在回答生成后完成，不把目标品牌和优势信息注入被测问题。"}
-        </Text>
-        <Text>4. 难度结论来自测评时已保存的结果，不补写未提供的事实。</Text>
-        <Text>5. 本报告用于 GEO 策略与内容决策，不构成法律、财务或绝对排名承诺。</Text>
+        {methodology.map((item, index) => <Text key={item} style={index === 0 ? { marginTop: 5 } : undefined}>{index + 1}. {item}</Text>)}
       </View>
     </Page>
   )
@@ -1715,9 +2364,9 @@ function ProcessEvidencePage({ input }: { input: CommercialReportInput }) {
           <Text style={styles.appendixMeta}>{index + 1}. {stage.title}</Text>
           <Text style={styles.appendixAnswer}>{stage.summary}</Text>
           {stage.evidence.length > 0 ? (
-            <Text style={styles.sourceMeta}>依据：{stage.evidence.slice(0, 3).join("；")}</Text>
+            <Text style={styles.sourceMeta}>依据：{stage.evidence.join("；")}</Text>
           ) : null}
-          <View style={styles.pillRow}>{stage.tags.slice(0, 6).map(tag => <Text key={tag} style={styles.pill}>{tag}</Text>)}</View>
+          <View style={styles.pillRow}>{stage.tags.map(tag => <Text key={tag} style={styles.pill}>{tag}</Text>)}</View>
         </View>
       ))}
     </Page>
@@ -1726,18 +2375,17 @@ function ProcessEvidencePage({ input }: { input: CommercialReportInput }) {
 
 function AppendixPages({ input, answers }: { input: CommercialReportInput; answers: FlattenedAnswer[] }) {
   if (input.detail !== "full" || answers.length === 0) return null
-  const limited = answers.slice(0, 120)
   return (
     <Page size="A4" style={styles.page} wrap>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="APPENDIX" title="原始联网回答与来源" intro={`按模型列出前 ${limited.length} 条回答；超长回答保留核心文本，完整原文仍可在系统中查看。`} />
-      {limited.map(({ model, item }, index) => (
+      <ChapterTitle kicker="APPENDIX" title="原始联网回答与来源" intro={`按模型完整列出 ${answers.length} 条已保存回答及其来源，不在报告生成时重新提问。`} />
+      {answers.map(({ model, item }, index) => (
         <View key={`${model}-${index}-${item.question}`} style={styles.appendixItem}>
           <Text style={styles.appendixMeta}>{MODEL_LABELS[model]} · Q{index + 1} · {item.webVerified ? "联网可验证" : "联网未验证"}</Text>
           <Text style={styles.appendixQuestion}>{item.question}</Text>
-          <Text style={styles.appendixAnswer}>{item.answer ? item.answer.slice(0, 700) : item.webFailureReason || "该回答未返回有效内容。"}</Text>
+          <Text style={styles.appendixAnswer}>{item.answer || item.webFailureReason || "该回答未返回有效内容。"}</Text>
           {item.mentionedBrands.length > 0 ? (
-            <View style={styles.pillRow}>{item.mentionedBrands.slice(0, 12).map(brand => <Text key={brand} style={styles.pill}>{brand}</Text>)}</View>
+            <View style={styles.pillRow}>{item.mentionedBrands.map(brand => <Text key={brand} style={styles.pill}>{brand}</Text>)}</View>
           ) : null}
         </View>
       ))}
@@ -1788,6 +2436,14 @@ export function CommercialReportDocument({ input }: { input: CommercialReportInp
       {input.penetration ? <PenetrationOpportunityPage input={input} /> : null}
       {input.penetration ? <SourcesPage input={input} answers={answers} sources={sources} /> : null}
       {input.penetration ? <SourceIndexPages input={input} sources={sources} /> : null}
+      {input.research ? <ResearchOverviewPage input={input} /> : null}
+      {input.research ? <ResearchDimensionEvidencePages input={input} /> : null}
+      {input.research ? <ResearchFindingsPages input={input} /> : null}
+      {input.competitorCompare ? <CompetitorComparisonPages input={input} /> : null}
+      {input.diagnosis ? <DiagnosisOverviewPage input={input} /> : null}
+      {input.diagnosis?.audit ? <DiagnosisAccessPage input={input} /> : null}
+      {input.diagnosis?.audit ? <DiagnosisCheckPages input={input} /> : null}
+      {input.diagnosis?.audit ? <DiagnosisPageRecordPages input={input} /> : null}
       {input.difficulty ? <DifficultyPage input={input} /> : null}
       {input.difficulty ? <DifficultyDetailsPage input={input} /> : null}
       {input.difficulty?.result.costEstimate ? <DifficultyCostPage input={input} /> : null}
