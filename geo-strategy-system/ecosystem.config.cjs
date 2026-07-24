@@ -39,6 +39,9 @@ function loadEnvFile(file) {
 }
 
 const fileEnv = loadEnvFile(envFile);
+const taskQueueBackend = fileEnv.TASK_QUEUE_BACKEND
+  || (fileEnv.REDIS_URL ? "bullmq" : "local");
+
 
 /** PM2 进程配置 — 在 geo-strategy-system 目录内执行: pm2 start ecosystem.config.cjs */
 module.exports = {
@@ -56,6 +59,24 @@ module.exports = {
         ...fileEnv,
         NODE_ENV: "production",
         PORT: "3000",
+        TASK_QUEUE_BACKEND: taskQueueBackend,
+      },
+    },
+    {
+      name: "geo-worker",
+      cwd: __dirname,
+      script: "npm",
+      args: "run worker",
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      max_memory_restart: "768M",
+      kill_timeout: 30000,
+      env: {
+        ...fileEnv,
+        NODE_ENV: "production",
+        TASK_QUEUE_BACKEND: taskQueueBackend,
+        TASK_WORKER_CONCURRENCY: fileEnv.TASK_WORKER_CONCURRENCY || "4",
       },
     },
   ],

@@ -3,6 +3,12 @@ import "server-only"
 import { randomUUID } from "crypto"
 import { gzipSync, gunzipSync } from "zlib"
 import { kv } from "@/lib/kv"
+import { syncBackgroundJobTask } from "@/lib/task-center/adapters"
+import {
+  dispatchDurableTaskOrFallback,
+  durableTaskQueueEnabled,
+  type TaskWorkerOutcome,
+} from "@/lib/task-queue"
 import {
   createInternalApiHeaders,
   INTERNAL_API_USER_HEADER,
@@ -54,6 +60,7 @@ const IDEMPOTENCY_CLAIM_SECONDS = 120
 const MAX_PAYLOAD_BYTES = 22 * 1024 * 1024
 const JOB_TIMEOUT_MS = 15 * 60 * 1000
 const JOB_RUN_LEASE_SECONDS = Math.ceil(JOB_TIMEOUT_MS / 1000) + 120
+const PENDING_SET_KEY = "geo:background-jobs:pending"
 const MAX_ATTEMPTS = 2
 const MAX_GENERAL_CONCURRENT_JOBS = Math.max(
   1,
@@ -232,6 +239,16 @@ function toPublicJob(job: StoredBackgroundJob): BackgroundJobRecord {
 async function saveJob(job: StoredBackgroundJob): Promise<void> {
   memoryJobs.set(job.id, job)
   await kv.set(jobKey(job.id), job, { ex: JOB_TTL_SECONDS })
+  await syncBackgroundJobTask(job)
+  try {
+    if (["succeeded", "failed", "cancelled"].includes(job.status)) {
+      await kv.srem(PENDING_SET_KEY, job.id)
+    } else {
+      await kv.sadd(PENDING_SET_KEY, job.id)
+    }
+  } catch (error) {
+    console.warn("[background-jobs] pending queue sync failed", job.id, safeError(error))
+  }
 }
 
 async function getStoredJob(id: string): Promise<StoredBackgroundJob | null> {
@@ -376,11 +393,13 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
   let ownsLease = false
 
   try {
-    ownsLease = Boolean(await kv.set(jobLeaseKey(jobId), leaseToken, {
-      nx: true,
-      ex: JOB_RUN_LEASE_SECONDS,
-    }))
-    if (!ownsLease) return
+    if (!durableTaskQueueEnabled("background")) {
+      ownsLease = Boolean(await kv.set(jobLeaseKey(jobId), leaseToken, {
+        nx: true,
+        ex: JOB_RUN_LEASE_SECONDS,
+      }))
+      if (!ownsLease) return
+    }
 
     let job = await getStoredJob(jobId)
     if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) return
@@ -467,12 +486,23 @@ function drainQueue(): void {
   }
 }
 
-function scheduleJob(jobId: string, kind: BackgroundJobKind): void {
+function scheduleLocalJob(jobId: string, kind: BackgroundJobKind): void {
   if (activeJobs.has(jobId) || scheduledJobs.has(jobId)) return
   scheduledJobs.add(jobId)
   if (kind === "articleGeneration") pendingArticleJobs.push(jobId)
   else pendingGeneralJobs.push(jobId)
   drainQueue()
+}
+
+async function dispatchBackgroundJob(
+  jobId: string,
+  kind: BackgroundJobKind,
+): Promise<void> {
+  await dispatchDurableTaskOrFallback(
+    "background",
+    jobId,
+    () => scheduleLocalJob(jobId, kind),
+  )
 }
 
 function removePendingJob(jobId: string, kind: BackgroundJobKind): void {
@@ -575,7 +605,7 @@ export async function createBackgroundJob(args: {
   try {
     await saveJob(job)
     await kv.set(key, id, { ex: JOB_TTL_SECONDS })
-    scheduleJob(id, args.kind)
+    await dispatchBackgroundJob(id, args.kind)
     return { ok: true, job: toPublicJob(job), reused: false }
   } catch (error) {
     await kv.del(key)
@@ -686,7 +716,7 @@ export async function createBackgroundJobsBatch(args: {
       if (!claimed) throw new Error("批次任务编号发生冲突，请刷新后重试")
       savedKeys.push(key)
     }
-    for (const job of storedJobs) scheduleJob(job.id, job.kind)
+    await Promise.all(storedJobs.map(job => dispatchBackgroundJob(job.id, job.kind)))
     return { ok: true, jobs: storedJobs.map(toPublicJob) }
   } catch (error) {
     for (const job of storedJobs) memoryJobs.delete(job.id)
@@ -745,7 +775,7 @@ export async function createUnchargedBackgroundJob(args: {
   }
   await saveJob(job)
   await kv.set(key, id, { ex: JOB_TTL_SECONDS })
-  scheduleJob(id, args.kind)
+  await dispatchBackgroundJob(id, args.kind)
   return toPublicJob(job)
 }
 
@@ -758,7 +788,7 @@ export async function getBackgroundJob(
   const runningIsStale = job.status === "running"
     && Date.now() - new Date(job.updatedAt).getTime() > JOB_TIMEOUT_MS + 60_000
   if ((job.status === "queued" || runningIsStale) && !activeJobs.has(id)) {
-    scheduleJob(id, job.kind)
+    void dispatchBackgroundJob(id, job.kind)
   }
   return toPublicJob(job)
 }
@@ -771,6 +801,43 @@ export async function getBackgroundJobByRequest(
   const pointer = await kv.get<string>(requestKey(ownerUserId, kind, requestId))
   if (!pointer || pointer.startsWith("pending:")) return null
   return getBackgroundJob(pointer, ownerUserId)
+}
+
+export async function resumePendingBackgroundJobs(): Promise<void> {
+  let ids: string[] = []
+  try {
+    ids = await kv.smembers<string[]>(PENDING_SET_KEY)
+  } catch (error) {
+    console.warn("[background-jobs] pending queue recovery failed", safeError(error))
+    return
+  }
+
+  for (const id of ids) {
+    const job = await getStoredJob(id)
+    if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+      await kv.srem(PENDING_SET_KEY, id)
+      continue
+    }
+    await dispatchBackgroundJob(id, job.kind)
+  }
+}
+
+export async function runBackgroundJobFromWorker(
+  id: string,
+): Promise<TaskWorkerOutcome> {
+  const job = await getStoredJob(id)
+  if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+    if (job) await kv.srem(PENDING_SET_KEY, job.id)
+    return {}
+  }
+  if (activeJobs.has(id)) return { requeue: true, delayMs: 1_000 }
+
+  await runJob(id, job.kind)
+  const latest = await getStoredJob(id)
+  if (!latest || ["succeeded", "failed", "cancelled"].includes(latest.status)) {
+    return {}
+  }
+  return { requeue: true, delayMs: 2_000 }
 }
 
 export async function cancelBackgroundJob(

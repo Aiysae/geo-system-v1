@@ -1038,6 +1038,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         signal: controller.signal,
         payload: {
           clientId: client.id,
+          clientName: client.name,
           strategy: strategyPlan,
           totalCount: effectiveCount,
           categoryConfig: activeBrand.categoryConfig,
@@ -1083,7 +1084,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionJobProgress: undefined,
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.categoryConfig, client.id, questionProviderSettings, updateBrand])
+  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.categoryConfig, client.id, client.name, questionProviderSettings, updateBrand])
 
   const handleStopGenerateQuestions = useCallback(async () => {
     const jobId = activeBrand.questionJobId

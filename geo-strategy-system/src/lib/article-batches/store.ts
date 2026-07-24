@@ -3,6 +3,7 @@ import "server-only"
 import { createHash } from "crypto"
 import { Pool } from "pg"
 import { kv } from "@/lib/kv"
+import { syncArticleBatchTask } from "@/lib/task-center/adapters"
 import type {
   AnalysisSubjectType,
   ArticleBatchItemRecord,
@@ -56,6 +57,7 @@ type ArticleBatchGlobal = typeof globalThis & {
 
 const globalState = globalThis as ArticleBatchGlobal
 const BATCH_TTL_SECONDS = 60 * 60 * 24 * 30
+export const ARTICLE_BATCH_PENDING_SET_KEY = "geo:article-batches:pending"
 const mutationQueues = new Map<string, Promise<void>>()
 
 const ARTICLE_BATCH_SCHEMA_SQL = `
@@ -197,9 +199,23 @@ async function saveKv(batch: StoredArticleBatch): Promise<void> {
   await kv.sadd(indexKey(batch.ownerUserId, batch.clientId), batch.id)
 }
 
+async function syncPendingIndex(batch: StoredArticleBatch): Promise<void> {
+  try {
+    if (["succeeded", "partial", "failed", "cancelled"].includes(batch.status)) {
+      await kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, batch.id)
+    } else {
+      await kv.sadd(ARTICLE_BATCH_PENDING_SET_KEY, batch.id)
+    }
+  } catch (error) {
+    console.warn("[article-batches] pending queue sync failed", batch.id, error)
+  }
+}
+
 export async function saveStoredArticleBatch(batch: StoredArticleBatch): Promise<void> {
   if (backend() === "postgres") await savePostgres(batch)
   else await saveKv(batch)
+  await syncArticleBatchTask(batch)
+  await syncPendingIndex(batch)
 }
 
 async function getPostgres(id: string): Promise<StoredArticleBatch | null> {
@@ -239,7 +255,9 @@ export async function deleteOwnedStoredArticleBatch(
        RETURNING data`,
       [id, ownerUserId],
     )
-    return normalizeStoredBatch(result.rows[0]?.data)
+    const deleted = normalizeStoredBatch(result.rows[0]?.data)
+    if (deleted) await kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, deleted.id)
+    return deleted
   }
 
   const batch = await getOwnedStoredArticleBatch(id, ownerUserId)
@@ -248,6 +266,7 @@ export async function deleteOwnedStoredArticleBatch(
     kv.del(batchKey(batch.id)),
     kv.del(requestKey(batch.ownerUserId, batch.requestId)),
     kv.srem(indexKey(batch.ownerUserId, batch.clientId), batch.id),
+    kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, batch.id),
   ])
   mutationQueues.delete(batch.id)
   return batch
@@ -327,6 +346,8 @@ export async function mutateStoredArticleBatch<T>(
         [id, JSON.stringify(batch), batch.updatedAt],
       )
       await db.query("COMMIT")
+      await syncArticleBatchTask(batch)
+      await syncPendingIndex(batch)
       return { batch, result }
     } catch (error) {
       await db.query("ROLLBACK")

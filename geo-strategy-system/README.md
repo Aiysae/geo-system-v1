@@ -36,12 +36,14 @@ npm run penetration-history:backfill
 MIGRATION_CONFIRM=PENETRATION_HISTORY_BACKFILL npm run penetration-history:backfill -- --apply
 ```
 
-Penetration detection uses a user-fair persistent queue. Pending job IDs and job
-leases are stored in the configured KV backend, and `src/instrumentation.ts`
-recovers unfinished jobs when the Node.js server starts. Provider and judge
-concurrency can be tuned with the `PENETRATION_*_CONCURRENCY` variables in
-`.env.production.example`; keep one PM2 web process unless all workers share
-the same distributed concurrency controls.
+All long-running operations use a shared BullMQ queue in production. The Next.js
+web process creates jobs and serves status APIs; the independent `geo-worker`
+PM2 process executes penetration, difficulty, research, diagnosis, keyword,
+question, article-batch, and PDF-report work. Pending indexes and dispatch claims
+are stored in Redis so switching pages or accounts does not cancel a job, and
+both processes recover unfinished work after restart. Use
+`pm2 startOrReload ecosystem.config.cjs --update-env` to run both services.
+Local development defaults to the in-process fallback.
 
 Production PostgreSQL backups are defined in `deploy/postgres/` and retain 14 days of compressed custom-format dumps.
 
