@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS geo_payment_orders (
   credited_by TEXT
 );
 
+ALTER TABLE geo_payment_orders
+  ADD COLUMN IF NOT EXISTS product_type TEXT NOT NULL DEFAULT credits;
+
+ALTER TABLE geo_payment_orders
+  ADD COLUMN IF NOT EXISTS managed_service_order_id TEXT;
+
+CREATE INDEX IF NOT EXISTS geo_payment_orders_managed_service_idx
+  ON geo_payment_orders (managed_service_order_id)
+  WHERE managed_service_order_id IS NOT NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS geo_payment_orders_provider_trade_idx
   ON geo_payment_orders (provider, provider_trade_id)
   WHERE provider_trade_id IS NOT NULL;

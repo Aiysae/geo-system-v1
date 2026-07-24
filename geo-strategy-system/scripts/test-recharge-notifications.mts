@@ -30,7 +30,7 @@ try {
     userId: "notification-user",
     username: "充值提醒测试用户",
     email: "notification-user@example.com",
-    packageKey: "light_66",
+    packageKey: "standard_128",
     paymentMethod: "manual_transfer",
   })
   const initial = await getAdminRechargeNotificationSnapshot("admin-a")

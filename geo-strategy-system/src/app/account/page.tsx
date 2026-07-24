@@ -8,6 +8,7 @@ import { getClientAccountLink, getWorkspaceAccountAccess } from "@/lib/client-ac
 import { listCreditLedgerForUser } from "@/lib/credit-ledger"
 import { getCreditBalanceSnapshot } from "@/lib/credits"
 import { getMembershipWithPaymentRepair } from "@/lib/membership"
+import { listManagedServiceOrdersForUser } from "@/lib/managed-services"
 import { listPaymentOrdersForUser } from "@/lib/payment-orders"
 import { getFeaturePrice } from "@/lib/pricing"
 import { listRequestsForUser } from "@/lib/recharge"
@@ -34,13 +35,14 @@ export default async function AccountPage({
     redirect(`/forgot-password?email=${encodeURIComponent(user.email)}&managed=1`)
   }
 
-  const [membership, credits, access, rechargeRequests, paymentOrders, ledger] = await Promise.all([
+  const [membership, credits, access, rechargeRequests, paymentOrders, ledger, managedServices] = await Promise.all([
     getMembershipWithPaymentRepair(user.id),
     getCreditBalanceSnapshot(user.id),
     getWorkspaceAccountAccess(user.id),
     listRequestsForUser(user.id, 80),
     listPaymentOrdersForUser(user.id, 80),
     listCreditLedgerForUser(user.id, 120),
+    listManagedServiceOrdersForUser(user.id, 100),
   ])
 
   const link = access.mode === "client" ? await getClientAccountLink(user.id) : null
@@ -69,6 +71,15 @@ export default async function AccountPage({
       isAdmin={isAdminUser(user)}
       unlimitedCredits={hasUnlimitedCreditAccess(user)}
       whiteLabelCredits={getFeaturePrice("reportCustomBranding").credits}
+      managedServices={managedServices.map(order => ({
+        id: order.id,
+        planName: order.planName,
+        projectName: order.intake?.projectName,
+        status: order.status,
+        priceCents: order.priceCents,
+        durationMonths: order.durationMonths,
+        createdAt: order.createdAt,
+      }))}
     />
   )
 }

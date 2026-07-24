@@ -29,6 +29,7 @@ import {
 } from "@/lib/pricing"
 import { RECHARGE_PAYMENT_INFO } from "@/lib/recharge-payment"
 import { toUserFacingError } from "@/lib/user-facing-errors"
+import { ManagedServiceCard } from "@/components/managed-services/managed-service-card"
 
 type PaymentOptions = {
   alipay: boolean
@@ -153,7 +154,7 @@ function RechargeDialog({
   const { refresh, membership } = useCredits()
   const requestedPackage = RECHARGE_PACKAGES.find(pkg => pkg.key === initialPackageKey)
   const resolvedInitialPackageKey: ActiveRechargePackageKey = membership.active && requestedPackage?.firstPurchaseOnly
-    ? "growth_298"
+    ? "standard_128"
     : initialPackageKey
   const [step, setStep] = useState<RechargeStep>("package")
   const [requestedPackageKey, setRequestedPackageKey] = useState<ActiveRechargePackageKey>(resolvedInitialPackageKey)
@@ -229,7 +230,7 @@ function RechargeDialog({
   const requestedSelection = RECHARGE_PACKAGES.find(pkg => pkg.key === requestedPackageKey)
   const packageKey: ActiveRechargePackageKey = requestedSelection?.firstPurchaseOnly
     && !paymentOptions.firstPurchase.available
-    ? "growth_298"
+    ? "standard_128"
     : requestedPackageKey
   const selectedPackage = RECHARGE_PACKAGES.find(pkg => pkg.key === packageKey) ?? RECHARGE_PACKAGES[0]
   const wechatAvailable = paymentOptions.wechat.enabled
@@ -448,7 +449,7 @@ function RechargeDialog({
               </div>
               <div className="ml-auto hidden shrink-0 items-baseline gap-2 rounded-lg bg-white/12 px-3 py-2 ring-1 ring-white/20 sm:flex">
                 <span className="text-[10px] font-semibold text-cyan-100">首购专享</span>
-                <span className="font-mono text-xl font-bold text-white">4.5 折</span>
+                <span className="font-mono text-xl font-bold text-white">¥9.9</span>
               </div>
             </div>
           </div>
@@ -523,7 +524,7 @@ function RechargeDialog({
                   <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-lg bg-[linear-gradient(110deg,#FFF7E6_0%,#F0F7FF_48%,#E8FBFF_100%)] ring-1 ring-[#B7D7FF]">
                     <div className="flex min-h-16 flex-col items-center justify-center gap-1 border-r border-white/80 px-2 py-2 text-center sm:flex-row sm:text-left">
                       <BadgePercent className="h-4 w-4 shrink-0 text-amber-600" />
-                      <span className="text-[10px] font-semibold leading-4 text-amber-900 sm:text-[11px]">首购省 55%</span>
+                      <span className="text-[10px] font-semibold leading-4 text-amber-900 sm:text-[11px]">首购 ¥9.9</span>
                     </div>
                     <div className="flex min-h-16 flex-col items-center justify-center gap-1 border-r border-white/80 px-2 py-2 text-center sm:flex-row sm:text-left">
                       <ShieldCheck className="h-4 w-4 shrink-0 text-[#1677FF]" />
@@ -592,6 +593,10 @@ function RechargeDialog({
                         </button>
                       )
                     })}
+                  </div>
+
+                  <div className="mt-4">
+                    <ManagedServiceCard compact />
                   </div>
 
                   <p className="mt-4 text-[11px] leading-5 text-slate-500">

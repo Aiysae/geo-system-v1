@@ -1,4 +1,4 @@
-export const PRICING_VERSION = "commercial-v2-2026-07-16"
+export const PRICING_VERSION = "commercial-v3-2026-07-24"
 
 export const FEATURE_PRICES = {
   diagnose: {
@@ -177,22 +177,11 @@ export const RECHARGE_PACKAGES = [
     name: "首购体验包",
     priceCents: 990,
     credits: 100,
-    badge: "首购约 4.5 折",
+    badge: "首购专享",
     firstPurchaseOnly: true,
     recommended: false,
     kind: "intro",
     description: "第一次体验 GEO 检测、内容生成和白标报告。",
-  },
-  {
-    key: "light_66",
-    name: "轻量续费包",
-    priceCents: 6600,
-    credits: 300,
-    badge: null,
-    firstPurchaseOnly: false,
-    recommended: false,
-    kind: "regular",
-    description: "适合偶尔补充积分和低频任务。",
   },
   {
     key: "standard_128",
@@ -206,41 +195,32 @@ export const RECHARGE_PACKAGES = [
     description: "适合单品牌日常检测与内容生产。",
   },
   {
-    key: "growth_298",
-    name: "增长推荐包",
-    priceCents: 29800,
-    credits: 1800,
-    badge: "重点推荐",
-    firstPurchaseOnly: false,
-    recommended: true,
-    kind: "recommended",
-    description: "适合持续运营和阶段性 GEO 项目。",
-  },
-  {
     key: "team_598",
-    name: "团队交付包",
+    name: "单客户团队协作包",
     priceCents: 59800,
     credits: 4000,
-    badge: "团队高频",
+    badge: "限 1 个客户",
     firstPurchaseOnly: false,
     recommended: false,
     kind: "regular",
-    description: "适合多客户交付与团队高频使用。",
+    description: "同一团队最多对接 1 个客户，适合单一品牌、公司或个人 IP 的高频交付。",
   },
   {
     key: "enterprise_1298",
-    name: "企业储备包",
+    name: "多客户企业运营包",
     priceCents: 129800,
     credits: 10000,
     badge: "对公优选",
     firstPurchaseOnly: false,
     recommended: false,
     kind: "enterprise",
-    description: "适合企业市场部和代运营团队长期储备。",
+    description: "适合企业市场部或代运营团队同时服务多个客户，并进行长期积分储备。",
   },
 ] as const satisfies readonly RechargePackageDefinition[]
 
 export const LEGACY_RECHARGE_PACKAGE_KEYS = [
+  "light_66",
+  "growth_298",
   "light_49",
   "standard_99",
   "growth_299",
@@ -262,7 +242,7 @@ export function rechargeUnitPrice(packageItem: RechargePackage): number {
 }
 
 export function rechargeSavingsPercent(packageItem: RechargePackage): number {
-  const baseline = RECHARGE_PACKAGES.find(item => item.key === "light_66")
+  const baseline = RECHARGE_PACKAGES.find(item => item.key === "standard_128")
   if (!baseline || packageItem.key === baseline.key) return 0
   const percentage = (1 - rechargeUnitPrice(packageItem) / rechargeUnitPrice(baseline)) * 100
   return Math.max(0, Math.round(percentage))

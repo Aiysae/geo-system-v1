@@ -47,18 +47,30 @@ export function createAlipayCheckoutUrl(
   const config = alipayPaymentConfig()
   const method = channel === "wap" ? "alipay.trade.wap.pay" : "alipay.trade.page.pay"
   const productCode = channel === "wap" ? "QUICK_WAP_WAY" : "FAST_INSTANT_TRADE_PAY"
+  const returnUrl = order.productType === "managed_service"
+    ? `${publicManagedServiceReturnUrl()}?service_order_id=${encodeURIComponent(order.managedServiceOrderId || "")}&payment_return=alipay&order_id=${encodeURIComponent(order.id)}`
+    : `${config.returnUrl}&order_id=${encodeURIComponent(order.id)}`
   return sdk().pageExecute(method, "GET", {
     notifyUrl: config.notifyUrl,
-    returnUrl: `${config.returnUrl}&order_id=${encodeURIComponent(order.id)}`,
+    returnUrl,
     bizContent: {
       outTradeNo: order.outTradeNo,
       productCode,
       subject: `势途 GEO ${order.packageName}`.slice(0, 128),
-      body: `${order.credits} 积分充值`.slice(0, 128),
+      body: order.productType === "managed_service"
+        ? "专业 GEO 全链路运营服务"
+        : `${order.credits} 积分充值`.slice(0, 128),
       totalAmount: yuanFromCents(order.priceCents),
       timeoutExpress: "15m",
     },
   })
+}
+
+function publicManagedServiceReturnUrl(): string {
+  const base = String(process.env.PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://shitugeo.top")
+    .trim()
+    .replace(/\/+$/, "")
+  return `${base}/account/services`
 }
 
 export function verifyAlipayNotification(params: Record<string, string>): boolean {
