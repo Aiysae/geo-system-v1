@@ -601,6 +601,8 @@ interface Props {
 export default function KeywordStrategyModule({ client, onChangeClient }: Props) {
   const subjectType = getClientSubjectType(client)
   const [activeBrand, setActiveBrand] = useState<BrandData>(() => createBrandFromClient(client))
+  const [wordExporting, setWordExporting] = useState<"strategy" | "questions" | null>(null)
+  const [wordExportError, setWordExportError] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [questionPollRetryKey, setQuestionPollRetryKey] = useState(0)
   const mountedRef = useRef(true)
@@ -1290,12 +1292,28 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_方案报告.md`)
   }, [activeBrand.strategyPlan, activeBrand.questions])
 
-  const handleExportWord = useCallback(() => {
-    if (!activeBrand.strategyPlan) return
-    const html = generateWordHtml(activeBrand.strategyPlan, activeBrand.questions)
-    const blob = new Blob([html], { type: "application/msword;charset=utf-8" })
-    downloadBlob(blob, `${activeBrand.strategyPlan.project_name || "GEO策略"}_方案报告.doc`)
-  }, [activeBrand.strategyPlan, activeBrand.questions])
+  const handleExportWord = useCallback(async () => {
+    if (!activeBrand.strategyPlan || wordExporting) return
+    setWordExporting("strategy")
+    setWordExportError("")
+    try {
+      const [{ buildKeywordStrategyWordBlob }, logoData] = await Promise.all([
+        import("@/lib/geo-strategy/word-export"),
+        loadShituWordLogo(),
+      ])
+      const blob = await buildKeywordStrategyWordBlob({
+        plan: activeBrand.strategyPlan,
+        questions: activeBrand.questions,
+        variant: "strategy",
+        logoData,
+      })
+      downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_势途GEO策略报告.docx`)
+    } catch (error) {
+      setWordExportError(error instanceof Error ? error.message : "Word 报告生成失败，请稍后重试。")
+    } finally {
+      setWordExporting(null)
+    }
+  }, [activeBrand.strategyPlan, activeBrand.questions, wordExporting])
 
   const handleExportQuestionsCsv = useCallback(() => {
     if (!activeBrand.strategyPlan || activeBrand.questions.length === 0) return
@@ -1304,12 +1322,28 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
     downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_疑问句池.csv`)
   }, [activeBrand.strategyPlan, activeBrand.questions])
 
-  const handleExportQuestionsWord = useCallback(() => {
-    if (!activeBrand.strategyPlan || activeBrand.questions.length === 0) return
-    const html = generateQuestionWordHtml(activeBrand.strategyPlan, activeBrand.questions)
-    const blob = new Blob([html], { type: "application/msword;charset=utf-8" })
-    downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_疑问句池.doc`)
-  }, [activeBrand.strategyPlan, activeBrand.questions])
+  const handleExportQuestionsWord = useCallback(async () => {
+    if (!activeBrand.strategyPlan || activeBrand.questions.length === 0 || wordExporting) return
+    setWordExporting("questions")
+    setWordExportError("")
+    try {
+      const [{ buildKeywordStrategyWordBlob }, logoData] = await Promise.all([
+        import("@/lib/geo-strategy/word-export"),
+        loadShituWordLogo(),
+      ])
+      const blob = await buildKeywordStrategyWordBlob({
+        plan: activeBrand.strategyPlan,
+        questions: activeBrand.questions,
+        variant: "questions",
+        logoData,
+      })
+      downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_势途GEO疑问句与优势报告.docx`)
+    } catch (error) {
+      setWordExportError(error instanceof Error ? error.message : "疑问句 Word 报告生成失败，请稍后重试。")
+    } finally {
+      setWordExporting(null)
+    }
+  }, [activeBrand.strategyPlan, activeBrand.questions, wordExporting])
 
   const handleReExtract = useCallback(async () => {
     await handleExtract()
@@ -1465,6 +1499,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               onExportWord={handleExportWord}
               onExportQuestionsCsv={handleExportQuestionsCsv}
               onExportQuestionsWord={handleExportQuestionsWord}
+              wordExporting={wordExporting}
+              wordExportError={wordExportError}
               onBack={() => updateBrand({ step: "extraction" })}
               hasQuestions={ab.questions.length > 0}
             />
@@ -2042,6 +2078,7 @@ function StrategyStep({
   categoryConfig, questionProviderSettings, onCategoryConfigChange,
   onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onGenerateQuestions, onStopQuestions,
   onExportJson, onExportMarkdown, onExportWord, onExportQuestionsCsv, onExportQuestionsWord, onBack,
+  wordExporting, wordExportError,
   hasQuestions,
 }: {
   subjectType: "brand" | "person"
@@ -2076,6 +2113,8 @@ function StrategyStep({
   onExportWord: () => void
   onExportQuestionsCsv: () => void
   onExportQuestionsWord: () => void
+  wordExporting: "strategy" | "questions" | null
+  wordExportError: string
   onBack: () => void
   hasQuestions: boolean
 }) {
@@ -2224,11 +2263,23 @@ function StrategyStep({
           <button onClick={onExportMarkdown} className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition">
             <Download className="h-3.5 w-3.5" /> Markdown
           </button>
-          <button onClick={onExportWord} className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition">
-            <Download className="h-3.5 w-3.5" /> Word
+          <button
+            onClick={onExportWord}
+            disabled={Boolean(wordExporting)}
+            className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition disabled:cursor-wait disabled:opacity-60"
+          >
+            {wordExporting === "strategy" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {wordExporting === "strategy" ? "生成 Word..." : "Word"}
           </button>
         </div>
       </div>
+
+      {wordExportError ? (
+        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs leading-5 text-red-700">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{wordExportError}</span>
+        </div>
+      ) : null}
 
       {hasQuestions ? (
         <button
@@ -2549,11 +2600,12 @@ function StrategyStep({
                 </button>
                 <button
                   onClick={onExportQuestionsWord}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
+                  disabled={Boolean(wordExporting)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50 disabled:cursor-wait disabled:opacity-60"
                   title="导出疑问句和匹配优势为 Word 文档"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  导出问句+优势文档
+                  {wordExporting === "questions" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                  {wordExporting === "questions" ? "生成文档..." : "导出问句+优势文档"}
                 </button>
               </div>
             </div>
@@ -3299,6 +3351,12 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+async function loadShituWordLogo(): Promise<Uint8Array> {
+  const response = await fetch("/brand/shitu-lockup-transparent-v2.png", { cache: "force-cache" })
+  if (!response.ok) throw new Error("势途 Logo 读取失败，请刷新页面后重试。")
+  return new Uint8Array(await response.arrayBuffer())
+}
+
 function sanitizeFileName(name: string): string {
   return name
     .replace(/[\\/:*?"<>|]+/g, "-")
@@ -3317,14 +3375,6 @@ function escapeCsvCell(value: unknown): string {
   return text
 }
 
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
-
 function generateQuestionCsv(questions: QuestionItem[], plan?: GeoStrategyPlan): string {
   const advantages = extractQuestionAdvantages(plan)
   const headers = ["序号", "疑问句", "匹配优势", "生成类型", "关键词"]
@@ -3336,39 +3386,6 @@ function generateQuestionCsv(questions: QuestionItem[], plan?: GeoStrategyPlan):
     question.keyword,
   ])
   return [headers, ...rows].map(row => row.map(escapeCsvCell).join(",")).join("\n")
-}
-
-function generateQuestionWordHtml(
-  plan: GeoStrategyPlan,
-  questions: QuestionItem[],
-): string {
-  const projectName = plan.project_name || plan.profile?.brand_or_product || "GEO 疑问句池"
-  const categoryCounts = questions.reduce<Record<string, number>>((acc, question) => {
-    const category = question.category || "未分类"
-    acc[category] = (acc[category] || 0) + 1
-    return acc
-  }, {})
-
-  const advantages = extractQuestionAdvantages(plan)
-  const rows = questions.map(question => (
-    `<tr><td>${escapeHtml(question.id)}</td><td>${escapeHtml(question.question)}</td><td>${escapeHtml(resolveQuestionAdvantage(question, advantages))}</td><td>${escapeHtml(question.category)}</td><td>${escapeHtml(question.keyword)}</td></tr>`
-  ))
-
-  return [
-    `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>`,
-    `<head><meta charset="utf-8"><title>${escapeHtml(projectName)} 疑问句池</title>`,
-    `<style>body{font-family:'微软雅黑',Arial,sans-serif;font-size:11pt;color:#1e293b;line-height:1.5;margin:2cm}h1{font-size:20pt;color:#4c1d95;border-bottom:2px solid #8b5cf6;padding-bottom:8px}p{margin:6px 0 12px;color:#64748b}.summary{margin:12px 0 16px;padding:10px 12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;color:#4c1d95}table{border-collapse:collapse;width:100%;font-size:9.5pt}td,th{border:1px solid #cbd5e1;padding:6px 8px;text-align:left;vertical-align:top}th{background:#ede9fe;color:#4c1d95;font-weight:600}tr:nth-child(even){background:#f8fafc}.q{width:48%}</style></head><body>`,
-    `<h1>${escapeHtml(projectName)} 疑问句池</h1>`,
-    `<div class="summary">共 ${questions.length} 条疑问句。</div>`,
-    Object.keys(categoryCounts).length > 0
-      ? `<p>生成类型：${Object.entries(categoryCounts).map(([category, count]) => `${escapeHtml(category)} ${count} 条`).join("；")}</p>`
-      : "",
-    `<table><tr><th>#</th><th class="q">疑问句</th><th>匹配优势</th><th>生成类型</th><th>关键词</th></tr>`,
-    ...rows,
-    `</table>`,
-    `<p style="color:#94a3b8;font-size:9pt;margin-top:24px">Generated by 势途 GEO · ${new Date().toLocaleDateString("zh-CN")}</p>`,
-    `</body></html>`,
-  ].join("\n")
 }
 
 // ==================== Export: Markdown ====================
@@ -3473,7 +3490,8 @@ function buildSection(title: string, content: string): string[] {
 
 // ==================== Export: Word HTML ====================
 
-function generateWordHtml(
+/** @deprecated 当前界面已改用真正的 DOCX 生成器，仅保留用于旧数据兼容。 */
+export function generateLegacyWordHtml(
   plan: GeoStrategyPlan,
   questions: QuestionItem[],
 ): string {

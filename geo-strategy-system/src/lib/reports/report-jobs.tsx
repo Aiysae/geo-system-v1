@@ -69,8 +69,10 @@ function toPublicJob(job: StoredCommercialReportJob): CommercialReportJobRecord 
 
 function reportKindLabel(kind: CommercialReportInput["kind"]): string {
   if (kind === "penetration") return "渗透率情报"
+  if (kind === "research") return "独立调研"
+  if (kind === "diagnosis") return "AI诊断"
   if (kind === "difficulty") return "难度测评"
-  return "综合洞察"
+  return "四模块综合报告"
 }
 
 function safeDownloadName(input: CommercialReportInput): string {

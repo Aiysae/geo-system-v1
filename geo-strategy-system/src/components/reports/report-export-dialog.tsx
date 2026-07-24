@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   BarChart3,
+  Brain,
   Building2,
   CheckCircle2,
   Download,
@@ -15,6 +16,7 @@ import {
   Link2,
   LockKeyhole,
   Loader2,
+  Radar,
   RotateCcw,
   ShieldCheck,
   Trash2,
@@ -51,8 +53,10 @@ const KIND_OPTIONS: Array<{
   description: string
   icon: typeof Layers3
 }> = [
-  { kind: "combined", title: "综合商业报告", description: "渗透率、信源、难度与行动建议", icon: Layers3 },
+  { kind: "combined", title: "四模块综合报告", description: "整合当前已有的前四个模块结果", icon: Layers3 },
   { kind: "penetration", title: "渗透率情报", description: "品牌声量、模型表现与联网信源", icon: BarChart3 },
+  { kind: "research", title: "独立调研", description: "认知调研、证据缺口与竞品对比", icon: Brain },
+  { kind: "diagnosis", title: "AI 诊断", description: "网站 GEO 评分、爬虫规则与整改证据", icon: Radar },
   { kind: "difficulty", title: "难度测评", description: "七维评分、关键洞察与执行路径", icon: Gauge },
 ]
 
@@ -143,30 +147,33 @@ async function optimizeLogo(file: File): Promise<string> {
 }
 
 function availableKinds(client: Client): CommercialReportKind[] {
-  const hasPenetration = Boolean(client.penetration)
-  const hasDifficulty = Boolean(client.difficultyAssessments?.length)
-  if (hasPenetration && hasDifficulty) return ["combined", "penetration", "difficulty"]
-  if (hasPenetration) return ["penetration"]
-  if (hasDifficulty) return ["difficulty"]
-  return []
+  const modules: CommercialReportKind[] = []
+  if (client.penetration) modules.push("penetration")
+  if (client.research || client.competitorCompare) modules.push("research")
+  if (client.diagnosis) modules.push("diagnosis")
+  if (client.difficultyAssessments?.length) modules.push("difficulty")
+  return modules.length > 1 ? ["combined", ...modules] : modules
 }
 
 function compactItem(item: PenetrationItem, detail: CommercialReportDetail): PenetrationItem {
+  const full = detail === "full"
+  const sources = full ? (item.searchSources || []) : (item.searchSources || []).slice(0, 200)
+  const queries = full ? (item.searchQueries || []) : (item.searchQueries || []).slice(0, 100)
   return {
     ...item,
-    question: String(item.question || "").slice(0, 2_000),
-    answer: detail === "full" ? String(item.answer || "").slice(0, 1_000) : "",
-    mentionedBrands: (item.mentionedBrands || []).slice(0, 100),
-    searchSources: item.searchSources?.slice(0, 200).map(source => ({
-      title: String(source.title || "").slice(0, 500),
-      snippet: String(source.snippet || "").slice(0, 1_000),
-      url: String(source.url || "").slice(0, 4_000),
-      domain: String(source.domain || "").slice(0, 500),
-      query: String(source.query || "").slice(0, 1_000),
+    question: full ? String(item.question || "") : String(item.question || "").slice(0, 2_000),
+    answer: full ? String(item.answer || "") : "",
+    mentionedBrands: full ? [...(item.mentionedBrands || [])] : (item.mentionedBrands || []).slice(0, 100),
+    searchSources: sources.map(source => ({
+      title: full ? String(source.title || "") : String(source.title || "").slice(0, 500),
+      snippet: full ? String(source.snippet || "") : String(source.snippet || "").slice(0, 1_000),
+      url: full ? String(source.url || "") : String(source.url || "").slice(0, 4_000),
+      domain: full ? String(source.domain || "") : String(source.domain || "").slice(0, 500),
+      query: full ? String(source.query || "") : String(source.query || "").slice(0, 1_000),
     })),
-    searchQueries: item.searchQueries?.slice(0, 100).map(query => query.slice(0, 1_000)),
-    webVerificationNote: item.webVerificationNote?.slice(0, 2_000),
-    webFailureReason: item.webFailureReason?.slice(0, 2_000),
+    searchQueries: queries.map(query => full ? query : query.slice(0, 1_000)),
+    webVerificationNote: full ? item.webVerificationNote : item.webVerificationNote?.slice(0, 2_000),
+    webFailureReason: full ? item.webFailureReason : item.webFailureReason?.slice(0, 2_000),
   }
 }
 
@@ -246,6 +253,8 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
     || client.difficultyAssessments?.[0]
   const canGenerate = kinds.length > 0
     && (kind !== "penetration" || Boolean(client.penetration))
+    && (kind !== "research" || Boolean(client.research || client.competitorCompare))
+    && (kind !== "diagnosis" || Boolean(client.diagnosis))
     && (kind !== "difficulty" || Boolean(difficulty))
     && !brandingLoading
     && !brandingSaving
@@ -306,6 +315,8 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
 
   function buildInput(): CommercialReportInput {
     const includePenetration = kind === "combined" || kind === "penetration"
+    const includeResearch = kind === "combined" || kind === "research"
+    const includeDiagnosis = kind === "combined" || kind === "diagnosis"
     const includeDifficulty = kind === "combined" || kind === "difficulty"
     return {
       kind,
@@ -322,6 +333,9 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
         website: client.website,
       },
       penetration: includePenetration ? compactPenetration(client.penetration, detail) : undefined,
+      research: includeResearch ? client.research : undefined,
+      competitorCompare: includeResearch ? client.competitorCompare : undefined,
+      diagnosis: includeDiagnosis ? client.diagnosis : undefined,
       difficulty: includeDifficulty ? difficulty : undefined,
     }
   }
@@ -465,13 +479,13 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
               <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center">
                 <BarChart3 className="mx-auto h-8 w-8 text-slate-300" />
                 <p className="mt-3 text-sm font-semibold text-slate-700">暂无可导出的报告数据</p>
-                <p className="mt-1 text-xs text-slate-500">请先完成一次渗透率检测或难度测评。</p>
+                <p className="mt-1 text-xs text-slate-500">请先完成渗透率情报、独立调研、AI 诊断或难度测评中的任意一项。</p>
               </div>
             ) : (
               <>
                 <section>
                   <div className="mb-2 text-xs font-semibold text-slate-700">报告范围</div>
-                  <div className={`grid gap-2 ${kinds.length === 3 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {KIND_OPTIONS.filter(option => kinds.includes(option.kind)).map(option => {
                       const Icon = option.icon
                       const selected = kind === option.kind
@@ -539,7 +553,7 @@ export default function ReportExportDialog({ client, preset, onClose }: Props) {
                     </button>
                   </div>
                   <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                    {detail === "full" ? "增加最多 120 条原始回答与来源，适合交付、复盘和信源核验。" : "突出管理层摘要、核心图表和行动路线，文件更轻、生成更快。"}
+                    {detail === "full" ? "完整保留全部已保存回答与可点击来源，适合交付、复盘和信源核验。" : "突出管理层摘要、核心图表和行动路线，文件更轻、生成更快。"}
                   </p>
                 </section>
 
