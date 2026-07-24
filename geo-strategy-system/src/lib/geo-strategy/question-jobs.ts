@@ -2,9 +2,14 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
+import {
+  dispatchDurableTaskOrFallback,
+  type TaskWorkerOutcome,
+} from "@/lib/task-queue"
 import { createInternalApiHeaders } from "@/lib/internal-api"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import { syncQuestionJobTask } from "@/lib/task-center/adapters"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "./question-advantages"
 import type {
   GeoStrategyPlan,
@@ -32,6 +37,8 @@ interface QuestionBatchPlan {
 }
 
 interface QuestionJobRequest {
+  clientId?: string
+  clientName?: string
   strategy: GeoStrategyPlan
   totalCount: number
   categoryConfig: QuestionCategoryConfig
@@ -64,6 +71,7 @@ const QUESTION_JOB_MAX_BATCH_ATTEMPTS = 3
 const QUESTION_JOB_BATCH_TIMEOUT_MS = 12 * 60 * 1000
 const QUESTION_JOB_TTL_SECONDS = 60 * 60 * 24
 const QUESTION_JOB_CANCELLED_MESSAGE = "用户已停止生成"
+const QUESTION_PENDING_SET_KEY = "geo:question-jobs:pending"
 
 const memoryJobs = new Map<string, StoredQuestionJobRecord>()
 const activeJobs = new Set<string>()
@@ -115,9 +123,15 @@ async function saveStoredQuestionJob(job: StoredQuestionJobRecord): Promise<void
   memoryJobs.set(job.id, job)
   try {
     await kv.set(jobKey(job.id), job, { ex: QUESTION_JOB_TTL_SECONDS })
+    if (["succeeded", "failed", "cancelled"].includes(job.status)) {
+      await kv.srem(QUESTION_PENDING_SET_KEY, job.id)
+    } else {
+      await kv.sadd(QUESTION_PENDING_SET_KEY, job.id)
+    }
   } catch (error) {
     console.warn("[question-jobs] KV save failed, using memory fallback:", error)
   }
+  await syncQuestionJobTask(job)
 }
 
 async function getStoredQuestionJob(id: string): Promise<StoredQuestionJobRecord | null> {
@@ -920,6 +934,18 @@ async function runQuestionJob(jobId: string): Promise<void> {
   }
 }
 
+function scheduleLocalQuestionJob(id: string): void {
+  void runQuestionJob(id)
+}
+
+async function dispatchQuestionJob(id: string): Promise<void> {
+  await dispatchDurableTaskOrFallback(
+    "question",
+    id,
+    () => scheduleLocalQuestionJob(id),
+  )
+}
+
 export async function createQuestionJob(
   input: QuestionJobRequest,
   publicOrigin?: string,
@@ -958,7 +984,7 @@ export async function createQuestionJob(
     completedBatches: 0,
     questions: [],
     warnings: batchPlans.length > 1
-      ? [`已创建后台长任务，共 ${batchPlans.length} 批。生成过程中可以保持页面打开查看进度。`]
+      ? [`已创建后台长任务，共 ${batchPlans.length} 批。可以继续使用其他功能，完成后会统一提醒。`]
       : [],
     createdAt: now,
     updatedAt: now,
@@ -979,7 +1005,7 @@ export async function createQuestionJob(
   }
 
   await saveStoredQuestionJob(stored)
-  void runQuestionJob(stored.id)
+  await dispatchQuestionJob(stored.id)
   return toPublicJob(stored)
 }
 
@@ -989,10 +1015,47 @@ export async function getQuestionJob(id: string, ownerUserId: string): Promise<Q
   if (job.ownerUserId !== ownerUserId) return null
 
   if ((job.status === "queued" || job.status === "running") && !activeJobs.has(job.id)) {
-    void runQuestionJob(job.id)
+    void dispatchQuestionJob(job.id)
   }
 
   return toPublicJob(job)
+}
+
+export async function resumePendingQuestionJobs(): Promise<void> {
+  let ids: string[] = []
+  try {
+    ids = await kv.smembers<string[]>(QUESTION_PENDING_SET_KEY)
+  } catch (error) {
+    console.warn("[question-jobs] pending queue recovery failed", error)
+    return
+  }
+
+  for (const id of ids) {
+    const job = await getStoredQuestionJob(id)
+    if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+      await kv.srem(QUESTION_PENDING_SET_KEY, id)
+      continue
+    }
+    await dispatchQuestionJob(id)
+  }
+}
+
+export async function runQuestionJobFromWorker(
+  id: string,
+): Promise<TaskWorkerOutcome> {
+  const job = await getStoredQuestionJob(id)
+  if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+    if (job) await kv.srem(QUESTION_PENDING_SET_KEY, job.id)
+    return {}
+  }
+  if (activeJobs.has(id)) return { requeue: true, delayMs: 1_000 }
+
+  await runQuestionJob(id)
+  const latest = await getStoredQuestionJob(id)
+  if (!latest || ["succeeded", "failed", "cancelled"].includes(latest.status)) {
+    return {}
+  }
+  return { requeue: true, delayMs: 2_000 }
 }
 
 export async function cancelQuestionJob(id: string, ownerUserId: string): Promise<QuestionJobRecord | null> {

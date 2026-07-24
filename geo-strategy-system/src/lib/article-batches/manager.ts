@@ -1,6 +1,11 @@
 import "server-only"
 
 import { randomUUID } from "crypto"
+import { kv } from "@/lib/kv"
+import {
+  dispatchDurableTaskOrFallback,
+  type TaskWorkerOutcome,
+} from "@/lib/task-queue"
 import {
   cancelBackgroundJob,
   createBackgroundJob,
@@ -22,10 +27,12 @@ import {
   planArticleBatch,
 } from "@/lib/article-batches/planning"
 import {
+  ARTICLE_BATCH_PENDING_SET_KEY,
   createStoredArticleBatchInput,
   deleteOwnedStoredArticleBatch,
   findStoredArticleBatchByRequest,
   getOwnedStoredArticleBatch,
+  getStoredArticleBatch,
   listOwnedStoredArticleBatches,
   mutateStoredArticleBatch,
   saveStoredArticleBatch,
@@ -295,7 +302,7 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
   return mutation?.batch || null
 }
 
-export function scheduleArticleBatchMonitor(batchId: string): void {
+function scheduleLocalArticleBatchMonitor(batchId: string): void {
   if (activeMonitors.has(batchId)) return
   activeMonitors.add(batchId)
   void (async () => {
@@ -311,6 +318,51 @@ export function scheduleArticleBatchMonitor(batchId: string): void {
       activeMonitors.delete(batchId)
     }
   })()
+}
+
+export function scheduleArticleBatchMonitor(batchId: string): void {
+  void dispatchDurableTaskOrFallback(
+    "articleBatch",
+    batchId,
+    () => scheduleLocalArticleBatchMonitor(batchId),
+  )
+}
+
+export async function resumePendingArticleBatchMonitors(): Promise<void> {
+  let ids: string[] = []
+  try {
+    ids = await kv.smembers<string[]>(ARTICLE_BATCH_PENDING_SET_KEY)
+  } catch (error) {
+    console.warn("[article-batches] pending queue recovery failed", safeError(error))
+    return
+  }
+
+  for (const id of ids) {
+    const batch = await getStoredArticleBatch(id)
+    if (!batch || TERMINAL_BATCH_STATUSES.has(batch.status)) {
+      await kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, id)
+      continue
+    }
+    await dispatchDurableTaskOrFallback(
+      "articleBatch",
+      id,
+      () => scheduleLocalArticleBatchMonitor(id),
+    )
+  }
+}
+
+export async function runArticleBatchFromWorker(
+  id: string,
+): Promise<TaskWorkerOutcome> {
+  const batch = await getStoredArticleBatch(id)
+  if (!batch || TERMINAL_BATCH_STATUSES.has(batch.status)) {
+    if (batch) await kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, batch.id)
+    return {}
+  }
+
+  const updated = await syncBatchOnce(id)
+  if (!updated || TERMINAL_BATCH_STATUSES.has(updated.status)) return {}
+  return { requeue: true, delayMs: 2_500 }
 }
 
 export async function createArticleBatch(

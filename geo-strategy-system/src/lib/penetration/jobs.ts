@@ -2,6 +2,12 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
+import { syncPenetrationJobTask } from "@/lib/task-center/adapters"
+import {
+  dispatchDurableTaskOrFallback,
+  durableTaskQueueEnabled,
+  type TaskWorkerOutcome,
+} from "@/lib/task-queue"
 import { createInternalApiHeaders } from "@/lib/internal-api"
 import { buildPenetrationBatchResult } from "@/lib/penetration/result-merge"
 import {
@@ -348,6 +354,7 @@ function selectDueBatch(
 async function saveJob(job: StoredPenetrationJob): Promise<void> {
   memoryJobs.set(job.id, job)
   await kv.set(jobKey(job.id), job, { ex: PENETRATION_JOB_TTL_SECONDS })
+  await syncPenetrationJobTask(job)
 }
 
 async function getStoredJob(id: string): Promise<StoredPenetrationJob | null> {
@@ -416,14 +423,8 @@ function clearResumeTimer(id: string): void {
 }
 
 function scheduleResume(id: string, atIso: string): void {
-  clearResumeTimer(id)
   const delay = Math.max(250, Date.parse(atIso) - Date.now())
-  const timer = setTimeout(() => {
-    resumeTimers.delete(id)
-    queueJob(id)
-  }, delay)
-  timer.unref?.()
-  resumeTimers.set(id, timer)
+  void dispatchPenetrationJob(id, delay)
 }
 
 function mergeStrings(current: string[], incoming: string[]): string[] {
@@ -865,11 +866,37 @@ function requestSchedulerRun(): void {
   })
 }
 
-function queueJob(jobId: string): void {
+function queueLocalJob(jobId: string): void {
   if (activeJobs.has(jobId) || queuedJobIds.has(jobId) || resumeTimers.has(jobId)) return
   queuedJobs.push(jobId)
   queuedJobIds.add(jobId)
   requestSchedulerRun()
+}
+
+function scheduleLocalResume(jobId: string, delayMs: number): void {
+  clearResumeTimer(jobId)
+  const timer = setTimeout(() => {
+    resumeTimers.delete(jobId)
+    queueLocalJob(jobId)
+  }, Math.max(250, delayMs))
+  timer.unref?.()
+  resumeTimers.set(jobId, timer)
+}
+
+async function dispatchPenetrationJob(jobId: string, delayMs = 0): Promise<void> {
+  await dispatchDurableTaskOrFallback(
+    "penetration",
+    jobId,
+    () => {
+      if (delayMs > 250) scheduleLocalResume(jobId, delayMs)
+      else queueLocalJob(jobId)
+    },
+    { delayMs },
+  )
+}
+
+function queueJob(jobId: string): void {
+  void dispatchPenetrationJob(jobId)
 }
 
 async function recoverPendingJobs(): Promise<void> {
@@ -899,8 +926,10 @@ async function recoverPendingJobs(): Promise<void> {
       continue
     }
     const retryAtMs = job.nextRetryAt ? Date.parse(job.nextRetryAt) : 0
-    if (retryAtMs > Date.now()) scheduleResume(job.id, job.nextRetryAt as string)
-    else queueJob(job.id)
+    await dispatchPenetrationJob(
+      job.id,
+      retryAtMs > Date.now() ? retryAtMs - Date.now() : 0,
+    )
   }
 }
 
@@ -994,13 +1023,15 @@ async function runJobSlice(jobId: string): Promise<void> {
   let ownsLease = false
 
   try {
-    ownsLease = Boolean(await kv.set(jobLeaseKey(jobId), leaseToken, {
-      nx: true,
-      ex: PENETRATION_JOB_RUN_LEASE_SECONDS,
-    }))
-    if (!ownsLease) {
-      scheduleResume(jobId, new Date(Date.now() + 2_000).toISOString())
-      return
+    if (!durableTaskQueueEnabled("penetration")) {
+      ownsLease = Boolean(await kv.set(jobLeaseKey(jobId), leaseToken, {
+        nx: true,
+        ex: PENETRATION_JOB_RUN_LEASE_SECONDS,
+      }))
+      if (!ownsLease) {
+        scheduleResume(jobId, new Date(Date.now() + 2_000).toISOString())
+        return
+      }
     }
 
     let job = await getStoredJob(jobId)
@@ -1197,8 +1228,7 @@ export async function createPenetrationJob(args: {
 
   await saveJob(stored)
   await markJobPending(stored.id)
-  await ensurePendingJobsRecovered()
-  queueJob(stored.id)
+  await dispatchPenetrationJob(stored.id)
   return toPublicJob(await getStoredJob(stored.id) || stored)
 }
 
@@ -1206,7 +1236,6 @@ export async function getPenetrationJob(
   id: string,
   requesterUserId: string,
 ): Promise<PenetrationJobRecord | null> {
-  await ensurePendingJobsRecovered()
   const job = await getStoredJob(id)
   if (
     !job
@@ -1217,7 +1246,7 @@ export async function getPenetrationJob(
     && !activeJobs.has(job.id)
     && !resumeTimers.has(job.id)
   ) {
-    queueJob(job.id)
+    void dispatchPenetrationJob(job.id)
   }
   if (
     ["succeeded", "blocked", "failed", "cancelled"].includes(job.status)
@@ -1226,6 +1255,35 @@ export async function getPenetrationJob(
     void retryTerminalHistory(job)
   }
   return toPublicJob(job)
+}
+
+export async function runPenetrationJobFromWorker(
+  id: string,
+): Promise<TaskWorkerOutcome> {
+  const initial = await getStoredJob(id)
+  if (!initial || ["succeeded", "blocked", "failed", "cancelled"].includes(initial.status)) {
+    if (initial) await clearPendingJob(initial.id)
+    return {}
+  }
+  if (
+    activeJobs.has(id)
+    || activeOwnerCount(initial.ownerUserId) >= MAX_CONCURRENT_PENETRATION_JOBS_PER_USER
+  ) {
+    return { requeue: true, delayMs: 1_000 }
+  }
+
+  markJobActive(initial)
+  await runJobSlice(id)
+
+  const latest = await getStoredJob(id)
+  if (!latest || ["succeeded", "blocked", "failed", "cancelled"].includes(latest.status)) {
+    return {}
+  }
+  const retryAtMs = latest.nextRetryAt ? Date.parse(latest.nextRetryAt) : 0
+  return {
+    requeue: true,
+    delayMs: retryAtMs > Date.now() ? retryAtMs - Date.now() : 0,
+  }
 }
 
 export async function cancelPenetrationJob(

@@ -6,6 +6,11 @@ import fs from "fs/promises"
 import path from "path"
 import { promisify } from "util"
 import { kv } from "@/lib/kv"
+import { syncReportJobTask } from "@/lib/task-center/adapters"
+import {
+  dispatchDurableTaskOrFallback,
+  type TaskWorkerOutcome,
+} from "@/lib/task-queue"
 import {
   refundReservedCreditsOnce,
   settleReservedCredits,
@@ -32,6 +37,7 @@ export type CommercialReportFile = {
 const REPORT_JOB_TTL_SECONDS = 60 * 60 * 24 * 365
 const REPORT_FILE_MAX_AGE_MS = REPORT_JOB_TTL_SECONDS * 1000
 const REPORT_HISTORY_LIMIT = 100
+const REPORT_PENDING_SET_KEY = "geo:commercial-report-jobs:pending"
 const memoryJobs = new Map<string, StoredCommercialReportJob>()
 const memoryHistory = new Map<string, Set<string>>()
 const historyDiscoveryCompleted = new Set<string>()
@@ -97,6 +103,16 @@ async function saveJob(job: StoredCommercialReportJob): Promise<void> {
     await kv.set(jobKey(job.id), job, { ex: REPORT_JOB_TTL_SECONDS })
   } catch (error) {
     console.warn("[commercial-report-jobs] KV write failed, using memory fallback:", error)
+  }
+  await syncReportJobTask(job)
+  try {
+    if (job.status === "succeeded" || job.status === "failed") {
+      await kv.srem(REPORT_PENDING_SET_KEY, job.id)
+    } else {
+      await kv.sadd(REPORT_PENDING_SET_KEY, job.id)
+    }
+  } catch (error) {
+    console.warn("[commercial-report-jobs] pending queue sync failed:", error)
   }
 }
 
@@ -377,7 +393,7 @@ async function runCommercialReportJob(id: string): Promise<void> {
   }
 }
 
-function queueJob(id: string): void {
+function queueLocalJob(id: string): void {
   if (activeJobs.has(id) || scheduledJobs.has(id)) return
   scheduledJobs.add(id)
   reportQueue = reportQueue
@@ -386,6 +402,14 @@ function queueJob(id: string): void {
     .finally(() => {
       scheduledJobs.delete(id)
     })
+}
+
+async function dispatchReportJob(id: string): Promise<void> {
+  await dispatchDurableTaskOrFallback(
+    "report",
+    id,
+    () => queueLocalJob(id),
+  )
 }
 
 export async function createCommercialReportJob(
@@ -437,7 +461,7 @@ export async function createCommercialReportJob(
   await saveJob(job)
   await addToHistory(ownerUserId, id)
   void pruneHistory(ownerUserId)
-  queueJob(id)
+  await dispatchReportJob(id)
   return toPublicJob(job)
 }
 
@@ -462,7 +486,7 @@ export async function listCommercialReportJobs(
 
   return Promise.all(visibleJobs.map(async job => {
     if ((job.status === "queued" || job.status === "running") && !activeJobs.has(job.id) && !scheduledJobs.has(job.id)) {
-      queueJob(job.id)
+      void dispatchReportJob(job.id)
     }
     return {
       ...toPublicJob(job),
@@ -490,11 +514,48 @@ export async function getCommercialReportJob(
 ): Promise<CommercialReportJobRecord | null> {
   const job = await getStoredJob(id)
   if (!job || job.ownerUserId !== ownerUserId) return null
-  if ((job.status === "queued" || job.status === "running") && !activeJobs.has(id) && !scheduledJobs.has(id)) queueJob(id)
+  if ((job.status === "queued" || job.status === "running") && !activeJobs.has(id) && !scheduledJobs.has(id)) {
+    void dispatchReportJob(id)
+  }
   if (job.status === "failed" && !job.creditsSettledAt) {
     await settleJobCreditsQuietly(id, false)
   }
   return toPublicJob(await getStoredJob(id) || job)
+}
+
+export async function resumePendingReportJobs(): Promise<void> {
+  let ids: string[] = []
+  try {
+    ids = await kv.smembers<string[]>(REPORT_PENDING_SET_KEY)
+  } catch (error) {
+    console.warn("[commercial-report-jobs] pending queue recovery failed:", error)
+    return
+  }
+
+  for (const id of ids) {
+    const job = await getStoredJob(id)
+    if (!job || job.status === "succeeded" || job.status === "failed") {
+      await kv.srem(REPORT_PENDING_SET_KEY, id)
+      continue
+    }
+    await dispatchReportJob(id)
+  }
+}
+
+export async function runReportJobFromWorker(
+  id: string,
+): Promise<TaskWorkerOutcome> {
+  const job = await getStoredJob(id)
+  if (!job || job.status === "succeeded" || job.status === "failed") {
+    if (job) await kv.srem(REPORT_PENDING_SET_KEY, job.id)
+    return {}
+  }
+  if (activeJobs.has(id)) return { requeue: true, delayMs: 1_000 }
+
+  await runCommercialReportJob(id)
+  const latest = await getStoredJob(id)
+  if (!latest || latest.status === "succeeded" || latest.status === "failed") return {}
+  return { requeue: true, delayMs: 2_000 }
 }
 
 export async function getCommercialReportFile(

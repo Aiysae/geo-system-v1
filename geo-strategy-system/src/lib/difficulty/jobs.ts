@@ -12,6 +12,11 @@ import {
 } from "@/lib/difficulty/assessment"
 import { kv } from "@/lib/kv"
 import { MODEL_LABELS } from "@/lib/llm"
+import { syncDifficultyJobTask } from "@/lib/task-center/adapters"
+import {
+  dispatchDurableTaskOrFallback,
+  type TaskWorkerOutcome,
+} from "@/lib/task-queue"
 import {
   refundReservedCredits,
   settleReservedCredits,
@@ -40,6 +45,7 @@ type StoredDifficultyJob = DifficultyJobRecord & {
 
 const JOB_TTL_SECONDS = 60 * 60 * 24 * 7
 const JOB_CANCELLED_MESSAGE = "用户已停止测评"
+const PENDING_SET_KEY = "geo:difficulty-jobs:pending"
 const MAX_MODEL_ATTEMPTS = 2
 const MAX_CONCURRENT_JOBS = Math.max(
   1,
@@ -96,6 +102,16 @@ function toPublicJob(job: StoredDifficultyJob): DifficultyJobRecord {
 async function saveJob(job: StoredDifficultyJob): Promise<void> {
   memoryJobs.set(job.id, job)
   await kv.set(jobKey(job.id), job, { ex: JOB_TTL_SECONDS })
+  await syncDifficultyJobTask(job)
+  try {
+    if (["succeeded", "failed", "cancelled"].includes(job.status)) {
+      await kv.srem(PENDING_SET_KEY, job.id)
+    } else {
+      await kv.sadd(PENDING_SET_KEY, job.id)
+    }
+  } catch (error) {
+    console.warn("[difficulty-jobs] pending queue sync failed", job.id, safeError(error))
+  }
 }
 
 async function getStoredJob(id: string): Promise<StoredDifficultyJob | null> {
@@ -377,11 +393,19 @@ function drainQueue(): void {
   }
 }
 
-function scheduleJob(id: string): void {
+function scheduleLocalJob(id: string): void {
   if (activeJobs.has(id) || scheduledJobs.has(id)) return
   scheduledJobs.add(id)
   pendingJobs.push(id)
   queueMicrotask(drainQueue)
+}
+
+async function dispatchDifficultyJob(id: string): Promise<void> {
+  await dispatchDurableTaskOrFallback(
+    "difficulty",
+    id,
+    () => scheduleLocalJob(id),
+  )
 }
 
 export async function createDifficultyJob(args: {
@@ -425,7 +449,7 @@ export async function createDifficultyJob(args: {
   }
 
   await saveJob(stored)
-  scheduleJob(stored.id)
+  await dispatchDifficultyJob(stored.id)
   return toPublicJob(stored)
 }
 
@@ -439,11 +463,52 @@ export async function getDifficultyJob(
 ): Promise<DifficultyJobRecord | null> {
   const job = await getStoredJob(id)
   if (!job || job.ownerUserId !== ownerUserId) return null
-  if ((job.status === "queued" || job.status === "running") && !activeJobs.has(id)) scheduleJob(id)
+  if ((job.status === "queued" || job.status === "running") && !activeJobs.has(id)) {
+    void dispatchDifficultyJob(id)
+  }
   if ((job.status === "failed" || job.status === "cancelled") && !job.creditsSettledAt) {
     await refundJob(id)
   }
   return toPublicJob(await getStoredJob(id) || job)
+}
+
+export async function resumePendingDifficultyJobs(): Promise<void> {
+  let ids: string[] = []
+  try {
+    ids = await kv.smembers<string[]>(PENDING_SET_KEY)
+  } catch (error) {
+    console.warn("[difficulty-jobs] pending queue recovery failed", safeError(error))
+    return
+  }
+
+  for (const id of ids) {
+    const job = await getStoredJob(id)
+    if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+      await kv.srem(PENDING_SET_KEY, id)
+      continue
+    }
+    await dispatchDifficultyJob(id)
+  }
+}
+
+export async function runDifficultyJobFromWorker(
+  id: string,
+): Promise<TaskWorkerOutcome> {
+  const initial = await getStoredJob(id)
+  if (!initial || ["succeeded", "failed", "cancelled"].includes(initial.status)) {
+    if (initial) await kv.srem(PENDING_SET_KEY, initial.id)
+    return {}
+  }
+
+  await runJob(id)
+  const latest = await getStoredJob(id)
+  if (!latest || ["succeeded", "failed", "cancelled"].includes(latest.status)) {
+    return {}
+  }
+  return {
+    requeue: true,
+    delayMs: 2_000,
+  }
 }
 
 export async function cancelDifficultyJob(

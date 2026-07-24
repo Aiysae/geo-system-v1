@@ -7,6 +7,7 @@ import AppShell from "@/components/app-shell"
 import { AccountMenu } from "@/components/auth/account-menu"
 import { AdminRechargeNotifier } from "@/components/admin/admin-recharge-notifier"
 import { useCredits } from "@/components/credits/credits-provider"
+import { GlobalTaskCenter } from "@/components/tasks/global-task-center"
 import type { PublicUser } from "@/lib/auth"
 import type { WorkspaceAccountAccess } from "@/types"
 import type { OnboardingSummary } from "@/types/onboarding"
@@ -143,6 +144,7 @@ export function AuthenticatedAppShell() {
       <AppShell
         userId={user.id}
         access={access}
+        taskNotifier={<GlobalTaskCenter userId={user.id} />}
         adminNotifier={isAdmin
           ? <AdminRechargeNotifier variant="workspace" />
           : null}

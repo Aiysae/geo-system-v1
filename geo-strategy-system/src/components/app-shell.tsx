@@ -48,10 +48,12 @@ export default function Home({
   userId,
   access,
   adminNotifier,
+  taskNotifier,
 }: {
   userId: string
   access: WorkspaceAccountAccess
   adminNotifier?: React.ReactNode
+  taskNotifier?: React.ReactNode
 }) {
   const restricted = access.mode === "client"
   const {
@@ -172,6 +174,7 @@ export default function Home({
           onRetrySync={retry}
           access={access}
           adminNotifier={adminNotifier}
+          taskNotifier={taskNotifier}
         />
         {conflict ? (
           <WorkspaceConflictNotice
@@ -256,6 +259,7 @@ function StickyHeader({
   onRetrySync,
   access,
   adminNotifier,
+  taskNotifier,
 }: {
   client: Client | null
   onOpenSidebar: () => void
@@ -265,6 +269,7 @@ function StickyHeader({
   onRetrySync: () => void
   access: WorkspaceAccountAccess
   adminNotifier?: React.ReactNode
+  taskNotifier?: React.ReactNode
 }) {
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false)
 
@@ -344,6 +349,7 @@ function StickyHeader({
           <CreditsPill />
           <RechargeButton />
           {adminNotifier}
+          {taskNotifier}
           <div className="relative lg:hidden">
             <button
               type="button"
