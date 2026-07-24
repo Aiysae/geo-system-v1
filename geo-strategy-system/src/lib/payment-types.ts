@@ -10,6 +10,7 @@ export type PaymentOrderStatus =
   | "refunded"
 
 export type PaymentProvider = "manual_transfer" | "wechat" | "alipay" | "other"
+export type PaymentProductType = "credits" | "managed_service"
 
 export type PaymentOrder = {
   id: string
@@ -18,6 +19,8 @@ export type PaymentOrder = {
   username: string
   email: string
   rechargeRequestId?: string
+  productType?: PaymentProductType
+  managedServiceOrderId?: string
   packageKey?: RechargePackageKey
   packageName: string
   priceCents: number

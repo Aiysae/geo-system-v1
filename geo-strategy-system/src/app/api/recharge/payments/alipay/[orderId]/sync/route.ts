@@ -21,6 +21,14 @@ export async function POST(
     return NextResponse.json({ error: "支付订单不存在" }, { status: 404 })
   }
   if (order.status === "credited") {
+    if (order.productType === "managed_service") {
+      await creditPaymentOrder({
+        orderId: order.id,
+        providerTradeId: order.providerTradeId,
+        paidCents: order.paidCents || order.priceCents,
+        source: "payment_callback",
+      })
+    }
     return NextResponse.json({ status: order.status, creditedAt: order.creditedAt })
   }
 

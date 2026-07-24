@@ -134,6 +134,7 @@ function toSnapshot(record: StoredMembership | null): MembershipSnapshot {
 }
 
 export function isQualifyingVip1Payment(order: PaymentOrder): boolean {
+  if (order.productType === "managed_service") return false
   if (order.status !== "credited" || order.refundedAt) return false
   const paidCents = order.paidCents ?? order.priceCents
   return Number.isFinite(order.priceCents)

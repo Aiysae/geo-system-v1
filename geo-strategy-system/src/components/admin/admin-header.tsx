@@ -4,6 +4,7 @@ import {
   BarChart3,
   Bot,
   CreditCard,
+  Handshake,
   KeyRound,
   Menu,
   ReceiptText,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react"
 import { AdminRechargeNotifier } from "@/components/admin/admin-recharge-notifier"
 
-export type AdminSection = "users" | "recharge" | "ai-models" | "metrics" | "ledger" | "password-resets"
+export type AdminSection = "users" | "recharge" | "managed-services" | "ai-models" | "metrics" | "ledger" | "password-resets"
 
 type AdminHeaderProps = {
   title: string
@@ -25,6 +26,7 @@ type AdminHeaderProps = {
 const ADMIN_LINKS = [
   { key: "users", href: "/admin", label: "用户管理", icon: UsersRound },
   { key: "recharge", href: "/admin/recharge", label: "充值管理", icon: CreditCard },
+  { key: "managed-services", href: "/admin/managed-services", label: "代运营订单", icon: Handshake },
   { key: "ai-models", href: "/admin/ai-models", label: "AI 模型", icon: Bot },
   { key: "metrics", href: "/admin/metrics", label: "运营监控", icon: BarChart3 },
   { key: "ledger", href: "/admin/ledger", label: "积分流水", icon: ReceiptText },

@@ -87,7 +87,8 @@ export function mergeBillingRechargeRecords(
     requests.flatMap(request => request.paymentOrderId ? [request.paymentOrderId] : []),
   )
   const officialOrders = paymentOrders.filter(order => (
-    (order.provider === "wechat" || order.provider === "alipay")
+    order.productType !== "managed_service"
+    && (order.provider === "wechat" || order.provider === "alipay")
     && !requestOrderIds.has(order.id)
   ))
   const safeLimit = Math.max(1, Math.floor(limit))

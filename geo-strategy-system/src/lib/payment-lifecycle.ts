@@ -15,6 +15,7 @@ export function firstPurchaseBlockReasonForOrder(
   packageKey: string,
   at = Date.now(),
 ): FirstPurchaseBlockReason | null {
+  if (order.productType === "managed_service") return null
   if (["paid", "credited", "refunding", "refunded"].includes(order.status)) {
     return "completed_purchase"
   }

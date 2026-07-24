@@ -38,13 +38,14 @@ try {
   assert.equal(centsFromYuan("9.90"), 990)
   assert.equal(centsFromYuan("9.901"), null)
   assert.equal(getRechargePackage("trial_990")?.credits, 100)
-  assert.equal(getRechargePackage("light_66")?.credits, 300)
+  assert.equal(getRechargePackage("light_66"), null, "retired packages must not be sold again")
+  assert.equal(getRechargePackage("growth_298"), null, "retired packages must not be sold again")
   assert.equal(getRechargePackage("enterprise_1298")?.credits, 10_000)
   assert.equal(getRechargePackage("light_49"), null, "legacy packages must not be sold again")
-  assert.equal(RECHARGE_PACKAGES.length, 6)
-  assert.equal(rechargeSavingsPercent(RECHARGE_PACKAGES[0]), 55)
+  assert.equal(RECHARGE_PACKAGES.length, 4)
+  assert.equal(rechargeSavingsPercent(RECHARGE_PACKAGES[0]), 46)
   assert.ok(
-    rechargeUnitPrice(RECHARGE_PACKAGES[5]) > rechargeUnitPrice(RECHARGE_PACKAGES[0]),
+    rechargeUnitPrice(RECHARGE_PACKAGES[3]) > rechargeUnitPrice(RECHARGE_PACKAGES[0]),
     "the first-purchase package must remain the cheapest package per credit",
   )
   for (let index = 2; index < RECHARGE_PACKAGES.length; index += 1) {

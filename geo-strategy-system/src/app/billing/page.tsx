@@ -28,6 +28,7 @@ import {
 } from "@/lib/membership"
 import { InvoiceSupportButton } from "@/components/billing/invoice-support-button"
 import { RechargeButton } from "@/components/credits/recharge-button"
+import { ManagedServiceCard } from "@/components/managed-services/managed-service-card"
 import SiteFooter from "@/components/site-footer"
 
 export const dynamic = "force-dynamic"
@@ -253,6 +254,9 @@ export default async function BillingPage() {
                   </RechargeButton>
                 )
               })}
+            </div>
+            <div className="mt-4">
+              <ManagedServiceCard />
             </div>
             <p className="mt-4 rounded-xl bg-blue-50/70 px-3 py-2 text-xs leading-5 text-slate-600 ring-1 ring-blue-100">
               {RECHARGE_PAYMENT_INFO.notice}

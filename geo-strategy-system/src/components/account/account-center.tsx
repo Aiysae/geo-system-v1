@@ -24,6 +24,7 @@ import {
   FileText,
   Gem,
   History,
+  Handshake,
   KeyRound,
   LayoutDashboard,
   Loader2,
@@ -45,6 +46,7 @@ import {
 } from "lucide-react"
 import { InvoiceSupportButton } from "@/components/billing/invoice-support-button"
 import { RechargeButton } from "@/components/credits/recharge-button"
+import { ManagedServiceCard } from "@/components/managed-services/managed-service-card"
 import ReportHistoryDialog from "@/components/reports/report-history-dialog"
 import SiteFooter from "@/components/site-footer"
 import type { BillingRechargeRecord, BillingRechargeStatus } from "@/lib/billing-records"
@@ -64,7 +66,7 @@ import type {
   WorkspaceAccountAccess,
 } from "@/types"
 
-type AccountTab = "overview" | "clients" | "billing" | "reports" | "vip" | "settings"
+type AccountTab = "overview" | "clients" | "services" | "billing" | "reports" | "vip" | "settings"
 
 type AccountUser = {
   id: string
@@ -109,11 +111,21 @@ type Props = {
   isAdmin: boolean
   unlimitedCredits: boolean
   whiteLabelCredits: number
+  managedServices: Array<{
+    id: string
+    planName: string
+    projectName?: string
+    status: string
+    priceCents: number
+    durationMonths: number
+    createdAt: number
+  }>
 }
 
 const TABS: Array<{ id: AccountTab; label: string; icon: typeof LayoutDashboard }> = [
   { id: "overview", label: "概览", icon: LayoutDashboard },
   { id: "clients", label: "我的客户", icon: BriefcaseBusiness },
+  { id: "services", label: "官方代运营", icon: Handshake },
   { id: "billing", label: "账单积分", icon: ReceiptText },
   { id: "reports", label: "历史报告", icon: FileClock },
   { id: "vip", label: "VIP 权益", icon: Crown },
@@ -255,6 +267,7 @@ export function AccountCenter(props: Props) {
           {activeTab === "clients" ? (
             <ClientsTab userId={currentUser.id} access={props.access} clients={clients} setClients={setClients} />
           ) : null}
+          {activeTab === "services" ? <ServicesTab services={props.managedServices} /> : null}
           {activeTab === "billing" ? <BillingTab {...props} /> : null}
           {activeTab === "reports" ? <ReportsTab clients={clients} onOpen={() => setHistoryOpen(true)} /> : null}
           {activeTab === "vip" ? <VipTab membership={props.membership} whiteLabelCredits={props.whiteLabelCredits} progress={progress} /> : null}
@@ -358,6 +371,28 @@ function QuickAction({ icon: Icon, title, detail, href, onClick, color }: {
     <ChevronRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[#1677FF]" />
   </>
   return href ? <Link href={href} className={className}>{content}</Link> : <button type="button" onClick={onClick} className={className}>{content}</button>
+}
+
+function ServicesTab({ services }: { services: Props["managedServices"] }) {
+  const statusLabel: Record<string, string> = {
+    pending_payment: "待付款",
+    paid: "已付款",
+    provisioning: "正在创建项目",
+    awaiting_intake: "待提交资料",
+    intake_submitted: "资料已提交",
+    active: "执行中",
+    paused: "已暂停",
+    completed: "已完成",
+    canceled: "已取消",
+    provisioning_failed: "待人工处理",
+  }
+  return <div className="space-y-4">
+    <ManagedServiceCard />
+    <section className="rounded-lg border border-[#D8E7F7] bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-bold text-slate-900">我的代运营项目</h2><p className="mt-1 text-xs text-slate-500">付款、资料和执行状态集中管理。</p></div><Link href="/account/services" className="inline-flex items-center gap-1 text-xs font-semibold text-[#0958D9]">全部项目<ChevronRight className="h-4 w-4" /></Link></div>
+      {services.length ? <div className="divide-y divide-slate-100">{services.map(service => <Link key={service.id} href={`/account/services/${encodeURIComponent(service.id)}`} className="flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-[#F7FBFF]"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{service.projectName || service.planName}</p><p className="mt-1 text-[11px] text-slate-500">{service.durationMonths} 个月 · ¥{(service.priceCents / 100).toLocaleString("zh-CN")}</p></div><span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-[10px] font-semibold text-[#0958D9]">{statusLabel[service.status] || service.status}</span></Link>)}</div> : <div className="px-5 py-10 text-center text-sm text-slate-500">尚未购买官方代运营套餐</div>}
+    </section>
+  </div>
 }
 
 function ClientsTab({ userId, access, clients, setClients }: {

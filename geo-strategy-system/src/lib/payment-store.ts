@@ -169,12 +169,13 @@ async function savePostgresOrder(order: PaymentOrder): Promise<void> {
   await pool().query(
     `INSERT INTO geo_payment_orders (
        id, out_trade_no, user_id, username, email, recharge_request_id,
-       package_key, package_name, price_cents, credits, provider, status,
+       product_type, managed_service_order_id, package_key, package_name,
+       price_cents, credits, provider, status,
        payer_name, payment_reference, contact, note, provider_trade_id,
        paid_cents, failure_reason, created_at, updated_at, paid_at,
        credited_at, canceled_at, refunded_at, credited_by
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
      )
      ON CONFLICT (id) DO UPDATE SET
        out_trade_no = EXCLUDED.out_trade_no,
@@ -182,6 +183,8 @@ async function savePostgresOrder(order: PaymentOrder): Promise<void> {
        username = EXCLUDED.username,
        email = EXCLUDED.email,
        recharge_request_id = EXCLUDED.recharge_request_id,
+       product_type = EXCLUDED.product_type,
+       managed_service_order_id = EXCLUDED.managed_service_order_id,
        package_key = EXCLUDED.package_key,
        package_name = EXCLUDED.package_name,
        price_cents = EXCLUDED.price_cents,
@@ -212,6 +215,8 @@ type PaymentOrderRow = {
   username: string
   email: string
   recharge_request_id: string | null
+  product_type: PaymentOrder["productType"] | null
+  managed_service_order_id: string | null
   package_key: PaymentOrder["packageKey"] | null
   package_name: string
   price_cents: number
@@ -275,6 +280,8 @@ function orderParams(order: PaymentOrder): unknown[] {
     order.username,
     order.email,
     order.rechargeRequestId,
+    order.productType || "credits",
+    order.managedServiceOrderId,
     order.packageKey,
     order.packageName,
     order.priceCents,
@@ -306,6 +313,8 @@ function orderFromRow(row: PaymentOrderRow): PaymentOrder {
     username: row.username,
     email: row.email,
     rechargeRequestId: row.recharge_request_id || undefined,
+    productType: row.product_type || "credits",
+    managedServiceOrderId: row.managed_service_order_id || undefined,
     packageKey: row.package_key || undefined,
     packageName: row.package_name,
     priceCents: Number(row.price_cents),
