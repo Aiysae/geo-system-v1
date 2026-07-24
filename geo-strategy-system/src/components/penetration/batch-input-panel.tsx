@@ -79,6 +79,7 @@ interface Props {
   modelProgress?: Partial<Record<ModelKey, PenetrationModelProgress>>
   progressLabel?: string
   identityReadOnly?: boolean
+  questionReadOnly?: boolean
 }
 
 export default function BatchInputPanel({
@@ -93,6 +94,7 @@ export default function BatchInputPanel({
   modelProgress,
   progressLabel,
   identityReadOnly = false,
+  questionReadOnly = false,
 }: Props) {
   const [questionsText, setQuestionsText] = useState(() => client.questions.join("\n"))
   const [brandAliasesText, setBrandAliasesText] = useState(() => (client.brandAliases ?? []).join("\n"))
@@ -122,7 +124,7 @@ export default function BatchInputPanel({
       || client.difficultyAssessments?.length
       || client.articleGeneration?.generatedAt,
   )
-  const aiJobRef = identityReadOnly ? undefined : client.backgroundJobs?.queryGeneration
+  const aiJobRef = questionReadOnly ? undefined : client.backgroundJobs?.queryGeneration
   const aiLoading = Boolean(aiJobRef)
   const aiPayload = {
     industry: client.industry,
@@ -336,6 +338,7 @@ export default function BatchInputPanel({
   }
 
   function toggleModel(m: ModelKey) {
+    if (questionReadOnly) return
     if (modelReadiness[m]?.ready === false) return
     const set = new Set(client.selectedModels)
     if (set.has(m)) set.delete(m)
@@ -375,9 +378,14 @@ export default function BatchInputPanel({
       client.questionIntentHints,
       questions,
     )
-    onChangeClient(identityReadOnly
-      ? { questions }
-      : { questions, questionIntentHints: questionIntents, brandAliases, competitors })
+    onChangeClient({
+      ...(questionReadOnly
+        ? {}
+        : { questions, questionIntentHints: questionIntents }),
+      ...(identityReadOnly
+        ? {}
+        : { brandAliases, competitors }),
+    })
     onRun({
       questions,
       models: eligibleSelectedModels,
@@ -388,6 +396,7 @@ export default function BatchInputPanel({
   }
 
   function runAiGenerate() {
+    if (questionReadOnly) return
     setAiToast(null)
     onChangeClient({
       backgroundJobs: backgroundJobsWith({
@@ -436,8 +445,9 @@ export default function BatchInputPanel({
         <div className="flex items-start gap-2 rounded-lg border border-[#91CAFF] bg-[#EAF5FF] px-3 py-2.5 text-xs leading-5 text-[#0958D9]">
           <Globe2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {subjectType === "person"
-            ? "人物身份、专业领域、姓名别名和同行名单由管理员统一维护。你可以编辑疑问句、选择模型并独立发起联网检测。"
-            : "品牌、行业、别名和竞品由管理员统一维护。你可以编辑疑问句、选择模型并独立发起联网检测。"}
+            ? `人物身份、专业领域、姓名别名和同行名单由管理员统一维护。${questionReadOnly ? "你可以使用当前检测配置发起联网检测。" : "你可以编辑疑问句、选择模型并独立发起联网检测。"}`
+            : `品牌、行业、别名和竞品由管理员统一维护。${questionReadOnly ? "你可以使用当前检测配置发起联网检测。" : "你可以编辑疑问句、选择模型并独立发起联网检测。"}`
+          }
         </div>
       ) : null}
       <div className="flex flex-col gap-2 rounded-lg border border-[#CFE1F5] bg-[#F5FAFF] p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -635,7 +645,7 @@ export default function BatchInputPanel({
         </div>
 
         {/* Tabs：手动录入 / AI 智能生成 */}
-        <div className={`geo-segmented mb-3 inline-grid w-full ${identityReadOnly ? "grid-cols-1" : "grid-cols-2"} sm:w-auto`}>
+        <div className={`geo-segmented mb-3 inline-grid w-full ${questionReadOnly ? "grid-cols-1" : "grid-cols-2"} sm:w-auto`}>
           <button
             type="button"
             onClick={() => setInputMode("manual")}
@@ -648,7 +658,7 @@ export default function BatchInputPanel({
             <Pencil className="h-3.5 w-3.5" />
             手动录入
           </button>
-          {!identityReadOnly ? <button
+          {!questionReadOnly ? <button
             type="button"
             onClick={() => setInputMode("ai")}
             className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition ${
@@ -665,23 +675,23 @@ export default function BatchInputPanel({
           </button> : null}
         </div>
 
-        {inputMode === "manual" || identityReadOnly ? (
+        {inputMode === "manual" || questionReadOnly ? (
           <Textarea
             value={questionsText}
             onChange={e => {
+              if (questionReadOnly) return
               const value = e.target.value
               const questions = parseLines(value)
               setQuestionsText(value)
-              onChangeClient(identityReadOnly
-                ? { questions }
-                : {
-                    questions,
-                    questionIntentHints: normalizePenetrationQuestionIntentHints(
-                      client.questionIntentHints,
-                      questions,
-                    ),
-                  })
+              onChangeClient({
+                questions,
+                questionIntentHints: normalizePenetrationQuestionIntentHints(
+                  client.questionIntentHints,
+                  questions,
+                ),
+              })
             }}
+            disabled={questionReadOnly}
             rows={6}
             placeholder={"国内有哪些值得推荐的 AI Agent 工具？\n2026 年企业级 GEO 平台怎么选？\n..."}
             className="font-mono text-xs"
@@ -959,7 +969,7 @@ export default function BatchInputPanel({
                 <input
                   type="checkbox"
                   checked={checked}
-                  disabled={unavailable}
+                  disabled={unavailable || questionReadOnly}
                   onChange={() => toggleModel(m)}
                   className="accent-[#003EB3]"
                 />

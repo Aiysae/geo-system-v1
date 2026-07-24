@@ -41,8 +41,37 @@ export function AuthenticatedAppShell() {
             onboarding?: OnboardingSummary
           }
           if (!body.user?.id) throw new Error("登录账号信息不完整")
-          const accountIsSuspended = body.access?.mode === "client"
-            && body.access.status === "suspended"
+          let resolvedAccess: WorkspaceAccountAccess = body.access || {
+            mode: "standard",
+            status: "active",
+            canCreateClients: true,
+            canManageClientIdentity: true,
+            canRunPenetration: true,
+            canRunOtherModules: true,
+            canCreateReports: true,
+            canViewFeedbackReports: true,
+            canManageFeedbackReports: true,
+          }
+          const currentUrl = new URL(window.location.href)
+          const teamId = String(currentUrl.searchParams.get("teamId") || "").trim()
+          const clientId = String(currentUrl.searchParams.get("clientId") || "").trim()
+          if (teamId && clientId) {
+            const teamResponse = await fetch(
+              `/api/teams/access?teamId=${encodeURIComponent(teamId)}&clientId=${encodeURIComponent(clientId)}`,
+              { cache: "no-store", credentials: "same-origin" },
+            )
+            const teamPayload = await teamResponse.json().catch(() => ({})) as {
+              access?: WorkspaceAccountAccess
+              error?: string
+            }
+            if (!teamResponse.ok || !teamPayload.access) {
+              throw new Error(teamPayload.error || "团队客户权限读取失败")
+            }
+            resolvedAccess = teamPayload.access
+          }
+          if (cancelled) return
+          const accountIsSuspended = resolvedAccess.mode === "client"
+            && resolvedAccess.status === "suspended"
           if (
             body.onboarding?.autoLaunch
             && !body.user.mustChangePassword
@@ -53,17 +82,7 @@ export function AuthenticatedAppShell() {
           }
           setUser(body.user)
           setIsAdmin(body.isAdmin === true || body.user.role === "admin")
-          setAccess(body.access || {
-            mode: "standard",
-            status: "active",
-            canCreateClients: true,
-            canManageClientIdentity: true,
-            canRunPenetration: true,
-            canRunOtherModules: true,
-            canCreateReports: true,
-            canViewFeedbackReports: true,
-            canManageFeedbackReports: true,
-          })
+          setAccess(resolvedAccess)
           setState("authenticated")
           void refresh()
           return

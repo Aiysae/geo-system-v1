@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import WorkspaceSidebar, {
+  DASHBOARD_MODULES,
   isDashboardModuleKey,
   type DashboardModuleKey,
 } from "@/components/sidebar/workspace-sidebar"
@@ -31,6 +32,7 @@ import {
   Menu,
   MoreHorizontal,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react"
 import { useCredits } from "@/components/credits/credits-provider"
@@ -43,6 +45,7 @@ import type {
   WorkspaceAccountAccess,
 } from "@/types"
 import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
+import { hasTeamPermission } from "@/lib/team-permissions"
 
 export default function Home({
   userId,
@@ -56,6 +59,21 @@ export default function Home({
   taskNotifier?: React.ReactNode
 }) {
   const restricted = access.mode === "client"
+  const canViewModule = useCallback((module: DashboardModuleKey) => {
+    if (access.mode !== "team") return true
+    return hasTeamPermission(access.permissionKeys || [], module, "view")
+  }, [access.mode, access.permissionKeys])
+  const canViewPenetrationHistory = access.mode !== "team"
+    || hasTeamPermission(access.permissionKeys || [], "penetration", "view")
+  const canViewPdfHistory = access.mode === "standard"
+    || (
+      access.mode === "team"
+      && hasTeamPermission(access.permissionKeys || [], "report", "view")
+    )
+  const canOpenReportHistory = canViewPenetrationHistory || canViewPdfHistory
+  const initialModule = restricted
+    ? "feedback"
+    : DASHBOARD_MODULES.find(module => canViewModule(module.key))?.key || "penetration"
   const {
     monthlyBalance,
     monthlyAllowance,
@@ -77,11 +95,12 @@ export default function Home({
     overwriteCloudConflictVersion,
   } = useWorkspaceSync(userId, {
     restrictedClientId: restricted ? access.clientId : undefined,
+    teamId: access.mode === "team" ? access.teamId : undefined,
   })
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeModule, setActiveModule] = useState<DashboardModuleKey>(
-    restricted ? "feedback" : "penetration",
+    initialModule,
   )
   const [reportExportPreset, setReportExportPreset] = useState<ReportExportPreset | null>(null)
   const [reportExportClient, setReportExportClient] = useState<Client | null>(null)
@@ -93,19 +112,20 @@ export default function Home({
   const active = clients.find(c => c.id === activeId) ?? null
 
   const handleModuleChange = useCallback((module: DashboardModuleKey) => {
+    if (!canViewModule(module)) return
     setActiveModule(module)
     setSidebarOpen(false)
     setReportExportPreset(null)
     setReportExportClient(null)
     setReportHistoryOpen(false)
-  }, [])
+  }, [canViewModule])
 
   useEffect(() => {
     if (!hydrated || urlInitializedRef.current) return
     const timer = window.setTimeout(() => {
       const url = new URL(window.location.href)
       const requestedModule = url.searchParams.get("module")
-      if (isDashboardModuleKey(requestedModule)) setActiveModule(requestedModule)
+      if (isDashboardModuleKey(requestedModule) && canViewModule(requestedModule)) setActiveModule(requestedModule)
       const requestedClientId = url.searchParams.get("clientId")
       if (requestedClientId && clients.some(client => client.id === requestedClientId)) {
         selectClient(requestedClientId)
@@ -113,7 +133,7 @@ export default function Home({
       urlInitializedRef.current = true
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [clients, hydrated, selectClient])
+  }, [canViewModule, clients, hydrated, selectClient])
 
   useEffect(() => {
     if (!hydrated || !urlInitializedRef.current) return
@@ -169,7 +189,10 @@ export default function Home({
             setReportExportClient(null)
             setReportExportPreset({})
           }}
-          onOpenReportHistory={() => setReportHistoryOpen(true)}
+          onOpenReportHistory={() => {
+            if (canOpenReportHistory) setReportHistoryOpen(true)
+          }}
+          canOpenReportHistory={canOpenReportHistory}
           syncState={syncState}
           onRetrySync={retry}
           access={access}
@@ -187,7 +210,7 @@ export default function Home({
             加载中...
           </div>
         ) : !active ? (
-          <EmptyState restricted={restricted} clientName={access.clientName} />
+          <EmptyState access={access} />
         ) : (
           // key={active.id}：切换客户时强制 Dashboard 整子树重挂载，
           // 彻底清空各 Module 内的 isDetecting/loading/progress 等运行时状态，根治状态泄露。
@@ -220,6 +243,7 @@ export default function Home({
       {access.canCreateReports && (reportExportClient || active) && reportExportPreset && (
         <ReportExportDialog
           client={(reportExportClient || active) as Client}
+          teamId={access.mode === "team" ? access.teamId : undefined}
           preset={reportExportPreset}
           onClose={() => {
             setReportExportPreset(null)
@@ -227,15 +251,20 @@ export default function Home({
           }}
         />
       )}
-      {reportHistoryOpen ? (
+      {reportHistoryOpen && canOpenReportHistory ? (
         <ReportHistoryDialog
           clients={clients}
           activeClientId={activeId}
-          onExportPenetration={historyClient => {
-            setReportHistoryOpen(false)
-            setReportExportClient(historyClient)
-            setReportExportPreset({ kind: "penetration" })
-          }}
+          teamId={access.mode === "team" ? access.teamId : undefined}
+          showPenetrationHistory={canViewPenetrationHistory}
+          showPdfHistory={canViewPdfHistory}
+          onExportPenetration={access.canCreateReports
+            ? historyClient => {
+                setReportHistoryOpen(false)
+                setReportExportClient(historyClient)
+                setReportExportPreset({ kind: "penetration" })
+              }
+            : undefined}
           onClose={() => setReportHistoryOpen(false)}
         />
       ) : null}
@@ -255,6 +284,7 @@ function StickyHeader({
   onOpenSidebar,
   onExportReport,
   onOpenReportHistory,
+  canOpenReportHistory,
   syncState,
   onRetrySync,
   access,
@@ -265,6 +295,7 @@ function StickyHeader({
   onOpenSidebar: () => void
   onExportReport: () => void
   onOpenReportHistory: () => void
+  canOpenReportHistory: boolean
   syncState: WorkspaceSyncState
   onRetrySync: () => void
   access: WorkspaceAccountAccess
@@ -308,6 +339,8 @@ function StickyHeader({
             <div className="hidden truncate text-[10px] text-white/58 sm:block">
               {access.mode === "client"
                 ? "客户专属工作台 · GEO 全链路操作工具"
+                : access.mode === "team"
+                  ? `${access.teamName || "团队空间"} · GEO 全链路协作`
                 : `${client?.industry ? `${client.industry} · ` : ""}GEO 全链路操作工具`}
             </div>
           </div>
@@ -322,15 +355,17 @@ function StickyHeader({
             <GraduationCap className="h-3.5 w-3.5" />
             新手教程
           </Link>
-          <button
-            type="button"
-            onClick={onOpenReportHistory}
-            className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/20 bg-white/8 px-3 text-xs font-semibold text-white transition hover:bg-white/14"
-            title="查看历史专业报告"
-          >
-            <History className="h-3.5 w-3.5" />
-            历史报告
-          </button>
+          {canOpenReportHistory ? (
+            <button
+              type="button"
+              onClick={onOpenReportHistory}
+              className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/20 bg-white/8 px-3 text-xs font-semibold text-white transition hover:bg-white/14"
+              title="查看历史报告"
+            >
+              <History className="h-3.5 w-3.5" />
+              历史报告
+            </button>
+          ) : null}
           {client && access.canCreateReports && (
             <button
               onClick={onExportReport}
@@ -377,17 +412,19 @@ function StickyHeader({
                     <GraduationCap className="h-4 w-4 text-[#00AEEA]" />
                     新手体验教程
                   </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenReportHistory()
-                      setMobileActionsOpen(false)
-                    }}
-                    className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold hover:bg-[#EEF5FC]"
-                  >
-                    <History className="h-4 w-4 text-[#1677FF]" />
-                    历史专业报告
-                  </button>
+                  {canOpenReportHistory ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOpenReportHistory()
+                        setMobileActionsOpen(false)
+                      }}
+                      className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold hover:bg-[#EEF5FC]"
+                    >
+                      <History className="h-4 w-4 text-[#1677FF]" />
+                      历史报告
+                    </button>
+                  ) : null}
                   {client && access.canCreateReports ? (
                     <button
                       type="button"
@@ -594,24 +631,42 @@ function CreditsPill() {
   )
 }
 
-function EmptyState({ restricted = false, clientName }: {
-  restricted?: boolean
-  clientName?: string
-}) {
+function EmptyState({ access }: { access: WorkspaceAccountAccess }) {
+  const restricted = access.mode === "client"
+  const teamSpace = access.mode === "team"
+  const canManageTeam = access.teamRole === "owner" || access.teamRole === "admin"
   return (
     <div className="flex min-h-[calc(100vh-56px)] flex-col items-center justify-center px-6 py-16 animate-fade-in-up">
       <div className="mb-7 flex h-20 w-20 items-center justify-center rounded-lg bg-gradient-to-br from-[#2F54EB] via-[#1677FF] to-[#00C8FF] shadow-[0_18px_40px_-22px_rgba(22,119,255,0.72)]">
         <Sparkles className="h-12 w-12 text-white" />
       </div>
       <h2 className="geo-display-title text-center text-2xl text-slate-900 sm:text-3xl">
-        {restricted ? "客户面板暂不可用" : "还没有可用的客户档案"}
+        {restricted
+          ? "客户面板暂不可用"
+          : teamSpace
+            ? "团队暂未共享客户档案"
+            : "还没有可用的客户档案"}
       </h2>
       <p className="text-sm text-slate-500 mt-3 max-w-md text-center leading-relaxed">
         {restricted
-          ? `当前账号已关联「${clientName || "指定客户"}」，但面板数据暂时无法读取。请联系管理员检查授权客户是否仍然存在。`
-          : "客户资料已统一移到“我的主页”管理。新建或选择客户后，即可进入对应工作台。"}
+          ? `当前账号已关联「${access.clientName || "指定客户"}」，但面板数据暂时无法读取。请联系管理员检查授权客户是否仍然存在。`
+          : teamSpace
+            ? canManageTeam
+              ? "请在团队协作中选择自己的客户档案并共享给成员，授权后会立即出现在团队工作台。"
+              : "团队所有者尚未向你开放客户档案，或原有共享已被收回。请联系团队管理员调整授权。"
+            : "客户资料已统一移到“我的主页”管理。新建或选择客户后，即可进入对应工作台。"}
       </p>
-      {!restricted ? <div className="mt-7 flex flex-wrap items-center justify-center gap-3"><Link href="/account?tab=clients" className="inline-flex h-10 items-center justify-center rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-5 text-xs font-semibold text-white shadow-sm">管理我的客户</Link><Link href="/workspace/tutorial?manual=1" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#B7D9FF] bg-white px-4 text-xs font-semibold text-[#0958D9]"><GraduationCap className="h-4 w-4" />新手体验教程</Link></div> : null}
+      {!restricted ? (
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href={teamSpace ? "/account?tab=team" : "/account?tab=clients"}
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-5 text-xs font-semibold text-white shadow-sm"
+          >
+            {teamSpace ? "打开团队协作" : "管理我的客户"}
+          </Link>
+          <Link href="/workspace/tutorial?manual=1" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#B7D9FF] bg-white px-4 text-xs font-semibold text-[#0958D9]"><GraduationCap className="h-4 w-4" />新手体验教程</Link>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -631,9 +686,18 @@ function Dashboard({
 }) {
   const subjectType = getClientSubjectType(client)
   const subjectCopy = getSubjectCopy(subjectType)
-  const readOnlyModule = access.mode === "client"
+  const teamCanOperate = access.mode !== "team"
+    || (
+      !access.teamReadOnly
+      && (
+        hasTeamPermission(access.permissionKeys || [], activeModule, "execute")
+        || hasTeamPermission(access.permissionKeys || [], activeModule, "edit")
+        || hasTeamPermission(access.permissionKeys || [], activeModule, "manage")
+      )
+    )
+  const readOnlyModule = (access.mode === "client"
     && activeModule !== "penetration"
-    && activeModule !== "feedback"
+    && activeModule !== "feedback") || !teamCanOperate
   const moduleOnChange = readOnlyModule ? () => undefined : onChangeClient
 
   return (
@@ -659,6 +723,12 @@ function Dashboard({
               客户专属授权
             </span>
           ) : null}
+          {access.mode === "team" ? (
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-cyan-50 ring-1 ring-white/15">
+              <ShieldCheck className="h-3 w-3" />
+              {access.teamName || "团队协作"} · {access.teamRole === "owner" ? "所有者" : access.teamRole === "admin" ? "管理员" : "成员"}
+            </span>
+          ) : null}
         </div>
         <div className="text-xs text-white/55">
           创建于 {new Date(client.createdAt).toLocaleDateString("zh-CN")}
@@ -670,7 +740,9 @@ function Dashboard({
         {readOnlyModule ? (
           <div className="mb-3 flex items-start gap-2 rounded-lg border border-[#91CAFF] bg-[#EAF5FF] px-3 py-2.5 text-xs leading-5 text-[#0958D9] no-print">
             <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            当前为客户专属账号，本模块展示关联主体的现有数据；可使用渗透率情报，并查看已发布的执行反馈。
+            {access.mode === "team"
+              ? "当前成员在本模块只有查看权限。需要执行或编辑时，请联系团队所有者调整模块权限。"
+              : "当前为客户专属账号，本模块展示关联主体的现有数据；可使用渗透率情报，并查看已发布的执行反馈。"}
           </div>
         ) : null}
         <fieldset
@@ -691,6 +763,11 @@ function Dashboard({
             client={client}
             onChangeClient={onChangeClient}
             identityReadOnly={!access.canManageClientIdentity}
+            questionReadOnly={access.mode === "team" && !hasTeamPermission(
+              access.permissionKeys || [],
+              "penetration",
+              "edit",
+            )}
           />
         )}
         {activeModule === "research" && (

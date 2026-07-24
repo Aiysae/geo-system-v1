@@ -44,6 +44,10 @@ export interface StoredArticleBatchItem extends ArticleBatchItemRecord {
 
 export interface StoredArticleBatch extends Omit<ArticleBatchRecord, "items"> {
   ownerUserId: string
+  billingUserId?: string
+  runtimeUserId?: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   requestId: string
   cancelRequested?: boolean
   basePayload: ArticleBatchBasePayload
@@ -382,6 +386,10 @@ export async function mutateStoredArticleBatch<T>(
 export function createStoredArticleBatchInput(args: {
   id: string
   ownerUserId: string
+  billingUserId?: string
+  runtimeUserId?: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   clientId: string
   requestId: string
   promptKey: ArticlePromptKey
@@ -397,6 +405,10 @@ export function createStoredArticleBatchInput(args: {
   return {
     id: args.id,
     ownerUserId: args.ownerUserId,
+    billingUserId: args.billingUserId,
+    runtimeUserId: args.runtimeUserId,
+    workspaceOwnerUserId: args.workspaceOwnerUserId,
+    teamId: args.teamId,
     clientId: args.clientId,
     requestId: args.requestId,
     promptKey: args.promptKey,

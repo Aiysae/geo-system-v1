@@ -33,6 +33,10 @@ import type {
 
 type StoredBackgroundJob = BackgroundJobRecord & {
   ownerUserId: string
+  billingUserId?: string
+  runtimeUserId?: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   payloadGzip: string
   endpoint: string
   reservation: CreditReservation
@@ -228,6 +232,10 @@ function decodePayload(payloadGzip: string): unknown {
 function toPublicJob(job: StoredBackgroundJob): BackgroundJobRecord {
   const publicJob: Partial<StoredBackgroundJob> = { ...job }
   delete publicJob.ownerUserId
+  delete publicJob.billingUserId
+  delete publicJob.runtimeUserId
+  delete publicJob.workspaceOwnerUserId
+  delete publicJob.teamId
   delete publicJob.payloadGzip
   delete publicJob.endpoint
   delete publicJob.reservation
@@ -356,7 +364,7 @@ async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown
           headers: {
             "Content-Type": "application/json",
             ...createInternalApiHeaders("background-job"),
-            [INTERNAL_API_USER_HEADER]: job.ownerUserId,
+            [INTERNAL_API_USER_HEADER]: job.runtimeUserId || job.ownerUserId,
           },
           body: JSON.stringify(payload),
           signal: controller.signal,
@@ -533,6 +541,10 @@ export async function createBackgroundJob(args: {
   requestId: string
   payload: unknown
   ownerUserId: string
+  billingUserId?: string
+  runtimeUserId?: string
+  workspaceOwnerUserId?: string
+  teamId?: string
 }): Promise<CreateBackgroundJobResult> {
   if (!/^[A-Za-z0-9_-]{16,160}$/.test(args.requestId)) {
     return {
@@ -567,7 +579,8 @@ export async function createBackgroundJob(args: {
 
   const id = `bgjob_${randomUUID().replace(/-/g, "")}`
   const creditCost = estimateFeatureCredits(definition.featureKey, definition.units)
-  const creditGuard = await reserveCreditsForUser(args.ownerUserId, creditCost, {
+  const billingUserId = args.billingUserId || args.ownerUserId
+  const creditGuard = await reserveCreditsForUser(billingUserId, creditCost, {
     featureKey: definition.featureKey,
     source: "api:background-jobs",
     sourceId: id,
@@ -577,6 +590,10 @@ export async function createBackgroundJob(args: {
       clientId: args.clientId,
       requestId: args.requestId,
       units: definition.units,
+      actorUserId: args.ownerUserId,
+      billingUserId,
+      workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
+      teamId: args.teamId,
     },
   })
   if (!creditGuard.ok) {
@@ -596,6 +613,10 @@ export async function createBackgroundJob(args: {
     createdAt: now,
     updatedAt: now,
     ownerUserId: args.ownerUserId,
+    billingUserId,
+    runtimeUserId: args.runtimeUserId || billingUserId,
+    workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
+    teamId: args.teamId,
     payloadGzip,
     endpoint: definition.endpoint,
     reservation: creditGuard.reservation,
@@ -618,6 +639,10 @@ export async function createBackgroundJobsBatch(args: {
   kind: BackgroundJobKind
   clientId: string
   ownerUserId: string
+  billingUserId?: string
+  runtimeUserId?: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   batchId: string
   items: Array<{ requestId: string; payload: unknown }>
 }): Promise<CreateBackgroundJobsBatchResult> {
@@ -653,7 +678,8 @@ export async function createBackgroundJobsBatch(args: {
 
   const totalCost = prepared.reduce((sum, item) => sum + item.creditCost, 0)
   const firstDefinition = prepared[0].definition
-  const creditGuard = await reserveCreditsForUser(args.ownerUserId, totalCost, {
+  const billingUserId = args.billingUserId || args.ownerUserId
+  const creditGuard = await reserveCreditsForUser(billingUserId, totalCost, {
     featureKey: firstDefinition.featureKey,
     source: "api:article-generation-batches",
     sourceId: args.batchId,
@@ -663,6 +689,10 @@ export async function createBackgroundJobsBatch(args: {
       clientId: args.clientId,
       batchId: args.batchId,
       units: prepared.length,
+      actorUserId: args.ownerUserId,
+      billingUserId,
+      workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
+      teamId: args.teamId,
     },
   })
   if (!creditGuard.ok) return creditGuard
@@ -681,6 +711,10 @@ export async function createBackgroundJobsBatch(args: {
       createdAt: now,
       updatedAt: now,
       ownerUserId: args.ownerUserId,
+      billingUserId,
+      runtimeUserId: args.runtimeUserId || billingUserId,
+      workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
+      teamId: args.teamId,
       payloadGzip: item.payloadGzip,
       endpoint: item.definition.endpoint,
       reservation: {
@@ -697,6 +731,9 @@ export async function createBackgroundJobsBatch(args: {
             clientId: args.clientId,
             position: index + 1,
             requestId: item.requestId,
+            actorUserId: args.ownerUserId,
+            billingUserId,
+            teamId: args.teamId,
           },
         },
       },
@@ -732,6 +769,10 @@ export async function createUnchargedBackgroundJob(args: {
   requestId: string
   payload: unknown
   ownerUserId: string
+  billingUserId?: string
+  runtimeUserId?: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   reason: string
 }): Promise<BackgroundJobRecord> {
   if (!/^[A-Za-z0-9_-]{16,160}$/.test(args.requestId)) {
@@ -747,6 +788,7 @@ export async function createUnchargedBackgroundJob(args: {
 
   const id = `bgjob_${randomUUID().replace(/-/g, "")}`
   const now = nowIso()
+  const billingUserId = args.billingUserId || args.ownerUserId
   const job: StoredBackgroundJob = {
     id,
     kind: args.kind,
@@ -758,10 +800,14 @@ export async function createUnchargedBackgroundJob(args: {
     createdAt: now,
     updatedAt: now,
     ownerUserId: args.ownerUserId,
+    billingUserId,
+    runtimeUserId: args.runtimeUserId || billingUserId,
+    workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
+    teamId: args.teamId,
     payloadGzip: encodePayload(args.payload),
     endpoint: definition.endpoint,
     reservation: {
-      userId: args.ownerUserId,
+      userId: billingUserId,
       amount: 0,
       balanceAfterReserve: 0,
       ledgerContext: {
@@ -769,6 +815,13 @@ export async function createUnchargedBackgroundJob(args: {
         source: "api:article-generation-batches",
         sourceId: id,
         description: args.reason,
+        metadata: {
+          clientId: args.clientId,
+          actorUserId: args.ownerUserId,
+          billingUserId,
+          workspaceOwnerUserId: args.workspaceOwnerUserId || args.ownerUserId,
+          teamId: args.teamId,
+        },
       },
     },
     creditCost: 0,

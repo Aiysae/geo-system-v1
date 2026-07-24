@@ -20,6 +20,9 @@ import type { CommercialReportInput, CommercialReportJobRecord } from "@/types"
 
 type StoredCommercialReportJob = CommercialReportJobRecord & {
   ownerUserId: string
+  actorUserId?: string
+  billingUserId?: string
+  teamId?: string
   inputPath: string
   filePath: string
   requestId?: string
@@ -64,6 +67,9 @@ function reportsDirectory(): string {
 function toPublicJob(job: StoredCommercialReportJob): CommercialReportJobRecord {
   const publicJob: Partial<StoredCommercialReportJob> = { ...job }
   delete publicJob.ownerUserId
+  delete publicJob.actorUserId
+  delete publicJob.billingUserId
+  delete publicJob.teamId
   delete publicJob.inputPath
   delete publicJob.filePath
   delete publicJob.requestId
@@ -417,6 +423,9 @@ export async function createCommercialReportJob(
     id: string
     input: CommercialReportInput
     ownerUserId: string
+    actorUserId?: string
+    billingUserId?: string
+    teamId?: string
     requestId: string
     creditCost: number
     reservation?: CreditReservation
@@ -451,6 +460,9 @@ export async function createCommercialReportJob(
     creditCost: Math.max(0, Math.floor(args.creditCost)),
     creditsRefunded: false,
     ownerUserId,
+    actorUserId: args.actorUserId || ownerUserId,
+    billingUserId: args.billingUserId || ownerUserId,
+    teamId: args.teamId,
     inputPath,
     filePath,
     requestId: args.requestId,
@@ -506,6 +518,24 @@ export async function deleteCommercialReportJob(
   if (job.status === "queued" || job.status === "running") return "active"
   await deleteJobArtifacts(job)
   return "deleted"
+}
+
+export async function getCommercialReportJobScope(id: string): Promise<{
+  ownerUserId: string
+  actorUserId: string
+  billingUserId: string
+  clientId: string
+  teamId?: string
+} | null> {
+  const job = await getStoredJob(id)
+  if (!job) return null
+  return {
+    ownerUserId: job.ownerUserId,
+    actorUserId: job.actorUserId || job.ownerUserId,
+    billingUserId: job.billingUserId || job.ownerUserId,
+    clientId: job.clientId,
+    teamId: job.teamId,
+  }
 }
 
 export async function getCommercialReportJob(

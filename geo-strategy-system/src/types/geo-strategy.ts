@@ -290,6 +290,7 @@ export interface QuestionJobProgress {
 
 export interface QuestionJobRecord extends QuestionJobProgress {
   id: string
+  clientId?: string
   status: QuestionJobStatus
   completedBatches: number
   questions: QuestionItem[]

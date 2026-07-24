@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
-import { requireUserId } from "@/lib/with-credits"
-import { createWorkspaceClient, listWorkspaceClients } from "@/lib/workspace-store"
-import { WorkspaceValidationError } from "@/lib/workspace-sync"
 import { resolveWorkspaceAccess } from "@/lib/client-accounts"
+import {
+  listAccessibleTeamClientShares,
+  listTeamsForUser,
+} from "@/lib/team-store"
+import { requireUserId } from "@/lib/with-credits"
+import {
+  createWorkspaceClient,
+  listWorkspaceClients,
+} from "@/lib/workspace-store"
+import { WorkspaceValidationError } from "@/lib/workspace-sync"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -10,10 +17,30 @@ export const revalidate = 0
 
 const MAX_BODY_BYTES = 25 * 1024 * 1024
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
+    const teamId = String(request.nextUrl.searchParams.get("teamId") || "").trim()
+    if (teamId) {
+      const teams = await listTeamsForUser(auth.userId)
+      if (!teams.some(summary => summary.team.id === teamId)) {
+        return noStore(NextResponse.json({
+          error: "团队不存在或当前账号无权访问",
+          code: "TEAM_ACCESS_DENIED",
+        }, { status: 403 }))
+      }
+      const accesses = await listAccessibleTeamClientShares(auth.userId, teamId)
+      const records = await Promise.all(accesses.map(async access => {
+        const ownerRecords = await listWorkspaceClients(access.share.clientOwnerUserId)
+        return ownerRecords.find(record => record.client.id === access.share.clientId) || null
+      }))
+      const unique = new Map(records
+        .filter(record => Boolean(record))
+        .map(record => [record!.client.id, record!]))
+      return noStore(NextResponse.json({ clients: [...unique.values()] }))
+    }
+
     const access = await resolveWorkspaceAccess(auth.userId)
     if (!access.ok) {
       return noStore(NextResponse.json(
@@ -35,6 +62,13 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
+  const teamId = String(request.nextUrl.searchParams.get("teamId") || "").trim()
+  if (teamId) {
+    return noStore(NextResponse.json({
+      error: "团队空间不能新建客户，请先在“我的主页”创建客户后再开放给团队",
+      code: "TEAM_CLIENT_CREATE_DENIED",
+    }, { status: 403 }))
+  }
   const access = await resolveWorkspaceAccess(auth.userId)
   if (!access.ok || access.mode === "client") {
     return noStore(NextResponse.json(

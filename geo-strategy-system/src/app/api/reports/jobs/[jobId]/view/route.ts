@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getCommercialReportFile, getCommercialReportJob } from "@/lib/reports/report-jobs"
+import { getCommercialReportFile } from "@/lib/reports/report-jobs"
+import {
+  isReportAccessError,
+  requireReportJobAccess,
+} from "@/lib/reports/access"
 import { requireUserId } from "@/lib/with-credits"
-import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -13,33 +16,40 @@ export async function GET(
 ) {
   const userGuard = await requireUserId()
   if (!userGuard.ok) return userGuard.response
-  const { jobId } = await context.params
-  const access = await resolveWorkspaceAccess(userGuard.userId)
-  if (!access.ok) {
-    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
-  }
-  const job = await getCommercialReportJob(jobId, access.ownerUserId)
-  if (!job || (access.mode === "client" && job.clientId !== access.clientId)) {
-    return NextResponse.json({ error: "报告尚未生成、已过期或无权访问" }, { status: 404 })
-  }
-  const report = await getCommercialReportFile(jobId, access.ownerUserId)
-  if (!report) {
-    return NextResponse.json({ error: "报告尚未生成、已过期或无权访问" }, { status: 404 })
-  }
+  try {
+    const { jobId } = await context.params
+    const authorized = await requireReportJobAccess({
+      jobId,
+      userId: userGuard.userId,
+      action: "view",
+    })
+    if (!authorized) {
+      return NextResponse.json({ error: "报告尚未生成、已过期或无权访问" }, { status: 404 })
+    }
+    const report = await getCommercialReportFile(jobId, authorized.scope.ownerUserId)
+    if (!report) {
+      return NextResponse.json({ error: "报告尚未生成、已过期或无权访问" }, { status: 404 })
+    }
 
-  const encodedName = encodeURIComponent(report.fileName).replace(
-    /[!'()*]/g,
-    character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  )
-  return new NextResponse(new Uint8Array(report.buffer), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Length": String(report.fileSize),
-      "Content-Disposition": `inline; filename="geo-report.pdf"; filename*=UTF-8''${encodedName}`,
-      "Cache-Control": "private, no-store",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "SAMEORIGIN",
-    },
-  })
+    const encodedName = encodeURIComponent(report.fileName).replace(
+      /[!'()*]/g,
+      character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+    )
+    return new NextResponse(new Uint8Array(report.buffer), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Length": String(report.fileSize),
+        "Content-Disposition": `inline; filename="geo-report.pdf"; filename*=UTF-8''${encodedName}`,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+      },
+    })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "预览报告失败" },
+      { status: isReportAccessError(error) ? 403 : 500 },
+    )
+  }
 }

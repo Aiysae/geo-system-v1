@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import JSZip from "jszip"
 import { getArticleBatch, getArticleBatchDownloadItems } from "@/lib/article-batches/manager"
 import { sanitizeArticleFileName } from "@/lib/article-batches/docx"
+import {
+  isTeamAccessError,
+  requireArticleBatchAccess,
+} from "@/lib/article-batches/access"
 import { requireUserId } from "@/lib/with-credits"
-import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -19,40 +22,48 @@ export async function GET(
 ) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
-  const { batchId } = await context.params
-  const access = await resolveWorkspaceAccess(auth.userId)
-  if (!access.ok) {
-    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
-  }
-  const [batch, files] = await Promise.all([
-    getArticleBatch(batchId, access.ownerUserId),
-    getArticleBatchDownloadItems(batchId, access.ownerUserId),
-  ])
-  if (batch && access.mode === "client" && batch.clientId !== access.clientId) {
-    return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
-  }
-  if (!batch || !files) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
-  if (files.length === 0) return NextResponse.json({ error: "当前还没有可下载的 Word 文档" }, { status: 409 })
+  try {
+    const { batchId } = await context.params
+    const authorized = await requireArticleBatchAccess({
+      batchId,
+      userId: auth.userId,
+      action: "export",
+    })
+    if (!authorized) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
+    const [batch, files] = await Promise.all([
+      getArticleBatch(batchId, auth.userId),
+      getArticleBatchDownloadItems(batchId, auth.userId),
+    ])
+    if (!batch || !files) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
+    if (files.length === 0) {
+      return NextResponse.json({ error: "当前还没有可下载的 Word 文档" }, { status: 409 })
+    }
 
-  const zip = new JSZip()
-  for (const file of files) zip.file(file.fileName, file.buffer)
-  zip.file("生成清单.txt", [
-    `模板：${batch.promptTitle}`,
-    `模型：${batch.model || batch.modelProvider}`,
-    `创建时间：${batch.createdAt}`,
-    `已完成：${batch.completedCount}/${batch.requestedCount}`,
-    "",
-    ...files.map(file => `${file.position}. ${file.title}`),
-  ].join("\n"))
-  const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
-  const fileName = `${sanitizeArticleFileName(batch.promptTitle)}_${batch.completedCount}篇_${new Date().toISOString().slice(0, 10)}.zip`
-  return new NextResponse(new Uint8Array(buffer), {
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": disposition(fileName),
-      "Content-Length": String(buffer.length),
-      "Cache-Control": "private, no-store",
-      "X-Content-Type-Options": "nosniff",
-    },
-  })
+    const zip = new JSZip()
+    for (const file of files) zip.file(file.fileName, file.buffer)
+    zip.file("生成清单.txt", [
+      `模板：${batch.promptTitle}`,
+      `模型：${batch.model || batch.modelProvider}`,
+      `创建时间：${batch.createdAt}`,
+      `已完成：${batch.completedCount}/${batch.requestedCount}`,
+      "",
+      ...files.map(file => `${file.position}. ${file.title}`),
+    ].join("\n"))
+    const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
+    const fileName = `${sanitizeArticleFileName(batch.promptTitle)}_${batch.completedCount}篇_${new Date().toISOString().slice(0, 10)}.zip`
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": disposition(fileName),
+        "Content-Length": String(buffer.length),
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "下载文章批次失败" },
+      { status: isTeamAccessError(error) ? 403 : 500 },
+    )
+  }
 }

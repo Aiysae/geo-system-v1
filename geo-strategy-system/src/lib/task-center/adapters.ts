@@ -53,9 +53,10 @@ function ratioProgress(done: unknown, total: unknown): number {
   return progress(Number(done) / safeTotal * 100)
 }
 
-function workspaceUrl(clientId: string, module: TaskCenterModule): string {
+function workspaceUrl(clientId: string, module: TaskCenterModule, teamId?: string): string {
   const query = new URLSearchParams()
   if (clientId) query.set("clientId", clientId)
+  if (teamId) query.set("teamId", teamId)
   query.set("module", module === "report" ? "penetration" : module)
   return `/workspace?${query.toString()}`
 }
@@ -68,6 +69,8 @@ export async function syncBackgroundJobTask(job: CommonJob & {
   kind: string
   clientId: string
   ownerUserId: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   progressPercent: number
   stage: string
 }): Promise<void> {
@@ -82,19 +85,22 @@ export async function syncBackgroundJobTask(job: CommonJob & {
     kind: job.kind,
     module: config.module,
     actorUserId: job.ownerUserId,
-    workspaceOwnerUserId: job.ownerUserId,
+    workspaceOwnerUserId: job.workspaceOwnerUserId || job.ownerUserId,
     clientId: job.clientId,
     title: config.title,
     status,
     progressPercent: progress(job.progressPercent),
     stage: job.stage,
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, config.module),
+    resultUrl: workspaceUrl(job.clientId, config.module, job.teamId),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
+    metadata: {
+      teamId: job.teamId,
+    },
   })
 }
 
@@ -102,6 +108,7 @@ export async function syncPenetrationJobTask(job: CommonJob & {
   clientId: string
   ownerUserId: string
   workspaceOwnerUserId: string
+  teamId?: string
   request: {
     clientName?: string
     ourBrand: string
@@ -137,7 +144,7 @@ export async function syncPenetrationJobTask(job: CommonJob & {
       status === "succeeded" ? "检测结果已保存" : job.error || "检测任务已创建"
     ),
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, "penetration"),
+    resultUrl: workspaceUrl(job.clientId, "penetration", job.teamId),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -146,6 +153,7 @@ export async function syncPenetrationJobTask(job: CommonJob & {
     metadata: {
       totalSlots: job.totalSlots,
       completedSlots: job.completedSlots,
+      teamId: job.teamId,
     },
   })
 }
@@ -153,6 +161,8 @@ export async function syncPenetrationJobTask(job: CommonJob & {
 export async function syncDifficultyJobTask(job: CommonJob & {
   clientId: string
   ownerUserId: string
+  workspaceOwnerUserId: string
+  teamId?: string
   industry: string
   targetBrand?: string
   progressPercent: number
@@ -165,7 +175,7 @@ export async function syncDifficultyJobTask(job: CommonJob & {
     kind: "difficultyAssessment",
     module: "difficulty",
     actorUserId: job.ownerUserId,
-    workspaceOwnerUserId: job.ownerUserId,
+    workspaceOwnerUserId: job.workspaceOwnerUserId,
     clientId: job.clientId,
     title: `${job.targetBrand || job.industry || "当前项目"} · 难度测评`,
     status,
@@ -176,17 +186,22 @@ export async function syncDifficultyJobTask(job: CommonJob & {
         ? "正在进行多维评估"
         : job.error || "测评任务已创建",
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, "difficulty"),
+    resultUrl: workspaceUrl(job.clientId, "difficulty", job.teamId),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
+    metadata: {
+      teamId: job.teamId,
+    },
   })
 }
 
 export async function syncQuestionJobTask(job: CommonJob & {
   ownerUserId: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   request: {
     clientId?: string
     clientName?: string
@@ -204,7 +219,7 @@ export async function syncQuestionJobTask(job: CommonJob & {
     kind: "keywordQuestionGeneration",
     module: "keyword",
     actorUserId: job.ownerUserId,
-    workspaceOwnerUserId: job.ownerUserId,
+    workspaceOwnerUserId: job.workspaceOwnerUserId || job.ownerUserId,
     clientId,
     clientName: job.request.clientName,
     title: `疑问句池生成 · ${job.totalCount} 条`,
@@ -216,17 +231,22 @@ export async function syncQuestionJobTask(job: CommonJob & {
         ? `正在生成第 ${Math.max(1, job.currentBatch)} / ${Math.max(1, job.totalBatches)} 批`
         : job.error || "疑问句任务已创建",
     error: job.error,
-    resultUrl: workspaceUrl(clientId, "keyword"),
+    resultUrl: workspaceUrl(clientId, "keyword", job.teamId),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
+    metadata: {
+      teamId: job.teamId,
+    },
   })
 }
 
 export async function syncArticleBatchTask(job: CommonJob & {
   ownerUserId: string
+  workspaceOwnerUserId?: string
+  teamId?: string
   clientId: string
   promptTitle: string
   requestedCount: number
@@ -243,14 +263,14 @@ export async function syncArticleBatchTask(job: CommonJob & {
     kind: "articleBatchGeneration",
     module: "article",
     actorUserId: job.ownerUserId,
-    workspaceOwnerUserId: job.ownerUserId,
+    workspaceOwnerUserId: job.workspaceOwnerUserId || job.ownerUserId,
     clientId: job.clientId,
     title: `${job.promptTitle || "文章"} · 批量生成 ${job.requestedCount} 篇`,
     status,
     progressPercent: ratioProgress(finished, job.requestedCount),
     stage: job.stage || (status === "succeeded" ? "批量文章已全部生成" : "批量任务处理中"),
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, "article"),
+    resultUrl: workspaceUrl(job.clientId, "article", job.teamId),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -261,12 +281,15 @@ export async function syncArticleBatchTask(job: CommonJob & {
       completedCount: job.completedCount,
       failedCount: job.failedCount,
       cancelledCount: job.cancelledCount,
+      teamId: job.teamId,
     },
   })
 }
 
 export async function syncReportJobTask(job: CommonJob & {
   ownerUserId: string
+  actorUserId?: string
+  teamId?: string
   clientId: string
   clientName?: string
   progress: number
@@ -279,7 +302,7 @@ export async function syncReportJobTask(job: CommonJob & {
     sourceJobId: job.id,
     kind: `commercialReport:${job.kind}`,
     module: "report",
-    actorUserId: job.ownerUserId,
+    actorUserId: job.actorUserId || job.ownerUserId,
     workspaceOwnerUserId: job.ownerUserId,
     clientId: job.clientId,
     clientName: job.clientName,
@@ -290,11 +313,14 @@ export async function syncReportJobTask(job: CommonJob & {
     error: job.error,
     resultUrl: status === "succeeded"
       ? `/api/reports/jobs/${encodeURIComponent(job.id)}/view`
-      : workspaceUrl(job.clientId, "report"),
+      : workspaceUrl(job.clientId, "report", job.teamId),
     canCancel: false,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
+    metadata: {
+      teamId: job.teamId,
+    },
   })
 }

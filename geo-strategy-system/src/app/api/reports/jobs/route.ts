@@ -14,6 +14,10 @@ import {
   getCommercialReportJob,
   listCommercialReportJobs,
 } from "@/lib/reports/report-jobs"
+import { isReportAccessError } from "@/lib/reports/access"
+import { requireOperationAccess } from "@/lib/team-access"
+import { listAccessibleTeamClientShares } from "@/lib/team-store"
+import { hasTeamPermission } from "@/lib/team-permissions"
 import { validateReportBranding } from "@/lib/reports/report-branding-store"
 import {
   refundReservedCreditsOnce,
@@ -31,10 +35,7 @@ import type {
   PenetrationResult,
   ResearchResult,
 } from "@/types"
-import {
-  requireStandardAccountMode,
-  resolveWorkspaceAccess,
-} from "@/lib/client-accounts"
+import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 import {
   normalizeAnalysisSubjectType,
   normalizePersonSubjectProfile,
@@ -197,30 +198,77 @@ export async function GET(req: NextRequest) {
   const userGuard = await requireUserId()
   if (!userGuard.ok) return userGuard.response
 
-  const params = req.nextUrl.searchParams
-  const clientId = limitedString(params.get("clientId"), 160)
-  const kind = limitedString(params.get("kind"), 32)
-  const status = limitedString(params.get("status"), 32)
-  const days = Math.max(0, Math.min(365, Number(params.get("days") || 0)))
-  const cutoff = days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0
+  try {
+    const params = req.nextUrl.searchParams
+    const clientId = limitedString(params.get("clientId"), 160)
+    const teamId = limitedString(params.get("teamId"), 160) || undefined
+    const kind = limitedString(params.get("kind"), 32)
+    const status = limitedString(params.get("status"), 32)
+    const days = Math.max(0, Math.min(365, Number(params.get("days") || 0)))
+    const cutoff = days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0
 
-  const access = await resolveWorkspaceAccess(userGuard.userId, clientId || undefined)
-  if (!access.ok) {
-    return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
-  }
-  let jobs = await listCommercialReportJobs(access.ownerUserId)
-  const scopedClientId = access.mode === "client" ? access.clientId : clientId
-  if (scopedClientId) jobs = jobs.filter(job => job.clientId === scopedClientId)
-  if (REPORT_KINDS.has(kind as CommercialReportKind)) jobs = jobs.filter(job => job.kind === kind)
-  if (["queued", "running", "succeeded", "failed"].includes(status)) {
-    jobs = jobs.filter(job => job.status === status)
-  }
-  if (cutoff) jobs = jobs.filter(job => Date.parse(job.createdAt) >= cutoff)
+    let ownerUserId = userGuard.userId
+    let scopedClientId = clientId
+    let jobs
+    if (teamId && !clientId) {
+      const accessible = (await listAccessibleTeamClientShares(userGuard.userId, teamId))
+        .filter(item => hasTeamPermission(item.permissionKeys, "report", "view"))
+      if (accessible.length === 0) {
+        return NextResponse.json(
+          { error: "当前团队没有可查看的客户报告", code: "TEAM_PERMISSION_DENIED" },
+          { status: 403 },
+        )
+      }
+      const owners = [...new Set(accessible.map(item => item.share.clientOwnerUserId))]
+      const reportsByOwner = await Promise.all(
+        owners.map(async ownerId => ({
+          ownerId,
+          jobs: await listCommercialReportJobs(ownerId),
+        })),
+      )
+      const allowed = new Set(accessible.map(item => (
+        `${item.share.clientOwnerUserId}:${item.share.clientId}`
+      )))
+      jobs = reportsByOwner.flatMap(entry => entry.jobs.filter(job => (
+        allowed.has(`${entry.ownerId}:${job.clientId}`)
+      )))
+    } else if (clientId) {
+      const access = await requireOperationAccess({
+        userId: userGuard.userId,
+        clientId,
+        module: "report",
+        action: "view",
+        teamId,
+      })
+      ownerUserId = access.dataOwnerUserId
+      jobs = await listCommercialReportJobs(ownerUserId)
+    } else {
+      const access = await resolveWorkspaceAccess(userGuard.userId)
+      if (!access.ok) {
+        return NextResponse.json({ error: access.message, code: access.code }, { status: 403 })
+      }
+      ownerUserId = access.ownerUserId
+      scopedClientId = access.mode === "client" ? access.clientId || "" : ""
+      jobs = await listCommercialReportJobs(ownerUserId)
+    }
 
-  return NextResponse.json(
-    { jobs, retentionDays: 365, limit: 100 },
-    { headers: { "Cache-Control": "private, no-store" } },
-  )
+    if (scopedClientId) jobs = jobs.filter(job => job.clientId === scopedClientId)
+    if (REPORT_KINDS.has(kind as CommercialReportKind)) jobs = jobs.filter(job => job.kind === kind)
+    if (["queued", "running", "succeeded", "failed"].includes(status)) {
+      jobs = jobs.filter(job => job.status === status)
+    }
+    if (cutoff) jobs = jobs.filter(job => Date.parse(job.createdAt) >= cutoff)
+
+    return NextResponse.json(
+      { jobs, retentionDays: 365, limit: 100 },
+      { headers: { "Cache-Control": "private, no-store" } },
+    )
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "读取历史报告失败" },
+      { status: isReportAccessError(error) ? 403 : 500 },
+    )
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -230,14 +278,6 @@ export async function POST(req: NextRequest) {
   try {
     const userGuard = await requireUserId()
     if (!userGuard.ok) return userGuard.response
-    const accountAccess = await requireStandardAccountMode(userGuard.userId)
-    if (!accountAccess.ok) {
-      return NextResponse.json(
-        { error: accountAccess.message, code: "CLIENT_ACCOUNT_READ_ONLY" },
-        { status: 403 },
-      )
-    }
-
     const contentLength = Number(req.headers.get("content-length") || 0)
     if (contentLength > MAX_REPORT_PAYLOAD_BYTES) {
       return NextResponse.json({ error: "报告数据过大，请选择精简版后重试" }, { status: 413 })
@@ -254,9 +294,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "报告数据过大，请选择精简版后重试" }, { status: 413 })
     }
 
+    const teamId = limitedString(isRecord(body) ? body.teamId : undefined, 160) || undefined
+    const operationAccess = await requireOperationAccess({
+      userId: userGuard.userId,
+      clientId: input.client.id,
+      module: "report",
+      action: "execute",
+      teamId,
+    })
+
     let creditCost = 0
     if (input.branding?.mode === "custom") {
-      const access = await getReportBrandingAccess(userGuard.userId)
+      const access = await getReportBrandingAccess(operationAccess.billingUserId)
       if (!access.canUseCustomBranding) {
         return NextResponse.json({
           error: "充值任意套餐并到账后，即可解锁白标报告",
@@ -272,7 +321,7 @@ export async function POST(req: NextRequest) {
       ownerUserId: userGuard.userId,
       requestId,
       existingJobId: jobId,
-      loadExisting: id => getCommercialReportJob(id, userGuard.userId),
+      loadExisting: id => getCommercialReportJob(id, operationAccess.dataOwnerUserId),
     })
     if (acquired.status === "existing") {
       return NextResponse.json(acquired.job, { status: 202 })
@@ -284,7 +333,7 @@ export async function POST(req: NextRequest) {
 
     if (creditCost > 0) {
       const featureKey = "reportCustomBranding"
-      const creditGuard = await reserveCreditsForUser(userGuard.userId, creditCost, {
+      const creditGuard = await reserveCreditsForUser(operationAccess.billingUserId, creditCost, {
         featureKey,
         source: "api:reports:jobs",
         sourceId: jobId,
@@ -294,6 +343,10 @@ export async function POST(req: NextRequest) {
           reportKind: input.kind,
           reportDetail: input.detail,
           requestId,
+          actorUserId: operationAccess.actorUserId,
+          billingUserId: operationAccess.billingUserId,
+          workspaceOwnerUserId: operationAccess.dataOwnerUserId,
+          teamId: operationAccess.teamId,
         },
       })
       if (!creditGuard.ok) {
@@ -308,7 +361,10 @@ export async function POST(req: NextRequest) {
     const job = await createCommercialReportJob({
       id: jobId,
       input,
-      ownerUserId: userGuard.userId,
+      ownerUserId: operationAccess.dataOwnerUserId,
+      actorUserId: operationAccess.actorUserId,
+      billingUserId: operationAccess.billingUserId,
+      teamId: operationAccess.teamId,
       requestId,
       creditCost,
       reservation: reservation || undefined,
@@ -330,7 +386,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "创建专业报告任务失败" },
-      { status: 400 },
+      { status: isReportAccessError(error) ? 403 : 400 },
     )
   }
 }

@@ -1,5 +1,6 @@
 // ============ Legacy (保留兼容 /api/generate) ============
 import type { KeywordStrategyState } from "./geo-strategy"
+import type { TeamPermissionKey, TeamRole } from "@/lib/team-permissions"
 
 export interface BrandInput {
   brandName: string
@@ -52,7 +53,7 @@ export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "huny
 
 export type LlmMode = "consumer" | "judge"
 
-export type WorkspaceAccountMode = "standard" | "client"
+export type WorkspaceAccountMode = "standard" | "client" | "team"
 export type ClientAccountStatus = "active" | "suspended"
 export type AnalysisSubjectType = "brand" | "person"
 
@@ -72,6 +73,13 @@ export interface WorkspaceAccountAccess {
   clientId?: string
   clientName?: string
   monthlyCredits?: number
+  teamId?: string
+  teamName?: string
+  teamRole?: TeamRole
+  teamReadOnly?: boolean
+  dataOwnerUserId?: string
+  billingUserId?: string
+  permissionKeys?: TeamPermissionKey[]
   canCreateClients: boolean
   canManageClientIdentity: boolean
   canRunPenetration: boolean

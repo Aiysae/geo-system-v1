@@ -32,6 +32,9 @@ export type ReportHistoryClient = Pick<Client, "id" | "name">
 type Props = {
   clients: ReportHistoryClient[]
   activeClientId: string | null
+  teamId?: string
+  showPenetrationHistory?: boolean
+  showPdfHistory?: boolean
   onExportPenetration?: (client: Client) => void
   onClose: () => void
 }
@@ -90,6 +93,9 @@ function saveBlob(blob: Blob, fileName: string): void {
 export default function ReportHistoryDialog({
   clients,
   activeClientId,
+  teamId,
+  showPenetrationHistory = true,
+  showPdfHistory = true,
   onExportPenetration,
   onClose,
 }: Props) {
@@ -98,7 +104,14 @@ export default function ReportHistoryDialog({
     clientMountedSnapshot,
     serverMountedSnapshot,
   )
-  const [activeTab, setActiveTab] = useState<"penetration" | "pdf">("penetration")
+  const [activeTab, setActiveTab] = useState<"penetration" | "pdf">(
+    showPenetrationHistory ? "penetration" : "pdf",
+  )
+  const visibleTab = !showPenetrationHistory && showPdfHistory
+    ? "pdf"
+    : !showPdfHistory && showPenetrationHistory
+      ? "penetration"
+      : activeTab
   const [jobs, setJobs] = useState<CommercialReportJobRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -118,11 +131,17 @@ export default function ReportHistoryDialog({
   )
 
   const loadJobs = useCallback(async (silent = false) => {
+    if (!showPdfHistory) {
+      setJobs([])
+      setLoading(false)
+      return
+    }
     const requestVersion = ++requestVersionRef.current
     if (!silent) setLoading(true)
     setError("")
     try {
       const params = new URLSearchParams()
+      if (teamId) params.set("teamId", teamId)
       if (clientFilter !== "all") params.set("clientId", clientFilter)
       if (kindFilter !== "all") params.set("kind", kindFilter)
       if (statusFilter !== "all") params.set("status", statusFilter)
@@ -141,7 +160,7 @@ export default function ReportHistoryDialog({
     } finally {
       if (!silent && requestVersion === requestVersionRef.current) setLoading(false)
     }
-  }, [clientFilter, daysFilter, kindFilter, statusFilter])
+  }, [clientFilter, daysFilter, kindFilter, showPdfHistory, statusFilter, teamId])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadJobs(), 0)
@@ -301,13 +320,13 @@ export default function ReportHistoryDialog({
           </div>
         </header>
 
-        {!selectedJob ? (
+        {!selectedJob && showPenetrationHistory && showPdfHistory ? (
           <div className="grid shrink-0 grid-cols-2 border-b border-slate-200 bg-white px-4 pt-2 sm:px-6">
             <button
               type="button"
               onClick={() => setActiveTab("penetration")}
               className={`inline-flex h-11 items-center justify-center gap-2 border-b-2 text-xs font-semibold transition ${
-                activeTab === "penetration"
+                visibleTab === "penetration"
                   ? "border-[#1677FF] text-[#0958D9]"
                   : "border-transparent text-slate-500 hover:text-slate-800"
               }`}
@@ -319,7 +338,7 @@ export default function ReportHistoryDialog({
               type="button"
               onClick={() => setActiveTab("pdf")}
               className={`inline-flex h-11 items-center justify-center gap-2 border-b-2 text-xs font-semibold transition ${
-                activeTab === "pdf"
+                visibleTab === "pdf"
                   ? "border-[#1677FF] text-[#0958D9]"
                   : "border-transparent text-slate-500 hover:text-slate-800"
               }`}
@@ -330,7 +349,7 @@ export default function ReportHistoryDialog({
           </div>
         ) : null}
 
-        {(activeTab === "pdf" || selectedJob) && error ? (
+        {(visibleTab === "pdf" || selectedJob) && error ? (
           <div className="shrink-0 border-b border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700 sm:px-6">
             {error}
           </div>
@@ -357,10 +376,11 @@ export default function ReportHistoryDialog({
               </div>
             )}
           </div>
-        ) : activeTab === "penetration" ? (
+        ) : visibleTab === "penetration" ? (
           <PenetrationHistoryPanel
             clients={clients}
             activeClientId={activeClientId}
+            teamId={teamId}
             onExportPenetration={onExportPenetration}
           />
         ) : (
