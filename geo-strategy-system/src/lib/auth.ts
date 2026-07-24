@@ -155,6 +155,16 @@ function resolveRole(email: string): AuthUser["role"] {
   return adminEmails.has(normalizeEmail(email)) ? "admin" : "user"
 }
 
+function isConfiguredAdminEmail(email: string): boolean {
+  return resolveRole(email) === "admin"
+}
+
+function assertValidEmail(email: string): void {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("请输入有效邮箱")
+  }
+}
+
 export async function createUser(input: {
   email: string
   password: string
@@ -510,6 +520,118 @@ export async function getUserByEmail(emailInput: string): Promise<PublicUser | n
   const userId = await kv.get<string>(KEY_EMAIL(email))
   if (!userId) return null
   return getUserById(userId)
+}
+
+export async function validateAccountEmailChangeTarget(
+  userId: string,
+  emailInput: string,
+): Promise<string> {
+  const user = await kv.get<AuthUser>(KEY_USER(userId))
+  if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
+  if (user.role === "admin" || isConfiguredAdminEmail(user.email)) {
+    throw new Error("管理员登录邮箱请在服务端配置中变更")
+  }
+
+  const email = normalizeEmail(emailInput)
+  assertValidEmail(email)
+  if (email === normalizeEmail(user.email)) throw new Error("新邮箱不能与当前邮箱相同")
+  if (isConfiguredAdminEmail(email)) throw new Error("该邮箱不能用于普通账号")
+
+  const existingUserId = await kv.get<string>(KEY_EMAIL(email))
+  if (existingUserId && existingUserId !== userId) throw new Error("该邮箱已被其他账号使用")
+  return email
+}
+
+export async function updateUserProfileName(
+  userId: string,
+  nameInput: string,
+): Promise<PublicUser> {
+  const user = await kv.get<AuthUser>(KEY_USER(userId))
+  if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
+  const name = nameInput.trim().replace(/\s+/g, " ").slice(0, 50)
+  if (name.length < 2) throw new Error("账号名称至少需要 2 个字符")
+  const updated: AuthUser = {
+    ...user,
+    name,
+    updatedAt: new Date().toISOString(),
+  }
+  await kv.set(KEY_USER(user.id), updated)
+  return toPublicUser(updated)
+}
+
+export async function changeUserEmail(input: {
+  userId: string
+  currentPassword: string
+  newEmail: string
+  verificationCode: string
+}): Promise<PublicUser> {
+  const user = await kv.get<AuthUser>(KEY_USER(input.userId))
+  if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
+  if (!(await verifyPassword(input.currentPassword, user.passwordHash))) {
+    throw new Error("当前密码不正确")
+  }
+  const email = await validateAccountEmailChangeTarget(user.id, input.newEmail)
+  await consumeEmailVerificationCode({
+    email,
+    purpose: "email-change",
+    code: input.verificationCode,
+  })
+
+  const mappedUserId = await kv.get<string>(KEY_EMAIL(email))
+  let reserved = false
+  if (mappedUserId && mappedUserId !== user.id) throw new Error("该邮箱已被其他账号使用")
+  if (!mappedUserId) {
+    reserved = Boolean(await kv.set(KEY_EMAIL(email), user.id, { nx: true }))
+    if (!reserved) throw new Error("该邮箱已被其他账号使用")
+  }
+
+  const now = new Date().toISOString()
+  const updated: AuthUser = {
+    ...user,
+    email,
+    emailVerifiedAt: now,
+    authVersion: currentAuthVersion(user) + 1,
+    updatedAt: now,
+  }
+  try {
+    await kv.set(KEY_USER(user.id), updated)
+  } catch (error) {
+    if (reserved) await kv.del(KEY_EMAIL(email))
+    throw error
+  }
+  try {
+    await kv.del(KEY_EMAIL(normalizeEmail(user.email)))
+  } catch (error) {
+    console.warn(`[auth] Failed to remove previous email mapping for ${user.id}`, error)
+  }
+  return toPublicUser(updated)
+}
+
+export async function changeUserPassword(input: {
+  userId: string
+  currentPassword: string
+  newPassword: string
+}): Promise<PublicUser> {
+  const user = await kv.get<AuthUser>(KEY_USER(input.userId))
+  if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
+  if (!(await verifyPassword(input.currentPassword, user.passwordHash))) {
+    throw new Error("当前密码不正确")
+  }
+  const passwordError = validatePassword(input.newPassword)
+  if (passwordError) throw new Error(passwordError)
+  if (await verifyPassword(input.newPassword, user.passwordHash)) {
+    throw new Error("新密码不能与当前密码相同")
+  }
+
+  const updated: AuthUser = {
+    ...user,
+    passwordHash: await hashPassword(input.newPassword),
+    mustChangePassword: false,
+    authVersion: currentAuthVersion(user) + 1,
+    updatedAt: new Date().toISOString(),
+  }
+  await kv.set(KEY_USER(user.id), updated)
+  return toPublicUser(updated)
 }
 
 export async function setManagedUserTemporaryPassword(input: {

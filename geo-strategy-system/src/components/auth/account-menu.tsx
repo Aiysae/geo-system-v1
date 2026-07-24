@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Crown, GraduationCap, House, LogOut, ReceiptText, ShieldCheck, UserRound, UsersRound } from "lucide-react"
-import { BillingLink } from "@/components/billing/billing-link"
-import type { MembershipSnapshot, WorkspaceAccountAccess } from "@/types"
+import { Crown, House, LogOut, ShieldCheck, UserRound } from "lucide-react"
+import type { MembershipSnapshot } from "@/types"
 
 type MeResponse = {
   user?: {
@@ -14,14 +13,12 @@ type MeResponse = {
     role: "admin" | "user"
   }
   membership?: MembershipSnapshot
-  access?: WorkspaceAccountAccess
   isAdmin?: boolean
 }
 
 export function AccountMenu() {
   const [user, setUser] = useState<MeResponse["user"] | null>(null)
   const [membership, setMembership] = useState<MembershipSnapshot>({ tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 })
-  const [access, setAccess] = useState<WorkspaceAccountAccess | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [open, setOpen] = useState(false)
 
@@ -36,7 +33,6 @@ export function AccountMenu() {
           setMembership(data?.membership?.active === true
             ? data.membership
             : { tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 })
-          setAccess(data?.access || null)
         }
       })
       .catch(() => {
@@ -52,6 +48,8 @@ export function AccountMenu() {
     window.location.assign("/")
   }
 
+  const initials = (user?.name || user?.email || "我").trim().slice(0, 2).toUpperCase()
+
   return (
     <div className="relative">
       <button
@@ -60,7 +58,7 @@ export function AccountMenu() {
         className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
         aria-label="账号菜单"
       >
-        <UserRound className="h-4 w-4" />
+        <span className="text-[11px] font-bold text-[#0958D9]">{initials}</span>
       </button>
 
       {open && (
@@ -82,6 +80,15 @@ export function AccountMenu() {
             </div>
           </div>
 
+          <Link
+            href="/account"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            onClick={() => setOpen(false)}
+          >
+            <UserRound className="h-4 w-4 text-[#1677FF]" />
+            我的主页
+          </Link>
+
           {isAdmin && (
             <Link
               href="/admin"
@@ -101,35 +108,6 @@ export function AccountMenu() {
             <House className="h-4 w-4 text-[#1677FF]" />
             品牌主页
           </Link>
-
-          <Link
-            href="/workspace/tutorial?manual=1"
-            className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
-            onClick={() => setOpen(false)}
-          >
-            <GraduationCap className="h-4 w-4 text-[#00AEEA]" />
-            新手体验教程
-          </Link>
-
-          {access?.mode === "standard" && membership.clientAccountLimit > 0 ? (
-            <Link
-              href="/client-accounts"
-              className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
-              onClick={() => setOpen(false)}
-            >
-              <UsersRound className="h-4 w-4 text-[#13C2C2]" />
-              客户账号管理
-              <span className="ml-auto text-[10px] text-slate-400">{membership.clientAccountLimit} 个名额</span>
-            </Link>
-          ) : null}
-
-          <BillingLink
-            className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
-            onNavigate={() => setOpen(false)}
-          >
-            <ReceiptText className="h-4 w-4 text-amber-500" />
-            账单与积分记录
-          </BillingLink>
 
           <button
             type="button"

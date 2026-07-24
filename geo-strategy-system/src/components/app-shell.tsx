@@ -3,7 +3,10 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import ClientSidebar from "@/components/sidebar/client-sidebar"
+import WorkspaceSidebar, {
+  isDashboardModuleKey,
+  type DashboardModuleKey,
+} from "@/components/sidebar/workspace-sidebar"
 import PenetrationModule from "@/components/penetration/penetration-module"
 import ResearchModule from "@/components/research/research-module"
 import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
@@ -17,36 +20,24 @@ import SiteFooter from "@/components/site-footer"
 import {
   AlertTriangle,
   ArrowUp,
-  Brain,
-  Building2,
-  CalendarRange,
   CheckCircle2,
   Cloud,
   CloudOff,
-  ChevronDown,
   FileDown,
-  FileText,
-  Gauge,
-  Grid3X3,
   GraduationCap,
   History,
-  ListOrdered,
   LockKeyhole,
   LoaderCircle,
   Menu,
   MoreHorizontal,
-  Radar,
   RefreshCw,
   Sparkles,
-  Target,
-  UserRound,
 } from "lucide-react"
 import { useCredits } from "@/components/credits/credits-provider"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { AccountMenu } from "@/components/auth/account-menu"
 import { useWorkspaceSync, type WorkspaceSyncState } from "@/hooks/use-workspace-sync"
 import type {
-  AnalysisSubjectType,
   Client,
   ReportExportPreset,
   WorkspaceAccountAccess,
@@ -76,8 +67,6 @@ export default function Home({
     showMigration,
     legacyClientCount,
     handleSelect: selectClient,
-    handleCreate: createWorkspaceClient,
-    handleDelete,
     handleChangeClient,
     retry,
     importLegacy,
@@ -89,27 +78,49 @@ export default function Home({
   })
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activeModule, setActiveModule] = useState<DashboardModuleKey>(
+    restricted ? "feedback" : "penetration",
+  )
   const [reportExportPreset, setReportExportPreset] = useState<ReportExportPreset | null>(null)
   const [reportExportClient, setReportExportClient] = useState<Client | null>(null)
   const [reportHistoryOpen, setReportHistoryOpen] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
   const mainScrollRef = useRef<HTMLElement>(null)
+  const urlInitializedRef = useRef(false)
 
   const active = clients.find(c => c.id === activeId) ?? null
 
-  const handleSelect = useCallback((id: string) => {
-    selectClient(id)
-    // 移动端：选中客户后自动收起抽屉，直接进入详情面板
+  const handleModuleChange = useCallback((module: DashboardModuleKey) => {
+    setActiveModule(module)
     setSidebarOpen(false)
     setReportExportPreset(null)
     setReportExportClient(null)
     setReportHistoryOpen(false)
-  }, [selectClient])
+  }, [])
 
-  const handleCreate = useCallback((name: string, subjectType: AnalysisSubjectType = "brand") => {
-    createWorkspaceClient(name, subjectType)
-    setSidebarOpen(false)
-  }, [createWorkspaceClient])
+  useEffect(() => {
+    if (!hydrated || urlInitializedRef.current) return
+    const timer = window.setTimeout(() => {
+      const url = new URL(window.location.href)
+      const requestedModule = url.searchParams.get("module")
+      if (isDashboardModuleKey(requestedModule)) setActiveModule(requestedModule)
+      const requestedClientId = url.searchParams.get("clientId")
+      if (requestedClientId && clients.some(client => client.id === requestedClientId)) {
+        selectClient(requestedClientId)
+      }
+      urlInitializedRef.current = true
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [clients, hydrated, selectClient])
+
+  useEffect(() => {
+    if (!hydrated || !urlInitializedRef.current) return
+    const url = new URL(window.location.href)
+    if (activeId) url.searchParams.set("clientId", activeId)
+    else url.searchParams.delete("clientId")
+    url.searchParams.set("module", activeModule)
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  }, [activeId, activeModule, hydrated])
 
   useEffect(() => {
     const scrollContainer = mainScrollRef.current
@@ -136,13 +147,11 @@ export default function Home({
         />
       )}
 
-      <ClientSidebar
-        clients={clients}
-        activeId={activeId}
-        onSelect={handleSelect}
-        onCreate={handleCreate}
-        onDelete={handleDelete}
-        restricted={restricted}
+      <WorkspaceSidebar
+        active={activeModule}
+        onChange={handleModuleChange}
+        client={active}
+        access={access}
         monthlyCredits={monthlyBalance}
         monthlyAllowance={monthlyAllowance}
         open={sidebarOpen}
@@ -175,11 +184,7 @@ export default function Home({
             加载中...
           </div>
         ) : !active ? (
-          <EmptyState
-            onCreate={handleCreate}
-            restricted={restricted}
-            clientName={access.clientName}
-          />
+          <EmptyState restricted={restricted} clientName={access.clientName} />
         ) : (
           // key={active.id}：切换客户时强制 Dashboard 整子树重挂载，
           // 彻底清空各 Module 内的 isDetecting/loading/progress 等运行时状态，根治状态泄露。
@@ -188,6 +193,7 @@ export default function Home({
             client={active}
             onChangeClient={handleChangeClient}
             access={access}
+            activeModule={activeModule}
             onExportReport={preset => {
               setReportExportClient(null)
               setReportExportPreset(preset)
@@ -270,7 +276,7 @@ function StickyHeader({
           <button
             onClick={onOpenSidebar}
             className="no-print -ml-1 shrink-0 rounded-lg p-2 transition hover:bg-white/10 md:hidden"
-            aria-label="打开客户列表"
+            aria-label="打开功能导航"
           >
             <Menu className="h-5 w-5 text-white" />
           </button>
@@ -582,92 +588,24 @@ function CreditsPill() {
   )
 }
 
-function EmptyState({
-  onCreate,
-  restricted = false,
-  clientName,
-}: {
-  onCreate: (name: string, subjectType?: AnalysisSubjectType) => void
+function EmptyState({ restricted = false, clientName }: {
   restricted?: boolean
   clientName?: string
 }) {
-  const [name, setName] = useState("")
-  const [subjectType, setSubjectType] = useState<AnalysisSubjectType>("brand")
   return (
-    <div className="h-screen flex flex-col items-center justify-center px-6 animate-fade-in-up">
+    <div className="flex min-h-[calc(100vh-56px)] flex-col items-center justify-center px-6 py-16 animate-fade-in-up">
       <div className="mb-7 flex h-20 w-20 items-center justify-center rounded-lg bg-gradient-to-br from-[#2F54EB] via-[#1677FF] to-[#00C8FF] shadow-[0_18px_40px_-22px_rgba(22,119,255,0.72)]">
         <Sparkles className="h-12 w-12 text-white" />
       </div>
-      <h2 className="geo-display-title text-3xl text-slate-900">
-        {restricted ? "客户面板暂不可用" : "欢迎使用势途 GEO 市场情报终端"}
+      <h2 className="geo-display-title text-center text-2xl text-slate-900 sm:text-3xl">
+        {restricted ? "客户面板暂不可用" : "还没有可用的客户档案"}
       </h2>
       <p className="text-sm text-slate-500 mt-3 max-w-md text-center leading-relaxed">
         {restricted
           ? `当前账号已关联「${clientName || "指定客户"}」，但面板数据暂时无法读取。请联系管理员检查授权客户是否仍然存在。`
-          : "每个客户的调研数据、诊断结果与生成策略会自动保存到当前账号，换设备也能继续使用。"}
+          : "客户资料已统一移到“我的主页”管理。新建或选择客户后，即可进入对应工作台。"}
       </p>
-      {!restricted ? <div className="mt-8 w-full max-w-md space-y-3">
-        <div className="geo-segmented grid grid-cols-2 p-1">
-          <button
-            type="button"
-            onClick={() => setSubjectType("brand")}
-            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${
-              subjectType === "brand"
-                ? "bg-white text-[#0958D9] shadow-sm"
-                : "text-slate-500 hover:text-[#1677FF]"
-            }`}
-          >
-            <Building2 className="h-4 w-4" />
-            品牌分析
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubjectType("person")}
-            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${
-              subjectType === "person"
-                ? "bg-white text-[#0958D9] shadow-sm"
-                : "text-slate-500 hover:text-[#1677FF]"
-            }`}
-          >
-            <UserRound className="h-4 w-4" />
-            个人 IP 分析
-          </button>
-        </div>
-        <div className="flex gap-2">
-          <input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && name.trim()) {
-                onCreate(name.trim(), subjectType)
-                setName("")
-              }
-            }}
-            placeholder={subjectType === "person"
-              ? "输入项目名称（如：王医生个人 IP）"
-              : "输入第一个客户名称（如：势途 / 客户A）"}
-            className="flex-1 px-4 py-3 text-sm rounded-xl border border-slate-200 bg-white/70 backdrop-blur outline-none focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/20 transition-all"
-          />
-          <button
-            onClick={() => {
-              if (name.trim()) {
-                onCreate(name.trim(), subjectType)
-                setName("")
-              }
-            }}
-            className="rounded-lg bg-gradient-to-r from-[#1677FF] to-[#0958D9] px-5 py-3 text-sm font-medium text-white shadow-sm transition-[filter] hover:brightness-105"
-          >
-            创建
-          </button>
-        </div>
-        <Link
-          href="/workspace/tutorial?manual=1"
-          className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[#B7D9FF] bg-[#EAF5FF] text-xs font-semibold text-[#0958D9] transition hover:bg-[#DCEEFF]"
-        >
-          <GraduationCap className="h-4 w-4" />
-          先用 3 分钟体验完整成果
-        </Link>
-      </div> : null}
+      {!restricted ? <div className="mt-7 flex flex-wrap items-center justify-center gap-3"><Link href="/account?tab=clients" className="inline-flex h-10 items-center justify-center rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-5 text-xs font-semibold text-white shadow-sm">管理我的客户</Link><Link href="/workspace/tutorial?manual=1" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#B7D9FF] bg-white px-4 text-xs font-semibold text-[#0958D9]"><GraduationCap className="h-4 w-4" />新手体验教程</Link></div> : null}
     </div>
   )
 }
@@ -677,15 +615,14 @@ function Dashboard({
   onChangeClient,
   onExportReport,
   access,
+  activeModule,
 }: {
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
   onExportReport: (preset: ReportExportPreset) => void
   access: WorkspaceAccountAccess
+  activeModule: DashboardModuleKey
 }) {
-  const [activeModule, setActiveModule] = useState<DashboardModuleKey>(
-    access.mode === "client" ? "feedback" : "penetration",
-  )
   const subjectType = getClientSubjectType(client)
   const subjectCopy = getSubjectCopy(subjectType)
   const readOnlyModule = access.mode === "client"
@@ -723,13 +660,7 @@ function Dashboard({
         </div>
       </header>
 
-      <ModuleNav
-        active={activeModule}
-        onChange={setActiveModule}
-        restricted={access.mode === "client"}
-      />
-
-      <section className="mt-3 md:mt-4">
+      <section className="mt-1 md:mt-2">
         {readOnlyModule ? (
           <div className="mb-3 flex items-start gap-2 rounded-lg border border-[#91CAFF] bg-[#EAF5FF] px-3 py-2.5 text-xs leading-5 text-[#0958D9] no-print">
             <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -781,184 +712,5 @@ function Dashboard({
         </fieldset>
       </section>
     </div>
-  )
-}
-
-type DashboardModuleKey = "penetration" | "research" | "diagnosis" | "difficulty" | "keyword" | "article" | "feedback"
-
-const DASHBOARD_MODULES: Array<{
-  key: DashboardModuleKey
-  label: string
-  desc: string
-  icon: typeof Target
-  activeClass: string
-  iconClass: string
-  dotClass: string
-}> = [
-  {
-    key: "penetration",
-    label: "渗透率情报",
-    desc: "多模型联网检测",
-    icon: Target,
-    activeClass: "bg-gradient-to-r from-[#1677FF] to-[#0958D9] text-white shadow-sm",
-    iconClass: "bg-[#E6F4FF] text-[#1677FF]",
-    dotClass: "bg-[#00C8FF]",
-  },
-  {
-    key: "research",
-    label: "独立调研",
-    desc: "品牌与竞品调研",
-    icon: Brain,
-    activeClass: "bg-gradient-to-r from-[#13C2C2] to-[#1677FF] text-white shadow-sm",
-    iconClass: "bg-cyan-50 text-[#08979C]",
-    dotClass: "bg-[#13C2C2]",
-  },
-  {
-    key: "diagnosis",
-    label: "AI 诊断",
-    desc: "AI 可见度诊断",
-    icon: Radar,
-    activeClass: "bg-gradient-to-r from-[#2F54EB] to-[#597EF7] text-white shadow-sm",
-    iconClass: "bg-indigo-50 text-[#2F54EB]",
-    dotClass: "bg-[#2F54EB]",
-  },
-  {
-    key: "difficulty",
-    label: "难度测评",
-    desc: "难度、周期与成本",
-    icon: Gauge,
-    activeClass: "bg-gradient-to-r from-[#0958D9] to-[#003EB3] text-white shadow-sm",
-    iconClass: "bg-blue-50 text-[#0958D9]",
-    dotClass: "bg-[#0958D9]",
-  },
-  {
-    key: "keyword",
-    label: "关键词策略",
-    desc: "资料整理与问题生成",
-    icon: ListOrdered,
-    activeClass: "bg-gradient-to-r from-[#4096FF] to-[#00C8FF] text-white shadow-sm",
-    iconClass: "bg-sky-50 text-[#1677FF]",
-    dotClass: "bg-[#4096FF]",
-  },
-  {
-    key: "article",
-    label: "文章生成",
-    desc: "多模板文章创作",
-    icon: FileText,
-    activeClass: "bg-gradient-to-r from-[#6C5CE7] to-[#2F54EB] text-white shadow-sm",
-    iconClass: "bg-violet-50 text-[#6C5CE7]",
-    dotClass: "bg-[#6C5CE7]",
-  },
-  {
-    key: "feedback",
-    label: "执行反馈",
-    desc: "日历、周报与月报",
-    icon: CalendarRange,
-    activeClass: "bg-gradient-to-r from-[#00AEEA] to-[#13C2C2] text-white shadow-sm",
-    iconClass: "bg-cyan-50 text-[#08979C]",
-    dotClass: "bg-[#13C2C2]",
-  },
-]
-
-function ModuleNav({
-  active,
-  onChange,
-  restricted = false,
-}: {
-  active: DashboardModuleKey
-  onChange: (key: DashboardModuleKey) => void
-  restricted?: boolean
-}) {
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const current = DASHBOARD_MODULES.find(item => item.key === active) ?? DASHBOARD_MODULES[0]
-  const CurrentIcon = current.icon
-
-  return (
-    <nav className="no-print">
-      <div className="relative md:hidden">
-        <button
-          type="button"
-          onClick={() => setMobileOpen(open => !open)}
-          className="flex h-12 w-full items-center gap-3 rounded-lg border border-[#CFE0F2] bg-white px-3 text-left shadow-[0_10px_28px_-24px_rgba(23,59,102,0.5)]"
-          aria-expanded={mobileOpen}
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-[#1677FF] to-[#00AEEA] text-white">
-            <CurrentIcon className="h-4 w-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold text-[#102A43]">{current.label}</span>
-            <span className="block truncate text-[10px] text-[#7E91A7]">{current.desc}</span>
-          </span>
-          <span className="flex items-center gap-1 text-[11px] font-medium text-[#1677FF]">
-            <Grid3X3 className="h-3.5 w-3.5" />
-            切换
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${mobileOpen ? "rotate-180" : ""}`} />
-          </span>
-        </button>
-        {mobileOpen ? (
-          <div className="absolute inset-x-0 top-14 z-20 grid grid-cols-2 gap-1.5 rounded-lg border border-[#CFE0F2] bg-white p-2 shadow-xl">
-            {DASHBOARD_MODULES.map(item => {
-              const Icon = item.icon
-              const isActive = active === item.key
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => {
-                    onChange(item.key)
-                    setMobileOpen(false)
-                  }}
-                  className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left ${
-                    isActive ? "bg-[#EAF3FF] text-[#0958D9]" : "text-[#526A83] hover:bg-[#F3F7FB]"
-                  }`}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="truncate text-xs font-semibold">{item.label}</span>
-                  {restricted && item.key !== "penetration" && item.key !== "feedback" ? (
-                    <LockKeyhole className="h-3 w-3 shrink-0 opacity-55" />
-                  ) : null}
-                </button>
-              )
-            })}
-          </div>
-        ) : null}
-      </div>
-
-      <div className="hidden grid-cols-7 gap-1 rounded-lg border border-[#DCE6F2] bg-white p-1 shadow-[0_12px_30px_-25px_rgba(23,59,102,0.28)] md:grid">
-        {DASHBOARD_MODULES.map(item => {
-          const Icon = item.icon
-          const isActive = active === item.key
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => onChange(item.key)}
-              className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors ${
-                isActive
-                  ? "bg-gradient-to-r from-[#0958D9] to-[#1677FF] text-white shadow-sm"
-                  : "text-[#526A83] hover:bg-[#F0F6FF] hover:text-[#0958D9]"
-              }`}
-            >
-              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
-                isActive ? "bg-white/16" : item.iconClass
-              }`}>
-                <Icon className="h-4 w-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="flex items-center gap-1.5 text-xs font-semibold xl:text-sm">
-                  <span className="truncate">{item.label}</span>
-                  {restricted && item.key !== "penetration" && item.key !== "feedback" ? (
-                    <LockKeyhole className="h-3 w-3 shrink-0 opacity-55" />
-                  ) : null}
-                </span>
-                <span className={`block text-[10px] truncate ${isActive ? "text-white/78" : "text-slate-400"}`}>
-                  {item.desc}
-                </span>
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </nav>
   )
 }

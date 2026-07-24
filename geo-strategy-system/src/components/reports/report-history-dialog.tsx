@@ -27,10 +27,12 @@ import type {
   CommercialReportKind,
 } from "@/types"
 
+export type ReportHistoryClient = Pick<Client, "id" | "name">
+
 type Props = {
-  clients: Client[]
+  clients: ReportHistoryClient[]
   activeClientId: string | null
-  onExportPenetration: (client: Client) => void
+  onExportPenetration?: (client: Client) => void
   onClose: () => void
 }
 

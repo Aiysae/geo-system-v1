@@ -5,7 +5,7 @@ import path from "path"
 import { randomUUID } from "crypto"
 import { isDeepStrictEqual } from "util"
 import { Pool, type PoolClient } from "pg"
-import type { Client } from "@/types"
+import type { AnalysisSubjectType, Client } from "@/types"
 import {
   WORKSPACE_SECTIONS,
   WorkspaceValidationError,
@@ -41,6 +41,20 @@ export type WorkspaceImportResult = {
   duplicatedCount: number
   alreadyImported: boolean
   clients: SyncedClient[]
+}
+
+export type WorkspaceClientSummary = {
+  id: string
+  name: string
+  subjectType: AnalysisSubjectType
+  ourBrand: string
+  industry: string
+  website: string
+  createdAt: string
+  updatedAt: string
+  questionCount: number
+  selectedModelCount: number
+  completedModules: WorkspaceSection[]
 }
 
 export class WorkspaceConflictError extends Error {
@@ -106,6 +120,14 @@ export async function listWorkspaceClients(userId: string): Promise<SyncedClient
   return backend() === "postgres"
     ? listPostgresClients(userId)
     : withFileState(state => listFileClients(state, userId))
+}
+
+export async function listWorkspaceClientSummaries(
+  userId: string,
+): Promise<WorkspaceClientSummary[]> {
+  return backend() === "postgres"
+    ? listPostgresClientSummaries(userId)
+    : withFileState(state => listFileClientSummaries(state, userId))
 }
 
 export async function createWorkspaceClient(userId: string, value: unknown): Promise<SyncedClient> {
@@ -290,6 +312,31 @@ async function listPostgresClients(userId: string): Promise<SyncedClient[]> {
     [userId],
   )
   return recordsFromRows(result.rows)
+}
+
+async function listPostgresClientSummaries(
+  userId: string,
+): Promise<WorkspaceClientSummary[]> {
+  await ensureWorkspaceSchema()
+  const result = await pool().query<{
+    core: Record<string, unknown>
+    section_versions: Record<string, number> | null
+  }>(
+    `SELECT c.core,
+            COALESCE(
+              jsonb_object_agg(s.section, s.version)
+                FILTER (WHERE s.section IS NOT NULL),
+              '{}'::jsonb
+            ) AS section_versions
+     FROM geo_workspace_clients c
+     LEFT JOIN geo_workspace_sections s
+       ON s.user_id = c.user_id AND s.client_id = c.id
+     WHERE c.user_id = $1 AND c.deleted_at IS NULL
+     GROUP BY c.user_id, c.id, c.core, c.updated_at
+     ORDER BY c.updated_at DESC`,
+    [userId],
+  )
+  return result.rows.map(row => summaryFromCore(row.core, row.section_versions || {}))
 }
 
 async function createPostgresClient(userId: string, client: Client): Promise<SyncedClient> {
@@ -585,6 +632,41 @@ function listFileClients(state: FileWorkspaceState, userId: string): SyncedClien
     .filter(record => !record.deletedAt)
     .map(syncedFromRecord)
     .sort((a, b) => b.client.updatedAt.localeCompare(a.client.updatedAt))
+}
+
+function listFileClientSummaries(
+  state: FileWorkspaceState,
+  userId: string,
+): WorkspaceClientSummary[] {
+  return Object.values(fileUser(state, userId).clients)
+    .filter(record => !record.deletedAt)
+    .map(record => summaryFromCore(record.sections.core || {}, record.versions))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+}
+
+function summaryFromCore(
+  core: Record<string, unknown>,
+  versions: Partial<Record<WorkspaceSection, number>>,
+): WorkspaceClientSummary {
+  const questions = Array.isArray(core.questions) ? core.questions : []
+  const selectedModels = Array.isArray(core.selectedModels) ? core.selectedModels : []
+  const completedModules = WORKSPACE_SECTIONS.filter(section => (
+    section !== "core" && section !== "jobs" && Number(versions[section] || 0) > 0
+  ))
+  const subjectType: AnalysisSubjectType = core.subjectType === "person" ? "person" : "brand"
+  return {
+    id: String(core.id || ""),
+    name: String(core.name || "未命名客户"),
+    subjectType,
+    ourBrand: String(core.ourBrand || ""),
+    industry: String(core.industry || ""),
+    website: String(core.website || ""),
+    createdAt: String(core.createdAt || ""),
+    updatedAt: String(core.updatedAt || core.createdAt || ""),
+    questionCount: questions.length,
+    selectedModelCount: selectedModels.length,
+    completedModules,
+  }
 }
 
 function importFileClients(
