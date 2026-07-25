@@ -32,6 +32,60 @@ assert.equal(new Set(planned.map(item => item.brief)).size, 10)
 assert.ok(planned.every((item, index) => item.position === index + 1))
 assert.ok(planned.every(item => item.brief.includes("独立主题")))
 
+const pairedQuestions = planArticleBatch({
+  count: 2,
+  topicMode: "questions",
+  coreQuestion: "批量文章质量测试",
+  keywords: "",
+  questionTasks: [
+    {
+      questionId: "question_1",
+      question: "企业选择 GEO 服务商时应该重点核验什么？",
+      intent: "确认购买前的评估标准和合作风险",
+      category: "采购决策型",
+      keyword: "GEO 服务商",
+      contentAngle: "服务流程与验收标准",
+      matchedAdvantage: "每个项目都有阶段验收记录",
+    },
+    {
+      questionId: "question_2",
+      question: "本地企业做 GEO 为什么更需要区域信源？",
+      intent: "判断特定人群和场景是否适配该服务",
+      category: "场景人群型",
+      keyword: "本地 GEO",
+      contentAngle: "区域媒体与本地案例",
+      matchedAdvantage: "覆盖 20 个城市的本地媒体资源",
+    },
+  ],
+})
+assert.deepEqual(
+  pairedQuestions.map(item => ({
+    questionId: item.questionId,
+    topic: item.topic,
+    intent: item.intent,
+    category: item.category,
+    matchedAdvantage: item.matchedAdvantage,
+  })),
+  [
+    {
+      questionId: "question_1",
+      topic: "企业选择 GEO 服务商时应该重点核验什么？",
+      intent: "确认购买前的评估标准和合作风险",
+      category: "采购决策型",
+      matchedAdvantage: "每个项目都有阶段验收记录",
+    },
+    {
+      questionId: "question_2",
+      topic: "本地企业做 GEO 为什么更需要区域信源？",
+      intent: "判断特定人群和场景是否适配该服务",
+      category: "场景人群型",
+      matchedAdvantage: "覆盖 20 个城市的本地媒体资源",
+    },
+  ],
+)
+assert.match(pairedQuestions[0].brief, /服务流程与验收标准/)
+assert.doesNotMatch(pairedQuestions[0].brief, /覆盖 20 个城市/)
+
 assert.throws(() => planArticleBatch({
   count: 5,
   topicMode: "custom",

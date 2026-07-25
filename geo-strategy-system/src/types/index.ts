@@ -144,6 +144,29 @@ export interface ArticleRewriteAudit {
   checkedAt: string
 }
 
+export interface ArticleComparisonBrand {
+  id: string
+  name: string
+  aliases: string[]
+  materials: string
+  sourceUrls: string[]
+}
+
+export interface ArticleBatchQuestionTask {
+  questionId?: string
+  question: string
+  intent?: string
+  category?: string
+  keyword?: string
+  contentAngle?: string
+  matchedAdvantage?: string
+  promptKey?: ArticlePromptKey
+  promptTitle?: string
+  routeConfidence?: number
+  routeReason?: string
+  missingEvidence?: string[]
+}
+
 export type BackgroundJobKind =
   | "articleGeneration"
   | "queryGeneration"
@@ -193,6 +216,7 @@ export interface ArticleGenerationState {
   rewriteAnalysis?: ArticleRewriteAnalysis
   rewriteMappings?: ArticleRewriteBrandMapping[]
   rewriteAudit?: ArticleRewriteAudit
+  comparisonBrands?: ArticleComparisonBrand[]
   extractStatus?: GenerationStatus
   extractError?: string
   coreQuestion: string
@@ -220,7 +244,7 @@ export interface ArticlePublishingSettings {
   allowComment?: boolean
 }
 
-export type ArticleBatchTopicMode = "auto" | "questions" | "custom"
+export type ArticleBatchTopicMode = "auto" | "questions" | "custom" | "strategy"
 
 export type ArticleBatchStatus =
   | "preparing"
@@ -244,6 +268,17 @@ export interface ArticleBatchItemRecord {
   position: number
   topic: string
   brief: string
+  questionId?: string
+  intent?: string
+  category?: string
+  keyword?: string
+  contentAngle?: string
+  matchedAdvantage?: string
+  promptKey?: ArticlePromptKey
+  promptTitle?: string
+  routeConfidence?: number
+  routeReason?: string
+  missingEvidence?: string[]
   status: ArticleBatchItemStatus
   progressPercent: number
   stage: string
@@ -259,12 +294,14 @@ export interface ArticleBatchItemRecord {
 export interface ArticleBatchRecord {
   id: string
   clientId: string
+  mode?: "standard" | "strategy"
   promptKey: ArticlePromptKey
   promptTitle: string
   modelProvider: ArticleModelProviderKey
   model: string
   topicMode: ArticleBatchTopicMode
   similarityRetry: boolean
+  mixedPrompts?: boolean
   requestedCount: number
   completedCount: number
   failedCount: number

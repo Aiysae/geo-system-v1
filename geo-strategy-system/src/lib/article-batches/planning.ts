@@ -1,34 +1,19 @@
-import type { ArticleBatchTopicMode } from "@/types"
+import type { ArticleBatchQuestionTask, ArticleBatchTopicMode } from "@/types"
 
-const WRITING_ANGLES = [
-  ["决策诊断", "先识别用户最容易判断错的关键点，再给出可执行的选择路径"],
-  ["场景拆解", "从一个具体使用场景进入，按问题发生顺序展开"],
-  ["成本与风险", "重点解释隐性成本、风险边界和规避方式"],
-  ["对比选择", "用统一维度比较不同方案，突出选择依据而非口号"],
-  ["流程方法", "按准备、执行、验收和复盘的完整流程展开"],
-  ["常见误区", "围绕行业里常见但容易造成损失的误区展开"],
-  ["采购视角", "站在采购或决策负责人的核验视角组织内容"],
-  ["用户体验", "从用户实际体验、沟通和交付结果展开"],
-  ["专业评估", "建立一套清晰的评估指标并逐项说明"],
-  ["问题溯源", "先解释问题为什么发生，再给出解决办法"],
-  ["趋势变化", "说明行业变化对当前选择和行动的影响"],
-  ["区域差异", "结合地域、服务半径和本地条件讨论差异"],
-  ["案例复盘", "使用不虚构数据的匿名场景复盘结构展开"],
-  ["验证清单", "围绕可核验事实形成一份检查清单"],
-  ["反向提问", "从用户应该向服务商追问什么切入"],
-  ["结果导向", "从最终希望获得的结果倒推必要条件"],
-  ["新手指南", "面向第一次接触该问题的读者，降低理解门槛"],
-  ["进阶策略", "面向已有基础的读者，强调优化空间和边界"],
-  ["长期运营", "从短期动作、稳定阶段和长期积累三个周期展开"],
-  ["行业真相", "拆开表面宣传与真正影响结果的底层因素"],
+const SAFE_WRITING_FOCUSES = [
+  ["决策标准", "重点解释用户应该依据哪些可核验条件作出判断"],
+  ["适用场景", "重点说明不同需求和使用场景下的适配边界"],
+  ["验证方法", "重点提供可以实际核验的步骤、材料和判断依据"],
+  ["风险边界", "重点说明容易误判的风险、限制条件和规避方式"],
+  ["执行路径", "重点梳理从准备、执行到验收的可操作路径"],
 ] as const
 
-const STRUCTURE_VARIANTS = [
-  "开头直接给判断结论，再解释依据",
-  "开头使用真实问题场景，再逐层回答",
-  "开头提出三个判断标准，正文逐项验证",
-  "开头先澄清一个常见误解，再建立正确框架",
-  "开头给出行动清单，正文解释每一步为什么重要",
+const OPENING_VARIANTS = [
+  "开头先直接回答核心问题，再解释依据",
+  "开头从典型使用场景切入，但不得虚构真实案例",
+  "开头先给出判断标准，再逐项说明",
+  "开头先澄清一个常见误解，再回答问题",
+  "开头先给出行动方向，再解释为什么",
 ] as const
 
 function uniqueLines(value: string): string[] {
@@ -48,6 +33,71 @@ export interface PlannedArticleItem {
   position: number
   topic: string
   brief: string
+  questionId?: string
+  intent?: string
+  category?: string
+  keyword?: string
+  contentAngle?: string
+  matchedAdvantage?: string
+  promptKey?: ArticleBatchQuestionTask["promptKey"]
+  promptTitle?: string
+  routeConfidence?: number
+  routeReason?: string
+  missingEvidence?: string[]
+}
+
+function clean(value: unknown, max: number): string {
+  return String(value ?? "").trim().slice(0, max)
+}
+
+function normalizeQuestionTasks(value: ArticleBatchQuestionTask[] | undefined): ArticleBatchQuestionTask[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(task => ({
+      questionId: clean(task.questionId, 200) || undefined,
+      question: clean(task.question, 500),
+      intent: clean(task.intent, 300) || undefined,
+      category: clean(task.category, 120) || undefined,
+      keyword: clean(task.keyword, 200) || undefined,
+      contentAngle: clean(task.contentAngle, 500) || undefined,
+      matchedAdvantage: clean(task.matchedAdvantage, 3_000) || undefined,
+      promptKey: task.promptKey,
+      promptTitle: clean(task.promptTitle, 160) || undefined,
+      routeConfidence: Number.isFinite(task.routeConfidence)
+        ? Math.max(0, Math.min(1, Number(task.routeConfidence)))
+        : undefined,
+      routeReason: clean(task.routeReason, 500) || undefined,
+      missingEvidence: Array.isArray(task.missingEvidence)
+        ? task.missingEvidence.map(item => clean(item, 300)).filter(Boolean).slice(0, 12)
+        : undefined,
+    }))
+    .filter(task => Boolean(task.question))
+}
+
+function plannedQuestionTask(task: ArticleBatchQuestionTask, position: number): PlannedArticleItem {
+  return {
+    position,
+    topic: task.question,
+    brief: [
+      `独立主题：${task.question}`,
+      task.intent ? `用户意图：${task.intent}` : "",
+      task.category ? `问题类型：${task.category}` : "",
+      task.contentAngle ? `内容切入：${task.contentAngle}` : "",
+      task.matchedAdvantage ? `本篇唯一匹配优势：${task.matchedAdvantage}` : "本篇未匹配到优势，不得挪用其他问题的优势。",
+      "严格执行本篇分配的文章模板；不得读取、引用或假设存在其他批次文章。",
+    ].filter(Boolean).join("\n"),
+    questionId: task.questionId,
+    intent: task.intent,
+    category: task.category,
+    keyword: task.keyword,
+    contentAngle: task.contentAngle,
+    matchedAdvantage: task.matchedAdvantage,
+    promptKey: task.promptKey,
+    promptTitle: task.promptTitle,
+    routeConfidence: task.routeConfidence,
+    routeReason: task.routeReason,
+    missingEvidence: task.missingEvidence,
+  }
 }
 
 export function planArticleBatch(args: {
@@ -56,8 +106,23 @@ export function planArticleBatch(args: {
   coreQuestion: string
   keywords: string
   customTopics?: string
+  questionTasks?: ArticleBatchQuestionTask[]
 }): PlannedArticleItem[] {
-  const count = Math.max(2, Math.min(50, Math.floor(args.count)))
+  const count = Math.max(
+    args.topicMode === "strategy" ? 1 : 2,
+    Math.min(50, Math.floor(args.count)),
+  )
+  const questionTasks = normalizeQuestionTasks(args.questionTasks)
+  if ((args.topicMode === "questions" || args.topicMode === "strategy") && questionTasks.length > 0) {
+    if (questionTasks.length < count) {
+      throw new Error(`当前只选择了 ${questionTasks.length} 个问题，请补足到 ${count} 个。`)
+    }
+    return questionTasks.slice(0, count).map((task, index) => plannedQuestionTask(task, index + 1))
+  }
+  if (args.topicMode === "strategy") {
+    throw new Error("策略自动成文没有收到有效的疑问句任务")
+  }
+
   const providedTopics = uniqueLines(args.customTopics || "")
   if (args.topicMode !== "auto" && providedTopics.length < count) {
     throw new Error(`当前只填写了 ${providedTopics.length} 个主题，请补足到 ${count} 个，确保每篇文章独立生成。`)
@@ -72,21 +137,21 @@ export function planArticleBatch(args: {
   return Array.from({ length: count }, (_, rawIndex) => {
     const position = rawIndex + 1
     const topic = topics[rawIndex % topics.length]
-    const [angle, focus] = WRITING_ANGLES[rawIndex % WRITING_ANGLES.length]
-    const structure = STRUCTURE_VARIANTS[Math.floor(rawIndex / WRITING_ANGLES.length + rawIndex) % STRUCTURE_VARIANTS.length]
-    const cycle = Math.floor(rawIndex / WRITING_ANGLES.length)
+    const [focusName, focus] = SAFE_WRITING_FOCUSES[rawIndex % SAFE_WRITING_FOCUSES.length]
+    const opening = OPENING_VARIANTS[Math.floor(rawIndex / SAFE_WRITING_FOCUSES.length + rawIndex) % OPENING_VARIANTS.length]
+    const cycle = Math.floor(rawIndex / SAFE_WRITING_FOCUSES.length)
     const cycleNote = cycle > 0
-      ? `进一步聚焦“${["执行细节", "验证证据", "决策边界", "落地复盘"][cycle % 4]}”，不得重复同主题前序角度。`
+      ? `本轮进一步聚焦“${["执行细节", "验证证据", "决策边界", "适用条件"][cycle % 4]}”，但不得改变所选模板规定的章节和输出格式。`
       : ""
     return {
       position,
       topic,
       brief: [
         `独立主题：${topic}`,
-        `写作角度：${angle}。${focus}。`,
-        `结构差异：${structure}。`,
+        `差异化重点：${focusName}。${focus}。`,
+        `开篇方式：${opening}。`,
         cycleNote,
-        "标题、开头、章节命名和论述顺序都要服务于本篇角度；禁止套用通用开场、机械复述输入或批量编号。",
+        "严格保留所选模板要求的章节和结构；标题与开头应独立表达，禁止批量编号、虚构案例或挪用其他主题资料。",
       ].filter(Boolean).join("\n"),
     }
   })

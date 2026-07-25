@@ -34,7 +34,7 @@ export const MEMBERSHIP_LEVELS: readonly MembershipLevelDefinition[] = [
     clientAccountLimit: 3,
     teamMemberLimit: 0,
     title: "多客户服务版",
-    benefits: ["包含 VIP2 全部权益", "可创建 3 个客户专属账号"],
+    benefits: ["包含 VIP2 全部权益", "可创建 3 个客户专属账号", "关键词策略疑问句可由 AI 裁判自动分配模板并批量成文"],
   },
   {
     tier: "vip4",
