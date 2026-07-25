@@ -36,12 +36,16 @@ npm run penetration-history:backfill
 MIGRATION_CONFIRM=PENETRATION_HISTORY_BACKFILL npm run penetration-history:backfill -- --apply
 ```
 
-All long-running operations use a shared BullMQ queue in production. The Next.js
+Long-running operations use isolated BullMQ lanes in production: penetration,
+content generation, and report export no longer block one another. The Next.js
 web process creates jobs and serves status APIs; the independent `geo-worker`
-PM2 process executes penetration, difficulty, research, diagnosis, keyword,
-question, article-batch, and PDF-report work. Pending indexes and dispatch claims
-are stored in Redis so switching pages or accounts does not cancel a job, and
-both processes recover unfinished work after restart. Use
+PM2 process consumes every lane and also retains the legacy queue until old jobs
+have drained. Pending indexes and dispatch claims are stored in Redis so
+switching pages or accounts does not cancel a job, and both processes recover
+unfinished work after restart. Per-lane concurrency can be tuned with
+`TASK_WORKER_PENETRATION_CONCURRENCY`,
+`TASK_WORKER_GENERATION_CONCURRENCY`, and
+`TASK_WORKER_UTILITY_CONCURRENCY`. Use
 `pm2 startOrReload ecosystem.config.cjs --update-env` to run both services.
 Local development defaults to the in-process fallback.
 

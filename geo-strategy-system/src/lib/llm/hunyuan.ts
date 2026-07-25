@@ -2,6 +2,7 @@ import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { chatWithLocalWebSearchTool } from "./tool-loop"
 import { extractSourcesFromUnknown } from "./source-extract"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import type { AiProviderRuntimeSetting } from "@/types/ai-settings"
 
 const LABEL = "腾讯元宝/混元"
@@ -272,7 +273,7 @@ async function chatTokenHubNativeSearch(
 }
 
 export async function chatHunyuan(args: ChatArgs): Promise<string> {
-  const config = await getAiProviderRuntimeSetting("hunyuan")
+  const config = await getChatRuntimeSetting("hunyuan", args)
   if (args.forceWebSearch) {
     if (!isTokenHub(config.baseUrl)) {
       throw new Error(`${LABEL} 严格联网需要切换到腾讯 TokenHub · HY3 Preview。`)

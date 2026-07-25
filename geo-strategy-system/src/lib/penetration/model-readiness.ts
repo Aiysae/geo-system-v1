@@ -1,4 +1,5 @@
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { hasAdapterCredentialPoolCandidate } from "@/lib/ai-credential-adapter"
 import { ADAPTERS } from "@/lib/llm"
 import type { ModelKey } from "@/types"
 
@@ -19,6 +20,19 @@ function officialHost(value: string, expected: RegExp): boolean {
 export async function getPenetrationModelReadiness(
   model: ModelKey,
 ): Promise<PenetrationModelReadiness> {
+  const poolReady = model === "kimi" && process.env.KIMI_STRICT_WEB_ENABLED !== "true"
+    ? false
+    : await hasAdapterCredentialPoolCandidate(model, "penetration", {
+        system: "",
+        user: "",
+        mode: "consumer",
+        forceWebSearch: true,
+        rawQuestionOnly: true,
+        requireWebEvidence: true,
+        officialWebOnly: true,
+      })
+  if (poolReady) return { model, ready: true }
+
   if (model === "doubao") {
     const config = await getAiProviderRuntimeSetting("doubao")
     if (!config.apiKey) return { model, ready: false, reason: "火山方舟 API Key 未配置" }

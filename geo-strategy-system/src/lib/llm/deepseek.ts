@@ -1,6 +1,7 @@
 import { chatWithLocalWebSearchTool } from "./tool-loop"
 import type { ChatArgs } from "./openai-compat"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { chatDashScopeNativeSearch } from "./dashscope-native-search"
 
 // DeepSeek 适配器
@@ -29,7 +30,7 @@ export async function isDeepSeekConfigured(): Promise<boolean> {
 }
 
 export async function chatDeepSeek(args: ChatArgs): Promise<string> {
-  const config = await getAiProviderRuntimeSetting("deepseek")
+  const config = await getChatRuntimeSetting("deepseek", args)
   const strictPenetrationSearch =
     args.forceWebSearch === true &&
     args.officialWebOnly === true &&
@@ -37,7 +38,7 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     args.mode === "consumer"
 
   if (strictPenetrationSearch) {
-    const dashScope = await getAiProviderRuntimeSetting("qwen")
+    const dashScope = await getChatRuntimeSetting("qwen", args)
     return chatDashScopeNativeSearch({
       ...args,
       apiKey: dashScope.apiKey,

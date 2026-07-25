@@ -13,7 +13,11 @@ import type {
   ModelKey,
   PersonSubjectProfile,
 } from "@/types"
-import { ADAPTERS, MODEL_LABELS } from "@/lib/llm"
+import { MODEL_LABELS } from "@/lib/llm"
+import {
+  isAdapterCredentialConfigured,
+  runAdapterCredentialPoolChat,
+} from "@/lib/ai-credential-adapter"
 import { parseJsonStrict } from "@/lib/score-utils"
 import {
   scoreDifficultyV2,
@@ -439,7 +443,10 @@ export async function configuredDifficultyModels(preferred?: ModelKey): Promise<
     ? [preferred, ...DIFFICULTY_MODEL_ORDER.filter(model => model !== preferred)]
     : DIFFICULTY_MODEL_ORDER
   const configured = await Promise.all(
-    order.map(async model => ({ model, configured: await ADAPTERS[model].configured() })),
+    order.map(async model => ({
+      model,
+      configured: await isAdapterCredentialConfigured(model, "difficulty", { jsonMode: true }),
+    })),
   )
   return configured.filter(item => item.configured).map(item => item.model)
 }
@@ -1033,7 +1040,7 @@ export async function executeDifficultyStage(args: {
 
   const { system, user } = buildStagePrompt(args.stageKey, args.context)
   const webEvidenceStage = args.stageKey === "research" || args.stageKey === "comparison"
-  const raw = await ADAPTERS[args.model].chat({
+  const raw = await runAdapterCredentialPoolChat(args.model, "difficulty", {
     system,
     user,
     temperature: args.stageKey === "report" ? 0.28 : 0.35,

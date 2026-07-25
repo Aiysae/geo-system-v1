@@ -6,13 +6,30 @@ delete process.env.REDIS_URL
 const {
   dispatchDurableTaskOrFallback,
   durableTaskQueueEnabled,
+  durableTaskQueueLane,
   durableTaskQueueName,
+  durableTaskQueueNameForLane,
+  durableTaskQueueNameForSource,
   isDurableTaskSource,
 } = await import("../src/lib/task-queue/index")
 
 assert.equal(durableTaskQueueEnabled(), false)
 assert.equal(durableTaskQueueEnabled("penetration"), false)
 assert.equal(durableTaskQueueName(), "geo-long-tasks-v1")
+assert.equal(durableTaskQueueLane("penetration"), "penetration")
+assert.equal(durableTaskQueueLane("difficulty"), "generation")
+assert.equal(durableTaskQueueLane("question"), "generation")
+assert.equal(durableTaskQueueLane("articleBatch"), "generation")
+assert.equal(durableTaskQueueLane("background"), "generation")
+assert.equal(durableTaskQueueLane("report"), "utility")
+assert.equal(
+  durableTaskQueueNameForSource("penetration"),
+  "geo-long-tasks-v1-penetration",
+)
+assert.equal(
+  durableTaskQueueNameForLane("generation"),
+  "geo-long-tasks-v1-generation",
+)
 
 let fallbackCalls = 0
 await dispatchDurableTaskOrFallback(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
-import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import { hasAiCredentialCandidate } from "@/lib/ai-credential-router"
+import { runCredentialPoolChat } from "@/lib/ai-credential-chat"
 import {
   authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
@@ -142,17 +143,23 @@ function normalizeAdvantage(item: unknown): { text: string; confidence: "high" |
 }
 
 async function callLlm(url: string, apiKey: string, model: string, user: string, timeoutSec: number): Promise<string> {
-  return openaiCompatChat({
-    url,
-    apiKey,
+  return runCredentialPoolChat({
+    vendor: "qwen",
+    module: "keywordStrategy",
     model,
-    system: SYSTEM_PROMPT,
-    user,
-    temperature: 0.45,
-    maxTokens: 8192,
-    jsonMode: true,
-    label: "GEO优势资产",
-    timeoutSec,
+    legacy: {
+      url,
+      apiKey,
+      label: "GEO优势资产",
+    },
+    chat: {
+      system: SYSTEM_PROMPT,
+      user,
+      temperature: 0.45,
+      maxTokens: 8192,
+      jsonMode: true,
+      timeoutSec,
+    },
   })
 }
 
@@ -170,8 +177,14 @@ async function handler(req: NextRequest) {
     const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
     const url = buildAiChatUrl(aiConfig)
     const timeoutSec = aiConfig.timeout || 300
+    const hasPoolCredential = await hasAiCredentialCandidate({
+      vendor: "qwen",
+      module: "keywordStrategy",
+      model: aiConfig.model,
+      requiredCapabilities: ["json"],
+    })
 
-    if (!aiConfig.apiKey) {
+    if (!aiConfig.apiKey && !hasPoolCredential) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 

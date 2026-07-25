@@ -3,6 +3,7 @@ import { chatWithLocalWebSearchTool } from "./tool-loop"
 import { extractSourcesFromUnknown } from "./source-extract"
 import { withBeijingTime } from "./time-context"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { chatBaiduAiSearch } from "./baidu-ai-search"
 
 // Kimi (Moonshot) 适配器
@@ -60,7 +61,7 @@ function messageText(content: unknown): string {
 }
 
 async function chatKimiDirect(args: ChatArgs): Promise<string> {
-  const config = await getAiProviderRuntimeSetting("kimi")
+  const config = await getChatRuntimeSetting("kimi", args)
   const key = config.apiKey
   const selectedModel = config.model
   const useSearchTool = args.forceWebSearch || (args.allowWebSearch !== false && args.mode !== "consumer")
@@ -240,8 +241,8 @@ async function enqueuePenetrationRequest<T>(task: () => Promise<T>): Promise<T> 
 
 async function chatKimiStrictSearch(args: ChatArgs): Promise<string> {
   const [kimiConfig, baiduConfig] = await Promise.all([
-    getAiProviderRuntimeSetting("kimi"),
-    getAiProviderRuntimeSetting("ernie"),
+    getChatRuntimeSetting("kimi", args),
+    getChatRuntimeSetting("ernie", args),
   ])
   const model = process.env.KIMI_BAIDU_SEARCH_MODEL?.trim() || kimiConfig.model || "kimi-k2.6"
   const appId = typeof baiduConfig.extra.appId === "string" ? baiduConfig.extra.appId : ""

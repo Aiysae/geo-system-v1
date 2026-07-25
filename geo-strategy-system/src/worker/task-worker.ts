@@ -2,6 +2,7 @@ import { Job, Worker } from "bullmq"
 import {
   durableTaskQueueConnection,
   durableTaskQueueName,
+  durableTaskQueueNameForLane,
   enqueueDurableTask,
   isDurableTaskSource,
   refreshDurableTaskDispatch,
@@ -10,10 +11,38 @@ import {
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
 
-const concurrency = Math.max(
-  1,
-  Math.min(12, Math.floor(Number(process.env.TASK_WORKER_CONCURRENCY) || 4)),
-)
+function workerConcurrency(name: string, fallback: number): number {
+  return Math.max(
+    1,
+    Math.min(12, Math.floor(Number(process.env[name]) || fallback)),
+  )
+}
+
+const legacyConcurrency = workerConcurrency("TASK_WORKER_CONCURRENCY", 4)
+const workerDefinitions = [
+  {
+    queueName: durableTaskQueueNameForLane("penetration"),
+    concurrency: workerConcurrency(
+      "TASK_WORKER_PENETRATION_CONCURRENCY",
+      Math.max(1, Math.ceil(legacyConcurrency / 2)),
+    ),
+  },
+  {
+    queueName: durableTaskQueueNameForLane("generation"),
+    concurrency: workerConcurrency(
+      "TASK_WORKER_GENERATION_CONCURRENCY",
+      Math.max(1, Math.floor(legacyConcurrency / 2)),
+    ),
+  },
+  {
+    queueName: durableTaskQueueNameForLane("utility"),
+    concurrency: workerConcurrency("TASK_WORKER_UTILITY_CONCURRENCY", 1),
+  },
+  {
+    queueName: durableTaskQueueName(),
+    concurrency: workerConcurrency("TASK_WORKER_LEGACY_CONCURRENCY", 1),
+  },
+] as const
 const prefix = String(process.env.TASK_QUEUE_PREFIX || "geo:bull")
 
 async function runTask(job: Job<DurableTaskPayload>): Promise<TaskWorkerOutcome> {
@@ -101,10 +130,11 @@ async function processTask(job: Job<DurableTaskPayload>): Promise<void> {
   }
 }
 
-const worker = new Worker<DurableTaskPayload>(
-  durableTaskQueueName(),
-  processTask,
-  {
+function createWorker(
+  queueName: string,
+  concurrency: number,
+): Worker<DurableTaskPayload> {
+  const worker = new Worker<DurableTaskPayload>(queueName, processTask, {
     connection: durableTaskQueueConnection(),
     prefix,
     concurrency,
@@ -115,33 +145,36 @@ const worker = new Worker<DurableTaskPayload>(
     stalledInterval: 30_000,
     maxStalledCount: 2,
     autorun: false,
-  },
+  })
+
+  worker.on("ready", () => {
+    console.info(
+      "[geo-worker] ready",
+      `queue=${queueName}`,
+      `concurrency=${concurrency}`,
+    )
+  })
+  worker.on("completed", job => {
+    console.info("[geo-worker] queue item completed", queueName, job.name, job.id)
+  })
+  worker.on("failed", (job, error) => {
+    console.error(
+      "[geo-worker] queue item failed",
+      queueName,
+      job?.name || "unknown",
+      job?.id || "unknown",
+      error.message,
+    )
+  })
+  worker.on("error", error => {
+    console.error("[geo-worker] worker error", queueName, error)
+  })
+  return worker
+}
+
+const workers = workerDefinitions.map(definition =>
+  createWorker(definition.queueName, definition.concurrency),
 )
-
-worker.on("ready", () => {
-  console.info(
-    "[geo-worker] ready",
-    `queue=${durableTaskQueueName()}`,
-    `concurrency=${concurrency}`,
-  )
-})
-
-worker.on("completed", job => {
-  console.info("[geo-worker] queue item completed", job.name, job.id)
-})
-
-worker.on("failed", (job, error) => {
-  console.error(
-    "[geo-worker] queue item failed",
-    job?.name || "unknown",
-    job?.id || "unknown",
-    error.message,
-  )
-})
-
-worker.on("error", error => {
-  console.error("[geo-worker] worker error", error)
-})
 
 async function recoverPendingTasks(): Promise<void> {
   const [
@@ -189,10 +222,10 @@ async function waitForWebProcess(): Promise<void> {
 
 async function startWorker(): Promise<void> {
   await waitForWebProcess()
-  const runPromise = worker.run()
-  await worker.waitUntilReady()
+  const runPromises = workers.map(worker => worker.run())
+  await Promise.all(workers.map(worker => worker.waitUntilReady()))
   await recoverPendingTasks()
-  await runPromise
+  await Promise.all(runPromises)
 }
 
 void startWorker().catch(error => {
@@ -211,7 +244,7 @@ async function shutdown(signal: string): Promise<void> {
   }, 30_000)
   forceTimer.unref()
   try {
-    await worker.close()
+    await Promise.all(workers.map(worker => worker.close()))
     clearTimeout(forceTimer)
     process.exit(0)
   } catch (error) {

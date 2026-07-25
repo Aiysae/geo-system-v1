@@ -1,5 +1,6 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { extractSourcesFromUnknown } from "./source-extract"
 
 // 豆包 (Volcengine Ark) 适配器
@@ -132,7 +133,7 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
 }
 
 export async function chatDoubao(args: ChatArgs): Promise<string> {
-  const config = await getAiProviderRuntimeSetting("doubao")
+  const config = await getChatRuntimeSetting("doubao", args)
   const key = config.apiKey
   const bot = typeof config.extra.botId === "string" ? config.extra.botId : ""
   const endpoint = config.model

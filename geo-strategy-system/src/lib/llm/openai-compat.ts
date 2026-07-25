@@ -9,6 +9,7 @@
 //    工具循环类（如 deepseek/kimi）自行拼装 messages 时也应使用 withBeijingTime。
 
 import type { LlmMode, PenetrationSearchMode, PenetrationSource } from "@/types"
+import type { AiCredentialVendor } from "@/types/ai-credentials"
 import { extractSourcesFromUnknown, normalizeSourceDomain } from "./source-extract"
 import { withBeijingTime } from "./time-context"
 import { formatHitsForLLM, webSearch, type SearchHit } from "./web-search"
@@ -22,6 +23,16 @@ export interface SearchSourceEvent {
   searchExecuted?: boolean
   /** Safe request identifier for support and audit; never contains credentials. */
   providerRequestId?: string
+}
+
+export interface ChatRuntimeOverride {
+  vendor: AiCredentialVendor
+  baseUrl: string
+  chatPath: string
+  apiKey: string
+  model: string
+  timeout?: number
+  extra?: Record<string, string | boolean>
 }
 
 export interface ChatArgs {
@@ -48,6 +59,8 @@ export interface ChatArgs {
   onSearchSources?: (event: SearchSourceEvent) => void
   /** Observe token usage returned by the upstream provider. */
   onUsage?: (usage: LlmTokenUsage) => void
+  /** Server-selected account override. Never accept this field from a client request. */
+  runtimeOverride?: ChatRuntimeOverride
 }
 
 export interface LlmTokenUsage {

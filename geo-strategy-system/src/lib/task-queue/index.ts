@@ -13,6 +13,11 @@ export type DurableTaskSource =
   | "articleBatch"
   | "report"
 
+export type DurableTaskQueueLane =
+  | "penetration"
+  | "generation"
+  | "utility"
+
 export type DurableTaskPayload = {
   source: DurableTaskSource
   sourceJobId: string
@@ -26,7 +31,7 @@ export type TaskWorkerOutcome = {
 }
 
 type TaskQueueGlobal = typeof globalThis & {
-  __geoDurableTaskQueue?: Queue<DurableTaskPayload>
+  __geoDurableTaskQueues?: Map<string, Queue<DurableTaskPayload>>
 }
 
 const globalState = globalThis as TaskQueueGlobal
@@ -59,6 +64,26 @@ export function durableTaskQueueName(): string {
   return String(process.env.TASK_QUEUE_NAME || DEFAULT_QUEUE_NAME).trim() || DEFAULT_QUEUE_NAME
 }
 
+export function durableTaskQueueLane(
+  source: DurableTaskSource,
+): DurableTaskQueueLane {
+  if (source === "penetration") return "penetration"
+  if (source === "report") return "utility"
+  return "generation"
+}
+
+export function durableTaskQueueNameForLane(
+  lane: DurableTaskQueueLane,
+): string {
+  return `${durableTaskQueueName()}-${lane}`
+}
+
+export function durableTaskQueueNameForSource(
+  source: DurableTaskSource,
+): string {
+  return durableTaskQueueNameForLane(durableTaskQueueLane(source))
+}
+
 export function durableTaskQueueConnection(): ConnectionOptions {
   const url = String(process.env.REDIS_URL || "").trim()
   if (!url) throw new Error("REDIS_URL is required for BullMQ")
@@ -71,10 +96,15 @@ export function durableTaskQueueConnection(): ConnectionOptions {
   }
 }
 
-function queue(): Queue<DurableTaskPayload> {
-  if (globalState.__geoDurableTaskQueue) return globalState.__geoDurableTaskQueue
-  globalState.__geoDurableTaskQueue = new Queue<DurableTaskPayload>(
-    durableTaskQueueName(),
+function queue(source: DurableTaskSource): Queue<DurableTaskPayload> {
+  const queueName = durableTaskQueueNameForSource(source)
+  const queues = globalState.__geoDurableTaskQueues
+    || new Map<string, Queue<DurableTaskPayload>>()
+  globalState.__geoDurableTaskQueues = queues
+  const existing = queues.get(queueName)
+  if (existing) return existing
+  const created = new Queue<DurableTaskPayload>(
+    queueName,
     {
       connection: durableTaskQueueConnection(),
       prefix: String(process.env.TASK_QUEUE_PREFIX || "geo:bull"),
@@ -86,10 +116,11 @@ function queue(): Queue<DurableTaskPayload> {
       },
     },
   )
-  globalState.__geoDurableTaskQueue.on("error", error => {
-    console.error("[task-queue] queue error", error.message)
+  created.on("error", error => {
+    console.error("[task-queue] queue error", queueName, error.message)
   })
-  return globalState.__geoDurableTaskQueue
+  queues.set(queueName, created)
+  return created
 }
 
 function dispatchClaimKey(source: DurableTaskSource, sourceJobId: string): string {
@@ -138,7 +169,7 @@ export async function enqueueDurableTask(
   }
 
   try {
-    await queue().add(source, payload, jobOptions)
+    await queue(source).add(source, payload, jobOptions)
     return true
   } catch (error) {
     await releaseDurableTaskDispatch(source, sourceJobId, dispatchToken)
@@ -222,7 +253,7 @@ export function isDurableTaskSource(value: unknown): value is DurableTaskSource 
 }
 
 export async function closeDurableTaskQueue(): Promise<void> {
-  const current = globalState.__geoDurableTaskQueue
-  globalState.__geoDurableTaskQueue = undefined
-  if (current) await current.close()
+  const queues = [...(globalState.__geoDurableTaskQueues?.values() || [])]
+  globalState.__geoDurableTaskQueues = undefined
+  await Promise.all(queues.map(current => current.close()))
 }

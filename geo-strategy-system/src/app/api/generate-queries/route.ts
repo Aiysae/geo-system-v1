@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import {
+  hasAdapterCredentialPoolCandidate,
+  runAdapterCredentialPoolChat,
+} from "@/lib/ai-credential-adapter"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import {
   authAndReserveCreditsForRequest,
@@ -39,9 +42,6 @@ export const runtime = "nodejs"
 export const maxDuration = 180
 export const dynamic = "force-dynamic"
 export const revalidate = 0
-
-const ARK_BOT_URL = "https://ark.cn-beijing.volces.com/api/v3/bots/chat/completions"
-const ARK_ENDPOINT_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
 const SYSTEM_PROMPT =
   "你是一个顶级的 GEO (生成式引擎优化) 样本设计专家。你的唯一任务是站在【完全中立的真实用户视角】，按指定的问题意图和数量生成高频疑问句。" +
@@ -271,16 +271,21 @@ async function handler(req: NextRequest) {
     const apiKey = doubaoConfig.apiKey
     const botId = typeof doubaoConfig.extra.botId === "string" ? doubaoConfig.extra.botId : ""
     const endpointId = doubaoConfig.model
-    const currentModel = botId || endpointId
-    const modelType = botId ? "Bot ID" : "Endpoint ID"
+    const currentModel = botId || endpointId || "已验证凭证池模型"
+    const modelType = botId ? "Bot ID" : endpointId ? "Endpoint ID" : "凭证池模型"
+    const poolConfigured = await hasAdapterCredentialPoolCandidate(
+      "doubao",
+      "question",
+      { jsonMode: true },
+    )
 
-    if (!apiKey) {
+    if (!poolConfigured && !apiKey) {
       return NextResponse.json(
         { error: "生成失败：豆包 API Key 未配置，请在后台管理页补全后重试。" },
         { status: 500 }
       )
     }
-    if (!botId) {
+    if (!poolConfigured && !botId) {
       if (!endpointId) {
         return NextResponse.json(
           {
@@ -291,7 +296,7 @@ async function handler(req: NextRequest) {
         )
       }
     }
-    if (botId && !botId.startsWith("bot-")) {
+    if (!poolConfigured && botId && !botId.startsWith("bot-")) {
       return NextResponse.json(
         {
           error: `生成失败：豆包 Bot ID 必须以 "bot-" 开头（当前值：${botId}）。如需使用 ep- 开头的 Endpoint，请配置到模型/Endpoint ID。`,
@@ -299,7 +304,7 @@ async function handler(req: NextRequest) {
         { status: 500 }
       )
     }
-    if (!botId && endpointId && !endpointId.startsWith("ep-")) {
+    if (!poolConfigured && !botId && endpointId && !endpointId.startsWith("ep-")) {
       return NextResponse.json(
         {
           error: `生成失败：豆包 Endpoint ID 必须以 "ep-" 开头（当前值：${endpointId}）。`,
@@ -373,11 +378,7 @@ async function handler(req: NextRequest) {
     try {
       for (let attempt = 0; attempt < 2 && requestedQuotas.length > 0; attempt++) {
         const requestCount = requestedQuotas.reduce((sum, item) => sum + item.count, 0)
-        const content = await openaiCompatChat({
-          url: botId ? ARK_BOT_URL : ARK_ENDPOINT_URL,
-          apiKey,
-          model: currentModel,
-          label: "豆包",
+        const content = await runAdapterCredentialPoolChat("doubao", "question", {
           system: SYSTEM_PROMPT,
           user: buildUserPrompt({
             industry,

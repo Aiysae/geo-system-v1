@@ -6,7 +6,10 @@ import type {
   ResearchResult,
   ResearchSourceMode,
 } from "@/types"
-import { ADAPTERS } from "@/lib/llm"
+import {
+  isAdapterCredentialConfigured,
+  runAdapterCredentialPoolChat,
+} from "@/lib/ai-credential-adapter"
 import { parseJsonStrict } from "@/lib/score-utils"
 import {
   formatPersonSubjectContext,
@@ -234,7 +237,7 @@ async function handler(req: NextRequest) {
     if (mode === "hypothesis" && !hypothesis) {
       return NextResponse.json({ error: "请填写要验证的假设" }, { status: 400 })
     }
-    if (!(await ADAPTERS.doubao.configured())) {
+    if (!(await isAdapterCredentialConfigured("doubao", "research", { jsonMode: true }))) {
       return NextResponse.json({ error: "豆包 API 未配置，无法执行调研" }, { status: 400 })
     }
 
@@ -264,7 +267,7 @@ async function handler(req: NextRequest) {
       personProfileContext: formatPersonSubjectContext(personProfile),
     })
 
-    const raw = await ADAPTERS.doubao.chat({
+    const raw = await runAdapterCredentialPoolChat("doubao", "research", {
       system,
       user,
       temperature: 0.35,

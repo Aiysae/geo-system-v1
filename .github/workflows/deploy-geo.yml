@@ -13,6 +13,11 @@ on:
         required: false
         default: "ubuntu-latest"
         type: string
+      import_ai_credentials:
+        description: "Securely import and verify the temporary AI credential workbook"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   deploy:
@@ -162,9 +167,111 @@ jobs:
             pm2 save
           REMOTE_SCRIPT
 
+      - name: Securely import and verify AI credentials
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.import_ai_credentials }}
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_PORT: ${{ secrets.ECS_SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          AI_CREDENTIAL_IMPORT_XLSX_B64: ${{ secrets.AI_CREDENTIAL_IMPORT_XLSX_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AI_CREDENTIAL_IMPORT_XLSX_B64:-}" ]; then
+            echo "::error::AI_CREDENTIAL_IMPORT_XLSX_B64 secret is not configured"
+            exit 1
+          fi
+
+          PORT="${ECS_SSH_PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/var/www/geo-strategy-system/geo-system-v1}"
+          KEY_FILE="${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_key"
+          KNOWN_HOSTS_FILE="${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_known_hosts"
+          LOCAL_IMPORT_FILE="${RUNNER_TEMP:-/tmp}/geo_ai_credentials.xlsx"
+          REMOTE_IMPORT_FILE="/tmp/geo_ai_credentials_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}.xlsx"
+          printf -v DEPLOY_PATH_Q '%q' "$DEPLOY_PATH"
+          printf -v REMOTE_IMPORT_FILE_Q '%q' "$REMOTE_IMPORT_FILE"
+
+          umask 077
+          printf '%s' "$AI_CREDENTIAL_IMPORT_XLSX_B64" | base64 --decode > "$LOCAL_IMPORT_FILE"
+          scp \
+            -i "$KEY_FILE" \
+            -P "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+            -o ConnectTimeout=20 \
+            "$LOCAL_IMPORT_FILE" \
+            "$ECS_USER@$ECS_HOST:$REMOTE_IMPORT_FILE"
+
+          ssh \
+            -i "$KEY_FILE" \
+            -p "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            "$ECS_USER@$ECS_HOST" \
+            "DEPLOY_PATH=$DEPLOY_PATH_Q IMPORT_FILE=$REMOTE_IMPORT_FILE_Q bash -s" <<'REMOTE_SCRIPT'
+            set -euo pipefail
+            umask 077
+            cleanup_import() {
+              rm -f "$IMPORT_FILE"
+            }
+            trap cleanup_import EXIT
+            chmod 600 "$IMPORT_FILE"
+
+            APP_DIR="${DEPLOY_PATH%/}/geo-strategy-system"
+            cd "$APP_DIR"
+            ENV_FILE=""
+            for candidate in "$APP_DIR/.env.production" "$APP_DIR/../.env.production" "$DEPLOY_PATH/.env.production" "$DEPLOY_PATH/../.env.production"; do
+              if [ -f "$candidate" ]; then
+                ENV_FILE="$candidate"
+                break
+              fi
+            done
+            if [ -n "$ENV_FILE" ]; then
+              set -a
+              # shellcheck disable=SC1091
+              source "$ENV_FILE"
+              set +a
+            fi
+
+            NODE_OPTIONS=--conditions=react-server npx tsx \
+              scripts/import-ai-credentials-from-xlsx.mts \
+              --file "$IMPORT_FILE" \
+              --apply
+            npm run ai-credentials:verify -- --enable-passed --strict-web
+          REMOTE_SCRIPT
+
+          rm -f "$LOCAL_IMPORT_FILE"
+
+      - name: Remove temporary AI workbook
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.import_ai_credentials }}
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_PORT: ${{ secrets.ECS_SSH_PORT }}
+        run: |
+          PORT="${ECS_SSH_PORT:-22}"
+          KEY_FILE="${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_key"
+          KNOWN_HOSTS_FILE="${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_known_hosts"
+          REMOTE_IMPORT_FILE="/tmp/geo_ai_credentials_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}.xlsx"
+          printf -v REMOTE_IMPORT_FILE_Q '%q' "$REMOTE_IMPORT_FILE"
+          if [ -f "$KEY_FILE" ]; then
+            ssh \
+              -i "$KEY_FILE" \
+              -p "$PORT" \
+              -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+              -o ConnectTimeout=20 \
+              "$ECS_USER@$ECS_HOST" \
+              "rm -f $REMOTE_IMPORT_FILE_Q" || true
+          fi
+
       - name: Clean up deployment credentials
         if: always()
         run: |
           rm -f \
             "${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_key" \
-            "${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_known_hosts"
+            "${RUNNER_TEMP:-$HOME/.ssh}/geo_ecs_known_hosts" \
+            "${RUNNER_TEMP:-/tmp}/geo_ai_credentials.xlsx"

@@ -1,5 +1,6 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { chatDashScopeNativeSearch } from "./dashscope-native-search"
 
 // 通义千问 (DashScope) 适配器。
@@ -11,7 +12,7 @@ export async function isQwenConfigured(): Promise<boolean> {
 }
 
 export async function chatQwen(args: ChatArgs): Promise<string> {
-  const config = await getAiProviderRuntimeSetting("qwen")
+  const config = await getChatRuntimeSetting("qwen", args)
   const enableOfficialSearch = config.extra.enableSearch === true
   const shouldSearch =
     args.forceWebSearch || (args.allowWebSearch !== false && args.mode !== "consumer")
