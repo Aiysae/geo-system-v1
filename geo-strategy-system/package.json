@@ -17,6 +17,8 @@
     "test:website-geo-audit": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-website-geo-audit.mts",
     "test:article-publishing": "tsx scripts/test-article-publishing.mts",
     "test:article-batches": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-batches.mts",
+    "test:article-quality": "tsx scripts/test-article-quality.mts",
+    "test:article-strategy-routing": "tsx scripts/test-article-strategy-routing.mts",
     "test:ai-gateways": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-gateways.mts",
     "test:ai-credential-pool": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-credential-pool.mts",
     "test:ai-credential-adapter": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-credential-adapter.mts",

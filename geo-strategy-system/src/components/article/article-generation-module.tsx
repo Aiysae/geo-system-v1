@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label"
 import { Select } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import ArticleRewriteBrandMapper from "@/components/article/article-rewrite-brand-mapper"
+import ArticleComparisonBrandPanel from "@/components/article/article-comparison-brand-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import {
   fingerprintRewriteSource,
@@ -27,8 +28,10 @@ import {
   validateRewriteMappings,
 } from "@/lib/article-rewrite"
 import { ARTICLE_PROMPT_OPTIONS, type ArticlePromptOption } from "@/lib/article-prompt-meta"
+import { supportsArticleComparisonBrands } from "@/lib/article-comparison-brands"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
+import { useCredits } from "@/components/credits/credits-provider"
 import { ARTICLE_PROMPT_PRICE_KEYS, estimateFeatureCredits } from "@/lib/pricing"
 import { buildArticleSourceModelGroups } from "@/lib/article-source-options"
 import {
@@ -122,7 +125,44 @@ const ArticleBatchWorkspace = dynamic(
   },
 )
 
-type ArticleWorkspaceMode = "single" | "batch" | "rewrite"
+const ArticleStrategyWorkspace = dynamic(
+  () => import("@/components/article/article-strategy-workspace"),
+  {
+    ssr: false,
+    loading: () => (
+      <section className="flex min-h-[680px] items-center justify-center rounded-lg border border-slate-200 bg-white text-sm text-slate-400">
+        自动成文工作台加载中...
+      </section>
+    ),
+  },
+)
+
+type ArticleWorkspaceMode = "single" | "batch" | "strategy" | "rewrite"
+const EMPTY_QUESTION_ITEMS: QuestionItem[] = []
+
+function articleStrategySourceFingerprint(
+  questions: QuestionItem[],
+  advantages: string[],
+): string {
+  const source = JSON.stringify({
+    questions: questions.map(item => ({
+      id: item.id,
+      question: item.question,
+      intent: item.intent,
+      category: item.category,
+      keyword: item.keyword,
+      contentAngle: item.content_angle,
+      matchedAdvantage: item.matched_advantage,
+    })),
+    advantages,
+  })
+  let hash = 2166136261
+  for (let index = 0; index < source.length; index++) {
+    hash ^= source.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
 
 function createInitialArticle(client: Client): ArticleGenerationState {
   const saved = client.articleGeneration
@@ -144,6 +184,7 @@ function createInitialArticle(client: Client): ArticleGenerationState {
     region: "",
     business: client.industry || "",
     advantages: "",
+    comparisonBrands: [],
     audience: "",
     extraRequirements: "",
     output: "",
@@ -197,12 +238,14 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
     region: article.region,
     business: article.business,
     advantages: article.advantages,
+    comparisonBrands: article.comparisonBrands,
     audience: article.audience,
     extraRequirements: article.extraRequirements,
   }
 }
 
 export default function ArticleGenerationModule({ client, onChangeClient }: Props) {
+  const { membership, unlimited } = useCredits()
   const subjectType = getClientSubjectType(client)
   const isPersonSubject = subjectType === "person"
   const [article, setArticle] = useState<ArticleGenerationState>(() => createInitialArticle(client))
@@ -301,8 +344,12 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     () => activeGateway?.models.filter(model => model.enabled) || [],
     [activeGateway],
   )
-  const keywordQuestions = client.keywordStrategy?.questions || []
+  const keywordQuestions = client.keywordStrategy?.questions || EMPTY_QUESTION_ITEMS
   const keywordAdvantages = useMemo(() => collectKeywordAdvantages(client), [client])
+  const strategyWorkspaceKey = useMemo(
+    () => `${client.id}:strategy:${articleStrategySourceFingerprint(keywordQuestions, keywordAdvantages)}`,
+    [client.id, keywordAdvantages, keywordQuestions],
+  )
   const penetrationSourceGroups = useMemo(
     () => buildArticleSourceModelGroups(client.penetration),
     [client.penetration],
@@ -316,6 +363,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
   const isRewrite = article.promptKey === "rewrite"
   const isBatch = workspaceMode === "batch" && !isRewrite
+  const isStrategy = workspaceMode === "strategy" && !isRewrite
+  const isBulkWorkspace = isBatch || isStrategy
   const isGenerating = article.status === "generating"
   const isExtracting = article.extractStatus === "generating"
   const rewriteMappings = useMemo(
@@ -772,7 +821,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 文章生成 · GEO 内容写作台
               </div>
               <div className="geo-module-description truncate">
-                {isBatch ? "批量文章创作" : isRewrite ? "文章改写" : activePrompt.title}
+                {isStrategy ? "关键词策略自动成文" : isBatch ? "批量文章创作" : isRewrite ? "文章改写" : activePrompt.title}
               </div>
             </div>
           </div>
@@ -793,7 +842,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               <WandSparkles className="h-3.5 w-3.5 text-[#1677FF]" />
               生成设置
             </div>
-            <div className="geo-segmented mb-3 grid-cols-3">
+            <div className="geo-segmented mb-3 grid-cols-4">
               <button
                 type="button"
                 onClick={() => updateMode("single")}
@@ -815,6 +864,17 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 }`}
               >
                 批量生成
+              </button>
+              <button
+                type="button"
+                onClick={() => updateMode("strategy")}
+                className={`h-9 rounded-lg text-xs font-semibold transition ${
+                  isStrategy
+                    ? "bg-white text-[#003EB3] shadow-sm"
+                    : "text-slate-500 hover:bg-white/70"
+                }`}
+              >
+                自动成文
               </button>
               <button
                 type="button"
@@ -892,7 +952,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             )}
           </section>
 
-          <section className="geo-panel p-3 sm:p-4">
+          {!isStrategy && <section className="geo-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="text-xs font-semibold text-slate-700">
                 {isRewrite ? "改写模板" : "创作模板"}
@@ -928,7 +988,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 )
               })}
             </div>
-          </section>
+          </section>}
 
           <section className="geo-panel p-3 sm:p-4">
             <div className="grid gap-3">
@@ -1241,6 +1301,14 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                   className="min-h-[95px] rounded-lg bg-white"
                 />
               </Label>
+              {(supportsArticleComparisonBrands(article.promptKey) || isStrategy) && (
+                <ArticleComparisonBrandPanel
+                  primaryBrand={client.ourBrand || client.name}
+                  suggestedBrands={client.competitors || []}
+                  value={article.comparisonBrands || []}
+                  onChange={value => updateField("comparisonBrands", value)}
+                />
+              )}
               <Label className="text-xs">
                 <span className="mb-1.5 block font-medium text-slate-500">目标读者 / 补充要求</span>
                 <Textarea
@@ -1264,13 +1332,13 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           </section>
 
-          {!isBatch && article.error && (
+          {!isBulkWorkspace && article.error && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {article.error}
             </div>
           )}
 
-          {!isBatch && isGenerating && (
+          {!isBulkWorkspace && isGenerating && (
             <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs leading-5 text-cyan-800">
               <div className="font-medium">
                 {articleJobState.currentJob?.stage || "正在生成文章"}
@@ -1281,9 +1349,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           )}
 
-          {!isBatch && <CreditCostBadge featureKey={articleFeatureKey} className="w-fit" />}
+          {!isBulkWorkspace && <CreditCostBadge featureKey={articleFeatureKey} className="w-fit" />}
 
-          {!isBatch && <div className="flex gap-2">
+          {!isBulkWorkspace && <div className="flex gap-2">
             <Button
               onClick={runGenerate}
               disabled={!canGenerate}
@@ -1319,7 +1387,37 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           </div>}
         </div>
 
-        {isBatch ? (
+        {isStrategy ? (
+          <ArticleStrategyWorkspace
+            key={strategyWorkspaceKey}
+            clientId={client.id}
+            questions={keywordQuestions}
+            hasAccess={unlimited || ["vip3", "vip4", "vip5", "vip6"].includes(membership.tier)}
+            membershipTier={membership.tier}
+            basePayload={{
+              promptKey: article.promptKey === "rewrite" ? "thirdPartyObservation" : article.promptKey,
+              modelProvider: article.modelProvider,
+              model: article.model,
+              clientName: client.name,
+              brandName: client.ourBrand || client.name,
+              subjectType: getClientSubjectType(client),
+              subjectContext: getClientSubjectType(client) === "person"
+                ? formatPersonSubjectContext(client.personProfile)
+                : "",
+              industry: client.industry,
+              website: client.website,
+              coreQuestion: keywordQuestions[0]?.question || article.coreQuestion,
+              keywords: article.keywords,
+              region: article.region,
+              business: article.business,
+              advantages: "",
+              comparisonBrands: article.comparisonBrands || [],
+              audience: article.audience,
+              extraRequirements: article.extraRequirements,
+            }}
+            onStarted={() => setWorkspaceMode("batch")}
+          />
+        ) : isBatch ? (
           <ArticleBatchWorkspace
             key={client.id}
             clientId={client.id}
@@ -1341,10 +1439,12 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               region: article.region,
               business: article.business,
               advantages: article.advantages,
+              comparisonBrands: article.comparisonBrands || [],
               audience: article.audience,
               extraRequirements: article.extraRequirements,
             }}
-            keywordQuestions={keywordQuestions.map(question => question.question).filter(Boolean)}
+            keywordQuestions={keywordQuestions}
+            keywordAdvantages={keywordAdvantages}
             perArticleCredits={estimateFeatureCredits(articleFeatureKey)}
           />
         ) : (

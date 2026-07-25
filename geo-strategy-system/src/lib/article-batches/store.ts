@@ -23,6 +23,7 @@ export type ArticleBatchBasePayload = Pick<
   | "region"
   | "business"
   | "advantages"
+  | "comparisonBrands"
   | "audience"
   | "extraRequirements"
 > & {
@@ -135,6 +136,17 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
     position: item.position,
     topic: item.topic,
     brief: item.brief,
+    questionId: item.questionId,
+    intent: item.intent,
+    category: item.category,
+    keyword: item.keyword,
+    contentAngle: item.contentAngle,
+    matchedAdvantage: item.matchedAdvantage,
+    promptKey: item.promptKey,
+    promptTitle: item.promptTitle,
+    routeConfidence: item.routeConfidence,
+    routeReason: item.routeReason,
+    missingEvidence: item.missingEvidence,
     status: item.status,
     progressPercent: item.progressPercent,
     stage: item.stage,
@@ -152,12 +164,16 @@ export function toPublicArticleBatch(batch: StoredArticleBatch): ArticleBatchRec
   return {
     id: batch.id,
     clientId: batch.clientId,
+    mode: batch.mode || (batch.topicMode === "strategy" ? "strategy" : "standard"),
     promptKey: batch.promptKey,
     promptTitle: batch.promptTitle,
     modelProvider: batch.modelProvider,
     model: batch.model,
     topicMode: batch.topicMode,
     similarityRetry: batch.similarityRetry,
+    mixedPrompts: batch.mixedPrompts || batch.items.some(item => (
+      Boolean(item.promptKey) && item.promptKey !== batch.promptKey
+    )),
     requestedCount: batch.requestedCount,
     completedCount: batch.completedCount,
     failedCount: batch.failedCount,
@@ -398,6 +414,8 @@ export function createStoredArticleBatchInput(args: {
   model: string
   topicMode: StoredArticleBatch["topicMode"]
   similarityRetry: boolean
+  mode?: StoredArticleBatch["mode"]
+  mixedPrompts?: boolean
   basePayload: ArticleBatchBasePayload
   items: StoredArticleBatchItem[]
 }): StoredArticleBatch {
@@ -417,6 +435,8 @@ export function createStoredArticleBatchInput(args: {
     model: args.model,
     topicMode: args.topicMode,
     similarityRetry: args.similarityRetry,
+    mode: args.mode || (args.topicMode === "strategy" ? "strategy" : "standard"),
+    mixedPrompts: args.mixedPrompts,
     requestedCount: args.items.length,
     completedCount: 0,
     failedCount: 0,

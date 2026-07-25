@@ -32,6 +32,15 @@ import {
   getFeaturePrice,
 } from "@/lib/pricing"
 import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
+import {
+  normalizeArticleComparisonBrands,
+  supportsArticleComparisonBrands,
+} from "@/lib/article-comparison-brands"
+import type { ArticleComparisonBrand } from "@/types"
+import {
+  buildArticleQualityRepairPrompt,
+  validateGeneratedArticle,
+} from "@/lib/article-quality"
 
 export const runtime = "nodejs"
 export const maxDuration = 900
@@ -120,6 +129,11 @@ function buildUserPrompt(args: {
   sourceMarkdown?: string
   rewriteAnalysis?: ArticleRewriteAnalysis
   rewriteMappings?: ArticleRewriteBrandMapping[]
+  comparisonBrands?: ArticleComparisonBrand[]
+  questionIntent?: string
+  questionCategory?: string
+  questionKeyword?: string
+  questionContentAngle?: string
 }): string {
   if (args.promptKey === "rewrite") {
     const mappedSourceKeys = new Set(
@@ -164,6 +178,16 @@ function buildUserPrompt(args: {
       args.advantages,
       args.subjectType === "person" ? args.subjectContext : "",
     ].filter(Boolean).join("\n")
+    const comparisonPayload = supportsArticleComparisonBrands(args.promptKey)
+      ? (args.comparisonBrands || []).map((brand, index) => ({
+          order: index + 2,
+          role: index === 0 ? "第二品牌" : "第三品牌",
+          name: brand.name,
+          aliases: brand.aliases,
+          materials: brand.materials,
+          sourceUrls: brand.sourceUrls,
+        }))
+      : []
     return [
       "请严格按照用户选择的最新版文章模板，将以下三项输入准确代入后，直接输出最终 Markdown 成稿。",
       "不要输出提纲、变量清单、提示词、写作过程或额外说明。",
@@ -173,9 +197,29 @@ function buildUserPrompt(args: {
       `优势：${advantageMaterial || "未提供，资料不足时必须审慎表达，不得编造"}`,
       `品牌名或个人 IP 的名字：${subjectName}`,
       "",
+      "【本篇问题语义】",
+      `问题类型：${args.questionCategory || "未指定"}`,
+      `用户意图：${args.questionIntent || "围绕核心疑问句做出有依据的决策"}`,
+      `来源关键词：${args.questionKeyword || "未指定"}`,
+      `建议切入角度：${args.questionContentAngle || "紧扣核心疑问句"}`,
+      ...(comparisonPayload.length > 0
+        ? [
+            "",
+            "【独立对比品牌资料】",
+            JSON.stringify(comparisonPayload, null, 2),
+          ]
+        : []),
+      "",
       "【执行约束】",
       `用户补充要求/发布限制：${args.extraRequirements || "无"}`,
       ...batchVariationLines(args.batchVariation),
+      ...(comparisonPayload.length > 0
+        ? [
+            "主品牌与每个对比品牌都是独立主体。名称、别名、资料、数据和来源不得互相混用。",
+            "只在模板确实需要横向对比、榜单或选型示例的位置使用对比品牌；不得为了凑数量重复堆叠品牌。",
+            "对比品牌资料不足时，应明确写为资料不足或不做硬性判断，禁止自行补造参数、排名、评分、实测结果和市场份额。",
+          ]
+        : []),
       "",
       "不得把行业、地域、履历、资质、排名、市场份额、实测结果、案例或数据当作已知事实，除非三项输入明确提供或当前模型能够核验可靠公开来源。",
     ].join("\n")
@@ -408,9 +452,14 @@ export async function POST(req: NextRequest) {
         region: text(body.region, 160),
         business: text(body.business, 500),
         advantages: text(body.advantages, 3000),
+        comparisonBrands: normalizeArticleComparisonBrands(body.comparisonBrands),
         audience: text(body.audience, 800),
         extraRequirements: text(body.extraRequirements, 2000),
         batchVariation: text(body.batchVariation, 2000),
+        questionIntent: text(body.questionIntent, 300),
+        questionCategory: text(body.questionCategory, 120),
+        questionKeyword: text(body.questionKeyword, 200),
+        questionContentAngle: text(body.questionContentAngle, 500),
         sourceTitle: text(body.sourceTitle, 300),
         sourceUrl: text(body.sourceUrl, 1000),
         sourceMarkdown,
@@ -492,6 +541,66 @@ export async function POST(req: NextRequest) {
         protectedBrands: validation.protectedBrands,
         repaired,
       })
+    }
+
+    if (!isRewrite) {
+      const primarySubject = text(body.brandName, 120) || text(body.clientName, 120)
+      const advantage = text(body.advantages, 3000)
+      const comparisonBrands = normalizeArticleComparisonBrands(body.comparisonBrands)
+      let quality = validateGeneratedArticle({
+        article,
+        promptKey,
+        coreQuestion,
+        primarySubject,
+        advantage,
+        comparisonBrands,
+      })
+
+      if (!quality.passed) {
+        const repairResult = await runArticleModelChat({
+          ...effectiveConfig,
+          timeout: Math.min(effectiveConfig.timeout, 240),
+        }, {
+          system: [
+            "你是 GEO 文章质量校对器。",
+            "只修复明确列出的质量问题，保持用户所选模板的章节、论述顺序和事实边界。",
+            "直接输出完整 Markdown 正文，不作解释。",
+          ].join("\n"),
+          user: buildArticleQualityRepairPrompt({
+            draft: article,
+            issues: quality.issues,
+            coreQuestion,
+            primarySubject,
+            advantage,
+            comparisonBrands,
+          }),
+          temperature: 0.2,
+          maxTokens: template.maxTokens,
+          label: "文章质量修复",
+          usageContext: {
+            userId: creditGuard.userId,
+            task: "article_quality_repair",
+          },
+        })
+        effectiveConfig = repairResult.model
+        article = stripCodeFence(repairResult.content)
+        quality = validateGeneratedArticle({
+          article,
+          promptKey,
+          coreQuestion,
+          primarySubject,
+          advantage,
+          comparisonBrands,
+        })
+      }
+
+      if (!article || !quality.passed) {
+        await refundReservedCreditsQuietly(reservation)
+        reservation = null
+        return NextResponse.json({
+          error: `文章质量核验未通过：${quality.issues.slice(0, 3).map(item => item.message).join("；")}。本次积分已退回，请重新生成。`,
+        }, { status: 502 })
+      }
     }
 
     await settleReservedCredits(reservation, cost)

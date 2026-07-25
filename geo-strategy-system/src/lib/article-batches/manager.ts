@@ -42,6 +42,7 @@ import {
   type StoredArticleBatchItem,
 } from "@/lib/article-batches/store"
 import type {
+  ArticleBatchQuestionTask,
   ArticleBatchRecord,
   ArticleBatchTopicMode,
   BackgroundJobRecord,
@@ -54,6 +55,7 @@ export interface CreateArticleBatchInput {
   count: number
   topicMode: ArticleBatchTopicMode
   customTopics?: string
+  questionTasks?: ArticleBatchQuestionTask[]
   similarityRetry: boolean
   basePayload: ArticleBatchBasePayload
 }
@@ -108,11 +110,19 @@ async function responseMessage(response: Response): Promise<string> {
 function itemJobPayload(batch: StoredArticleBatch, item: StoredArticleBatchItem, retry = false) {
   return {
     ...batch.basePayload,
+    promptKey: item.promptKey || batch.basePayload.promptKey,
     coreQuestion: item.topic,
+    advantages: batch.topicMode === "questions" || batch.topicMode === "strategy"
+      ? item.matchedAdvantage || ""
+      : item.matchedAdvantage ?? batch.basePayload.advantages,
+    questionIntent: item.intent || "",
+    questionCategory: item.category || "",
+    questionKeyword: item.keyword || "",
+    questionContentAngle: item.contentAngle || "",
     batchVariation: [
       item.brief,
       retry
-        ? "首次结果与批次内其他文章相似度偏高。本次必须采用全新的标题句式、开场方式、章节顺序和论证路径，但不要引用或描述其他文章。"
+        ? "首次结果与批次内其他文章相似度偏高。本次必须采用新的标题句式、开场表达和论证语言；仍须保留所选模板规定的章节、表格和输出格式，不得引用或描述其他文章。"
         : "",
     ].filter(Boolean).join("\n"),
   }
@@ -394,6 +404,7 @@ export async function createArticleBatch(
     coreQuestion: input.basePayload.coreQuestion,
     keywords: input.basePayload.keywords,
     customTopics: input.customTopics,
+    questionTasks: input.questionTasks,
   })
   const batchId = `abatch_${randomUUID().replace(/-/g, "")}`
   const items: StoredArticleBatchItem[] = planned.map(plan => ({
@@ -401,6 +412,17 @@ export async function createArticleBatch(
     position: plan.position,
     topic: plan.topic,
     brief: plan.brief,
+    questionId: plan.questionId,
+    intent: plan.intent,
+    category: plan.category,
+    keyword: plan.keyword,
+    contentAngle: plan.contentAngle,
+    matchedAdvantage: plan.matchedAdvantage,
+    promptKey: plan.promptKey,
+    promptTitle: plan.promptTitle,
+    routeConfidence: plan.routeConfidence,
+    routeReason: plan.routeReason,
+    missingEvidence: plan.missingEvidence,
     requestId: itemRequestId(batchId, plan.position, 1),
     status: "queued",
     progressPercent: 0,
@@ -418,11 +440,13 @@ export async function createArticleBatch(
     clientId: input.clientId,
     requestId: input.requestId,
     promptKey: input.basePayload.promptKey,
-    promptTitle: input.promptTitle,
+    promptTitle: input.topicMode === "strategy" ? "关键词策略自动成文" : input.promptTitle,
     modelProvider: input.basePayload.modelProvider,
     model: input.basePayload.model,
     topicMode: input.topicMode,
     similarityRetry: input.similarityRetry,
+    mode: input.topicMode === "strategy" ? "strategy" : "standard",
+    mixedPrompts: items.some(item => Boolean(item.promptKey && item.promptKey !== input.basePayload.promptKey)),
     basePayload: input.basePayload,
     items,
   })
@@ -570,6 +594,25 @@ export async function restartArticleBatch(
     count: batch.requestedCount,
     topicMode: batch.topicMode,
     customTopics,
+    questionTasks: batch.topicMode === "questions" || batch.topicMode === "strategy"
+      ? batch.items
+        .slice()
+        .sort((left, right) => left.position - right.position)
+        .map(item => ({
+          questionId: item.questionId,
+          question: item.topic,
+          intent: item.intent,
+          category: item.category,
+          keyword: item.keyword,
+          contentAngle: item.contentAngle,
+          matchedAdvantage: item.matchedAdvantage,
+          promptKey: item.promptKey,
+          promptTitle: item.promptTitle,
+          routeConfidence: item.routeConfidence,
+          routeReason: item.routeReason,
+          missingEvidence: item.missingEvidence,
+        }))
+      : undefined,
     similarityRetry: batch.similarityRetry,
     basePayload: batch.basePayload,
   }, {

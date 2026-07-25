@@ -21,18 +21,22 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
+import { resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   ArticleBatchItemRecord,
+  ArticleBatchQuestionTask,
   ArticleBatchRecord,
   ArticleBatchTopicMode,
 } from "@/types"
+import type { QuestionItem } from "@/types/geo-strategy"
 
 interface Props {
   clientId: string
   promptTitle: string
-  basePayload: Record<string, string>
-  keywordQuestions: string[]
+  basePayload: Record<string, unknown>
+  keywordQuestions: QuestionItem[]
+  keywordAdvantages?: string[]
   perArticleCredits: number
 }
 
@@ -83,6 +87,7 @@ export default function ArticleBatchWorkspace({
   promptTitle,
   basePayload,
   keywordQuestions,
+  keywordAdvantages = [],
   perArticleCredits,
 }: Props) {
   const [count, setCount] = useState(10)
@@ -154,7 +159,7 @@ export default function ArticleBatchWorkspace({
   const totalCredits = Math.max(0, perArticleCredits) * count
   const blockedReason = startBlockReason({
     count,
-    coreQuestion: basePayload.coreQuestion || "",
+    coreQuestion: String(basePayload.coreQuestion || ""),
     topicMode,
     providedTopicCount,
   })
@@ -167,8 +172,39 @@ export default function ArticleBatchWorkspace({
 
   function useKeywordQuestions() {
     const selected = keywordQuestions.slice(0, count)
-    setCustomTopics(selected.join("\n"))
+    setCustomTopics(selected.map(item => item.question).join("\n"))
     setTopicMode("questions")
+  }
+
+  function questionTasksForRequest(): ArticleBatchQuestionTask[] | undefined {
+    if (topicMode !== "questions") return undefined
+    const byQuestion = new Map(
+      keywordQuestions.map(question => [
+        question.question.trim().replace(/\s+/g, "").toLocaleLowerCase("zh-CN"),
+        question,
+      ]),
+    )
+    return customTopics
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .slice(0, count)
+      .map(questionText => {
+        const known = byQuestion.get(
+          questionText.replace(/\s+/g, "").toLocaleLowerCase("zh-CN"),
+        )
+        return {
+          questionId: known?.id,
+          question: questionText,
+          intent: known?.intent,
+          category: known?.category,
+          keyword: known?.keyword,
+          contentAngle: known?.content_angle,
+          matchedAdvantage: known
+            ? resolveQuestionAdvantage(known, keywordAdvantages)
+            : undefined,
+        }
+      })
   }
 
   async function startBatch() {
@@ -185,6 +221,7 @@ export default function ArticleBatchWorkspace({
           count,
           topicMode,
           customTopics,
+          questionTasks: questionTasksForRequest(),
           similarityRetry,
           basePayload,
         }),
@@ -330,7 +367,7 @@ export default function ArticleBatchWorkspace({
                 onClick={useKeywordQuestions}
                 className="mt-2 text-[11px] font-medium text-[#0958D9] hover:text-[#1677FF]"
               >
-                填入当前客户前 {Math.min(count, keywordQuestions.length)} 条疑问句
+                填入当前客户前 {Math.min(count, keywordQuestions.length)} 条疑问句并保留匹配优势
               </button>
             )}
           </div>
@@ -390,6 +427,7 @@ export default function ArticleBatchWorkspace({
             >
               {batches.map(batch => (
                 <option key={batch.id} value={batch.id}>
+                  {batch.mode === "strategy" ? "策略自动成文 · " : ""}
                   {new Date(batch.createdAt).toLocaleString("zh-CN", { hour12: false })} · {batch.completedCount}/{batch.requestedCount}
                 </option>
               ))}
@@ -509,6 +547,11 @@ export default function ArticleBatchWorkspace({
                         {statusLabel(item)}
                       </span>
                       <span className="truncate" title={item.error || item.stage}>{item.error || item.stage}</span>
+                      {item.promptTitle && (
+                        <span className="hidden shrink-0 rounded bg-blue-50 px-1.5 py-0.5 font-medium text-[#0958D9] sm:inline">
+                          {item.promptTitle}
+                        </span>
+                      )}
                     </div>
                   </div>
                   {item.status === "succeeded" ? (
