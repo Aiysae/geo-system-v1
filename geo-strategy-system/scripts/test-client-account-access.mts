@@ -14,9 +14,11 @@ process.env.CREDITS_INITIAL = "50"
 const {
   canRunBillableFeature,
   deleteClientAccountLink,
+  getRecoverableClientAccountLink,
   getWorkspaceAccountAccess,
   listClientAccountAudit,
   resolveWorkspaceAccess,
+  restoreClientAccountLink,
   saveClientAccountLink,
   setClientAccountStatus,
 } = await import("../src/lib/client-accounts")
@@ -228,6 +230,18 @@ try {
   assert.equal((await getCreditBalanceSnapshot(ownerUserId)).total, 30, "transfer retry must not debit twice")
   assert.equal((await getCreditBalanceSnapshot(managedChildUserId)).total, 20, "transfer retry must not credit twice")
 
+  assert.equal(await deleteClientAccountLink({ userId: managedChildUserId, operatorUserId: ownerUserId }), true)
+  const recoverable = await getRecoverableClientAccountLink(managedChildUserId, ownerUserId)
+  assert.equal(recoverable?.clientId, "owner-managed-client")
+  assert.equal(recoverable?.billingMode, "self_funded")
+  const restored = await restoreClientAccountLink({
+    userId: managedChildUserId,
+    ownerUserId,
+    operatorUserId: ownerUserId,
+  })
+  assert.equal(restored.status, "active")
+  assert.equal(restored.clientId, "owner-managed-client")
+  assert.equal(await getRecoverableClientAccountLink(managedChildUserId, ownerUserId), null)
   assert.equal(await deleteClientAccountLink({ userId: managedChildUserId, operatorUserId: ownerUserId }), true)
   assert.equal(await deleteClientAccountLink({ userId: clientUserId, operatorUserId }), true)
   assert.equal((await getWorkspaceAccountAccess(clientUserId)).mode, "standard")

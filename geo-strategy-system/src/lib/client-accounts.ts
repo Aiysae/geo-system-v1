@@ -252,6 +252,41 @@ export async function deleteClientAccountLink(input: {
   return true
 }
 
+export async function getRecoverableClientAccountLink(
+  userId: string,
+  ownerUserId?: string,
+): Promise<ClientAccountLink | null> {
+  if (await getClientAccountLink(userId)) return null
+  const audit = await listClientAccountAudit(userId, 100)
+  const previous = audit.find(entry =>
+    entry.action === "unlinked"
+    && entry.before
+    && (!ownerUserId || entry.before.ownerUserId === ownerUserId)
+  )?.before
+  return previous ? normalizeLink(previous) : null
+}
+
+export async function restoreClientAccountLink(input: {
+  userId: string
+  operatorUserId: string
+  ownerUserId?: string
+  clientName?: string
+}): Promise<ClientAccountLink> {
+  const previous = await getRecoverableClientAccountLink(input.userId, input.ownerUserId)
+  if (!previous) throw new Error("该账号没有可恢复的客户授权记录")
+  return saveClientAccountLink({
+    userId: previous.userId,
+    ownerUserId: previous.ownerUserId,
+    clientId: previous.clientId,
+    clientName: input.clientName || previous.clientName,
+    monthlyCredits: previous.monthlyCredits,
+    status: "active",
+    provisioning: previous.provisioning,
+    billingMode: previous.billingMode,
+    operatorUserId: input.operatorUserId,
+  })
+}
+
 export async function getWorkspaceAccountAccess(userId: string): Promise<WorkspaceAccountAccess> {
   const link = await getClientAccountLink(userId)
   if (!link) {

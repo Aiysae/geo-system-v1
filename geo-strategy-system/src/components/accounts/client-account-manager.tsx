@@ -16,7 +16,8 @@ import {
   PlayCircle,
   Plus,
   RefreshCw,
-  Trash2,
+  RotateCcw,
+  Unlink,
   UsersRound,
   X,
 } from "lucide-react"
@@ -45,11 +46,24 @@ type ManagedAccount = {
   updatedAt: string
 }
 
+type DetachedAccount = {
+  userId: string
+  email: string
+  name: string
+  clientId: string
+  clientName: string
+  creditBalance: number
+  canRestore: boolean
+  unavailableReason: string
+  updatedAt: string
+}
+
 type AccountPayload = {
   membership: MembershipSnapshot
   used: number
   limit: number
   accounts: ManagedAccount[]
+  detachedAccounts: DetachedAccount[]
   clients: ClientOption[]
 }
 
@@ -72,6 +86,7 @@ export default function ClientAccountManager() {
     used: 0,
     limit: 0,
     accounts: [],
+    detachedAccounts: [],
     clients: [],
   })
   const [loading, setLoading] = useState(true)
@@ -92,7 +107,10 @@ export default function ClientAccountManager() {
       const response = await fetch("/api/client-accounts", { cache: "no-store" })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "客户账号读取失败，请稍后重试。", subject: "客户账号" }))
-      setPayload(body as AccountPayload)
+      setPayload({
+        ...(body as AccountPayload),
+        detachedAccounts: Array.isArray(body?.detachedAccounts) ? body.detachedAccounts : [],
+      })
     } catch (loadError) {
       setError(toUserFacingError(loadError, { fallback: "客户账号读取失败，请稍后重试。", subject: "客户账号" }))
     } finally {
@@ -107,8 +125,11 @@ export default function ClientAccountManager() {
 
   const availableClients = useMemo(() => {
     const linkedIds = new Set(payload.accounts.map(account => account.clientId))
+    payload.detachedAccounts
+      .filter(account => account.canRestore)
+      .forEach(account => linkedIds.add(account.clientId))
     return payload.clients.filter(client => !linkedIds.has(client.id))
-  }, [payload.accounts, payload.clients])
+  }, [payload.accounts, payload.clients, payload.detachedAccounts])
   const canCreate = payload.membership.clientAccountLimit > payload.used
 
   async function createAccount(event: React.FormEvent<HTMLFormElement>) {
@@ -142,6 +163,11 @@ export default function ClientAccountManager() {
   }
 
   async function accountAction(account: ManagedAccount, action: "status" | "reset" | "remove") {
+    if (action === "remove" && !window.confirm(
+      `确认解除“${account.clientName}”的客户账号关联吗？\n\n账号会暂停登录，但账号、积分和历史数据都会保留，可在“已解除客户账号”中恢复。`,
+    )) {
+      return
+    }
     const key = `${action}:${account.userId}`
     setPending(key)
     setError("")
@@ -162,6 +188,9 @@ export default function ClientAccountManager() {
         setCredential({ email: body.email, temporaryPassword: body.temporaryPassword })
       }
       await load()
+      if (action === "remove") {
+        setNotice(`已解除“${account.clientName}”的关联，可随时在下方恢复。`)
+      }
     } catch (actionError) {
       setError(toUserFacingError(actionError, { fallback: "客户账号操作失败，请稍后重试。", subject: "客户账号操作" }))
     } finally {
@@ -175,6 +204,32 @@ export default function ClientAccountManager() {
     setTransferOperationId(`ct_${crypto.randomUUID().replace(/-/g, "")}`)
     setError("")
     setNotice("")
+  }
+
+  async function restoreAccount(account: DetachedAccount) {
+    const key = `restore:${account.userId}`
+    setPending(key)
+    setError("")
+    setNotice("")
+    try {
+      const response = await fetch(`/api/client-accounts/${encodeURIComponent(account.userId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore" }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, {
+        status: response.status,
+        fallback: "客户账号恢复失败，请稍后重试。",
+        subject: "恢复客户账号",
+      }))
+      setNotice(`已恢复“${body.clientName || account.clientName}”，该账号现在可以正常登录。`)
+      await load()
+    } catch (restoreError) {
+      setError(toUserFacingError(restoreError, { fallback: "客户账号恢复失败，请稍后重试。", subject: "恢复客户账号" }))
+    } finally {
+      setPending("")
+    }
   }
 
   async function transferCredits() {
@@ -245,7 +300,7 @@ export default function ClientAccountManager() {
             <div className="bg-white p-5">
               <div className="text-xs text-[#6B8299]">子账号名额</div>
               <div className="mt-2 font-mono text-2xl font-bold text-[#0958D9]">{payload.used} / {payload.limit}</div>
-              <p className="mt-2 text-[11px] text-[#7E91A7]">停用账号仍保留数据，解除关联后释放名额。</p>
+              <p className="mt-2 text-[11px] text-[#7E91A7]">停用账号仍占用名额；解除关联会暂停登录并释放名额，后续可以恢复。</p>
             </div>
             <div className="flex items-center justify-between gap-3 bg-white p-5 md:block">
               <div>
@@ -314,13 +369,52 @@ export default function ClientAccountManager() {
                     ) : null}
                     <button type="button" title="生成新的临时密码" disabled={Boolean(pending)} onClick={() => void accountAction(account, "reset")} className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#CFE0F2] text-[#0958D9] hover:bg-[#EEF6FF] disabled:opacity-45"><KeyRound className="h-4 w-4" /></button>
                     <button type="button" title={account.status === "active" ? "暂停账号" : "恢复账号"} disabled={Boolean(pending)} onClick={() => void accountAction(account, "status")} className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#CFE0F2] text-[#526A83] hover:bg-[#F3F7FB] disabled:opacity-45">{account.status === "active" ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}</button>
-                    <button type="button" title="解除关联" disabled={Boolean(pending)} onClick={() => void accountAction(account, "remove")} className="flex h-9 w-9 items-center justify-center rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-45"><Trash2 className="h-4 w-4" /></button>
+                    <button type="button" title="解除关联" disabled={Boolean(pending)} onClick={() => void accountAction(account, "remove")} className="flex h-9 w-9 items-center justify-center rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-45"><Unlink className="h-4 w-4" /></button>
                   </div>
                 </article>
               ))}
             </div>
           )}
         </section>
+
+        {payload.detachedAccounts.length > 0 ? (
+          <section className="overflow-hidden rounded-lg border border-amber-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-amber-100 bg-amber-50/70 px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold text-amber-950">已解除客户账号</h2>
+                <p className="mt-0.5 text-[11px] text-amber-700">账号、积分和历史记录仍保留，可恢复原来的客户面板关联。</p>
+              </div>
+              <span className="rounded-md bg-white px-2 py-1 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                {payload.detachedAccounts.length} 个
+              </span>
+            </div>
+            <div className="divide-y divide-amber-100">
+              {payload.detachedAccounts.map(account => (
+                <article key={account.userId} className="grid gap-3 px-4 py-4 lg:grid-cols-[1.1fr_1fr_auto] lg:items-center">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-[#102A43]">{account.clientName}</div>
+                    <p className="mt-1 truncate text-xs text-[#6B8299]">{account.name} · {account.email}</p>
+                  </div>
+                  <div className="text-xs leading-5 text-[#6B8299]">
+                    <div>保留积分：<span className="font-mono font-semibold text-[#0958D9]">{account.creditBalance}</span></div>
+                    <div className={account.canRestore ? "text-emerald-700" : "text-rose-600"}>
+                      {account.canRestore ? "原客户面板可正常恢复" : account.unavailableReason}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={Boolean(pending) || !account.canRestore}
+                    onClick={() => void restoreAccount(account)}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {pending === `restore:${account.userId}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    {pending === `restore:${account.userId}` ? "恢复中" : "一键恢复"}
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </main>
 
       {showCreate ? (

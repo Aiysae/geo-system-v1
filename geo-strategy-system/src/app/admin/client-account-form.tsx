@@ -1,8 +1,9 @@
 "use client"
 
 import { useActionState } from "react"
-import { Link2, LockKeyhole, PauseCircle, PlayCircle, Unlink } from "lucide-react"
+import { Link2, LockKeyhole, PauseCircle, PlayCircle, RotateCcw, Unlink } from "lucide-react"
 import {
+  restoreClientAccountLinkAction,
   saveClientAccountLinkAction,
   unlinkClientAccountAction,
   updateClientAccountStatusAction,
@@ -40,11 +41,13 @@ export function ClientAccountForm({
   userId,
   options,
   currentLink,
+  recoverableLink,
   disabled = false,
 }: {
   userId: string
   options: ClientOption[]
   currentLink: CurrentLink | null
+  recoverableLink: CurrentLink | null
   disabled?: boolean
 }) {
   const [saveState, saveAction, savePending] = useActionState(
@@ -59,8 +62,13 @@ export function ClientAccountForm({
     unlinkClientAccountAction,
     initialState,
   )
-  const currentSelection = currentLink
-    ? `${currentLink.ownerUserId}::${currentLink.clientId}`
+  const [restoreState, restoreAction, restorePending] = useActionState(
+    restoreClientAccountLinkAction,
+    initialState,
+  )
+  const selectedLink = currentLink || recoverableLink
+  const currentSelection = selectedLink
+    ? `${selectedLink.ownerUserId}::${selectedLink.clientId}`
     : ""
 
   if (disabled) {
@@ -80,7 +88,9 @@ export function ClientAccountForm({
           </span>
           <div>
             <div className="text-sm font-semibold text-[#102A43]">
-              {currentLink ? "已启用客户专属模式" : "尚未启用客户专属模式"}
+              {currentLink
+                ? "已启用客户专属模式"
+                : recoverableLink ? "客户授权已解除，可恢复" : "尚未启用客户专属模式"}
             </div>
             <p className="mt-1 text-xs leading-5 text-[#526A83]">
               专属账号只能访问一个授权品牌；可编辑疑问句并运行渗透率检测，其他模块仅查看。
@@ -99,6 +109,29 @@ export function ClientAccountForm({
           </div>
         ) : null}
       </div>
+
+      {!currentLink && recoverableLink ? (
+        <form action={restoreAction} className="flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <input type="hidden" name="userId" value={userId} />
+          <div>
+            <div className="text-xs font-semibold text-emerald-800">
+              上次授权：{recoverableLink.clientName}
+            </div>
+            <p className="mt-1 text-[11px] leading-5 text-emerald-700">
+              恢复后会重新启用登录，保留原账号、积分和历史记录。
+            </p>
+          </div>
+          <button
+            type="submit"
+            disabled={restorePending}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-55"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            {restorePending ? "恢复中" : "恢复上次授权"}
+          </button>
+          <ResultMessage state={restoreState} />
+        </form>
+      ) : null}
 
       <form action={saveAction} className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_auto] lg:items-end">
         <input type="hidden" name="userId" value={userId} />
@@ -129,7 +162,7 @@ export function ClientAccountForm({
               max={1000000}
               step={1}
               required
-              defaultValue={currentLink?.monthlyCredits || 1000}
+              defaultValue={selectedLink?.monthlyCredits || 1000}
               disabled={savePending}
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 pr-12 text-sm font-mono text-slate-800 outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15"
             />
