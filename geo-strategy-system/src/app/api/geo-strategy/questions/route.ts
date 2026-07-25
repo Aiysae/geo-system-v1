@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { hasAiCredentialCandidate } from "@/lib/ai-credential-router"
+import { runCredentialPoolChat } from "@/lib/ai-credential-chat"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "@/lib/geo-strategy/question-advantages"
 import { isInternalApiRequest } from "@/lib/internal-api"
-import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
   DEFAULT_QUESTION_MODEL_PROVIDER,
@@ -10,6 +11,7 @@ import {
   normalizeQuestionModel,
   normalizeQuestionModelProvider,
   type QuestionItem,
+  type QuestionModelProvider,
 } from "@/types/geo-strategy"
 
 export const runtime = "nodejs"
@@ -603,22 +605,31 @@ function calculateAllocations(
 // ==================== LLM Helpers ====================
 
 async function callLlm(
+  provider: QuestionModelProvider,
   url: string, apiKey: string, model: string,
   system: string, user: string,
   maxTokens: number, label: string,
   timeoutSec: number,
 ): Promise<string> {
-  return openaiCompatChat({
-    url,
-    apiKey,
+  return runCredentialPoolChat({
+    vendor: provider,
+    module: "question",
     model,
-    system,
-    user,
-    temperature: 0.3,
-    maxTokens,
-    jsonMode: true,
-    label,
-    timeoutSec,
+    legacy: {
+      url,
+      apiKey,
+      label,
+    },
+    chat: {
+      system,
+      user,
+      temperature: 0.3,
+      maxTokens,
+      jsonMode: true,
+      timeoutSec,
+    },
+    waitTimeoutMs: Math.min(30_000, timeoutSec * 1000),
+    leaseSeconds: Math.min(60 * 60, Math.max(60, timeoutSec + 30)),
   })
 }
 
@@ -776,6 +787,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 // ==================== Per-Category Generator ====================
 
 async function generateCategoryQuestions(
+  provider: QuestionModelProvider,
   url: string, apiKey: string, model: string,
   allocation: Allocation,
   strategy: Record<string, unknown>,
@@ -836,6 +848,7 @@ async function generateCategoryQuestions(
         try {
           const callTimeoutSec = nextCallTimeoutSec(modelTimeoutSec, deadlineMs)
           raw = await callLlm(
+            provider,
             url,
             apiKey,
             model,
@@ -936,6 +949,12 @@ async function handler(req: NextRequest) {
     const selectedModel = normalizeQuestionModel(selectedProvider, questionModel)
     const providerLabel = QUESTION_MODEL_PROVIDER_LABELS[selectedProvider]
     const aiConfig = await getAiProviderRuntimeSetting(selectedProvider)
+    const hasPoolCredential = await hasAiCredentialCandidate({
+      vendor: selectedProvider,
+      module: "question",
+      model: selectedModel,
+      requiredCapabilities: ["json"],
+    })
     const url = buildAiChatUrl(aiConfig)
     const countInput = Number(totalCount)
     const requestedCount = Math.min(Math.max(Number.isFinite(countInput) ? Math.round(countInput) : 40, 10), 600)
@@ -963,7 +982,7 @@ async function handler(req: NextRequest) {
       count,
     )
 
-    if (!aiConfig.apiKey) {
+    if (!aiConfig.apiKey && !hasPoolCredential) {
       return NextResponse.json({ error: `后台未配置${providerLabel} API Key，请联系管理员在后台管理页配置` }, { status: 400 })
     }
 
@@ -1014,6 +1033,7 @@ async function handler(req: NextRequest) {
       activeAllocations,
       CATEGORY_CONCURRENCY,
       item => generateCategoryQuestions(
+        selectedProvider,
         url,
         aiConfig.apiKey,
         selectedModel,

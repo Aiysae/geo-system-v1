@@ -3,6 +3,7 @@ import { Bot, ShieldCheck } from "lucide-react"
 import { AdminHeader } from "@/components/admin/admin-header"
 import SiteFooter from "@/components/site-footer"
 import { isAdminUser } from "@/lib/admin"
+import { listAiCredentialsPublic } from "@/lib/ai-credential-store"
 import { getCurrentUser } from "@/lib/auth"
 import {
   AI_OFFICIAL_PRESETS,
@@ -10,6 +11,7 @@ import {
   listAiGatewayProvidersPublic,
 } from "@/lib/ai-gateways"
 import { listAiProviderPublicSettings, migrateLegacyAiProviderSecrets } from "@/lib/ai-settings"
+import { AiCredentialPoolManager } from "./ai-credential-pool-manager"
 import { AiModelCenter } from "./ai-model-center"
 
 export const dynamic = "force-dynamic"
@@ -31,9 +33,10 @@ export default async function AdminAiModelsPage() {
   }
 
   await migrateLegacyAiProviderSecrets(user.id)
-  const [connections, legacySettings] = await Promise.all([
+  const [connections, legacySettings, credentials] = await Promise.all([
     listAiGatewayProvidersPublic(),
     listAiProviderPublicSettings(),
+    listAiCredentialsPublic(),
   ])
 
   return (
@@ -45,6 +48,7 @@ export default async function AdminAiModelsPage() {
         active="ai-models"
       />
       <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
+        <AiCredentialPoolManager credentials={credentials} />
         <AiModelCenter
           officialPresets={AI_OFFICIAL_PRESETS}
           relayPresets={AI_RELAY_PRESETS}

@@ -8,6 +8,12 @@ import type { LlmTokenUsage } from "@/lib/llm/openai-compat"
 import { nativeModelChat } from "@/lib/llm/native-chat"
 import { recordAiUsageQuietly } from "@/lib/ai-usage"
 import type { LlmMode } from "@/types"
+import {
+  recordAiCredentialFailure,
+  recordAiCredentialSuccess,
+  tryAcquireAiCredential,
+} from "@/lib/ai-credential-router"
+import type { AiCredentialVendor } from "@/types/ai-credentials"
 
 interface Waiter {
   resolve: () => void
@@ -53,6 +59,27 @@ const CIRCUIT_COOLDOWN_MS = 60_000
 function retryableFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "")
   return /(408|425|429|500|502|503|504|timeout|timed out|超时|连接失败|fetch failed|network|socket|temporar|返回空内容|恢复中)/i.test(message)
+}
+
+function credentialFailoverFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "")
+  return retryableFailure(error)
+    || /(401|403|invalid.*key|unauthorized|forbidden|余额不足|欠费|无权限)/i.test(message)
+}
+
+function credentialVendor(model: ResolvedArticleModel): AiCredentialVendor | null {
+  if (model.providerId) return null
+  const providerKey = String(model.providerKey)
+  return ([
+    "doubao",
+    "qwen",
+    "hunyuan",
+    "deepseek",
+    "kimi",
+    "ernie",
+  ] as AiCredentialVendor[]).includes(providerKey as AiCredentialVendor)
+    ? providerKey as AiCredentialVendor
+    : null
 }
 
 function circuitKey(model: ResolvedArticleModel): string {
@@ -124,7 +151,7 @@ async function acquireProviderSlot(model: ResolvedArticleModel): Promise<() => v
   }
 }
 
-async function callModel(
+async function executeModel(
   model: ResolvedArticleModel,
   input: ArticleModelChatInput,
   usedFallback: boolean,
@@ -215,6 +242,72 @@ async function callModel(
   } finally {
     release()
   }
+}
+
+async function callModel(
+  model: ResolvedArticleModel,
+  input: ArticleModelChatInput,
+  usedFallback: boolean,
+): Promise<string> {
+  const vendor = credentialVendor(model)
+  if (!vendor) return executeModel(model, input, usedFallback)
+
+  const excludedCredentialIds: string[] = []
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const lease = await tryAcquireAiCredential({
+      vendor,
+      module: "article",
+      model: model.model,
+      requiredCapabilities: ["chat"],
+      excludeCredentialIds: excludedCredentialIds,
+      waitTimeoutMs: Math.min(60_000, Math.max(5_000, model.timeout * 1000)),
+      leaseSeconds: Math.min(60 * 60, Math.max(60, model.timeout + 60)),
+    })
+    if (!lease) {
+      if (attempt === 0) {
+        return executeModel(model, input, usedFallback)
+      }
+      break
+    }
+
+    excludedCredentialIds.push(lease.credential.id)
+    const pooledModel: ResolvedArticleModel = {
+      ...model,
+      providerId: lease.credential.id,
+      label: `${model.label}·${lease.credential.accountLabel}`,
+      baseUrl: lease.credential.baseUrl,
+      chatPath: lease.credential.chatPath,
+      apiKey: lease.credential.apiKey,
+      authType: "bearer",
+      protocol: "openai_chat",
+      maxConcurrency: undefined,
+    }
+    const startedAt = Date.now()
+    try {
+      const content = await executeModel(
+        pooledModel,
+        input,
+        usedFallback || attempt > 0,
+      )
+      await recordAiCredentialSuccess(
+        lease.credential.id,
+        Date.now() - startedAt,
+      )
+      return content
+    } catch (error) {
+      lastError = error
+      await recordAiCredentialFailure(lease.credential, error)
+      if (!credentialFailoverFailure(error)) throw error
+      console.warn(
+        `[article-credential-pool] ${model.label}/${model.model} 当前账号不可用，尝试同模型下一账号。`,
+      )
+    } finally {
+      await lease.release()
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`${model.label} 暂无可用账号`)
 }
 
 async function fallbackModels(primary: ResolvedArticleModel): Promise<ResolvedArticleModel[]> {

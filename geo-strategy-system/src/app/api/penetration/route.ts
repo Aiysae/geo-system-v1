@@ -12,6 +12,10 @@ import type {
   PersonSubjectProfile,
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
+import {
+  isAdapterCredentialConfigured,
+  runAdapterCredentialPoolChat,
+} from "@/lib/ai-credential-adapter"
 import { aggregatePenetration, isSameBrand, parseJsonLoose } from "@/lib/score-utils"
 import { isPlatformName } from "@/lib/platform-blacklist"
 import {
@@ -493,7 +497,7 @@ async function blindQuery(
       let raw = ""
       try {
         raw = await runPenetrationProviderCall(model, "consumer", () =>
-          adapter.chat({
+          runAdapterCredentialPoolChat(model, "penetration", {
             system: "",
             user: question,
             temperature: 0,
@@ -626,7 +630,7 @@ async function judgeAnswersBatch(
 
   async function attempt(extraHint = ""): Promise<BatchJudgeItem[] | null> {
     const raw = await runPenetrationProviderCall(judgeModel, "judge", () =>
-      adapter.chat({
+      runAdapterCredentialPoolChat(judgeModel, "judge", {
         system: sys + extraHint,
         user,
         temperature: 0,
@@ -977,10 +981,16 @@ async function enrichWithBatchJudge(
 async function pickJudge(activeModels: ModelKey[]): Promise<ModelKey | null> {
   const order: ModelKey[] = ["deepseek", "qwen", "ernie", "hunyuan", "doubao", "kimi"]
   for (const m of order) {
-    if (!activeModels.includes(m) && (await ADAPTERS[m].configured())) return m
+    if (
+      !activeModels.includes(m)
+      && (await isAdapterCredentialConfigured(m, "judge", { jsonMode: true }))
+    ) return m
   }
   for (const m of order) {
-    if (activeModels.includes(m) && (await ADAPTERS[m].configured())) return m
+    if (
+      activeModels.includes(m)
+      && (await isAdapterCredentialConfigured(m, "judge", { jsonMode: true }))
+    ) return m
   }
   return null
 }

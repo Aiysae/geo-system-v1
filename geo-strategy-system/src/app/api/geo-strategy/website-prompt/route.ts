@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
-import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import { hasAiCredentialCandidate } from "@/lib/ai-credential-router"
+import { runCredentialPoolChat } from "@/lib/ai-credential-chat"
 import {
   authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
@@ -197,7 +198,13 @@ export async function POST(req: NextRequest) {
     const provider = kind === "third-party" ? "deepseek" : "qwen"
     const providerLabel = PROVIDER_LABELS[provider]
     const config = await getAiProviderRuntimeSetting(provider)
-    if (!config.apiKey) {
+    const hasPoolCredential = await hasAiCredentialCandidate({
+      vendor: provider,
+      module: "keywordStrategy",
+      model: config.model,
+      requiredCapabilities: ["chat"],
+    })
+    if (!config.apiKey && !hasPoolCredential) {
       return NextResponse.json(
         { error: `后台未配置 ${providerLabel} API Key，请在后台管理页的 AI 模型设置中完成配置` },
         { status: 400 }
@@ -213,18 +220,24 @@ export async function POST(req: NextRequest) {
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 
-    const prompt = await openaiCompatChat({
-      url: buildAiChatUrl(config),
-      apiKey: config.apiKey,
+    const prompt = await runCredentialPoolChat({
+      vendor: provider,
+      module: "keywordStrategy",
       model: config.model,
-      system: kind === "third-party" ? THIRD_PARTY_SYSTEM_PROMPT : OFFICIAL_SYSTEM_PROMPT,
-      user: kind === "third-party"
-        ? buildThirdPartyGenerationContext(plan, thirdPartySite as ThirdPartySite, siteIndex)
-        : buildOfficialGenerationContext(plan),
-      temperature: 0.35,
-      maxTokens: 8192,
-      timeoutSec: config.timeout,
-      label: kind === "third-party" ? "第三方网站 Prompt 生成" : "官网 Prompt 生成",
+      legacy: {
+        url: buildAiChatUrl(config),
+        apiKey: config.apiKey,
+        label: kind === "third-party" ? "第三方网站 Prompt 生成" : "官网 Prompt 生成",
+      },
+      chat: {
+        system: kind === "third-party" ? THIRD_PARTY_SYSTEM_PROMPT : OFFICIAL_SYSTEM_PROMPT,
+        user: kind === "third-party"
+          ? buildThirdPartyGenerationContext(plan, thirdPartySite as ThirdPartySite, siteIndex)
+          : buildOfficialGenerationContext(plan),
+        temperature: 0.35,
+        maxTokens: 8192,
+        timeoutSec: config.timeout,
+      },
     })
 
     const cleanedPrompt = stripCodeFence(prompt)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
-import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import { hasAiCredentialCandidate } from "@/lib/ai-credential-router"
+import { runCredentialPoolChat } from "@/lib/ai-credential-chat"
 import {
   authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
@@ -153,9 +154,20 @@ async function handler(req: NextRequest) {
     const files = Array.isArray(body.files) ? body.files : []
     const projectInfo = body.projectInfo || {}
     const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
+    const hasMediaInput = files.some(file =>
+      file.fileType === "image"
+      || file.fileType === "pdf"
+      || file.content?.startsWith?.("data:image/")
+      || file.content?.startsWith?.("data:application/pdf"))
+    const hasPoolCredential = await hasAiCredentialCandidate({
+      vendor: "qwen",
+      module: "keywordStrategy",
+      model: aiConfig.model,
+      requiredCapabilities: hasMediaInput ? ["json", "vision"] : ["json"],
+    })
     const url = buildAiChatUrl(aiConfig)
 
-    if (!aiConfig.apiKey) {
+    if (!aiConfig.apiKey && !hasPoolCredential) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 
@@ -197,18 +209,25 @@ async function handler(req: NextRequest) {
 
     console.log(`[GEO提取] 请求: ${aiConfig.model} @ ${url} | 文本文件: ${textFiles.length} | 图片/PDF: ${mediaFiles.length} | 超时: ${timeoutSec}s`)
 
-    const raw = await openaiCompatChat({
-      url,
-      apiKey: aiConfig.apiKey,
+    const raw = await runCredentialPoolChat({
+      vendor: "qwen",
+      module: "keywordStrategy",
       model: aiConfig.model,
-      system: EXTRACTION_SYSTEM,
-      user: userPrompt,
-      temperature: 0.3,
-      maxTokens: 8192,
-      jsonMode: true,
-      label: "GEO提取",
+      legacy: {
+        url,
+        apiKey: aiConfig.apiKey,
+        label: "GEO提取",
+      },
+      chat: {
+        system: EXTRACTION_SYSTEM,
+        user: userPrompt,
+        temperature: 0.3,
+        maxTokens: 8192,
+        jsonMode: true,
+        timeoutSec,
+      },
       images: imagesToSend,
-      timeoutSec,
+      requiredCapabilities: imagesToSend?.length ? ["json", "vision"] : ["json"],
     })
 
     // Parse JSON from response

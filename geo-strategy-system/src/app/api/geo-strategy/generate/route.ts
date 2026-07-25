@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
-import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import { hasAiCredentialCandidate } from "@/lib/ai-credential-router"
+import { runCredentialPoolChat } from "@/lib/ai-credential-chat"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
   authAndReserveCreditsForRequest,
@@ -159,21 +160,27 @@ async function callLlm(args: {
   attempt: number
   timeoutSec: number
 }): Promise<string> {
-  return openaiCompatChat({
-    url: args.url,
-    apiKey: args.apiKey,
+  return runCredentialPoolChat({
+    vendor: "qwen",
+    module: "keywordStrategy",
     model: args.model,
-    system: args.attempt === 0
-      ? args.system
-      : `${args.system}\n\n注意：上次输出无法解析或字段不完整。请严格输出一个完整合法 JSON 对象，不要包含任何额外文字、代码块标记或注释。`,
-    user: args.attempt === 0
-      ? args.user
-      : `${args.user}\n\n请确保本次只输出完整 JSON 对象，并包含 project_name、summary、profile、keyword_strategy、official_site_strategy、third_party_site_strategy、media_plan、authority_media_plan、geo_monitoring_plan、execution_roadmap。`,
-    temperature: args.attempt === 0 ? 0.35 : 0.2,
-    maxTokens: 16384,
-    jsonMode: true,
-    label: `GEO策略-尝试${args.attempt + 1}`,
-    timeoutSec: args.timeoutSec,
+    legacy: {
+      url: args.url,
+      apiKey: args.apiKey,
+      label: `GEO策略-尝试${args.attempt + 1}`,
+    },
+    chat: {
+      system: args.attempt === 0
+        ? args.system
+        : `${args.system}\n\n注意：上次输出无法解析或字段不完整。请严格输出一个完整合法 JSON 对象，不要包含任何额外文字、代码块标记或注释。`,
+      user: args.attempt === 0
+        ? args.user
+        : `${args.user}\n\n请确保本次只输出完整 JSON 对象，并包含 project_name、summary、profile、keyword_strategy、official_site_strategy、third_party_site_strategy、media_plan、authority_media_plan、geo_monitoring_plan、execution_roadmap。`,
+      temperature: args.attempt === 0 ? 0.35 : 0.2,
+      maxTokens: 16384,
+      jsonMode: true,
+      timeoutSec: args.timeoutSec,
+    },
   })
 }
 
@@ -252,8 +259,14 @@ async function handler(req: NextRequest) {
     const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
     const url = buildAiChatUrl(aiConfig)
     const timeoutSec = Math.min(aiConfig.timeout || 300, 240)
+    const hasPoolCredential = await hasAiCredentialCandidate({
+      vendor: "qwen",
+      module: "keywordStrategy",
+      model: aiConfig.model,
+      requiredCapabilities: ["json"],
+    })
 
-    if (!aiConfig.apiKey) {
+    if (!aiConfig.apiKey && !hasPoolCredential) {
       return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
     }
 

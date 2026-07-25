@@ -7,7 +7,10 @@ import type {
   ModelDiagnosisItem,
   WebsiteGeoAudit,
 } from "@/types"
-import { ADAPTERS } from "@/lib/llm"
+import {
+  isAdapterCredentialConfigured,
+  runAdapterCredentialPoolChat,
+} from "@/lib/ai-credential-adapter"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
   normalizeAnalysisSubjectType,
@@ -133,7 +136,7 @@ async function enhanceAuditSummary(
 ): Promise<GeoAuditAiSummary> {
   let picked: (typeof MODEL_ORDER)[number] | undefined
   for (const key of MODEL_ORDER) {
-    if (await ADAPTERS[key].configured()) {
+    if (await isAdapterCredentialConfigured(key, "diagnosis", { jsonMode: true })) {
       picked = key
       break
     }
@@ -142,7 +145,7 @@ async function enhanceAuditSummary(
 
   try {
     const prompt = auditPrompt({ audit, ...args })
-    const raw = await ADAPTERS[picked].chat({
+    const raw = await runAdapterCredentialPoolChat(picked, "diagnosis", {
       ...prompt,
       temperature: 0.2,
       maxTokens: 1_800,

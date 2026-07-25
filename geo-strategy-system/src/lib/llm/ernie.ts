@@ -1,5 +1,6 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { chatBaiduAiSearch } from "./baidu-ai-search"
 
 // 文心一言 / 百度千帆 V2 适配器（OpenAI 兼容接口）。
@@ -12,7 +13,7 @@ export async function isErnieConfigured(): Promise<boolean> {
 }
 
 export async function chatErnie(args: ChatArgs): Promise<string> {
-  const config = await getAiProviderRuntimeSetting("ernie")
+  const config = await getChatRuntimeSetting("ernie", args)
   const enableSearch = config.extra.enableSearch !== false
   const appId = typeof config.extra.appId === "string" ? config.extra.appId : ""
   const strictPenetrationSearch =
