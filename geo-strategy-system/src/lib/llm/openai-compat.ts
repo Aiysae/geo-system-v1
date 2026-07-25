@@ -116,6 +116,44 @@ async function postChatCompletion(args: {
   })
 }
 
+async function postChatCompletionWithTimeout(args: {
+  url: string
+  apiKey: string
+  authType?: "bearer" | "x-api-key"
+  payload: Record<string, unknown>
+  extraHeaders?: Record<string, string>
+  timeoutMs: number
+  label: string
+}): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), args.timeoutMs)
+
+  try {
+    return await postChatCompletion({
+      url: args.url,
+      apiKey: args.apiKey,
+      authType: args.authType,
+      payload: args.payload,
+      extraHeaders: args.extraHeaders,
+      signal: controller.signal,
+    })
+  } catch (fetchErr) {
+    if (
+      (fetchErr instanceof DOMException && fetchErr.name === "AbortError")
+      || (fetchErr instanceof Error && fetchErr.name === "AbortError")
+    ) {
+      throw new Error(
+        `${args.label} 请求超时 (${args.timeoutMs / 1000}s)，请稍后重试或切换其他可用模型账号`,
+      )
+    }
+    throw new Error(
+      `${args.label} API 连接失败：${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+    )
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -222,38 +260,37 @@ export async function openaiCompatRaw({
   if (toolChoice !== undefined) payload.tool_choice = toolChoice
   if (extraBody) Object.assign(payload, extraBody)
 
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined
-  const timeout = timeoutMs && timeoutMs > 0 ? setTimeout(() => controller?.abort(), timeoutMs) : undefined
+  const requestTimeoutMs = timeoutMs && timeoutMs > 0 ? timeoutMs : 300000
 
   let res: Response
-  try {
-    res = await postChatCompletion({ url, apiKey, authType, payload, extraHeaders, signal: controller?.signal })
-    const retryableStatuses = new Set([429, 500, 502, 503, 504])
-    for (let retry = 0; retry < 3 && retryableStatuses.has(res.status); retry++) {
-      const status = res.status
-      const rawTxt = await res.text().catch(() => "")
-      const txt = redactSecrets(rawTxt)
-      const delay = retryDelayMs(res.headers, txt, retry)
-      console.warn(
-        `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`,
-      )
-      await sleep(delay)
-      res = await postChatCompletion({
-        url,
-        apiKey,
-        authType,
-        payload,
-        extraHeaders,
-        signal: controller?.signal,
-      })
-    }
-  } catch (fetchErr) {
-    if (fetchErr instanceof DOMException && fetchErr.name === "AbortError") {
-      throw new Error(`${label} 请求超时 (${(timeoutMs || 300000) / 1000}s)，图片/PDF 识别耗时较长，请在后台管理页增加模型超时时间`)
-    }
-    throw new Error(`${label} API 连接失败：${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
-  } finally {
-    if (timeout) clearTimeout(timeout)
+  res = await postChatCompletionWithTimeout({
+    url,
+    apiKey,
+    authType,
+    payload,
+    extraHeaders,
+    timeoutMs: requestTimeoutMs,
+    label,
+  })
+  const retryableStatuses = new Set([429, 500, 502, 503, 504])
+  for (let retry = 0; retry < 3 && retryableStatuses.has(res.status); retry++) {
+    const status = res.status
+    const rawTxt = await res.text().catch(() => "")
+    const txt = redactSecrets(rawTxt)
+    const delay = retryDelayMs(res.headers, txt, retry)
+    console.warn(
+      `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`,
+    )
+    await sleep(delay)
+    res = await postChatCompletionWithTimeout({
+      url,
+      apiKey,
+      authType,
+      payload,
+      extraHeaders,
+      timeoutMs: requestTimeoutMs,
+      label,
+    })
   }
 
   if (!res.ok) {
@@ -262,14 +299,30 @@ export async function openaiCompatRaw({
     const allowedTemperature = parseOnlyAllowedTemperature(txt)
     if (res.status === 400 && allowedTemperature !== null && payload.temperature !== allowedTemperature) {
       const retryPayload = { ...payload, temperature: allowedTemperature }
-      const retry = await postChatCompletion({ url, apiKey, authType, payload: retryPayload, extraHeaders })
+      const retry = await postChatCompletionWithTimeout({
+        url,
+        apiKey,
+        authType,
+        payload: retryPayload,
+        extraHeaders,
+        timeoutMs: requestTimeoutMs,
+        label,
+      })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
     // 部分供应商不支持 response_format=json_object，遇到 400/422 时去掉重试一次
     if (jsonMode && (res.status === 400 || res.status === 422)) {
       const fallback = { ...payload }
       delete (fallback as Record<string, unknown>).response_format
-      const retry = await postChatCompletion({ url, apiKey, authType, payload: fallback, extraHeaders })
+      const retry = await postChatCompletionWithTimeout({
+        url,
+        apiKey,
+        authType,
+        payload: fallback,
+        extraHeaders,
+        timeoutMs: requestTimeoutMs,
+        label,
+      })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
 
