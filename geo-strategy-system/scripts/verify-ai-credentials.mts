@@ -8,9 +8,11 @@ const verifyStrictWeb = process.argv.includes("--strict-web")
 const includeEnabled = process.argv.includes("--all")
 
 const {
+  closeAiCredentialStoreConnection,
   listAiCredentialsPublic,
   setAiCredentialEnabled,
 } = await import("../src/lib/ai-credential-store")
+const { closeKvConnection } = await import("../src/lib/kv")
 const { verifyAiCredentialChat } = await import("../src/lib/ai-credential-verification")
 const { verifyAiCredentialWeb } = await import("../src/lib/ai-credential-web-verification")
 
@@ -105,3 +107,8 @@ console.log(JSON.stringify({
   verifyStrictWeb,
   providers: summary,
 }, null, 2))
+
+await Promise.allSettled([
+  closeAiCredentialStoreConnection(),
+  closeKvConnection(),
+])

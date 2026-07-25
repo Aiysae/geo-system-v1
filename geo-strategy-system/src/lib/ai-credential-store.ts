@@ -353,6 +353,12 @@ export async function getAiCredentialRuntime(id: string): Promise<AiCredentialRu
   return toRuntime(stored)
 }
 
+export async function closeAiCredentialStoreConnection(): Promise<void> {
+  const pool = globalState.__geoAiCredentialPool
+  globalState.__geoAiCredentialPool = undefined
+  if (pool) await pool.end()
+}
+
 export async function saveAiCredential(
   input: SaveAiCredentialInput,
   adminUserId: string,

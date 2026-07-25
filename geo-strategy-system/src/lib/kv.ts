@@ -562,3 +562,18 @@ const kvGlobal = globalThis as typeof globalThis & {
 
 export const kv: KvClient = kvGlobal.__geoSystemKvClient || createKvClient()
 kvGlobal.__geoSystemKvClient = kv
+
+export async function closeKvConnection(): Promise<void> {
+  let client = redisGlobal.__geoSystemRedisClient
+  if (!client && redisGlobal.__geoSystemRedisConnectPromise) {
+    client = await redisGlobal.__geoSystemRedisConnectPromise.catch(() => undefined)
+  }
+  if (!client) return
+
+  try {
+    if (client.isOpen) await client.quit()
+  } finally {
+    redisGlobal.__geoSystemRedisClient = undefined
+    redisGlobal.__geoSystemRedisConnectPromise = undefined
+  }
+}
