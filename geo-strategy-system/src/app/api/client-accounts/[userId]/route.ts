@@ -8,8 +8,15 @@ import {
 import {
   deleteClientAccountLink,
   getClientAccountLink,
+  getRecoverableClientAccountLink,
+  listClientAccountLinks,
+  listClientAccountLinksForOwner,
+  restoreClientAccountLink,
   setClientAccountStatus,
 } from "@/lib/client-accounts"
+import { syncClientMonthlyAllowance } from "@/lib/credits"
+import { getMembershipWithPaymentRepair, hasMembershipTier } from "@/lib/membership"
+import { listWorkspaceClients } from "@/lib/workspace-store"
 import { requireUserId } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
@@ -36,9 +43,57 @@ export async function PATCH(
   if (!auth.ok) return auth.response
   try {
     const { userId } = await context.params
-    const link = await ownedLink(auth.userId, userId)
     const body = await request.json() as { action?: unknown; status?: unknown }
     const action = String(body.action || "status")
+    if (action === "restore") {
+      const user = await getUserById(userId)
+      if (!user || user.managedByUserId !== auth.userId) {
+        throw new Error("该客户子账号不存在或不属于当前主账号")
+      }
+      const [membership, links, allLinks, clients, previous] = await Promise.all([
+        getMembershipWithPaymentRepair(auth.userId),
+        listClientAccountLinksForOwner(auth.userId),
+        listClientAccountLinks(),
+        listWorkspaceClients(auth.userId),
+        getRecoverableClientAccountLink(userId, auth.userId),
+      ])
+      if (!hasMembershipTier(membership, "vip2")) {
+        throw new Error("VIP2 起可恢复客户子账号")
+      }
+      if (links.length >= membership.clientAccountLimit) {
+        throw new Error(`当前 ${membership.tier.toUpperCase()} 的客户子账号名额已满`)
+      }
+      if (!previous) throw new Error("该账号没有可恢复的客户授权记录")
+      const client = clients.find(record => record.client.id === previous.clientId)?.client
+      if (!client) throw new Error("原客户面板已不存在，无法直接恢复")
+      const duplicate = allLinks.find(link =>
+        link.userId !== userId
+        && link.ownerUserId === auth.userId
+        && link.clientId === previous.clientId
+      )
+      if (duplicate) throw new Error("该客户面板已关联其他客户账号，请先解除现有授权")
+
+      const restored = await restoreClientAccountLink({
+        userId,
+        ownerUserId: auth.userId,
+        clientName: client.name,
+        operatorUserId: auth.userId,
+      })
+      await syncClientMonthlyAllowance({
+        userId,
+        amount: restored.monthlyCredits,
+        previousAllowance: restored.monthlyCredits,
+        operatorUserId: auth.userId,
+      })
+      await updateUserStatus(userId, "active")
+      return noStore(NextResponse.json({
+        ok: true,
+        status: restored.status,
+        clientName: restored.clientName,
+      }))
+    }
+
+    const link = await ownedLink(auth.userId, userId)
     if (action === "reset-password") {
       const password = `ST-${randomBytes(9).toString("base64url")}7`
       const user = await setManagedUserTemporaryPassword({

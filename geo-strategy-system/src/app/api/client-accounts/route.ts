@@ -4,10 +4,12 @@ import {
   createUser,
   getUserByEmail,
   getUserById,
+  listUsers,
   updateUserStatus,
 } from "@/lib/auth"
 import {
   getClientAccountLink,
+  getRecoverableClientAccountLink,
   listClientAccountLinks,
   listClientAccountLinksForOwner,
   saveClientAccountLink,
@@ -45,10 +47,11 @@ export async function GET() {
   if (!auth.ok) return auth.response
   try {
     await requireStandardOwner(auth.userId)
-    const [membership, links, clients] = await Promise.all([
+    const [membership, links, clients, users] = await Promise.all([
       getMembershipWithPaymentRepair(auth.userId),
       listClientAccountLinksForOwner(auth.userId),
       listWorkspaceClients(auth.userId),
+      listUsers(),
     ])
     const accounts = await Promise.all(links.map(async link => {
       const [user, creditBalance] = await Promise.all([
@@ -69,11 +72,35 @@ export async function GET() {
         updatedAt: link.updatedAt,
       }
     }))
+    const linkedUserIds = new Set(links.map(link => link.userId))
+    const clientIds = new Set(clients.map(record => record.client.id))
+    const detachedAccounts = (await Promise.all(
+      users
+        .filter(user => user.managedByUserId === auth.userId && !linkedUserIds.has(user.id))
+        .map(async user => {
+          const previous = await getRecoverableClientAccountLink(user.id, auth.userId)
+          if (!previous) return null
+          const creditBalance = await getCreditBalanceSnapshot(user.id)
+          const canRestore = clientIds.has(previous.clientId)
+          return {
+            userId: user.id,
+            email: user.email,
+            name: user.name,
+            clientId: previous.clientId,
+            clientName: previous.clientName,
+            creditBalance: creditBalance.total,
+            canRestore,
+            unavailableReason: canRestore ? "" : "原客户面板已不存在",
+            updatedAt: user.updatedAt,
+          }
+        }),
+    )).filter(account => account !== null)
     return noStore(NextResponse.json({
       membership,
       used: links.length,
       limit: membership.clientAccountLimit,
       accounts,
+      detachedAccounts,
       clients: clients.map(record => ({
         id: record.client.id,
         name: record.client.name,

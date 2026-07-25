@@ -6,7 +6,9 @@ import { getUserById, updateUserStatus } from "@/lib/auth"
 import {
   deleteClientAccountLink,
   getClientAccountLink,
+  getRecoverableClientAccountLink,
   listClientAccountLinks,
+  restoreClientAccountLink,
   saveClientAccountLink,
   setClientAccountStatus,
 } from "@/lib/client-accounts"
@@ -142,6 +144,7 @@ export async function saveClientAccountLinkAction(
       operatorUserId: adminId,
       previousAllowance: existingLink?.monthlyCredits,
     })
+    await updateUserStatus(userId, "active")
     refreshUserAdminPages(userId)
     return {
       ok: true,
@@ -172,6 +175,7 @@ export async function updateClientAccountStatusAction(
       status,
       operatorUserId: adminId,
     })
+    await updateUserStatus(userId, status === "active" ? "active" : "disabled")
     refreshUserAdminPages(userId)
     return {
       ok: true,
@@ -187,6 +191,74 @@ export async function updateClientAccountStatusAction(
   }
 }
 
+export async function restoreClientAccountLinkAction(
+  _prevState: ClientAccountActionState,
+  formData: FormData,
+): Promise<ClientAccountActionState> {
+  try {
+    const adminId = await assertAdmin()
+    const userId = String(formData.get("userId") || "").trim()
+    if (!userId) return { ok: false, message: "缺少用户 ID" }
+
+    const [targetUser, previous, allLinks] = await Promise.all([
+      getUserById(userId),
+      getRecoverableClientAccountLink(userId),
+      listClientAccountLinks(),
+    ])
+    if (!targetUser) return { ok: false, message: "目标用户不存在" }
+    if (isAdminUser(targetUser)) return { ok: false, message: "管理员账号不能设为客户专属账号" }
+    if (!previous) return { ok: false, message: "该账号没有可恢复的客户授权记录" }
+
+    const [ownerClients, targetClients] = await Promise.all([
+      listWorkspaceClients(previous.ownerUserId),
+      listWorkspaceClients(userId),
+    ])
+    if (targetClients.length > 0) {
+      return {
+        ok: false,
+        message: "该账号下已有自己的客户数据，不能恢复为客户专属账号。",
+      }
+    }
+    const client = ownerClients.find(record => record.client.id === previous.clientId)?.client
+    if (!client) return { ok: false, message: "原客户面板已不存在，无法直接恢复" }
+    const duplicate = allLinks.find(link =>
+      link.userId !== userId
+      && link.ownerUserId === previous.ownerUserId
+      && link.clientId === previous.clientId
+    )
+    if (duplicate) {
+      const linkedUser = await getUserById(duplicate.userId)
+      return {
+        ok: false,
+        message: `原客户面板已授权给 ${linkedUser?.email || duplicate.userId}，请先解除现有授权。`,
+      }
+    }
+
+    const restored = await restoreClientAccountLink({
+      userId,
+      clientName: client.name,
+      operatorUserId: adminId,
+    })
+    await syncClientMonthlyAllowance({
+      userId,
+      amount: restored.monthlyCredits,
+      previousAllowance: restored.monthlyCredits,
+      operatorUserId: adminId,
+    })
+    await updateUserStatus(userId, "active")
+    refreshUserAdminPages(userId)
+    return {
+      ok: true,
+      message: `已恢复「${restored.clientName}」客户账号并启用登录`,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "客户账号恢复失败",
+    }
+  }
+}
+
 export async function unlinkClientAccountAction(
   _prevState: ClientAccountActionState,
   formData: FormData,
@@ -195,10 +267,17 @@ export async function unlinkClientAccountAction(
     const adminId = await assertAdmin()
     const userId = String(formData.get("userId") || "").trim()
     if (!userId) return { ok: false, message: "缺少用户 ID" }
+    const [targetUser, existingLink] = await Promise.all([
+      getUserById(userId),
+      getClientAccountLink(userId),
+    ])
     const removed = await deleteClientAccountLink({
       userId,
       operatorUserId: adminId,
     })
+    if (removed && targetUser?.managedByUserId === existingLink?.ownerUserId) {
+      await updateUserStatus(userId, "disabled")
+    }
     refreshUserAdminPages(userId)
     return {
       ok: true,

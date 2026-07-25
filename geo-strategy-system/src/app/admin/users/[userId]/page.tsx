@@ -21,6 +21,7 @@ import { formatYuan, getFeaturePrice } from "@/lib/pricing"
 import { listRequestsForUser, type RechargeRequest } from "@/lib/recharge"
 import {
   getClientAccountLink,
+  getRecoverableClientAccountLink,
   listClientAccountAudit,
   type ClientAccountAuditAction,
 } from "@/lib/client-accounts"
@@ -105,7 +106,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
   const user = await getUserById(userId)
   if (!user) notFound()
 
-  const [creditBalance, recharges, ledger, membership, clientLink, clientAudit, allUsers] = await Promise.all([
+  const [creditBalance, recharges, ledger, membership, clientLink, clientAudit, allUsers, recoverableLink] = await Promise.all([
     getCreditBalanceSnapshot(user.id),
     listRequestsForUser(user.id, 100),
     listCreditLedgerForUser(user.id, 150),
@@ -113,6 +114,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
     getClientAccountLink(user.id),
     listClientAccountAudit(user.id, 12),
     listUsers(),
+    getRecoverableClientAccountLink(user.id),
   ])
   const ownerRows = await Promise.all(
     allUsers
@@ -227,6 +229,13 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
               clientName: clientLink.clientName,
               monthlyCredits: clientLink.monthlyCredits,
               status: clientLink.status,
+            } : null}
+            recoverableLink={recoverableLink ? {
+              ownerUserId: recoverableLink.ownerUserId,
+              clientId: recoverableLink.clientId,
+              clientName: recoverableLink.clientName,
+              monthlyCredits: recoverableLink.monthlyCredits,
+              status: recoverableLink.status,
             } : null}
             disabled={isAdminUser(user)}
           />
