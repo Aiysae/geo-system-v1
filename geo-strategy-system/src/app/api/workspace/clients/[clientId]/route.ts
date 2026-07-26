@@ -9,13 +9,18 @@ import { requireUserId } from "@/lib/with-credits"
 import {
   WorkspaceConflictError,
   deleteWorkspaceClient,
+  getWorkspaceClientSections,
   listWorkspaceClients,
   patchWorkspaceClient,
 } from "@/lib/workspace-store"
 import {
   filterClientPatch,
   filterUnsetFields,
+  normalizeWorkspaceSections,
   normalizeWorkspaceVersions,
+  sectionsForClientPatch,
+  splitClientData,
+  type WorkspaceSection,
   WorkspaceValidationError,
 } from "@/lib/workspace-sync"
 
@@ -24,6 +29,89 @@ export const dynamic = "force-dynamic"
 export const revalidate = 0
 
 const MAX_BODY_BYTES = 25 * 1024 * 1024
+
+const SECTION_MODULE: Record<WorkspaceSection, Parameters<typeof requireOperationAccess>[0]["module"]> = {
+  core: "client",
+  penetration: "penetration",
+  research: "research",
+  diagnosis: "diagnosis",
+  difficulty: "difficulty",
+  keywordStrategy: "keyword",
+  articleGeneration: "article",
+  jobs: "client",
+}
+
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ clientId: string }> },
+) {
+  const auth = await requireUserId()
+  if (!auth.ok) return auth.response
+  try {
+    const { clientId } = await context.params
+    const teamId = String(request.nextUrl.searchParams.get("teamId") || "").trim()
+    const requestedSections = normalizeWorkspaceSections(
+      String(request.nextUrl.searchParams.get("sections") || "core")
+        .split(",")
+        .map(item => item.trim())
+        .filter(Boolean),
+    )
+    let ownerUserId = auth.userId
+    if (teamId) {
+      const requiredModules = Array.from(new Set(
+        requestedSections.map(section => SECTION_MODULE[section]),
+      ))
+      const accesses = await Promise.all(requiredModules.map(module => (
+        requireOperationAccess({
+          userId: auth.userId,
+          teamId,
+          clientId,
+          module,
+          action: "view",
+        })
+      )))
+      ownerUserId = accesses[0]?.dataOwnerUserId || auth.userId
+    } else {
+      const access = await resolveWorkspaceAccess(auth.userId, clientId)
+      if (!access.ok) {
+        return noStore(NextResponse.json(
+          { error: access.message, code: access.code },
+          { status: 403 },
+        ))
+      }
+      if (access.mode === "client") {
+        const allowed = new Set<WorkspaceSection>(["core", "penetration", "jobs"])
+        const disallowed = requestedSections.filter(section => !allowed.has(section))
+        if (disallowed.length > 0) {
+          return noStore(NextResponse.json({
+            error: "客户专属账号无权读取该模块",
+            code: "CLIENT_ACCOUNT_READ_ONLY",
+          }, { status: 403 }))
+        }
+      }
+      ownerUserId = access.ownerUserId
+    }
+    const snapshot = await getWorkspaceClientSections(
+      ownerUserId,
+      clientId,
+      requestedSections,
+    )
+    if (!snapshot) {
+      return noStore(NextResponse.json({ error: "客户不存在" }, { status: 404 }))
+    }
+    return noStore(NextResponse.json({ snapshot }))
+  } catch (error) {
+    if (error instanceof Error && (
+      error.name.startsWith("TEAM_")
+      || error.name.startsWith("CLIENT_")
+      || /权限|无权|只读/.test(error.message)
+    )) {
+      return noStore(NextResponse.json({ error: error.message, code: error.name }, { status: 403 }))
+    }
+    console.error("[workspace-client] section read failed", error)
+    return noStore(NextResponse.json({ error: "客户模块读取失败" }, { status: 503 }))
+  }
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -69,15 +157,15 @@ export async function PATCH(
         unsetFields,
         current,
       })
-      for (const requirement of requirements) {
-        await requireOperationAccess({
+      await Promise.all(requirements.map(requirement => (
+        requireOperationAccess({
           userId: auth.userId,
           teamId,
           clientId,
           module: requirement.module,
           action: requirement.action,
         })
-      }
+      )))
     } else {
       const access = await resolveWorkspaceAccess(auth.userId, clientId)
       if (!access.ok) {
@@ -113,7 +201,21 @@ export async function PATCH(
     if (!synced) {
       return noStore(NextResponse.json({ error: "客户不存在" }, { status: 404 }))
     }
-    return noStore(NextResponse.json(synced))
+    const changedSections = normalizeWorkspaceSections([
+      "core",
+      ...sectionsForClientPatch(patch, unsetFields),
+    ])
+    const sections = splitClientData(synced.client)
+    return noStore(NextResponse.json({
+      snapshot: {
+        clientId,
+        sections: Object.fromEntries(
+          changedSections.map(section => [section, sections[section]]),
+        ),
+        versions: synced.versions,
+        loadedSections: changedSections,
+      },
+    }))
   } catch (error) {
     if (error instanceof WorkspaceConflictError) {
       return noStore(NextResponse.json({

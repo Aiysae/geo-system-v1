@@ -12,6 +12,7 @@ process.env.REPORTS_DIR = reportsDirectory
 const { kv } = await import("../src/lib/kv")
 const {
   deleteCommercialReportJob,
+  getCommercialReportFileMetadata,
   listCommercialReportJobs,
 } = await import("../src/lib/reports/report-jobs")
 
@@ -65,6 +66,10 @@ try {
   assert.equal(ownerHistory[0]?.fileAvailable, true)
   assert.equal("ownerUserId" in ownerHistory[0], false)
   assert.equal("filePath" in ownerHistory[0], false)
+  const metadata = await getCommercialReportFileMetadata(job.id, owner)
+  assert.equal(metadata?.filePath, job.filePath)
+  assert.equal(metadata?.fileSize, Buffer.byteLength("%PDF-1.4\n%%EOF\n"))
+  assert.equal(await getCommercialReportFileMetadata(job.id, "different-owner"), null)
   assert.equal((await listCommercialReportJobs("different-owner")).length, 0)
   assert.equal(await deleteCommercialReportJob(job.id, "different-owner"), "not_found")
   assert.equal(await deleteCommercialReportJob(job.id, owner), "deleted")

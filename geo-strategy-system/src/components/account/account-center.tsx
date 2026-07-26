@@ -45,6 +45,7 @@ import {
   X,
 } from "lucide-react"
 import { InvoiceSupportButton } from "@/components/billing/invoice-support-button"
+import { ClientAccountDialog } from "@/components/accounts/client-account-dialog"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { ManagedServiceCard } from "@/components/managed-services/managed-service-card"
 import ReportHistoryDialog from "@/components/reports/report-history-dialog"
@@ -62,7 +63,6 @@ import { createClient, setActiveId } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import type {
   AnalysisSubjectType,
-  Client,
   MembershipSnapshot,
   WorkspaceAccountAccess,
 } from "@/types"
@@ -79,6 +79,20 @@ type AccountUser = {
 
 type ClientSummary = {
   id: string
+  accessRef: string
+  sourceType: "personal" | "team"
+  teamId?: string
+  teamName?: string
+  dataOwnerUserId: string
+  parentUserId: string
+  canEdit: boolean
+  canDelete: boolean
+  canManageClientAccount: boolean
+  clientAccount: {
+    userId: string
+    status: "active" | "suspended"
+    sourceStatus: "active" | "revoked"
+  } | null
   name: string
   subjectType: AnalysisSubjectType
   ourBrand: string
@@ -417,6 +431,7 @@ function ClientsTab({ userId, access, clients, setClients }: {
   const [busy, setBusy] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [message, setMessage] = useState("")
+  const [accountClient, setAccountClient] = useState<ClientSummary | null>(null)
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -424,9 +439,28 @@ function ClientsTab({ userId, access, clients, setClients }: {
     return clients.filter(client => [client.name, client.ourBrand, client.industry, client.website].join(" ").toLowerCase().includes(term))
   }, [clients, query])
 
-  function openClient(clientId: string) {
-    setActiveId(userId, clientId)
-    window.location.assign(`/workspace?clientId=${encodeURIComponent(clientId)}&module=penetration`)
+  function openClient(client: ClientSummary) {
+    const storageUserId = client.teamId ? `${userId}:team:${client.teamId}` : userId
+    setActiveId(storageUserId, client.id)
+    const teamQuery = client.teamId
+      ? `&teamId=${encodeURIComponent(client.teamId)}`
+      : ""
+    window.location.assign(`/workspace?clientId=${encodeURIComponent(client.id)}${teamQuery}&module=penetration`)
+  }
+
+  async function refreshCatalog() {
+    const response = await fetch("/api/account/clients", {
+      cache: "no-store",
+      credentials: "same-origin",
+    })
+    const payload = await response.json().catch(() => ({})) as {
+      clients?: ClientSummary[]
+      error?: string
+    }
+    if (!response.ok || !Array.isArray(payload.clients)) {
+      throw new Error(payload.error || "客户目录刷新失败")
+    }
+    setClients(payload.clients)
   }
 
   async function createNewClient(event: FormEvent) {
@@ -442,10 +476,9 @@ function ClientsTab({ userId, access, clients, setClients }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ client: draft }),
       })
-      const payload = await response.json() as { client?: Client; error?: string }
+      const payload = await response.json() as { client?: unknown; error?: string }
       if (!response.ok || !payload.client) throw new Error(payload.error || "新建客户失败")
-      const summary = summaryFromClient(payload.client)
-      setClients(current => [summary, ...current.filter(client => client.id !== summary.id)])
+      await refreshCatalog()
       setName("")
       setShowCreate(false)
       setMessage("客户已创建")
@@ -464,7 +497,7 @@ function ClientsTab({ userId, access, clients, setClients }: {
       const response = await fetch(`/api/workspace/clients/${encodeURIComponent(client.id)}`, { method: "DELETE", credentials: "same-origin" })
       const payload = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(payload.error || "删除客户失败")
-      setClients(current => current.filter(item => item.id !== client.id))
+      setClients(current => current.filter(item => item.accessRef !== client.accessRef))
       setMessage("客户已删除")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "删除客户失败")
@@ -518,8 +551,8 @@ function ClientsTab({ userId, access, clients, setClients }: {
       ) : (
         <div className="divide-y divide-slate-100">
           {filtered.map(client => (
-            <article key={client.id} className="group flex flex-col gap-3 px-4 py-4 transition hover:bg-[#F6FBFF] sm:flex-row sm:items-center sm:px-5">
-              <button type="button" onClick={() => openClient(client.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+            <article key={client.accessRef} className="group flex flex-col gap-3 px-4 py-4 transition hover:bg-[#F6FBFF] sm:flex-row sm:items-center sm:px-5">
+              <button type="button" onClick={() => openClient(client)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                 <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ring-1", client.subjectType === "person" ? "bg-violet-50 text-violet-600 ring-violet-200" : "bg-blue-50 text-[#1677FF] ring-blue-200")}>
                   {client.subjectType === "person" ? <UserRound className="h-5 w-5" /> : <Building2 className="h-5 w-5" />}
                 </span>
@@ -527,30 +560,62 @@ function ClientsTab({ userId, access, clients, setClients }: {
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm font-semibold text-slate-900">{client.name}</span>
                     <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{client.subjectType === "person" ? "个人 IP" : "品牌"}</span>
+                    {client.sourceType === "team" ? (
+                      <span className="rounded-md bg-cyan-50 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700">{client.teamName || "团队共享"}</span>
+                    ) : null}
+                    {client.clientAccount ? (
+                      <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                        client.clientAccount.sourceStatus === "revoked"
+                          ? "bg-rose-50 text-rose-700"
+                          : client.clientAccount.status === "active"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-amber-50 text-amber-700"
+                      }`}>
+                        {client.clientAccount.sourceStatus === "revoked"
+                          ? "子账号授权失效"
+                          : client.clientAccount.status === "active" ? "子账号正常" : "子账号已暂停"}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="mt-1 block truncate text-xs text-slate-500">{[client.ourBrand, client.industry, client.website].filter(Boolean).join(" · ") || "待完善基础资料"}</span>
                 </span>
               </button>
-              <div className="flex items-center justify-between gap-3 pl-14 sm:pl-0">
-                <div className="flex items-center gap-3 text-[10px] text-slate-400">
+              <div className="flex flex-col gap-2 pl-14 sm:flex-row sm:items-center sm:justify-between sm:pl-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
                   <span>{client.questionCount} 条疑问句</span>
                   <span>{client.completedModules.length} 个模块有结果</span>
                   <span className="hidden lg:inline">更新 {formatDate(client.updatedAt)}</span>
                 </div>
-                <button type="button" onClick={() => openClient(client.id)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#B7DBFF] bg-white px-2.5 text-[11px] font-semibold text-[#0958D9] transition group-hover:border-[#1677FF]">
-                  打开
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-                {access.canCreateClients ? (
-                  <button type="button" onClick={() => void deleteClient(client)} disabled={deletingId === client.id} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50" aria-label={`删除 ${client.name}`} title="删除客户">
-                    {deletingId === client.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                <div className="flex flex-wrap items-center gap-2">
+                  {client.canManageClientAccount ? (
+                    <button type="button" onClick={() => setAccountClient(client)} className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 text-[11px] font-semibold text-cyan-700 transition hover:bg-cyan-100">
+                      <UsersRound className="h-3.5 w-3.5" />
+                      {client.clientAccount ? "管理账号" : "创建账号"}
+                    </button>
+                  ) : null}
+                  <button type="button" onClick={() => openClient(client)} className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-[#B7DBFF] bg-white px-2.5 text-[11px] font-semibold text-[#0958D9] transition group-hover:border-[#1677FF]">
+                    打开
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </button>
-                ) : null}
+                  {client.canDelete ? (
+                    <button type="button" onClick={() => void deleteClient(client)} disabled={deletingId === client.id} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50" aria-label={`删除 ${client.name}`} title="删除客户">
+                      {deletingId === client.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </article>
           ))}
         </div>
       )}
+      {accountClient ? (
+        <ClientAccountDialog
+          clientRef={accountClient.accessRef}
+          clientName={accountClient.name}
+          onClose={() => setAccountClient(null)}
+          onChanged={refreshCatalog}
+        />
+      ) : null}
     </section>
   )
 }
@@ -681,7 +746,7 @@ function VipTab({ membership, whiteLabelCredits, progress }: {
             {(membership.tier === "free" ? FREE_MEMBERSHIP_BENEFITS : membershipLevelForTier(membership.tier)?.benefits || []).map(item => <div key={item} className="flex items-start gap-2 text-xs leading-5 text-slate-600"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />{item}</div>)}
             {membership.active ? <div className="flex items-start gap-2 text-xs leading-5 text-slate-600"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />白标专业报告按 {whiteLabelCredits} 积分/份使用</div> : null}
           </div>
-          <div className="mt-5 flex flex-wrap items-center gap-3"><RechargeButton /><Link href="/client-accounts" className={cn("inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#B7DBFF] bg-[#F0F7FF] px-3 text-xs font-semibold text-[#0958D9]", membership.clientAccountLimit === 0 && "pointer-events-none opacity-50")}><UsersRound className="h-4 w-4" />客户账号管理</Link></div>
+          <div className="mt-5 flex flex-wrap items-center gap-3"><RechargeButton /><Link href="/account?tab=clients" className={cn("inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#B7DBFF] bg-[#F0F7FF] px-3 text-xs font-semibold text-[#0958D9]", membership.clientAccountLimit === 0 && "pointer-events-none opacity-50")}><UsersRound className="h-4 w-4" />前往我的客户</Link></div>
         </div>
       </section>
 
@@ -821,18 +886,6 @@ function EmptyLine({ icon: Icon, title }: { icon: typeof FileText; title: string
 function StatusBadge({ status }: { status: BillingRechargeStatus }) {
   const meta = RECHARGE_STATUS[status]
   return <span className={cn("inline-flex rounded-md px-2 py-1 text-[10px] font-semibold ring-1 ring-inset", meta.className)}>{meta.label}</span>
-}
-
-function summaryFromClient(client: Client): ClientSummary {
-  const completedModules = [
-    client.penetration ? "penetration" : null,
-    client.research || client.competitorCompare ? "research" : null,
-    client.diagnosis ? "diagnosis" : null,
-    client.difficultyAssessments?.length ? "difficulty" : null,
-    client.keywordStrategy ? "keywordStrategy" : null,
-    client.articleGeneration ? "articleGeneration" : null,
-  ].filter((value): value is string => Boolean(value))
-  return { id: client.id, name: client.name, subjectType: client.subjectType, ourBrand: client.ourBrand, industry: client.industry, website: client.website, createdAt: client.createdAt, updatedAt: client.updatedAt, questionCount: client.questions.length, selectedModelCount: client.selectedModels.length, completedModules }
 }
 
 async function requestJson<T = Record<string, unknown>>(url: string, body: unknown, method: "POST" | "PATCH"): Promise<T> {

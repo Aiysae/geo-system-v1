@@ -21,7 +21,9 @@ import type {
   PenetrationHistorySource,
   PenetrationHistoryStatus,
   PenetrationJobOperation,
+  PenetrationItem,
   PenetrationResult,
+  ModelKey,
 } from "@/types"
 
 export type PenetrationHistoryBuildInput = {
@@ -277,6 +279,65 @@ export async function getPenetrationHistoryRecord(
   })
 }
 
+export async function getPenetrationHistoryOverviewRecord(
+  ownerUserId: string,
+  id: string,
+): Promise<PenetrationHistoryRecord | null> {
+  if (backend() === "postgres") {
+    await ensurePenetrationHistorySchema()
+    const result = await pool().query<HistoryRow>(
+      `SELECT id, actor_user_id, client_id, client_name, operation, status, source,
+              request_snapshot, summary, dashboard_snapshot,
+              CASE WHEN result IS NULL THEN NULL ELSE result - 'byModel' END AS result,
+              error, schema_version, created_at, completed_at, updated_at
+       FROM geo_penetration_history_v1
+       WHERE owner_user_id = $1 AND id = $2 AND deleted_at IS NULL
+       LIMIT 1`,
+      [ownerUserId, id],
+    )
+    return result.rows[0] ? fullRecordFromRow(result.rows[0]) : null
+  }
+  return withFileState(state => {
+    const record = state.records[fileRecordKey(ownerUserId, id)]
+    if (!record || record.deletedAt) return null
+    const publicRecord = stripStoredFields(record)
+    return publicRecord.result
+      ? {
+          ...publicRecord,
+          result: {
+            ...publicRecord.result,
+            byModel: {},
+          },
+        }
+      : publicRecord
+  })
+}
+
+export async function getPenetrationHistoryModelAnswers(
+  ownerUserId: string,
+  id: string,
+  model: ModelKey,
+): Promise<PenetrationItem[] | null> {
+  if (backend() === "postgres") {
+    await ensurePenetrationHistorySchema()
+    const result = await pool().query<{ items: PenetrationItem[] | null }>(
+      `SELECT result #> ARRAY['byModel', $3::text] AS items
+       FROM geo_penetration_history_v1
+       WHERE owner_user_id = $1 AND id = $2 AND deleted_at IS NULL
+       LIMIT 1`,
+      [ownerUserId, id, model],
+    )
+    if (!result.rows[0]) return null
+    return Array.isArray(result.rows[0].items) ? result.rows[0].items : []
+  }
+  return withFileState(state => {
+    const record = state.records[fileRecordKey(ownerUserId, id)]
+    if (!record || record.deletedAt) return null
+    const items = record.result?.byModel[model]
+    return Array.isArray(items) ? items : []
+  })
+}
+
 export async function getPenetrationHistoryRecordScope(id: string): Promise<{
   ownerUserId: string
   clientId: string
@@ -480,11 +541,17 @@ function listItemFromRow(row: HistoryRow): PenetrationHistoryListItem {
 }
 
 function fullRecordFromRow(row: HistoryRow): PenetrationHistoryRecord {
+  const result = row.result
+    ? {
+        ...row.result,
+        byModel: row.result.byModel || {},
+      }
+    : undefined
   return {
     ...listItemFromRow(row),
     request: row.request_snapshot as PenetrationHistoryRequestSnapshot,
     dashboard: row.dashboard_snapshot || { brandVoice: [], keywordCompetition: [] },
-    result: row.result || undefined,
+    result,
     error: row.error || undefined,
     schemaVersion: Number(row.schema_version || 1),
   }

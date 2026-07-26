@@ -2,7 +2,10 @@ import "server-only"
 
 import { getUserById } from "@/lib/auth"
 import { isAdminUser } from "@/lib/admin"
-import { getClientAccountLink } from "@/lib/client-accounts"
+import {
+  getClientAccountLink,
+  getClientAccountSourceState,
+} from "@/lib/client-accounts"
 import {
   hasMembershipTier,
   getMembershipWithPaymentRepair,
@@ -220,6 +223,14 @@ export async function resolveOperationAccess(input: {
         message: "该账号只能访问已授权的客户面板",
       }
     }
+    const source = await getClientAccountSourceState(clientLink)
+    if (!source.ok) {
+      return {
+        ok: false,
+        code: "CLIENT_ACCESS_DENIED",
+        message: source.message,
+      }
+    }
     const permissions = clientAccountPermissions()
     if (!hasTeamPermission(permissions, input.module, input.action)) {
       return {
@@ -233,7 +244,7 @@ export async function resolveOperationAccess(input: {
       access: {
         mode: "client",
         actorUserId: userId,
-        dataOwnerUserId: clientLink.ownerUserId,
+        dataOwnerUserId: clientLink.dataOwnerUserId,
         billingUserId: userId,
         clientId,
         permissionKeys: permissions,

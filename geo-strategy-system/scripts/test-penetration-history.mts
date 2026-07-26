@@ -14,6 +14,8 @@ process.env.PENETRATION_HISTORY_FILE = path.join(testDirectory, "history.json")
 const {
   buildPenetrationHistoryRecord,
   deletePenetrationHistoryRecord,
+  getPenetrationHistoryModelAnswers,
+  getPenetrationHistoryOverviewRecord,
   getPenetrationHistoryRecord,
   listPenetrationHistoryRecords,
   savePenetrationHistoryRecord,
@@ -130,6 +132,23 @@ try {
   assert.equal(detail?.result?.byModel.doubao?.[0]?.answer, result.byModel.doubao?.[0]?.answer)
   assert.equal(detail?.dashboard.brandVoice[0]?.brand, "势途")
   assert.equal(detail?.dashboard.keywordCompetition.length, 1)
+
+  const overview = await getPenetrationHistoryOverviewRecord(owner, record.id)
+  assert.deepEqual(overview?.result?.byModel, {}, "overview must omit heavy raw model answers")
+  assert.equal(overview?.result?.aggregated.penetrationRate, 0.5)
+  assert.equal(
+    (await getPenetrationHistoryModelAnswers(owner, record.id, "doubao"))?.[0]?.answer,
+    result.byModel.doubao?.[0]?.answer,
+    "raw answers must remain available per model",
+  )
+  assert.deepEqual(
+    await getPenetrationHistoryModelAnswers(owner, record.id, "deepseek"),
+    [],
+  )
+  assert.equal(
+    await getPenetrationHistoryModelAnswers("different-owner", record.id, "doubao"),
+    null,
+  )
 
   const failed = buildPenetrationHistoryRecord({
     id: "pjob_history_failed",

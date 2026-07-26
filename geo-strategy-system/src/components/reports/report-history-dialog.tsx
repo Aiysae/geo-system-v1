@@ -121,8 +121,6 @@ export default function ReportHistoryDialog({
   const [statusFilter, setStatusFilter] = useState("all")
   const [daysFilter, setDaysFilter] = useState("all")
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [previewUrl, setPreviewUrl] = useState("")
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const requestVersionRef = useRef(0)
 
@@ -188,40 +186,6 @@ export default function ReportHistoryDialog({
       window.removeEventListener("keydown", handleKeyDown)
     }
   }, [onClose, selectedId])
-
-  useEffect(() => {
-    if (!selectedJob?.fileAvailable) return
-    const controller = new AbortController()
-    let objectUrl = ""
-    const timer = window.setTimeout(() => {
-      setPreviewLoading(true)
-      setError("")
-      void (async () => {
-        try {
-          const response = await apiFetch(`/api/reports/jobs/${selectedJob.id}/view`, {
-            signal: controller.signal,
-          })
-          if (!response.ok) {
-            const data = await readApiJson<{ error?: string }>(response, "报告预览")
-            throw new Error(data.error || "报告预览失败")
-          }
-          objectUrl = URL.createObjectURL(await response.blob())
-          if (!controller.signal.aborted) setPreviewUrl(objectUrl)
-        } catch (caught) {
-          if (!controller.signal.aborted) {
-            setError(toUserFacingError(caught, { fallback: "报告预览失败，请稍后重试。", subject: "报告预览" }))
-          }
-        } finally {
-          if (!controller.signal.aborted) setPreviewLoading(false)
-        }
-      })()
-    }, 0)
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [selectedJob?.fileAvailable, selectedJob?.id])
 
   async function downloadJob(job: CommercialReportJobRecord) {
     setBusyId(job.id)
@@ -358,15 +322,10 @@ export default function ReportHistoryDialog({
 
         {selectedJob ? (
           <div className="min-h-0 flex-1 bg-slate-100 p-2 sm:p-4">
-            {previewLoading ? (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin text-[#1677FF]" />
-                正在载入 PDF 预览
-              </div>
-            ) : previewUrl ? (
+            {selectedJob.fileAvailable ? (
               <iframe
                 title={selectedJob.fileName || "专业报告预览"}
-                src={previewUrl}
+                src={`/api/reports/jobs/${encodeURIComponent(selectedJob.id)}/view`}
                 className="h-full w-full border-0 bg-white shadow-sm"
               />
             ) : (
@@ -509,10 +468,7 @@ export default function ReportHistoryDialog({
                               <div className="flex items-center gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setPreviewUrl("")
-                                    setSelectedId(job.id)
-                                  }}
+                                  onClick={() => setSelectedId(job.id)}
                                   disabled={!job.fileAvailable}
                                   className="rounded-md p-2 text-slate-500 transition hover:bg-white hover:text-[#1677FF] disabled:cursor-not-allowed disabled:opacity-30"
                                   aria-label={`预览 ${job.fileName || "报告"}`}

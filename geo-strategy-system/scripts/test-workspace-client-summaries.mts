@@ -7,9 +7,11 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "geo-workspace-summaries-"
 process.env.WORKSPACE_STORE = "file"
 process.env.WORKSPACE_FILE = path.join(tempDir, "workspaces.json")
 
-const { createWorkspaceClient, listWorkspaceClientSummaries } = await import(
-  "../src/lib/workspace-store"
-)
+const {
+  createWorkspaceClient,
+  getWorkspaceClientSections,
+  listWorkspaceClientSummaries,
+} = await import("../src/lib/workspace-store")
 
 try {
   const now = new Date().toISOString()
@@ -24,6 +26,12 @@ try {
     competitors: [],
     selectedModels: ["doubao", "qwen"],
     diagnosis: { overallScore: 80 },
+    keywordStrategy: {
+      generatedQuestions: Array.from(
+        { length: 400 },
+        (_, index) => `大体积关键词策略问题 ${index + 1} ${"内容".repeat(80)}`,
+      ),
+    },
     createdAt: now,
     updatedAt: now,
   })
@@ -34,6 +42,20 @@ try {
   assert.equal(summaries[0]?.questionCount, 2)
   assert.equal(summaries[0]?.selectedModelCount, 2)
   assert.equal(summaries[0]?.completedModules.includes("diagnosis"), true)
+  assert.equal(summaries[0]?.versions.keywordStrategy, 1)
+
+  const penetrationSnapshot = await getWorkspaceClientSections(
+    "summary-user",
+    "client-summary-1",
+    ["penetration"],
+  )
+  assert.deepEqual(penetrationSnapshot?.loadedSections, ["core", "penetration"])
+  assert.equal(penetrationSnapshot?.sections.keywordStrategy, undefined)
+  assert.equal(
+    JSON.stringify(penetrationSnapshot).includes("大体积关键词策略问题"),
+    false,
+    "module reads must not transfer unrelated large sections",
+  )
   console.log("Workspace client summary tests passed.")
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true })

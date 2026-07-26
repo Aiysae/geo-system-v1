@@ -16,6 +16,9 @@ const KEY_USER = (id: string) => `auth:users:${id}`
 const KEY_EMAIL = (email: string) => `auth:emails:${email}`
 const KEY_SESSION = (id: string) => `auth:sessions:${id}`
 const KEY_USER_SET = "auth:users"
+const KEY_MANAGED_USER_SET = (parentUserId: string) => (
+  `auth:managed_users:${encodeURIComponent(parentUserId)}`
+)
 const KEY_PASSWORD_RESET_REQUEST = (id: string) => `auth:password_reset_requests:${id}`
 const KEY_PASSWORD_RESET_REQUEST_SET = "auth:password_reset_requests"
 const KEY_PASSWORD_RESET_TOKEN = (hash: string) => `auth:password_reset_tokens:${hash}`
@@ -207,6 +210,9 @@ export async function createUser(input: {
 
   await kv.set(KEY_USER(user.id), user)
   await kv.sadd(KEY_USER_SET, user.id)
+  if (user.managedByUserId) {
+    await kv.sadd(KEY_MANAGED_USER_SET(user.managedByUserId), user.id)
+  }
 
   return toPublicUser(user)
 }
@@ -508,6 +514,25 @@ export async function listUsers(): Promise<PublicUser[]> {
       })
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+export async function listManagedUsers(parentUserId: string): Promise<PublicUser[]> {
+  const indexedIds = await kv.smembers<string[]>(KEY_MANAGED_USER_SET(parentUserId))
+  if (indexedIds.length > 0) {
+    const users = await Promise.all(indexedIds.map(id => kv.get<AuthUser>(KEY_USER(id))))
+    return users
+      .filter((user): user is AuthUser => Boolean(
+        user && user.managedByUserId === parentUserId,
+      ))
+      .map(toPublicUser)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  const users = (await listUsers()).filter(user => user.managedByUserId === parentUserId)
+  if (users.length > 0) {
+    await kv.sadd(KEY_MANAGED_USER_SET(parentUserId), ...users.map(user => user.id))
+  }
+  return users
 }
 
 export async function getUserById(userId: string): Promise<PublicUser | null> {

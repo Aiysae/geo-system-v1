@@ -27,6 +27,23 @@ export type SyncedClient = {
   versions: WorkspaceVersions
 }
 
+export type WorkspaceSectionSnapshot = {
+  clientId: string
+  sections: Partial<Record<WorkspaceSection, Record<string, unknown>>>
+  versions: WorkspaceVersions
+  loadedSections: WorkspaceSection[]
+}
+
+export function normalizeWorkspaceSections(value: unknown): WorkspaceSection[] {
+  if (!Array.isArray(value)) return ["core"]
+  const valid = value
+    .map(String)
+    .filter((section): section is WorkspaceSection => (
+      WORKSPACE_SECTIONS.includes(section as WorkspaceSection)
+    ))
+  return Array.from(new Set<WorkspaceSection>(["core", ...valid]))
+}
+
 export type ReconciledWorkspaceClients = {
   clients: Client[]
   observedLocalCreateIds: string[]

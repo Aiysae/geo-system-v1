@@ -795,6 +795,26 @@ export async function listTeamClientShares(teamId: string): Promise<TeamClientSh
   ))
 }
 
+export async function getTeamClientShare(
+  teamId: string,
+  clientOwnerUserId: string,
+  clientId: string,
+): Promise<TeamClientShareRecord | null> {
+  if (backend() === "postgres") {
+    await ensureTeamSchema()
+    const result = await pool().query<TeamShareRow>(
+      `SELECT * FROM geo_team_client_shares_v1
+       WHERE team_id = $1 AND client_owner_user_id = $2 AND client_id = $3
+       LIMIT 1`,
+      [teamId, clientOwnerUserId, clientId],
+    )
+    return result.rows[0] ? rowToShare(result.rows[0]) : null
+  }
+  return withFileState(state => (
+    state.shares[shareKey(teamId, clientOwnerUserId, clientId)] || null
+  ))
+}
+
 export async function saveTeamClientShare(input: {
   teamId: string
   clientOwnerUserId: string
@@ -952,9 +972,16 @@ export async function findTeamClientAccess(input: {
   userId: string
   clientId: string
   teamId?: string
+  dataOwnerUserId?: string
 }): Promise<TeamClientAccess | null> {
   const accesses = await listAccessibleTeamClientShares(input.userId, input.teamId)
-  return accesses.find(access => access.share.clientId === input.clientId) || null
+  return accesses.find(access => (
+    access.share.clientId === input.clientId
+    && (
+      !input.dataOwnerUserId
+      || access.share.clientOwnerUserId === input.dataOwnerUserId
+    )
+  )) || null
 }
 
 export async function listTeamAudit(

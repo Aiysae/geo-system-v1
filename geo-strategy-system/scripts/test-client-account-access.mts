@@ -9,6 +9,8 @@ process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = path.join(testDirectory, "kv.json")
 process.env.WORKSPACE_STORE = "file"
 process.env.WORKSPACE_FILE = path.join(testDirectory, "workspace.json")
+process.env.TEAM_STORE = "file"
+process.env.TEAM_FILE = path.join(testDirectory, "teams.json")
 process.env.CREDITS_INITIAL = "50"
 
 const {
@@ -35,6 +37,10 @@ const {
   createWorkspaceClient,
   listWorkspaceClients,
 } = await import("../src/lib/workspace-store")
+const {
+  listClientCatalog,
+  resolveClientAccessRef,
+} = await import("../src/lib/client-access-catalog")
 
 const ownerUserId = "client-owner-user"
 const clientUserId = "dedicated-client-user"
@@ -66,6 +72,10 @@ try {
     operatorUserId,
   })
   assert.equal(link.status, "active")
+  assert.equal(link.version, 2)
+  assert.equal(link.parentUserId, ownerUserId)
+  assert.equal(link.dataOwnerUserId, ownerUserId)
+  assert.equal(link.sourceType, "personal")
   assert.equal(link.provisioning, "admin")
   assert.equal(link.billingMode, "monthly_grant")
 
@@ -243,6 +253,86 @@ try {
   assert.equal(restored.clientId, "owner-managed-client")
   assert.equal(await getRecoverableClientAccountLink(managedChildUserId, ownerUserId), null)
   assert.equal(await deleteClientAccountLink({ userId: managedChildUserId, operatorUserId: ownerUserId }), true)
+
+  const teamStore = await import("../src/lib/team-store")
+  const teamOwnerUserId = "team-account-owner"
+  const sharedDataOwnerUserId = "shared-client-owner"
+  const sharedChildUserId = "shared-client-child"
+  await createWorkspaceClient(sharedDataOwnerUserId, client)
+  const team = await teamStore.createTeam({
+    ownerUserId: teamOwnerUserId,
+    name: "客户交付团队",
+  })
+  const teamManagerUserId = "team-client-manager"
+  const teamViewerUserId = "team-client-viewer"
+  await teamStore.saveTeamMember({
+    teamId: team.id,
+    userId: teamManagerUserId,
+    role: "member",
+    permissionKeys: ["client.manage"],
+    operatorUserId: teamOwnerUserId,
+  })
+  await teamStore.saveTeamMember({
+    teamId: team.id,
+    userId: teamViewerUserId,
+    role: "member",
+    permissionKeys: ["client.view"],
+    operatorUserId: teamOwnerUserId,
+  })
+  await teamStore.saveTeamClientShare({
+    teamId: team.id,
+    clientOwnerUserId: sharedDataOwnerUserId,
+    clientId: client.id,
+    clientName: client.name,
+    operatorUserId: sharedDataOwnerUserId,
+  })
+  const teamOwnerCatalog = await listClientCatalog(teamOwnerUserId)
+  const sharedCatalogEntry = teamOwnerCatalog.find(entry => (
+    entry.sourceType === "team"
+    && entry.dataOwnerUserId === sharedDataOwnerUserId
+    && entry.id === client.id
+  ))
+  assert.ok(sharedCatalogEntry)
+  assert.equal(sharedCatalogEntry.canManageClientAccount, true)
+  const resolvedCatalogEntry = await resolveClientAccessRef(
+    teamOwnerUserId,
+    sharedCatalogEntry.accessRef,
+  )
+  assert.equal(resolvedCatalogEntry.parentUserId, teamOwnerUserId)
+  assert.equal(resolvedCatalogEntry.dataOwnerUserId, sharedDataOwnerUserId)
+  const managerCatalog = await listClientCatalog(teamManagerUserId)
+  assert.equal(managerCatalog[0]?.canManageClientAccount, true)
+  const viewerCatalog = await listClientCatalog(teamViewerUserId)
+  assert.equal(viewerCatalog[0]?.canManageClientAccount, false)
+  const sharedLink = await saveClientAccountLink({
+    userId: sharedChildUserId,
+    parentUserId: teamOwnerUserId,
+    dataOwnerUserId: sharedDataOwnerUserId,
+    sourceType: "team",
+    teamId: team.id,
+    clientId: client.id,
+    clientName: client.name,
+    provisioning: "owner",
+    billingMode: "self_funded",
+    operatorUserId: teamOwnerUserId,
+  })
+  assert.equal(sharedLink.parentUserId, teamOwnerUserId)
+  assert.equal(sharedLink.dataOwnerUserId, sharedDataOwnerUserId)
+  assert.equal(sharedLink.sourceType, "team")
+  const sharedScope = await resolveWorkspaceAccess(sharedChildUserId, client.id)
+  assert.equal(sharedScope.ok, true)
+  assert.equal(sharedScope.ok && sharedScope.ownerUserId, sharedDataOwnerUserId)
+  await teamStore.deleteTeamClientShare({
+    teamId: team.id,
+    clientOwnerUserId: sharedDataOwnerUserId,
+    clientId: client.id,
+    operatorUserId: sharedDataOwnerUserId,
+  })
+  const revokedScope = await resolveWorkspaceAccess(sharedChildUserId, client.id)
+  assert.equal(revokedScope.ok, false)
+  assert.equal(!revokedScope.ok && revokedScope.code, "CLIENT_SOURCE_REVOKED")
+  assert.equal((await getWorkspaceAccountAccess(sharedChildUserId)).status, "suspended")
+
   assert.equal(await deleteClientAccountLink({ userId: clientUserId, operatorUserId }), true)
   assert.equal((await getWorkspaceAccountAccess(clientUserId)).mode, "standard")
   assert.equal((await getCreditBalanceSnapshot(clientUserId)).total, 50)

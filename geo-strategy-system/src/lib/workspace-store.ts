@@ -12,11 +12,13 @@ import {
   composeClientData,
   emptyWorkspaceVersions,
   normalizeClientPayload,
+  normalizeWorkspaceVersions,
   sectionForClientField,
   sectionsForClientPatch,
   splitClientData,
   type SyncedClient,
   type WorkspaceSection,
+  type WorkspaceSectionSnapshot,
   type WorkspaceVersions,
 } from "@/lib/workspace-sync"
 import { WORKSPACE_SCHEMA_SQL } from "@/lib/workspace-schema"
@@ -55,6 +57,7 @@ export type WorkspaceClientSummary = {
   questionCount: number
   selectedModelCount: number
   completedModules: WorkspaceSection[]
+  versions: WorkspaceVersions
 }
 
 export class WorkspaceConflictError extends Error {
@@ -128,6 +131,24 @@ export async function listWorkspaceClientSummaries(
   return backend() === "postgres"
     ? listPostgresClientSummaries(userId)
     : withFileState(state => listFileClientSummaries(state, userId))
+}
+
+export async function getWorkspaceClientSections(
+  userId: string,
+  clientId: string,
+  requestedSections: readonly WorkspaceSection[],
+): Promise<WorkspaceSectionSnapshot | null> {
+  const selected = Array.from(new Set<WorkspaceSection>([
+    "core",
+    ...requestedSections.filter(section => WORKSPACE_SECTIONS.includes(section)),
+  ]))
+  return backend() === "postgres"
+    ? getPostgresClientSections(userId, clientId, selected)
+    : withFileState(state => {
+        const record = fileUser(state, userId).clients[clientId]
+        if (!record || record.deletedAt) return null
+        return snapshotFromRecord(clientId, record, selected)
+      })
 }
 
 export async function createWorkspaceClient(userId: string, value: unknown): Promise<SyncedClient> {
@@ -337,6 +358,55 @@ async function listPostgresClientSummaries(
     [userId],
   )
   return result.rows.map(row => summaryFromCore(row.core, row.section_versions || {}))
+}
+
+async function getPostgresClientSections(
+  userId: string,
+  clientId: string,
+  requestedSections: WorkspaceSection[],
+): Promise<WorkspaceSectionSnapshot | null> {
+  await ensureWorkspaceSchema()
+  const [coreResult, sectionResult] = await Promise.all([
+    pool().query<{
+      core: Record<string, unknown>
+      version: number
+    }>(
+      `SELECT core, version
+       FROM geo_workspace_clients
+       WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL
+       LIMIT 1`,
+      [userId, clientId],
+    ),
+    pool().query<{
+      section: WorkspaceSection
+      version: number
+      data: Record<string, unknown> | null
+    }>(
+      `SELECT section, version,
+              CASE WHEN section = ANY($3::text[]) THEN data ELSE NULL END AS data
+       FROM geo_workspace_sections
+       WHERE user_id = $1 AND client_id = $2`,
+      [userId, clientId, requestedSections.filter(section => section !== "core")],
+    ),
+  ])
+  const core = coreResult.rows[0]
+  if (!core) return null
+  const versions = emptyWorkspaceVersions()
+  versions.core = Number(core.version || 0)
+  const sections: WorkspaceSectionSnapshot["sections"] = { core: core.core }
+  for (const row of sectionResult.rows) {
+    if (!WORKSPACE_SECTIONS.includes(row.section)) continue
+    versions[row.section] = Number(row.version || 0)
+    if (row.data && requestedSections.includes(row.section)) {
+      sections[row.section] = row.data
+    }
+  }
+  return {
+    clientId,
+    sections,
+    versions,
+    loadedSections: requestedSections,
+  }
 }
 
 async function createPostgresClient(userId: string, client: Client): Promise<SyncedClient> {
@@ -644,6 +714,23 @@ function listFileClientSummaries(
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
+function snapshotFromRecord(
+  clientId: string,
+  record: WorkspaceRecord,
+  requestedSections: WorkspaceSection[],
+): WorkspaceSectionSnapshot {
+  const sections: WorkspaceSectionSnapshot["sections"] = {}
+  for (const section of requestedSections) {
+    sections[section] = structuredClone(record.sections[section] || {})
+  }
+  return {
+    clientId,
+    sections,
+    versions: { ...record.versions },
+    loadedSections: requestedSections,
+  }
+}
+
 function summaryFromCore(
   core: Record<string, unknown>,
   versions: Partial<Record<WorkspaceSection, number>>,
@@ -666,6 +753,7 @@ function summaryFromCore(
     questionCount: questions.length,
     selectedModelCount: selectedModels.length,
     completedModules,
+    versions: normalizeWorkspaceVersions(versions),
   }
 }
 

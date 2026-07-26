@@ -4,6 +4,11 @@ import { AccountCenter } from "@/components/account/account-center"
 import { getCurrentUser } from "@/lib/auth"
 import { isAdminUser } from "@/lib/admin"
 import { mergeBillingRechargeRecords } from "@/lib/billing-records"
+import {
+  encodeClientAccessRef,
+  listClientCatalog,
+  type ClientCatalogEntry,
+} from "@/lib/client-access-catalog"
 import { getClientAccountLink, getWorkspaceAccountAccess } from "@/lib/client-accounts"
 import { listCreditLedgerForUser } from "@/lib/credit-ledger"
 import { getCreditBalanceSnapshot } from "@/lib/credits"
@@ -46,10 +51,33 @@ export default async function AccountPage({
   ])
 
   const link = access.mode === "client" ? await getClientAccountLink(user.id) : null
-  const ownerUserId = link?.ownerUserId || user.id
-  let clients = await listWorkspaceClientSummaries(ownerUserId)
-  if (access.mode === "client") {
-    clients = clients.filter(client => client.id === access.clientId)
+  let clients: ClientCatalogEntry[]
+  if (link) {
+    const summary = (await listWorkspaceClientSummaries(link.dataOwnerUserId))
+      .find(client => client.id === link.clientId)
+    clients = summary ? [{
+      ...summary,
+      accessRef: encodeClientAccessRef({
+        sourceType: link.sourceType,
+        dataOwnerUserId: link.dataOwnerUserId,
+        clientId: link.clientId,
+        teamId: link.teamId,
+      }),
+      sourceType: link.sourceType,
+      teamId: link.teamId,
+      dataOwnerUserId: link.dataOwnerUserId,
+      parentUserId: link.parentUserId,
+      canEdit: false,
+      canDelete: false,
+      canManageClientAccount: false,
+      clientAccount: {
+        userId: link.userId,
+        status: link.status,
+        sourceStatus: access.status === "active" ? "active" : "revoked",
+      },
+    }] : []
+  } else {
+    clients = await listClientCatalog(user.id)
   }
 
   return (
