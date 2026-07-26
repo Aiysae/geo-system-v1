@@ -2433,9 +2433,12 @@ export function CommercialReportDocument({ input }: { input: CommercialReportInp
       {input.penetration ? <PenetrationPage input={input} answers={answers} /> : null}
       {input.penetration ? <PenetrationTablesPage input={input} /> : null}
       {input.penetration ? <QuestionCoveragePages input={input} answers={answers} /> : null}
+      {input.difficulty ? <DifficultyPage input={input} /> : null}
+      {input.difficulty ? <DifficultyDetailsPage input={input} /> : null}
+      {input.difficulty?.result.costEstimate ? <DifficultyCostPage input={input} /> : null}
+      {input.difficulty ? <DifficultyInsightsPages input={input} /> : null}
+      <ProcessEvidencePage input={input} />
       {input.penetration ? <PenetrationOpportunityPage input={input} /> : null}
-      {input.penetration ? <SourcesPage input={input} answers={answers} sources={sources} /> : null}
-      {input.penetration ? <SourceIndexPages input={input} sources={sources} /> : null}
       {input.research ? <ResearchOverviewPage input={input} /> : null}
       {input.research ? <ResearchDimensionEvidencePages input={input} /> : null}
       {input.research ? <ResearchFindingsPages input={input} /> : null}
@@ -2444,13 +2447,10 @@ export function CommercialReportDocument({ input }: { input: CommercialReportInp
       {input.diagnosis?.audit ? <DiagnosisAccessPage input={input} /> : null}
       {input.diagnosis?.audit ? <DiagnosisCheckPages input={input} /> : null}
       {input.diagnosis?.audit ? <DiagnosisPageRecordPages input={input} /> : null}
-      {input.difficulty ? <DifficultyPage input={input} /> : null}
-      {input.difficulty ? <DifficultyDetailsPage input={input} /> : null}
-      {input.difficulty?.result.costEstimate ? <DifficultyCostPage input={input} /> : null}
-      {input.difficulty ? <DifficultyInsightsPages input={input} /> : null}
       <ActionPage input={input} />
-      <ProcessEvidencePage input={input} />
       <AppendixPages input={input} answers={answers} />
+      {input.penetration ? <SourcesPage input={input} answers={answers} sources={sources} /> : null}
+      {input.penetration ? <SourceIndexPages input={input} sources={sources} /> : null}
       <ClosingPage input={input} />
     </Document>
   )
