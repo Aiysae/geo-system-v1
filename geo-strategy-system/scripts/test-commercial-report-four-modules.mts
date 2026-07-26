@@ -271,6 +271,38 @@ const input: CommercialReportInput = {
   },
 }
 
+const documentElement = CommercialReportDocument({ input }) as React.ReactElement<{ children?: React.ReactNode }>
+const sectionNames: string[] = []
+React.Children.forEach(documentElement.props.children, child => {
+  if (React.isValidElement(child) && typeof child.type === "function") {
+    sectionNames.push(child.type.name)
+  }
+})
+const sectionIndex = (name: string) => {
+  const index = sectionNames.indexOf(name)
+  assert.notEqual(index, -1, `综合报告应包含 ${name}`)
+  return index
+}
+
+const coverageIndex = sectionIndex("QuestionCoveragePages")
+const difficultyIndex = sectionIndex("DifficultyPage")
+const difficultyDetailsIndex = sectionIndex("DifficultyDetailsPage")
+const difficultyInsightsIndex = sectionIndex("DifficultyInsightsPages")
+const processEvidenceIndex = sectionIndex("ProcessEvidencePage")
+const opportunityIndex = sectionIndex("PenetrationOpportunityPage")
+assert.equal(difficultyIndex, coverageIndex + 1, "GEO 难度测评应紧接在疑问句覆盖明细之后")
+assert.ok(difficultyDetailsIndex > difficultyIndex, "难度评分详解应保留在难度测评总览之后")
+assert.ok(difficultyInsightsIndex > difficultyDetailsIndex, "难度洞察应保留在评分详解之后")
+assert.ok(processEvidenceIndex > difficultyInsightsIndex && processEvidenceIndex < opportunityIndex, "测评依据应随难度测评板块一起呈现")
+
+const appendixIndex = sectionIndex("AppendixPages")
+const sourcesIndex = sectionIndex("SourcesPage")
+const sourceIndexIndex = sectionIndex("SourceIndexPages")
+const closingIndex = sectionIndex("ClosingPage")
+assert.equal(sourcesIndex, appendixIndex + 1, "联网来源与证据应紧接在原始真实回答之后")
+assert.equal(sourceIndexIndex, sourcesIndex + 1, "可点击来源列表应保留在来源概览之后")
+assert.equal(closingIndex, sourceIndexIndex + 1, "联网来源与证据应作为封底前的最后内容板块")
+
 const pdf = await renderToBuffer(React.createElement(CommercialReportDocument, { input }) as Parameters<typeof renderToBuffer>[0])
 assert.ok(pdf.length > 120_000, "四模块综合报告应成功渲染并包含完整图表与正文")
 
