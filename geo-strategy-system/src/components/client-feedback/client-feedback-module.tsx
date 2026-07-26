@@ -12,6 +12,7 @@ import {
   Copy,
   ExternalLink,
   FileBarChart2,
+  FileUp,
   Link2,
   LoaderCircle,
   LockKeyhole,
@@ -23,6 +24,7 @@ import {
   Trash2,
   X,
 } from "lucide-react"
+import BatchEvidenceImportDialog from "@/components/client-feedback/batch-evidence-import-dialog"
 import ClientFeedbackReportView from "@/components/client-feedback/client-feedback-report-view"
 import type { Client } from "@/types"
 import { toUserFacingError } from "@/lib/user-facing-errors"
@@ -30,6 +32,7 @@ import type {
   ClientExecutionAction,
   ClientExecutionProfile,
   ClientExecutionStage,
+  ClientEvidenceImportResult,
   ClientFeedbackPeriod,
   ClientFeedbackReport,
   ClientFeedbackReportType,
@@ -139,6 +142,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
   const [notice, setNotice] = useState("")
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [actionOpen, setActionOpen] = useState(false)
+  const [batchImportOpen, setBatchImportOpen] = useState(false)
   const [calendarMonth, setCalendarMonth] = useState(today().slice(0, 7))
   const [selectedDate, setSelectedDate] = useState(today())
   const [reportTargetDate, setReportTargetDate] = useState(today())
@@ -268,6 +272,33 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     } finally {
       setPending("")
     }
+  }
+
+  function handleBatchImported(result: ClientEvidenceImportResult) {
+    setPayload(current => {
+      if (!current || result.created.length === 0) return current
+      const createdIds = new Set(result.created.map(action => action.id))
+      return {
+        ...current,
+        actions: [
+          ...result.created,
+          ...current.actions.filter(action => !createdIds.has(action.id)),
+        ].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt)),
+      }
+    })
+    const importedDate = result.created[0]
+      ? dateOnly(result.created[0].occurredAt)
+      : selectedDate
+    setSelectedDate(importedDate)
+    setCalendarMonth(importedDate.slice(0, 7))
+    setBatchImportOpen(false)
+    setError("")
+    setNotice(
+      result.skippedCount > 0
+        ? `已导入 ${result.createdCount} 条动作，跳过 ${result.skippedCount} 条重复网址`
+        : `已导入 ${result.createdCount} 条动作`,
+    )
+    void load(true)
   }
 
   async function generateReport(type: ClientFeedbackReportType) {
@@ -428,9 +459,12 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             <span className="font-mono text-xs font-bold text-[#0958D9]">{payload.profile.stageProgress}%</span>
           </div>
           {payload.canManage ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <button type="button" onClick={() => setActionOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#91CAFF] bg-[#F3F9FF] px-3 text-xs font-semibold text-[#0958D9] hover:bg-[#EAF4FF]">
                 <Plus className="h-3.5 w-3.5" />记录动作
+              </button>
+              <button type="button" onClick={() => setBatchImportOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#79D6E8] bg-[#F0FCFF] px-3 text-xs font-semibold text-[#007A99] transition hover:bg-[#E4F9FD]">
+                <FileUp className="h-3.5 w-3.5" />批量导入网址
               </button>
               <button type="button" onClick={() => setSettingsOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white">
                 <Settings2 className="h-3.5 w-3.5" />执行设置
@@ -625,6 +659,15 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             <footer className="flex justify-end gap-2 border-t border-[#E3EDF6] px-5 py-4"><button type="button" onClick={() => setActionOpen(false)} className="h-9 rounded-lg border border-[#C8D9E8] px-4 text-xs font-semibold">取消</button><button type="submit" disabled={pending === "action"} className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-4 text-xs font-semibold text-white disabled:opacity-50">{pending === "action" ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}保存动作</button></footer>
           </form>
         </div>
+      ) : null}
+
+      {batchImportOpen ? (
+        <BatchEvidenceImportDialog
+          endpoint={endpoint}
+          defaultDate={selectedDate}
+          onClose={() => setBatchImportOpen(false)}
+          onImported={handleBatchImported}
+        />
       ) : null}
 
       {previewReport ? (

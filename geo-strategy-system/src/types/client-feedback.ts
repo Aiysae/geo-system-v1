@@ -61,9 +61,40 @@ export interface ClientExecutionAction {
   platform?: string
   evidence: ClientExecutionEvidence[]
   sourceRecordId?: string
+  importBatchId?: string
+  importedFrom?: "url_batch"
   createdByUserId: string
   createdAt: string
   updatedAt: string
+}
+
+export interface ClientEvidenceImportRowInput {
+  title: string
+  url: string
+  platform?: string
+}
+
+export interface ClientEvidenceImportDefaults {
+  category: ClientExecutionActionCategory
+  status: ClientExecutionActionStatus
+  visibility: ClientExecutionActionVisibility
+  occurredDate: string
+  description?: string
+}
+
+export interface ClientEvidenceImportSkippedRow {
+  rowNumber: number
+  title: string
+  url: string
+  reason: "duplicate_existing" | "duplicate_batch"
+}
+
+export interface ClientEvidenceImportResult {
+  importId: string
+  created: ClientExecutionAction[]
+  skipped: ClientEvidenceImportSkippedRow[]
+  createdCount: number
+  skippedCount: number
 }
 
 export interface ClientFeedbackMetricSnapshot {
