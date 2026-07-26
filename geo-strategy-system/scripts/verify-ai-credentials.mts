@@ -6,6 +6,7 @@ import type {
 const enablePassed = process.argv.includes("--enable-passed")
 const verifyStrictWeb = process.argv.includes("--strict-web")
 const includeEnabled = process.argv.includes("--all")
+const verifyAllModels = process.argv.includes("--all-models")
 
 const {
   closeAiCredentialStoreConnection,
@@ -25,6 +26,22 @@ interface VerificationRow {
   strictWeb: VerificationState
   enabled: boolean
   error?: string
+  models?: {
+    basic?: Array<{
+      model: string
+      status: string
+      latencyMs: number
+      capabilities: string[]
+      error?: string
+    }>
+    strictWeb?: Array<{
+      model: string
+      status: string
+      latencyMs: number
+      capabilities: string[]
+      error?: string
+    }>
+  }
 }
 
 function supportsStrictWeb(credential: AiCredentialPublic): boolean {
@@ -53,8 +70,11 @@ for (const credential of credentials) {
     enabled: credential.enabled,
   }
   try {
-    await verifyAiCredentialChat(credential.id)
+    const basic = await verifyAiCredentialChat(credential.id, {
+      allModels: verifyAllModels,
+    })
     row.basic = "passed"
+    row.models = { basic: basic.models }
     if (enablePassed && !credential.enabled) {
       await setAiCredentialEnabled(credential.id, true, "credential-verification-script")
       row.enabled = true
@@ -62,8 +82,14 @@ for (const credential of credentials) {
 
     if (verifyStrictWeb && supportsStrictWeb(credential)) {
       try {
-        await verifyAiCredentialWeb(credential.id)
+        const strictWeb = await verifyAiCredentialWeb(credential.id, {
+          allModels: verifyAllModels,
+        })
         row.strictWeb = "passed"
+        row.models = {
+          ...row.models,
+          strictWeb: strictWeb.models,
+        }
       } catch (error) {
         row.strictWeb = "failed"
         row.error = safeError(error)
@@ -105,6 +131,7 @@ console.log(JSON.stringify({
   checked: rows.length,
   enablePassed,
   verifyStrictWeb,
+  verifyAllModels,
   providers: summary,
 }, null, 2))
 

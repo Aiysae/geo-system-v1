@@ -1,7 +1,10 @@
 import "server-only"
 
 import { buildAiChatUrl } from "@/lib/ai-settings"
+import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
+import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
 import { listAiGatewayProvidersPublic } from "@/lib/ai-gateways"
+import { acquireDistributedConcurrency } from "@/lib/distributed-concurrency"
 import { resolveArticleModel, type ResolvedArticleModel } from "@/lib/article-models"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import type { LlmTokenUsage } from "@/lib/llm/openai-compat"
@@ -9,22 +12,13 @@ import { nativeModelChat } from "@/lib/llm/native-chat"
 import { recordAiUsageQuietly } from "@/lib/ai-usage"
 import type { LlmMode } from "@/types"
 import {
+  hasAiCredentialCandidate,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
+  resolveAiCredentialModel,
   tryAcquireAiCredential,
 } from "@/lib/ai-credential-router"
 import type { AiCredentialVendor } from "@/types/ai-credentials"
-
-interface Waiter {
-  resolve: () => void
-  reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
-}
-
-interface ProviderPool {
-  active: number
-  waiters: Waiter[]
-}
 
 interface CircuitState {
   failures: number
@@ -51,20 +45,16 @@ export interface ArticleModelChatResult {
   usedFallback: boolean
 }
 
-const pools = new Map<string, ProviderPool>()
 const circuits = new Map<string, CircuitState>()
 const CIRCUIT_FAILURE_THRESHOLD = 3
 const CIRCUIT_COOLDOWN_MS = 60_000
 
 function retryableFailure(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error || "")
-  return /(408|425|429|500|502|503|504|timeout|timed out|超时|连接失败|fetch failed|network|socket|temporar|返回空内容|恢复中)/i.test(message)
+  return shouldFailOverAiCredential(error)
 }
 
 function credentialFailoverFailure(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error || "")
-  return retryableFailure(error)
-    || /(401|403|invalid.*key|unauthorized|forbidden|余额不足|欠费|无权限)/i.test(message)
+  return shouldFailOverAiCredential(error)
 }
 
 function credentialVendor(model: ResolvedArticleModel): AiCredentialVendor | null {
@@ -111,44 +101,17 @@ function recordFailure(model: ResolvedArticleModel, error: unknown): void {
   })
 }
 
-async function acquireProviderSlot(model: ResolvedArticleModel): Promise<() => void> {
-  if (!model.providerId || !model.maxConcurrency) return () => undefined
-  const key = model.providerId
-  const limit = Math.max(1, model.maxConcurrency)
-  const pool = pools.get(key) || { active: 0, waiters: [] }
-  pools.set(key, pool)
-
-  if (pool.active < limit) {
-    pool.active += 1
-  } else {
-    await new Promise<void>((resolve, reject) => {
-      const timeoutMs = Math.max(30, model.timeout) * 1000
-      const waiter: Waiter = {
-        resolve,
-        reject,
-        timer: setTimeout(() => {
-          const index = pool.waiters.indexOf(waiter)
-          if (index >= 0) pool.waiters.splice(index, 1)
-          reject(new Error(`${model.label} 当前任务较多，排队等待超时，请稍后重试`))
-        }, timeoutMs),
-      }
-      pool.waiters.push(waiter)
-    })
-  }
-
-  let released = false
-  return () => {
-    if (released) return
-    released = true
-    pool.active = Math.max(0, pool.active - 1)
-    const next = pool.waiters.shift()
-    if (next) {
-      clearTimeout(next.timer)
-      pool.active += 1
-      next.resolve()
-    }
-    if (pool.active === 0 && pool.waiters.length === 0) pools.delete(key)
-  }
+async function acquireProviderSlot(
+  model: ResolvedArticleModel,
+): Promise<() => Promise<void>> {
+  if (!model.providerId || !model.maxConcurrency) return async () => undefined
+  return acquireDistributedConcurrency({
+    scope: `article-gateway:${model.providerId}`,
+    limit: model.maxConcurrency,
+    waitTimeoutMs: Math.max(30, model.timeout) * 1000,
+    leaseSeconds: Math.max(90, model.timeout + 120),
+    label: model.label,
+  })
 }
 
 async function executeModel(
@@ -240,7 +203,7 @@ async function executeModel(
     }
     throw error
   } finally {
-    release()
+    await release()
   }
 }
 
@@ -254,15 +217,27 @@ async function callModel(
 
   const excludedCredentialIds: string[] = []
   let lastError: unknown
+  const quotaEstimate = estimateAiCredentialQuota(input)
+  const preferredRequest = {
+    vendor,
+    module: "article" as const,
+    model: model.model,
+    requiredCapabilities: ["chat" as const],
+  }
+  const selectionModel = model.model
+    && await hasAiCredentialCandidate(preferredRequest)
+    ? model.model
+    : undefined
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const lease = await tryAcquireAiCredential({
       vendor,
       module: "article",
-      model: model.model,
+      model: selectionModel,
       requiredCapabilities: ["chat"],
       excludeCredentialIds: excludedCredentialIds,
       waitTimeoutMs: Math.min(60_000, Math.max(5_000, model.timeout * 1000)),
       leaseSeconds: Math.min(60 * 60, Math.max(60, model.timeout + 60)),
+      ...quotaEstimate,
     })
     if (!lease) {
       if (attempt === 0) {
@@ -272,6 +247,15 @@ async function callModel(
     }
 
     excludedCredentialIds.push(lease.credential.id)
+    const credentialModel = resolveAiCredentialModel(
+      lease.credential,
+      selectionModel || model.model,
+      ["chat"],
+    )
+    if (!credentialModel) {
+      await lease.release()
+      throw new Error(`${model.label} 可用账号未配置模型`)
+    }
     const pooledModel: ResolvedArticleModel = {
       ...model,
       providerId: lease.credential.id,
@@ -279,6 +263,7 @@ async function callModel(
       baseUrl: lease.credential.baseUrl,
       chatPath: lease.credential.chatPath,
       apiKey: lease.credential.apiKey,
+      model: credentialModel,
       authType: "bearer",
       protocol: "openai_chat",
       maxConcurrency: undefined,

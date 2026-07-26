@@ -74,6 +74,8 @@ export interface AiCredentialSelectionRequest {
   excludeCredentialIds?: string[]
   waitTimeoutMs?: number
   leaseSeconds?: number
+  estimatedTokens?: number
+  estimatedCostCents?: number
 }
 
 export interface AiCredentialLease {

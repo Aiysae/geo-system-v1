@@ -32,6 +32,26 @@ local ttl = redis.call("TTL", KEYS[1])
 return {current, ttl}
 `
 
+const RESERVE_SCRIPT = `
+-- reserve_rate_limit_v1
+local amount = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+local window = tonumber(ARGV[3])
+local current = tonumber(redis.call("GET", KEYS[1]) or "0")
+local ttl = redis.call("TTL", KEYS[1])
+if current + amount > limit then
+  return {0, current, ttl}
+end
+local next = redis.call("INCRBY", KEYS[1], amount)
+if current == 0 then
+  redis.call("EXPIRE", KEYS[1], window)
+  ttl = window
+else
+  ttl = redis.call("TTL", KEYS[1])
+end
+return {1, next, ttl}
+`
+
 function cleanKey(value: string): string {
   return value.replace(/[^a-zA-Z0-9:_@.-]/g, "_").slice(0, 220)
 }
@@ -50,6 +70,29 @@ function memoryHit(key: string, limit: number, windowSec: number): RateLimitResu
     return { ok: false, remaining: 0, resetAt: bucket.resetAt }
   }
   return { ok: true, remaining, resetAt: bucket.resetAt }
+}
+
+function memoryReserve(
+  key: string,
+  amount: number,
+  limit: number,
+  windowSec: number,
+): RateLimitResult {
+  const now = Date.now()
+  const current = memoryBuckets.get(key)
+  const bucket = current && current.resetAt > now
+    ? current
+    : { count: 0, resetAt: now + windowSec * 1000 }
+  if (bucket.count + amount > limit) {
+    return { ok: false, remaining: 0, resetAt: bucket.resetAt }
+  }
+  bucket.count += amount
+  memoryBuckets.set(key, bucket)
+  return {
+    ok: true,
+    remaining: Math.max(0, limit - bucket.count),
+    resetAt: bucket.resetAt,
+  }
 }
 
 export function getClientIp(request: Request): string {
@@ -85,5 +128,40 @@ export async function hitRateLimit(
   } catch (error) {
     console.warn("[rate-limit] KV unavailable, using memory fallback", error)
     return memoryHit(key, safeLimit, safeWindow)
+  }
+}
+
+export async function reserveRateLimit(
+  namespace: string,
+  identifier: string,
+  amount: number,
+  limit: number,
+  windowSec: number,
+): Promise<RateLimitResult> {
+  const safeAmount = Math.max(1, Math.floor(amount))
+  const safeLimit = Math.max(1, Math.floor(limit))
+  const safeWindow = Math.max(1, Math.floor(windowSec))
+  const key = `rate:${cleanKey(namespace)}:${cleanKey(identifier || "unknown")}`
+
+  try {
+    const result = await kv.eval<[number, number, number], unknown>(
+      RESERVE_SCRIPT,
+      [key],
+      [safeAmount, safeLimit, safeWindow],
+    )
+    const tuple = Array.isArray(result) ? result : []
+    const allowed = Number(tuple[0] ?? 0) === 1
+    const count = Number(tuple[1] ?? 0)
+    const ttl = Number(tuple[2] ?? safeWindow)
+    const resetAt = Date.now() + Math.max(1, ttl) * 1000
+    if (!allowed) return { ok: false, remaining: 0, resetAt }
+    return {
+      ok: true,
+      remaining: Math.max(0, safeLimit - count),
+      resetAt,
+    }
+  } catch (error) {
+    console.warn("[rate-limit] KV unavailable, using memory fallback", error)
+    return memoryReserve(key, safeAmount, safeLimit, safeWindow)
   }
 }

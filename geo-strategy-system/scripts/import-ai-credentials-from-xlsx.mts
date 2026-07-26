@@ -127,7 +127,7 @@ for (const candidate of candidates) {
     chatPath: chatPathForBase(candidate.baseUrl || preset.baseUrl, preset.chatPath),
     apiKey: candidate.apiKey,
     enabled: false,
-    priority: accountNo,
+    priority: 100,
     weight: 100,
     maxConcurrency: preset.defaultConcurrency,
     quotaGroupMaxConcurrency: preset.defaultConcurrency,
