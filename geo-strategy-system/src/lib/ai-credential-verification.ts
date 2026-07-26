@@ -67,7 +67,7 @@ export async function verifyAiCredentialChat(
         system: "你是 API 连通性检测器。只执行用户要求，不补充解释。",
         user: '只返回 JSON：{"ok":true}',
         temperature: 0,
-        maxTokens: 64,
+        maxTokens: credential.vendor === "kimi" ? 512 : 64,
         jsonMode: true,
         timeoutSec: 60,
         label: `${credential.name}·连通性检测`,
