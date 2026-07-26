@@ -37,6 +37,13 @@ const saved = await saveAiCredential({
 const repair = knownAiCredentialRepair(saved)
 assert.equal(repair?.allowedModels?.[0], "doubao-seed-2-0-lite-260215")
 
+const kimiRepair = knownAiCredentialRepair({
+  ...saved,
+  vendor: "kimi",
+  baseUrl: "https://api.moonshot.ai/v1",
+})
+assert.equal(kimiRepair?.baseUrl, "https://api.moonshot.cn/v1")
+
 const originalFetch = globalThis.fetch
 const attemptedModels: string[] = []
 try {

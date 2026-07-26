@@ -11,6 +11,7 @@ export interface AiCredentialRepairPatch {
 const DOUBAO_WORKING_MODEL = "doubao-seed-2-0-lite-260215"
 const HUNYUAN_TOKENHUB_URL = "https://tokenhub.tencentmaas.com"
 const HUNYUAN_WORKING_MODEL = "hy3-preview"
+const KIMI_DOMESTIC_URL = "https://api.moonshot.cn/v1"
 
 function accountNumber(accountLabel: string): number | undefined {
   const match = accountLabel.match(/(\d+)/)
@@ -50,6 +51,14 @@ export function knownAiCredentialRepair(
       HUNYUAN_WORKING_MODEL,
     )
     reasons.push("将混元 1/2 号 TokenHub Key 指向已实测可用的兼容接口")
+  }
+
+  if (
+    credential.vendor === "kimi"
+    && /api\.moonshot\.ai(?:\/|$)/i.test(credential.baseUrl)
+  ) {
+    patch.baseUrl = KIMI_DOMESTIC_URL
+    reasons.push("将 Kimi 国际端点切换为中国大陆可稳定访问的官方端点")
   }
 
   if (reasons.length === 0) return null
