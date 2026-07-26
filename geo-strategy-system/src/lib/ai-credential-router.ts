@@ -35,16 +35,22 @@ function satisfiesRequest(
 ): boolean {
   if (!credential.enabled || !credential.apiKey || isCoolingDown(credential)) return false
   if (request.excludeCredentialIds?.includes(credential.id)) return false
+  const verified = new Set(credential.verifiedCapabilities)
+  const verifiedStrictWebOverride = request.module === "penetration"
+    && request.requiredCapabilities?.includes("native_web")
+    && request.requiredCapabilities?.includes("auditable_sources")
+    && verified.has("native_web")
+    && verified.has("auditable_sources")
   if (
     credential.allowedModules.length > 0
     && !credential.allowedModules.includes(request.module)
+    && !verifiedStrictWebOverride
   ) return false
   if (
     request.model
     && credential.allowedModels.length > 0
     && !credential.allowedModels.includes(request.model)
   ) return false
-  const verified = new Set(credential.verifiedCapabilities)
   return (request.requiredCapabilities || []).every(capability => verified.has(capability))
 }
 
@@ -254,6 +260,43 @@ async function acquireFromPool(
   if (!sawCandidate && missingOk) return null
   if (!sawCandidate) throw new Error(noCredentialMessage(request))
   throw new Error(`${request.vendor} 当前账号任务较多，排队等待超时，请稍后重试`)
+}
+
+export interface AiCredentialPoolCapacity {
+  candidateCount: number
+  maxConcurrency: number
+  quotaGroupCount: number
+}
+
+export async function getAiCredentialPoolCapacity(
+  request: AiCredentialSelectionRequest,
+): Promise<AiCredentialPoolCapacity> {
+  const candidates = (await listAiCredentialRuntimes(request.vendor))
+    .filter(credential => satisfiesRequest(credential, request))
+  const groups = new Map<string, {
+    credentialConcurrency: number
+    groupConcurrency: number
+  }>()
+  for (const credential of candidates) {
+    const group = groups.get(credential.quotaGroup) || {
+      credentialConcurrency: 0,
+      groupConcurrency: 0,
+    }
+    group.credentialConcurrency += credential.maxConcurrency
+    group.groupConcurrency = Math.max(
+      group.groupConcurrency,
+      credential.quotaGroupMaxConcurrency,
+    )
+    groups.set(credential.quotaGroup, group)
+  }
+  return {
+    candidateCount: candidates.length,
+    maxConcurrency: [...groups.values()].reduce(
+      (sum, group) => sum + Math.min(group.credentialConcurrency, group.groupConcurrency),
+      0,
+    ),
+    quotaGroupCount: groups.size,
+  }
 }
 
 export async function acquireAiCredential(

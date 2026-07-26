@@ -6,6 +6,7 @@ delete process.env.REDIS_URL
 const {
   cancelQueuedDurableTask,
   dispatchDurableTaskOrFallback,
+  durableTaskDispatchJobId,
   durableTaskQueueEnabled,
   durableTaskQueueLane,
   durableTaskQueueName,
@@ -31,6 +32,15 @@ assert.equal(
   durableTaskQueueNameForLane("generation"),
   "geo-long-tasks-v1-generation",
 )
+assert.equal(
+  durableTaskDispatchJobId(
+    "penetration",
+    "pjob_task_queue_fallback",
+    "0ec0a2c7-40ba-4cd0-9f5b-f0f0f5af5b62",
+  ),
+  "penetration-pjob_task_queue_fallback-0ec0a2c740ba4cd09f5bf0f0f5af5b62",
+)
+
 
 let fallbackCalls = 0
 await dispatchDurableTaskOrFallback(
