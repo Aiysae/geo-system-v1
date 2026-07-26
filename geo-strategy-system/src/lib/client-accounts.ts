@@ -2,14 +2,28 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
+import { hasTeamPermission } from "@/lib/team-permissions"
+import {
+  getTeam,
+  getTeamClientShare,
+  getTeamMember,
+} from "@/lib/team-store"
 import type {
   ClientAccountStatus,
   WorkspaceAccountAccess,
 } from "@/types"
 
 export type ClientAccountLink = {
-  version: 1
+  version: 2
   userId: string
+  parentUserId: string
+  dataOwnerUserId: string
+  sourceType: "personal" | "team"
+  teamId?: string
+  /**
+   * @deprecated Compatibility alias for dataOwnerUserId. New code must choose
+   * parentUserId for account management or dataOwnerUserId for workspace data.
+   */
   ownerUserId: string
   clientId: string
   clientName: string
@@ -27,6 +41,7 @@ export type ClientAccountAuditAction =
   | "updated"
   | "activated"
   | "suspended"
+  | "source_revoked"
   | "unlinked"
 
 export type ClientAccountAuditEntry = {
@@ -58,13 +73,33 @@ export type WorkspaceAccessScope =
     }
   | {
       ok: false
-      code: "CLIENT_ACCOUNT_SUSPENDED" | "CLIENT_ACCESS_DENIED"
+      code:
+        | "CLIENT_ACCOUNT_SUSPENDED"
+        | "CLIENT_ACCESS_DENIED"
+        | "CLIENT_SOURCE_REVOKED"
       message: string
       link: ClientAccountLink
     }
 
 const KEY_LINK = (userId: string) => `client_account:link:${userId}`
 const KEY_LINK_INDEX = "client_account:links"
+const KEY_PARENT_INDEX = (parentUserId: string) => (
+  `client_account:parent_links:${encodeURIComponent(parentUserId)}`
+)
+const KEY_SOURCE_LINK = (
+  sourceType: ClientAccountLink["sourceType"],
+  parentUserId: string,
+  dataOwnerUserId: string,
+  clientId: string,
+  teamId?: string,
+) => [
+  "client_account:source",
+  sourceType,
+  encodeURIComponent(parentUserId),
+  encodeURIComponent(dataOwnerUserId),
+  encodeURIComponent(teamId || "-"),
+  encodeURIComponent(clientId),
+].join(":")
 const KEY_AUDIT = (id: string) => `client_account:audit:${id}`
 const KEY_AUDIT_INDEX = (userId: string) => `client_account:audit_index:${userId}`
 
@@ -84,9 +119,12 @@ function cleanMonthlyCredits(value: unknown): number {
 
 function normalizeLink(value: unknown): ClientAccountLink | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
-  const input = value as Partial<ClientAccountLink>
+  const input = value as Partial<Omit<ClientAccountLink, "version">> & {
+    version?: 1 | 2
+    ownerUserId?: string
+  }
   if (
-    input.version !== 1
+    (input.version !== 1 && input.version !== 2)
     || !input.userId
     || !input.ownerUserId
     || !input.clientId
@@ -94,10 +132,20 @@ function normalizeLink(value: unknown): ClientAccountLink | null {
     || (input.status !== "active" && input.status !== "suspended")
   ) return null
 
+  const dataOwnerUserId = String(input.dataOwnerUserId || input.ownerUserId)
+  const parentUserId = String(input.parentUserId || input.ownerUserId)
+  const sourceType = input.sourceType === "team" ? "team" : "personal"
+  const teamId = sourceType === "team" ? String(input.teamId || "").trim() : ""
+  if (sourceType === "team" && !teamId) return null
+
   return {
-    version: 1,
+    version: 2,
     userId: String(input.userId),
-    ownerUserId: String(input.ownerUserId),
+    parentUserId,
+    dataOwnerUserId,
+    sourceType,
+    teamId: teamId || undefined,
+    ownerUserId: dataOwnerUserId,
     clientId: String(input.clientId),
     clientName: String(input.clientName),
     status: input.status,
@@ -132,11 +180,18 @@ async function writeAudit(input: {
 }
 
 export async function getClientAccountLink(userId: string): Promise<ClientAccountLink | null> {
-  const stored = await kv.get<ClientAccountLink>(KEY_LINK(userId))
+  const stored = await kv.get<unknown>(KEY_LINK(userId))
   if (stored === null || stored === undefined) return null
   const link = normalizeLink(stored)
   if (!link) {
     throw new Error("客户专属授权数据异常，请联系管理员检查")
+  }
+  if ((stored as { version?: number }).version !== 2) {
+    await Promise.all([
+      kv.set(KEY_LINK(userId), link),
+      kv.sadd(KEY_PARENT_INDEX(link.parentUserId), userId),
+      kv.set(sourceLinkKey(link), userId),
+    ])
   }
   return link
 }
@@ -150,10 +205,138 @@ export async function listClientAccountLinks(): Promise<ClientAccountLink[]> {
 }
 
 export async function listClientAccountLinksForOwner(
-  ownerUserId: string,
+  parentUserId: string,
 ): Promise<ClientAccountLink[]> {
-  return (await listClientAccountLinks())
-    .filter(link => link.ownerUserId === ownerUserId)
+  const indexedUserIds = await kv.smembers<string[]>(KEY_PARENT_INDEX(parentUserId))
+  if (indexedUserIds.length > 0) {
+    const links = await Promise.all(indexedUserIds.map(getClientAccountLink))
+    return links
+      .filter((link): link is ClientAccountLink => Boolean(
+        link && link.parentUserId === parentUserId,
+      ))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+  }
+
+  const links = (await listClientAccountLinks())
+    .filter(link => link.parentUserId === parentUserId)
+  if (links.length > 0) {
+    await kv.sadd(KEY_PARENT_INDEX(parentUserId), ...links.map(link => link.userId))
+  }
+  return links
+}
+
+function sourceLinkKey(link: Pick<
+  ClientAccountLink,
+  "sourceType" | "parentUserId" | "dataOwnerUserId" | "clientId" | "teamId"
+>): string {
+  return KEY_SOURCE_LINK(
+    link.sourceType,
+    link.parentUserId,
+    link.dataOwnerUserId,
+    link.clientId,
+    link.teamId,
+  )
+}
+
+export async function getClientAccountLinkForSource(input: {
+  parentUserId: string
+  dataOwnerUserId: string
+  clientId: string
+  sourceType?: ClientAccountLink["sourceType"]
+  teamId?: string
+}): Promise<ClientAccountLink | null> {
+  const sourceType = input.sourceType === "team" ? "team" : "personal"
+  const key = KEY_SOURCE_LINK(
+    sourceType,
+    input.parentUserId,
+    input.dataOwnerUserId,
+    input.clientId,
+    input.teamId,
+  )
+  const indexedUserId = await kv.get<string>(key)
+  if (indexedUserId) {
+    const indexed = await getClientAccountLink(indexedUserId)
+    if (indexed && sourceLinkKey(indexed) === key) return indexed
+    await kv.del(key)
+  }
+  const match = (await listClientAccountLinksForOwner(input.parentUserId)).find(link => (
+    link.sourceType === sourceType
+    && link.dataOwnerUserId === input.dataOwnerUserId
+    && link.clientId === input.clientId
+    && (link.teamId || "") === (input.teamId || "")
+  )) || null
+  if (match) await kv.set(key, match.userId)
+  return match
+}
+
+export async function getClientAccountSourceState(
+  link: ClientAccountLink,
+): Promise<
+  | { ok: true }
+  | { ok: false; code: "CLIENT_SOURCE_REVOKED"; message: string }
+> {
+  if (link.sourceType !== "team") return { ok: true }
+  if (!link.teamId) {
+    return {
+      ok: false,
+      code: "CLIENT_SOURCE_REVOKED",
+      message: "客户来源授权信息不完整，请联系主账号重新授权",
+    }
+  }
+  const [team, share] = await Promise.all([
+    getTeam(link.teamId),
+    getTeamClientShare(link.teamId, link.dataOwnerUserId, link.clientId),
+  ])
+  if (!team || team.status !== "active" || !share) {
+    return {
+      ok: false,
+      code: "CLIENT_SOURCE_REVOKED",
+      message: "该客户的团队共享已取消，请联系主账号重新授权",
+    }
+  }
+  return { ok: true }
+}
+
+export async function getClientAccountManagerAccess(input: {
+  actorUserId: string
+  link: ClientAccountLink
+}): Promise<{
+  canManage: boolean
+  canTransferCredits: boolean
+  parentUserId: string
+}> {
+  if (input.actorUserId === input.link.parentUserId) {
+    return {
+      canManage: true,
+      canTransferCredits: true,
+      parentUserId: input.link.parentUserId,
+    }
+  }
+  if (input.link.sourceType !== "team" || !input.link.teamId) {
+    return {
+      canManage: false,
+      canTransferCredits: false,
+      parentUserId: input.link.parentUserId,
+    }
+  }
+  const [team, member] = await Promise.all([
+    getTeam(input.link.teamId),
+    getTeamMember(input.link.teamId, input.actorUserId),
+  ])
+  const canManage = Boolean(
+    team?.status === "active"
+    && team.ownerUserId === input.link.parentUserId
+    && member?.status === "active"
+    && (
+      member.role === "owner"
+      || hasTeamPermission(member.permissionKeys, "client", "manage")
+    ),
+  )
+  return {
+    canManage,
+    canTransferCredits: false,
+    parentUserId: input.link.parentUserId,
+  }
 }
 
 export async function listClientAccountAudit(
@@ -170,7 +353,11 @@ export async function listClientAccountAudit(
 
 export async function saveClientAccountLink(input: {
   userId: string
-  ownerUserId: string
+  ownerUserId?: string
+  parentUserId?: string
+  dataOwnerUserId?: string
+  sourceType?: ClientAccountLink["sourceType"]
+  teamId?: string
   clientId: string
   clientName: string
   monthlyCredits?: number
@@ -180,16 +367,41 @@ export async function saveClientAccountLink(input: {
   operatorUserId: string
 }): Promise<ClientAccountLink> {
   const userId = cleanId(input.userId, "用户")
-  const ownerUserId = cleanId(input.ownerUserId, "客户所有者")
+  const parentUserId = cleanId(
+    input.parentUserId || input.ownerUserId,
+    "客户账号管理者",
+  )
+  const dataOwnerUserId = cleanId(
+    input.dataOwnerUserId || input.ownerUserId || parentUserId,
+    "客户资料所有者",
+  )
+  const sourceType = input.sourceType === "team" ? "team" : "personal"
+  const teamId = sourceType === "team"
+    ? cleanId(input.teamId, "客户来源团队")
+    : undefined
   const clientId = cleanId(input.clientId, "客户")
-  if (userId === ownerUserId) throw new Error("客户专属账号不能关联自己名下的客户")
+  if (userId === parentUserId) throw new Error("客户专属账号不能由自己管理")
 
   const existing = await getClientAccountLink(userId)
+  const duplicate = await getClientAccountLinkForSource({
+    parentUserId,
+    dataOwnerUserId,
+    clientId,
+    sourceType,
+    teamId,
+  })
+  if (duplicate && duplicate.userId !== userId) {
+    throw new Error("该客户面板已经关联了一个客户专属账号")
+  }
   const now = new Date().toISOString()
   const link: ClientAccountLink = {
-    version: 1,
+    version: 2,
     userId,
-    ownerUserId,
+    parentUserId,
+    dataOwnerUserId,
+    sourceType,
+    teamId,
+    ownerUserId: dataOwnerUserId,
     clientId,
     clientName: String(input.clientName || "").trim().slice(0, 160) || "客户面板",
     status: input.status || existing?.status || "active",
@@ -202,6 +414,16 @@ export async function saveClientAccountLink(input: {
   }
   await kv.set(KEY_LINK(userId), link)
   await kv.sadd(KEY_LINK_INDEX, userId)
+  await kv.sadd(KEY_PARENT_INDEX(parentUserId), userId)
+  await kv.set(sourceLinkKey(link), userId)
+  if (existing) {
+    if (existing.parentUserId !== parentUserId) {
+      await kv.srem(KEY_PARENT_INDEX(existing.parentUserId), userId)
+    }
+    if (sourceLinkKey(existing) !== sourceLinkKey(link)) {
+      await kv.del(sourceLinkKey(existing))
+    }
+  }
   await writeAudit({
     userId,
     action: existing ? "updated" : "linked",
@@ -243,6 +465,8 @@ export async function deleteClientAccountLink(input: {
   if (!existing) return false
   await kv.del(KEY_LINK(input.userId))
   await kv.srem(KEY_LINK_INDEX, input.userId)
+  await kv.srem(KEY_PARENT_INDEX(existing.parentUserId), input.userId)
+  await kv.del(sourceLinkKey(existing))
   await writeAudit({
     userId: input.userId,
     action: "unlinked",
@@ -254,14 +478,14 @@ export async function deleteClientAccountLink(input: {
 
 export async function getRecoverableClientAccountLink(
   userId: string,
-  ownerUserId?: string,
+  parentUserId?: string,
 ): Promise<ClientAccountLink | null> {
   if (await getClientAccountLink(userId)) return null
   const audit = await listClientAccountAudit(userId, 100)
   const previous = audit.find(entry =>
     entry.action === "unlinked"
     && entry.before
-    && (!ownerUserId || entry.before.ownerUserId === ownerUserId)
+    && (!parentUserId || entry.before.parentUserId === parentUserId)
   )?.before
   return previous ? normalizeLink(previous) : null
 }
@@ -269,14 +493,19 @@ export async function getRecoverableClientAccountLink(
 export async function restoreClientAccountLink(input: {
   userId: string
   operatorUserId: string
+  parentUserId?: string
   ownerUserId?: string
   clientName?: string
 }): Promise<ClientAccountLink> {
-  const previous = await getRecoverableClientAccountLink(input.userId, input.ownerUserId)
+  const expectedParentUserId = input.parentUserId || input.ownerUserId
+  const previous = await getRecoverableClientAccountLink(input.userId, expectedParentUserId)
   if (!previous) throw new Error("该账号没有可恢复的客户授权记录")
   return saveClientAccountLink({
     userId: previous.userId,
-    ownerUserId: previous.ownerUserId,
+    parentUserId: previous.parentUserId,
+    dataOwnerUserId: previous.dataOwnerUserId,
+    sourceType: previous.sourceType,
+    teamId: previous.teamId,
     clientId: previous.clientId,
     clientName: input.clientName || previous.clientName,
     monthlyCredits: previous.monthlyCredits,
@@ -302,15 +531,18 @@ export async function getWorkspaceAccountAccess(userId: string): Promise<Workspa
       canManageFeedbackReports: true,
     }
   }
+  const source = await getClientAccountSourceState(link)
   return {
     mode: "client",
-    status: link.status,
+    status: link.status === "active" && source.ok ? "active" : "suspended",
     clientId: link.clientId,
     clientName: link.clientName,
+    dataOwnerUserId: link.dataOwnerUserId,
+    billingUserId: link.userId,
     monthlyCredits: link.monthlyCredits,
     canCreateClients: false,
     canManageClientIdentity: false,
-    canRunPenetration: link.status === "active",
+    canRunPenetration: link.status === "active" && source.ok,
     canRunOtherModules: false,
     canCreateReports: false,
     canViewFeedbackReports: true,
@@ -341,6 +573,15 @@ export async function resolveWorkspaceAccess(
       link,
     }
   }
+  const source = await getClientAccountSourceState(link)
+  if (!source.ok) {
+    return {
+      ok: false,
+      code: source.code,
+      message: source.message,
+      link,
+    }
+  }
   if (requestedClientId && requestedClientId !== link.clientId) {
     return {
       ok: false,
@@ -353,7 +594,7 @@ export async function resolveWorkspaceAccess(
     ok: true,
     mode: "client",
     actorUserId: userId,
-    ownerUserId: link.ownerUserId,
+    ownerUserId: link.dataOwnerUserId,
     clientId: link.clientId,
     link,
   }
@@ -368,6 +609,8 @@ export async function canRunBillableFeature(
   if (link.status !== "active") {
     return { ok: false, message: "客户专属账号已暂停，请联系管理员恢复授权" }
   }
+  const source = await getClientAccountSourceState(link)
+  if (!source.ok) return { ok: false, message: source.message }
   if (featureKey === "penetrationSlot") return { ok: true }
   return {
     ok: false,
@@ -383,6 +626,8 @@ export async function requireStandardAccountMode(
   if (link.status !== "active") {
     return { ok: false, message: "客户专属账号已暂停，请联系管理员恢复授权" }
   }
+  const source = await getClientAccountSourceState(link)
+  if (!source.ok) return { ok: false, message: source.message }
   return {
     ok: false,
     message: "客户专属账号在当前模块仅支持查看",

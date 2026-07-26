@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   deletePenetrationHistoryRecord,
+  getPenetrationHistoryModelAnswers,
+  getPenetrationHistoryOverviewRecord,
   getPenetrationHistoryRecord,
 } from "@/lib/penetration/history-store"
 import {
@@ -8,12 +10,22 @@ import {
   requirePenetrationHistoryAccess,
 } from "@/lib/penetration/history-access"
 import { requireUserId } from "@/lib/with-credits"
+import type { ModelKey } from "@/types"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+const MODEL_KEYS = new Set<ModelKey>([
+  "doubao",
+  "deepseek",
+  "qwen",
+  "kimi",
+  "ernie",
+  "hunyuan",
+])
+
 export async function GET(
-  _req: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ historyId: string }> },
 ) {
   const userGuard = await requireUserId()
@@ -28,7 +40,27 @@ export async function GET(
     if (!authorized) {
       return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
     }
-    const record = await getPenetrationHistoryRecord(authorized.scope.ownerUserId, historyId)
+    const view = String(request.nextUrl.searchParams.get("view") || "full").trim()
+    if (view === "answers") {
+      const model = String(request.nextUrl.searchParams.get("model") || "") as ModelKey
+      if (!MODEL_KEYS.has(model)) {
+        return NextResponse.json({ error: "请选择有效的检测模型" }, { status: 400 })
+      }
+      const items = await getPenetrationHistoryModelAnswers(
+        authorized.scope.ownerUserId,
+        historyId,
+        model,
+      )
+      if (!items) {
+        return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
+      }
+      return NextResponse.json({ model, items }, {
+        headers: { "Cache-Control": "private, no-store, max-age=0" },
+      })
+    }
+    const record = view === "overview"
+      ? await getPenetrationHistoryOverviewRecord(authorized.scope.ownerUserId, historyId)
+      : await getPenetrationHistoryRecord(authorized.scope.ownerUserId, historyId)
     if (!record) {
       return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
     }

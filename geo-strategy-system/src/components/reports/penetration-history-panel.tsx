@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleStop,
@@ -182,7 +183,7 @@ export default function PenetrationHistoryPanel({
       setError("")
       void (async () => {
         try {
-          const response = await apiFetch(`/api/penetration/history/${selectedId}`, {
+          const response = await apiFetch(`/api/penetration/history/${selectedId}?view=overview`, {
             cache: "no-store",
             signal: controller.signal,
           })
@@ -233,6 +234,30 @@ export default function PenetrationHistoryPanel({
     }
   }
 
+  async function exportRecord(record: PenetrationHistoryRecord) {
+    if (!onExportPenetration) return
+    setBusyId(record.id)
+    setError("")
+    try {
+      const response = await apiFetch(`/api/penetration/history/${record.id}?view=full`, {
+        cache: "no-store",
+      })
+      const data = await readApiJson<PenetrationHistoryRecord & { error?: string }>(
+        response,
+        "检测历史完整数据",
+      )
+      if (!response.ok) throw new Error(data.error || "读取完整检测数据失败")
+      onExportPenetration(historyClient(data))
+    } catch (caught) {
+      setError(toUserFacingError(caught, {
+        fallback: "完整检测数据读取失败，请稍后重试。",
+        subject: "检测历史",
+      }))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   if (selectedId) {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-[#F4F8FD]">
@@ -253,10 +278,13 @@ export default function PenetrationHistoryPanel({
               {detail.result && onExportPenetration ? (
                 <button
                   type="button"
-                  onClick={() => onExportPenetration(historyClient(detail))}
-                  className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white shadow-sm transition hover:brightness-105"
+                  onClick={() => void exportRecord(detail)}
+                  disabled={busyId === detail.id}
+                  className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white shadow-sm transition hover:brightness-105 disabled:opacity-60"
                 >
-                  <FileDown className="h-4 w-4" />
+                  {busyId === detail.id
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <FileDown className="h-4 w-4" />}
                   生成专业报告
                 </button>
               ) : null}
@@ -688,7 +716,12 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
             </section>
           ) : null}
 
-          <HistoryRawAnswers byModel={result.byModel} />
+          <HistoryRawAnswers
+            historyId={record.id}
+            models={record.request.activeModels?.length
+              ? record.request.activeModels
+              : record.request.models}
+          />
         </>
       )}
     </div>
@@ -786,60 +819,155 @@ function SnapshotField({ label, value }: { label: string; value: string }) {
 }
 
 function HistoryRawAnswers({
-  byModel,
+  historyId,
+  models,
 }: {
-  byModel: PenetrationByModel
+  historyId: string
+  models: ModelKey[]
 }) {
-  const models = useMemo(
-    () => (Object.keys(byModel) as ModelKey[]).filter(model => Boolean(byModel[model]?.length)),
-    [byModel],
+  const availableModels = useMemo(
+    () => Array.from(new Set(models)),
+    [models],
   )
-  const [activeModel, setActiveModel] = useState<ModelKey | null>(models[0] || null)
-  const currentModel = activeModel && models.includes(activeModel) ? activeModel : models[0]
+  const [open, setOpen] = useState(false)
+  const [activeModel, setActiveModel] = useState<ModelKey | null>(availableModels[0] || null)
+  const [byModel, setByModel] = useState<PenetrationByModel>({})
+  const [loadingModel, setLoadingModel] = useState<ModelKey | null>(null)
+  const [loadError, setLoadError] = useState("")
+  const currentModel = activeModel && availableModels.includes(activeModel)
+    ? activeModel
+    : availableModels[0]
   const items = currentModel ? byModel[currentModel] || [] : []
+  const modelLoaded = Boolean(
+    currentModel && Object.prototype.hasOwnProperty.call(byModel, currentModel),
+  )
 
-  if (!currentModel || models.length === 0) return null
+  useEffect(() => {
+    if (!open || !currentModel || modelLoaded) return
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const params = new URLSearchParams({
+          view: "answers",
+          model: currentModel,
+        })
+        const response = await apiFetch(
+          `/api/penetration/history/${historyId}?${params.toString()}`,
+          { cache: "no-store", signal: controller.signal },
+        )
+        const data = await readApiJson<{
+          model?: ModelKey
+          items?: PenetrationItem[]
+          error?: string
+        }>(response, "原始联网回答")
+        if (!response.ok || !Array.isArray(data.items)) {
+          throw new Error(data.error || "读取原始联网回答失败")
+        }
+        if (!controller.signal.aborted) {
+          setByModel(current => ({ ...current, [currentModel]: data.items }))
+        }
+      } catch (caught) {
+        if (!controller.signal.aborted) {
+          setLoadError(toUserFacingError(caught, {
+            fallback: "原始联网回答读取失败，请稍后重试。",
+            subject: "历史回答",
+          }))
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoadingModel(null)
+      }
+    })()
+    return () => controller.abort()
+  }, [currentModel, historyId, modelLoaded, open])
+
+  if (!currentModel || availableModels.length === 0) return null
 
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-        <div className="flex items-center gap-2.5">
+      <button
+        type="button"
+        onClick={() => {
+          const nextOpen = !open
+          setOpen(nextOpen)
+          if (nextOpen && !modelLoaded) {
+            setLoadingModel(currentModel)
+            setLoadError("")
+          }
+        }}
+        className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-sky-50/40 sm:px-5"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2.5">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00AEEA] text-white">
             <MessageSquareText className="h-4 w-4" />
           </span>
-          <div>
-            <h4 className="text-sm font-semibold text-slate-800">原始联网回答与全部信源</h4>
-            <p className="mt-0.5 text-[11px] text-slate-500">保留本次独立提问返回的原文、来源网址和检测明细</p>
+          <span>
+            <span className="block text-sm font-semibold text-slate-800">原始联网回答与全部信源</span>
+            <span className="mt-0.5 block text-[11px] text-slate-500">
+              按模型加载本次独立提问原文，不影响图表快照查看
+            </span>
+          </span>
+        </span>
+        <span className="flex items-center gap-2 text-[11px] text-slate-400">
+          {modelLoaded ? `${items.length} 条回答` : `${availableModels.length} 个模型`}
+          <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+        </span>
+      </button>
+
+      {open ? (
+        <>
+          <div className="flex flex-wrap gap-1.5 border-y border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
+            {availableModels.map(model => (
+              <button
+                key={model}
+                type="button"
+                onClick={() => {
+                  setActiveModel(model)
+                  if (!Object.prototype.hasOwnProperty.call(byModel, model)) {
+                    setLoadingModel(model)
+                    setLoadError("")
+                  }
+                }}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${
+                  currentModel === model
+                    ? "bg-[#1677FF] text-white shadow-sm"
+                    : "border border-slate-200 bg-white text-slate-600 hover:border-sky-200 hover:text-[#1677FF]"
+                }`}
+              >
+                <ModelAvatar model={model} size="xs" />
+                {MODEL_LABELS[model]}
+                {Object.prototype.hasOwnProperty.call(byModel, model)
+                  ? ` · ${byModel[model]?.length || 0}`
+                  : ""}
+              </button>
+            ))}
           </div>
-        </div>
-        <span className="text-[11px] text-slate-400">{items.length} 条回答</span>
-      </div>
-      <div className="flex flex-wrap gap-1.5 border-b border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
-        {models.map(model => (
-          <button
-            key={model}
-            type="button"
-            onClick={() => setActiveModel(model)}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${
-              currentModel === model
-                ? "bg-[#1677FF] text-white shadow-sm"
-                : "border border-slate-200 bg-white text-slate-600 hover:border-sky-200 hover:text-[#1677FF]"
-            }`}
-          >
-            <ModelAvatar model={model} size="xs" />
-            {MODEL_LABELS[model]} · {byModel[model]?.length || 0}
-          </button>
-        ))}
-      </div>
-      <div className="divide-y divide-slate-100">
-        {items.map((item, index) => (
-          <HistoryAnswerItem
-            key={item.sampleId || `${currentModel}-${index}`}
-            item={item}
-            index={index}
-          />
-        ))}
-      </div>
+          {loadingModel === currentModel ? (
+            <div className="flex min-h-40 items-center justify-center text-xs text-slate-500">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#1677FF]" />
+              正在读取 {MODEL_LABELS[currentModel]} 的原始回答
+            </div>
+          ) : loadError ? (
+            <div className="border-b border-rose-100 bg-rose-50 px-4 py-3 text-xs text-rose-700 sm:px-5">
+              {loadError}
+            </div>
+          ) : modelLoaded && items.length === 0 ? (
+            <div className="flex min-h-32 items-center justify-center text-xs text-slate-400">
+              该模型没有保存可展示的原始回答
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {items.map((item, index) => (
+                <HistoryAnswerItem
+                  key={item.sampleId || `${currentModel}-${index}`}
+                  item={item}
+                  index={index}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      ) : null}
     </section>
   )
 }

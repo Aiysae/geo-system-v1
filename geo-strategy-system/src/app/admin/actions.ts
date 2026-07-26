@@ -117,7 +117,7 @@ export async function saveClientAccountLinkAction(
     }
     const duplicate = allLinks.find(link =>
       link.userId !== userId
-      && link.ownerUserId === ownerUserId
+      && link.dataOwnerUserId === ownerUserId
       && link.clientId === clientId
     )
     if (duplicate) {
@@ -131,7 +131,8 @@ export async function saveClientAccountLinkAction(
     const monthlyCredits = Math.floor(Number(formData.get("monthlyCredits") || 1000))
     const link = await saveClientAccountLink({
       userId,
-      ownerUserId,
+      parentUserId: ownerUserId,
+      dataOwnerUserId: ownerUserId,
       clientId,
       clientName: selectedClient.name,
       monthlyCredits,
@@ -210,7 +211,7 @@ export async function restoreClientAccountLinkAction(
     if (!previous) return { ok: false, message: "该账号没有可恢复的客户授权记录" }
 
     const [ownerClients, targetClients] = await Promise.all([
-      listWorkspaceClients(previous.ownerUserId),
+      listWorkspaceClients(previous.dataOwnerUserId),
       listWorkspaceClients(userId),
     ])
     if (targetClients.length > 0) {
@@ -223,7 +224,8 @@ export async function restoreClientAccountLinkAction(
     if (!client) return { ok: false, message: "原客户面板已不存在，无法直接恢复" }
     const duplicate = allLinks.find(link =>
       link.userId !== userId
-      && link.ownerUserId === previous.ownerUserId
+      && link.parentUserId === previous.parentUserId
+      && link.dataOwnerUserId === previous.dataOwnerUserId
       && link.clientId === previous.clientId
     )
     if (duplicate) {
@@ -275,7 +277,7 @@ export async function unlinkClientAccountAction(
       userId,
       operatorUserId: adminId,
     })
-    if (removed && targetUser?.managedByUserId === existingLink?.ownerUserId) {
+    if (removed && targetUser?.managedByUserId === existingLink?.parentUserId) {
       await updateUserStatus(userId, "disabled")
     }
     refreshUserAdminPages(userId)

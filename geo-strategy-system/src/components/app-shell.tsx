@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
+import dynamic from "next/dynamic"
 import Image from "next/image"
 import Link from "next/link"
 import WorkspaceSidebar, {
@@ -8,15 +9,6 @@ import WorkspaceSidebar, {
   isDashboardModuleKey,
   type DashboardModuleKey,
 } from "@/components/sidebar/workspace-sidebar"
-import PenetrationModule from "@/components/penetration/penetration-module"
-import ResearchModule from "@/components/research/research-module"
-import DiagnosisModule from "@/components/diagnosis/diagnosis-module"
-import KeywordStrategyModule from "@/components/keyword/keyword-strategy-module"
-import ArticleGenerationModule from "@/components/article/article-generation-module"
-import DifficultyAssessmentModule from "@/components/difficulty/difficulty-assessment-module"
-import ClientFeedbackModule from "@/components/client-feedback/client-feedback-module"
-import ReportExportDialog from "@/components/reports/report-export-dialog"
-import ReportHistoryDialog from "@/components/reports/report-history-dialog"
 import SiteFooter from "@/components/site-footer"
 import {
   AlertTriangle,
@@ -46,6 +38,73 @@ import type {
 } from "@/types"
 import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
 import { hasTeamPermission } from "@/lib/team-permissions"
+import {
+  WORKSPACE_SECTIONS,
+  type WorkspaceSection,
+} from "@/lib/workspace-sync"
+
+const PenetrationModule = dynamic(
+  () => import("@/components/penetration/penetration-module"),
+  { loading: ModuleLoading },
+)
+const ResearchModule = dynamic(
+  () => import("@/components/research/research-module"),
+  { loading: ModuleLoading },
+)
+const DiagnosisModule = dynamic(
+  () => import("@/components/diagnosis/diagnosis-module"),
+  { loading: ModuleLoading },
+)
+const DifficultyAssessmentModule = dynamic(
+  () => import("@/components/difficulty/difficulty-assessment-module"),
+  { loading: ModuleLoading },
+)
+const KeywordStrategyModule = dynamic(
+  () => import("@/components/keyword/keyword-strategy-module"),
+  { loading: ModuleLoading },
+)
+const ArticleGenerationModule = dynamic(
+  () => import("@/components/article/article-generation-module"),
+  { loading: ModuleLoading },
+)
+const ClientFeedbackModule = dynamic(
+  () => import("@/components/client-feedback/client-feedback-module"),
+  { loading: ModuleLoading },
+)
+const ReportExportDialog = dynamic(
+  () => import("@/components/reports/report-export-dialog"),
+)
+const ReportHistoryDialog = dynamic(
+  () => import("@/components/reports/report-history-dialog"),
+)
+
+function ModuleLoading() {
+  return (
+    <div className="flex min-h-[420px] items-center justify-center text-sm text-slate-500">
+      <LoaderCircle className="mr-2 h-5 w-5 animate-spin text-[#1677FF]" />
+      正在载入当前模块
+    </div>
+  )
+}
+
+function sectionsForDashboardModule(module: DashboardModuleKey): WorkspaceSection[] {
+  switch (module) {
+    case "penetration":
+      return ["core", "penetration", "jobs"]
+    case "research":
+      return ["core", "research", "jobs"]
+    case "diagnosis":
+      return ["core", "diagnosis", "jobs"]
+    case "difficulty":
+      return ["core", "difficulty", "jobs"]
+    case "keyword":
+      return ["core", "keywordStrategy", "jobs"]
+    case "article":
+      return ["core", "keywordStrategy", "articleGeneration", "jobs"]
+    case "feedback":
+      return ["core"]
+  }
+}
 
 export default function Home({
   userId,
@@ -74,12 +133,16 @@ export default function Home({
   const initialModule = restricted
     ? "feedback"
     : DASHBOARD_MODULES.find(module => canViewModule(module.key))?.key || "penetration"
+  const [activeModule, setActiveModule] = useState<DashboardModuleKey>(
+    initialModule,
+  )
   const {
     monthlyBalance,
     monthlyAllowance,
   } = useCredits()
   const {
     clients,
+    clientDirectory,
     activeId,
     hydrated,
     syncState,
@@ -88,6 +151,7 @@ export default function Home({
     legacyClientCount,
     handleSelect: selectClient,
     handleChangeClient,
+    ensureSections,
     retry,
     importLegacy,
     dismissMigration,
@@ -96,12 +160,10 @@ export default function Home({
   } = useWorkspaceSync(userId, {
     restrictedClientId: restricted ? access.clientId : undefined,
     teamId: access.mode === "team" ? access.teamId : undefined,
+    sections: sectionsForDashboardModule(activeModule),
   })
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeModule, setActiveModule] = useState<DashboardModuleKey>(
-    initialModule,
-  )
   const [reportExportPreset, setReportExportPreset] = useState<ReportExportPreset | null>(null)
   const [reportExportClient, setReportExportClient] = useState<Client | null>(null)
   const [reportHistoryOpen, setReportHistoryOpen] = useState(false)
@@ -186,8 +248,11 @@ export default function Home({
           client={active}
           onOpenSidebar={() => setSidebarOpen(true)}
           onExportReport={() => {
-            setReportExportClient(null)
-            setReportExportPreset({})
+            void ensureSections(WORKSPACE_SECTIONS).then(fullClient => {
+              if (!fullClient) return
+              setReportExportClient(fullClient)
+              setReportExportPreset({})
+            })
           }}
           onOpenReportHistory={() => {
             if (canOpenReportHistory) setReportHistoryOpen(true)
@@ -221,8 +286,11 @@ export default function Home({
             access={access}
             activeModule={activeModule}
             onExportReport={preset => {
-              setReportExportClient(null)
-              setReportExportPreset(preset)
+              void ensureSections(WORKSPACE_SECTIONS).then(fullClient => {
+                if (!fullClient) return
+                setReportExportClient(fullClient)
+                setReportExportPreset(preset)
+              })
             }}
           />
         )}
@@ -253,7 +321,7 @@ export default function Home({
       )}
       {reportHistoryOpen && canOpenReportHistory ? (
         <ReportHistoryDialog
-          clients={clients}
+          clients={clientDirectory}
           activeClientId={activeId}
           teamId={access.mode === "team" ? access.teamId : undefined}
           showPenetrationHistory={canViewPenetrationHistory}

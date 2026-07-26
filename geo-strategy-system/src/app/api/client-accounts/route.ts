@@ -4,15 +4,21 @@ import {
   createUser,
   getUserByEmail,
   getUserById,
-  listUsers,
+  listManagedUsers,
   updateUserStatus,
 } from "@/lib/auth"
 import {
-  getClientAccountLink,
+  listClientCatalog,
+  resolveClientAccessRef,
+  type ResolvedClientAccessRef,
+} from "@/lib/client-access-catalog"
+import {
+  getClientAccountLinkForSource,
+  getClientAccountSourceState,
   getRecoverableClientAccountLink,
-  listClientAccountLinks,
   listClientAccountLinksForOwner,
   saveClientAccountLink,
+  type ClientAccountLink,
 } from "@/lib/client-accounts"
 import {
   getMembershipWithPaymentRepair,
@@ -23,7 +29,6 @@ import {
   initializeManagedAccountCredits,
 } from "@/lib/credits"
 import { requireUserId } from "@/lib/with-credits"
-import { listWorkspaceClients } from "@/lib/workspace-store"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -38,25 +43,82 @@ function temporaryPassword(): string {
 }
 
 async function requireStandardOwner(userId: string) {
+  const { getClientAccountLink } = await import("@/lib/client-accounts")
   const link = await getClientAccountLink(userId)
   if (link) throw new Error("客户专属账号不能继续创建下级账号")
 }
 
-export async function GET() {
+function matchesSource(
+  link: ClientAccountLink,
+  source: ResolvedClientAccessRef,
+): boolean {
+  return link.parentUserId === source.parentUserId
+    && link.dataOwnerUserId === source.dataOwnerUserId
+    && link.clientId === source.client.id
+    && link.sourceType === source.sourceType
+    && (link.teamId || "") === (source.teamId || "")
+}
+
+async function sourceFromRequest(
+  authUserId: string,
+  clientRef: unknown,
+  legacyClientId?: unknown,
+): Promise<ResolvedClientAccessRef> {
+  if (String(clientRef || "").trim()) {
+    return resolveClientAccessRef(authUserId, clientRef)
+  }
+  const clientId = String(legacyClientId || "").trim()
+  const personal = (await listClientCatalog(authUserId)).find(entry => (
+    entry.sourceType === "personal" && entry.id === clientId
+  ))
+  if (!personal) throw new Error("客户面板不存在或不属于当前账号")
+  return resolveClientAccessRef(authUserId, personal.accessRef)
+}
+
+export async function GET(request: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
     await requireStandardOwner(auth.userId)
-    const [membership, links, clients, users] = await Promise.all([
-      getMembershipWithPaymentRepair(auth.userId),
-      listClientAccountLinksForOwner(auth.userId),
-      listWorkspaceClients(auth.userId),
-      listUsers(),
+    const clientRef = String(request.nextUrl.searchParams.get("clientRef") || "").trim()
+    const selectedSource = clientRef
+      ? await resolveClientAccessRef(auth.userId, clientRef)
+      : null
+    if (selectedSource && !selectedSource.canManageClientAccount) {
+      return noStore(NextResponse.json({
+        error: "当前团队角色没有客户账号管理权限",
+        code: "CLIENT_ACCOUNT_MANAGE_DENIED",
+      }, { status: 403 }))
+    }
+
+    const sources = selectedSource
+      ? [selectedSource]
+      : (await listClientCatalog(auth.userId))
+          .filter(entry => entry.sourceType === "personal")
+          .map(entry => ({
+            accessRef: entry.accessRef,
+            sourceType: entry.sourceType,
+            teamId: entry.teamId,
+            teamName: entry.teamName,
+            dataOwnerUserId: entry.dataOwnerUserId,
+            parentUserId: entry.parentUserId,
+            client: entry,
+            canEdit: entry.canEdit,
+            canDelete: entry.canDelete,
+            canManageClientAccount: entry.canManageClientAccount,
+          } satisfies ResolvedClientAccessRef))
+    const parentUserId = selectedSource?.parentUserId || auth.userId
+    const [membership, allParentLinks, managedUsers] = await Promise.all([
+      getMembershipWithPaymentRepair(parentUserId),
+      listClientAccountLinksForOwner(parentUserId),
+      listManagedUsers(parentUserId),
     ])
+    const links = allParentLinks.filter(link => sources.some(source => matchesSource(link, source)))
     const accounts = await Promise.all(links.map(async link => {
-      const [user, creditBalance] = await Promise.all([
+      const [user, creditBalance, source] = await Promise.all([
         getUserById(link.userId),
         getCreditBalanceSnapshot(link.userId),
+        getClientAccountSourceState(link),
       ])
       return {
         userId: link.userId,
@@ -65,6 +127,7 @@ export async function GET() {
         clientId: link.clientId,
         clientName: link.clientName,
         status: link.status,
+        sourceStatus: source.ok ? "active" : "revoked",
         billingMode: link.billingMode,
         provisioning: link.provisioning,
         creditBalance: creditBalance.total,
@@ -72,16 +135,25 @@ export async function GET() {
         updatedAt: link.updatedAt,
       }
     }))
-    const linkedUserIds = new Set(links.map(link => link.userId))
-    const clientIds = new Set(clients.map(record => record.client.id))
+    const linkedUserIds = new Set(allParentLinks.map(link => link.userId))
     const detachedAccounts = (await Promise.all(
-      users
-        .filter(user => user.managedByUserId === auth.userId && !linkedUserIds.has(user.id))
+      managedUsers
+        .filter(user => !linkedUserIds.has(user.id))
         .map(async user => {
-          const previous = await getRecoverableClientAccountLink(user.id, auth.userId)
-          if (!previous) return null
-          const creditBalance = await getCreditBalanceSnapshot(user.id)
-          const canRestore = clientIds.has(previous.clientId)
+          const previous = await getRecoverableClientAccountLink(user.id, parentUserId)
+          const source = previous
+            ? sources.find(item => matchesSource(previous, item))
+            : null
+          if (!previous || !source) return null
+          const [creditBalance, sourceState] = await Promise.all([
+            getCreditBalanceSnapshot(user.id),
+            getClientAccountSourceState(previous),
+          ])
+          const duplicate = allParentLinks.some(link => (
+            link.userId !== user.id && matchesSource(link, source)
+          ))
+          const canRestore = sourceState.ok && !duplicate
+          const sourceError = sourceState.ok ? "" : sourceState.message
           return {
             userId: user.id,
             email: user.email,
@@ -90,23 +162,32 @@ export async function GET() {
             clientName: previous.clientName,
             creditBalance: creditBalance.total,
             canRestore,
-            unavailableReason: canRestore ? "" : "原客户面板已不存在",
+            unavailableReason: canRestore
+              ? ""
+              : duplicate
+                ? "该客户已关联其他子账号"
+                : sourceError,
             updatedAt: user.updatedAt,
           }
         }),
     )).filter(account => account !== null)
+
     return noStore(NextResponse.json({
       membership,
-      used: links.length,
+      used: allParentLinks.length,
       limit: membership.clientAccountLimit,
+      canTransferCredits: parentUserId === auth.userId,
       accounts,
       detachedAccounts,
-      clients: clients.map(record => ({
-        id: record.client.id,
-        name: record.client.name,
-        ourBrand: record.client.ourBrand,
-        subjectType: record.client.subjectType,
-        industry: record.client.industry,
+      clients: sources.map(source => ({
+        id: source.client.id,
+        accessRef: source.accessRef,
+        name: source.client.name,
+        ourBrand: source.client.ourBrand,
+        subjectType: source.client.subjectType,
+        industry: source.client.industry,
+        sourceType: source.sourceType,
+        teamName: source.teamName,
       })),
     }))
   } catch (error) {
@@ -122,18 +203,34 @@ export async function POST(request: NextRequest) {
   let createdUserId: string | null = null
   try {
     await requireStandardOwner(auth.userId)
-    const body = await request.json() as { email?: unknown; name?: unknown; clientId?: unknown }
+    const body = await request.json() as {
+      email?: unknown
+      name?: unknown
+      clientId?: unknown
+      clientRef?: unknown
+    }
     const email = String(body.email || "").trim().toLowerCase()
     const name = String(body.name || "").trim().slice(0, 80)
-    const clientId = String(body.clientId || "").trim().slice(0, 200)
-    if (!email || !clientId) throw new Error("请填写客户邮箱并选择客户面板")
+    if (!email) throw new Error("请填写客户邮箱")
 
-    const [membership, links, clients, existingUser, allLinks] = await Promise.all([
-      getMembershipWithPaymentRepair(auth.userId),
-      listClientAccountLinksForOwner(auth.userId),
-      listWorkspaceClients(auth.userId),
+    const source = await sourceFromRequest(auth.userId, body.clientRef, body.clientId)
+    if (!source.canManageClientAccount) {
+      return noStore(NextResponse.json({
+        error: "当前团队角色没有客户账号管理权限",
+        code: "CLIENT_ACCOUNT_MANAGE_DENIED",
+      }, { status: 403 }))
+    }
+    const [membership, links, existingUser, duplicate] = await Promise.all([
+      getMembershipWithPaymentRepair(source.parentUserId),
+      listClientAccountLinksForOwner(source.parentUserId),
       getUserByEmail(email),
-      listClientAccountLinks(),
+      getClientAccountLinkForSource({
+        parentUserId: source.parentUserId,
+        dataOwnerUserId: source.dataOwnerUserId,
+        sourceType: source.sourceType,
+        teamId: source.teamId,
+        clientId: source.client.id,
+      }),
     ])
     if (!hasMembershipTier(membership, "vip2")) {
       return noStore(NextResponse.json({
@@ -148,27 +245,26 @@ export async function POST(request: NextRequest) {
       }, { status: 403 }))
     }
     if (existingUser) throw new Error("该邮箱已经注册，请换一个未使用的客户邮箱")
-    const client = clients.find(record => record.client.id === clientId)?.client
-    if (!client) throw new Error("客户面板不存在或不属于当前账号")
-    if (allLinks.some(link => link.ownerUserId === auth.userId && link.clientId === clientId)) {
-      throw new Error("该客户面板已经关联了一个客户专属账号")
-    }
+    if (duplicate) throw new Error("该客户面板已经关联了一个客户专属账号")
 
     const password = temporaryPassword()
     const child = await createUser({
       email,
       password,
-      name: name || client.name,
-      managedByUserId: auth.userId,
+      name: name || source.client.name,
+      managedByUserId: source.parentUserId,
       mustChangePassword: true,
     })
     createdUserId = child.id
     await initializeManagedAccountCredits(child.id)
     const link = await saveClientAccountLink({
       userId: child.id,
-      ownerUserId: auth.userId,
-      clientId: client.id,
-      clientName: client.name,
+      parentUserId: source.parentUserId,
+      dataOwnerUserId: source.dataOwnerUserId,
+      sourceType: source.sourceType,
+      teamId: source.teamId,
+      clientId: source.client.id,
+      clientName: source.client.name,
       monthlyCredits: 0,
       provisioning: "owner",
       billingMode: "self_funded",

@@ -42,6 +42,12 @@ export type CommercialReportFile = {
   fileSize: number
 }
 
+export type CommercialReportFileMetadata = {
+  filePath: string
+  fileName: string
+  fileSize: number
+}
+
 const REPORT_JOB_TTL_SECONDS = 60 * 60 * 24 * 365
 const REPORT_FILE_MAX_AGE_MS = REPORT_JOB_TTL_SECONDS * 1000
 const REPORT_HISTORY_LIMIT = 100
@@ -70,7 +76,7 @@ function reportsDirectory(): string {
   if (process.env.REPORTS_DIR?.trim()) return process.env.REPORTS_DIR.trim()
   return process.env.NODE_ENV === "production"
     ? "/var/lib/geo-system/reports"
-    : path.join(process.cwd(), ".data", "reports")
+    : path.join(/* turbopackIgnore: true */ process.cwd(), ".data", "reports")
 }
 
 function toPublicJob(job: StoredCommercialReportJob): CommercialReportJobRecord {
@@ -345,8 +351,20 @@ async function runCommercialReportJob(id: string): Promise<void> {
     await fs.access(job.inputPath)
 
     await patchJob(id, { progress: 48, stage: "正在绘制图表与商业版式" })
-    const tsxCliPath = path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs")
-    const workerPath = path.join(process.cwd(), "src", "lib", "reports", "report-worker.tsx")
+    const tsxCliPath = path.join(
+      /* turbopackIgnore: true */ process.cwd(),
+      "node_modules",
+      "tsx",
+      "dist",
+      "cli.mjs",
+    )
+    const workerPath = path.join(
+      /* turbopackIgnore: true */ process.cwd(),
+      "src",
+      "lib",
+      "reports",
+      "report-worker.tsx",
+    )
     let renderProgress = 48
     let pendingProgressUpdate: Promise<unknown> = Promise.resolve()
     const progressTimer = setInterval(() => {
@@ -682,6 +700,26 @@ export async function getCommercialReportFile(
     return { buffer, fileName: job.fileName, fileSize: buffer.length }
   } catch (error) {
     console.error("[commercial-report-jobs] report file read failed", id, error)
+    return null
+  }
+}
+
+export async function getCommercialReportFileMetadata(
+  id: string,
+  ownerUserId: string,
+): Promise<CommercialReportFileMetadata | null> {
+  const job = await getStoredJob(id)
+  if (!job || job.ownerUserId !== ownerUserId || job.status !== "succeeded" || !job.fileName) return null
+  try {
+    const stats = await fs.stat(job.filePath)
+    if (!stats.isFile() || stats.size <= 0) return null
+    return {
+      filePath: job.filePath,
+      fileName: job.fileName,
+      fileSize: stats.size,
+    }
+  } catch (error) {
+    console.error("[commercial-report-jobs] report file stat failed", id, error)
     return null
   }
 }
