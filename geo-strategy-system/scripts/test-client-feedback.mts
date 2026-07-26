@@ -11,16 +11,23 @@ process.env.PENETRATION_HISTORY_STORE = "file"
 process.env.PENETRATION_HISTORY_FILE = path.join(directory, "penetration-history.json")
 
 const {
+  inferEvidencePlatform,
+  normalizeExecutionEvidenceUrl,
+  parseEvidenceImportText,
+} = await import("../src/lib/client-feedback/evidence-import")
+const {
   deleteClientFeedbackReport,
   executionCounters,
   feedbackPeriodForDate,
   getClientExecutionProfile,
   getClientFeedbackReport,
   getSharedClientFeedbackReport,
+  listClientExecutionActions,
   listClientFeedbackReports,
   publishClientFeedbackReport,
   revokeClientFeedbackShare,
   saveClientExecutionAction,
+  saveClientExecutionActionBatch,
   saveClientExecutionProfile,
 } = await import("../src/lib/client-feedback/store")
 const { buildClientFeedbackReport } = await import("../src/lib/client-feedback/builder")
@@ -113,6 +120,115 @@ try {
     },
   })
 
+  const parsedRows = parseEvidenceImportText([
+    "搜狐行业文章\thttps://www.sohu.com/a/123456?utm_source=test#section",
+    "https://blog.csdn.net/test/article/details/9\tCSDN 技术文章",
+  ].join("\n"))
+  assert.equal(parsedRows.length, 2)
+  assert.equal(parsedRows.every(row => !row.error), true)
+  assert.equal(parsedRows[0]?.platform, "搜狐")
+  assert.equal(parsedRows[1]?.title, "CSDN 技术文章")
+  assert.equal(
+    normalizeExecutionEvidenceUrl("https://www.sohu.com/a/123456?utm_source=test#section"),
+    "https://www.sohu.com/a/123456",
+  )
+  assert.equal(inferEvidencePlatform("https://www.to8to.com/yezhu/z12345.html"), "土巴兔")
+  assert.equal(
+    parseEvidenceImportText(
+      Array.from(
+        { length: 205 },
+        (_, index) => `标题 ${index + 1}\thttps://example.com/${index + 1}`,
+      ).join("\n"),
+    ).length,
+    201,
+    "超出单批上限时只保留前 200 条和一条溢出提示",
+  )
+
+  const batch = await saveClientExecutionActionBatch({
+    ownerUserId,
+    clientId: client.id,
+    actorUserId,
+    importId: "cimp_feedback_batch_001",
+    defaults: {
+      category: "self_media_publish",
+      status: "completed",
+      visibility: "client",
+      occurredDate: "2026-03-01",
+      description: "批量导入公开发布证据。",
+    },
+    rows: [
+      {
+        title: "搜狐行业文章",
+        url: "https://www.sohu.com/a/123456?utm_source=test",
+        platform: "搜狐",
+      },
+      {
+        title: "CSDN 技术文章",
+        url: "https://blog.csdn.net/test/article/details/9",
+      },
+      {
+        title: "同批次重复网址",
+        url: "https://www.sohu.com/a/123456#duplicate",
+      },
+    ],
+  })
+  assert.equal(batch.createdCount, 2)
+  assert.equal(batch.skippedCount, 1)
+  assert.equal(batch.skipped[0]?.reason, "duplicate_batch")
+  assert.equal(batch.created[0]?.importedFrom, "url_batch")
+  assert.equal(batch.created[0]?.evidence[0]?.label, "搜狐行业文章")
+
+  const batchRetry = await saveClientExecutionActionBatch({
+    ownerUserId,
+    clientId: client.id,
+    actorUserId,
+    importId: "cimp_feedback_batch_001",
+    defaults: {
+      category: "self_media_publish",
+      status: "completed",
+      visibility: "client",
+      occurredDate: "2026-03-01",
+    },
+    rows: [{ title: "重试不应改变结果", url: "https://example.com/new" }],
+  })
+  assert.deepEqual(batchRetry, batch, "相同导入编号重试必须保持幂等")
+
+  const duplicateExisting = await saveClientExecutionActionBatch({
+    ownerUserId,
+    clientId: client.id,
+    actorUserId,
+    importId: "cimp_feedback_batch_002",
+    defaults: {
+      category: "self_media_publish",
+      status: "completed",
+      visibility: "client",
+      occurredDate: "2026-03-01",
+    },
+    rows: [{
+      title: "历史记录中的同一网址",
+      url: "https://www.sohu.com/a/123456?utm_campaign=again",
+    }],
+  })
+  assert.equal(duplicateExisting.createdCount, 0)
+  assert.equal(duplicateExisting.skipped[0]?.reason, "duplicate_existing")
+  assert.equal((await listClientExecutionActions(ownerUserId, client.id)).length, 4)
+  await assert.rejects(
+    saveClientExecutionActionBatch({
+      ownerUserId,
+      clientId: client.id,
+      actorUserId,
+      importId: "cimp_feedback_batch_invalid",
+      defaults: {
+        category: "self_media_publish",
+        status: "completed",
+        visibility: "client",
+        occurredDate: "2026-03-01",
+      },
+      rows: [{ title: "内网地址", url: "http://127.0.0.1/private" }],
+    }),
+    /客户可访问的 http\/https 公网网址/,
+  )
+
   const report = await buildClientFeedbackReport({
     ownerUserId,
     actorUserId,
@@ -121,9 +237,10 @@ try {
     period: month,
   })
   assert.equal(report.status, "draft")
-  assert.equal(report.snapshot.actions.length, 1, "internal actions must not leak into client reports")
-  assert.equal(report.snapshot.actions[0]?.title, "完成首批自媒体发布")
-  assert.equal(report.snapshot.evidenceRecordCount, 1)
+  assert.equal(report.snapshot.actions.length, 3, "internal actions must not leak into client reports")
+  assert.equal(report.snapshot.actions.some(action => action.title === "完成首批自媒体发布"), true)
+  assert.equal(report.snapshot.actions.some(action => action.title === "搜狐行业文章"), true)
+  assert.equal(report.snapshot.evidenceRecordCount, 3)
   assert.equal(report.snapshot.comparison.comparable, false)
 
   const published = await publishClientFeedbackReport({

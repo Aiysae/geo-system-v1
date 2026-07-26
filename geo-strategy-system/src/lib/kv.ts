@@ -10,6 +10,11 @@ type SetOptions = {
   ex?: number
 }
 
+type KvValueEntry = {
+  key: string
+  value: unknown
+}
+
 type LocalValueEntry = {
   type: "value"
   value: unknown
@@ -28,6 +33,7 @@ type LocalState = Record<string, LocalEntry>
 type KvClient = {
   get<T = unknown>(key: string): Promise<T | null>
   set(key: string, value: unknown, options?: SetOptions): Promise<"OK" | null>
+  setMany?(entries: KvValueEntry[]): Promise<void>
   sadd(key: string, ...members: string[]): Promise<number>
   smembers<T = string[]>(key: string): Promise<T>
   del(key: string): Promise<number>
@@ -76,6 +82,17 @@ class LocalFileKv implements KvClient {
     }
     this.persist()
     return "OK"
+  }
+
+  async setMany(entries: KvValueEntry[]): Promise<void> {
+    if (entries.length === 0) return
+    for (const entry of entries) {
+      this.state[entry.key] = {
+        type: "value",
+        value: entry.value,
+      }
+    }
+    this.persist()
   }
 
   async sadd(key: string, ...members: string[]): Promise<number> {
@@ -527,6 +544,16 @@ class RedisKv implements KvClient {
     return result === "OK" ? "OK" : null
   }
 
+  async setMany(entries: KvValueEntry[]): Promise<void> {
+    if (entries.length === 0) return
+    const client = await getRedisClient()
+    const transaction = client.multi()
+    for (const entry of entries) {
+      transaction.set(entry.key, encodeRedisValue(entry.value))
+    }
+    await transaction.exec()
+  }
+
   async sadd(key: string, ...members: string[]): Promise<number> {
     if (members.length === 0) return 0
     const client = await getRedisClient()
@@ -591,6 +618,15 @@ const kvGlobal = globalThis as typeof globalThis & {
 
 export const kv: KvClient = kvGlobal.__geoSystemKvClient || createKvClient()
 kvGlobal.__geoSystemKvClient = kv
+
+export async function setKvValues(entries: KvValueEntry[]): Promise<void> {
+  if (entries.length === 0) return
+  if (kv.setMany) {
+    await kv.setMany(entries)
+    return
+  }
+  await Promise.all(entries.map(entry => kv.set(entry.key, entry.value)))
+}
 
 export async function closeKvConnection(): Promise<void> {
   let client = redisGlobal.__geoSystemRedisClient
