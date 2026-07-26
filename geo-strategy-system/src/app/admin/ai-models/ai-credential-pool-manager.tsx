@@ -158,6 +158,41 @@ function CredentialForm({
             name="quotaGroupMaxConcurrency"
             value={credential?.quotaGroupMaxConcurrency || preset.defaultConcurrency}
           />
+          <input type="hidden" name="priority" value={credential?.priority || 100} />
+          <input type="hidden" name="weight" value={credential?.weight || 100} />
+          <label className="text-xs font-medium text-slate-500">
+            每分钟请求上限
+            <input
+              name="rpmLimit"
+              type="number"
+              min={1}
+              defaultValue={credential?.rpmLimit || ""}
+              placeholder="留空不限制"
+              className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-[#1677FF]"
+            />
+          </label>
+          <label className="text-xs font-medium text-slate-500">
+            每分钟 Token 上限
+            <input
+              name="tpmLimit"
+              type="number"
+              min={1}
+              defaultValue={credential?.tpmLimit || ""}
+              placeholder="留空不限制"
+              className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-[#1677FF]"
+            />
+          </label>
+          <label className="text-xs font-medium text-slate-500">
+            日预算保护（分）
+            <input
+              name="dailyBudgetCents"
+              type="number"
+              min={1}
+              defaultValue={credential?.dailyBudgetCents || ""}
+              placeholder="留空不限制"
+              className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-[#1677FF]"
+            />
+          </label>
         </div>
       </details>
 

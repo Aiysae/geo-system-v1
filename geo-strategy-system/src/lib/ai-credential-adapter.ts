@@ -1,6 +1,8 @@
 import "server-only"
 
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
+import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
 import {
   hasAiCredentialCandidate,
   recordAiCredentialFailure,
@@ -103,11 +105,6 @@ function selectionRequest(
   }
 }
 
-function shouldTryNextCredential(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error || "")
-  return /(401|403|408|425|429|500|502|503|504|invalid.*key|unauthorized|forbidden|timeout|timed out|超时|连接失败|fetch failed|network|socket|temporar|余额不足|欠费|无权限|返回空内容)/i.test(message)
-}
-
 export async function hasAdapterCredentialPoolCandidate(
   model: ModelKey,
   module: AiCredentialModule,
@@ -142,12 +139,14 @@ export async function runAdapterCredentialPoolChat(
     ? route.selectionModel
     : undefined
   let lastError: unknown
+  const quotaEstimate = estimateAiCredentialQuota(args)
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const lease = await tryAcquireAiCredential({
       ...selectionRequest(route, module, excludedCredentialIds, selectionModel ?? null),
       waitTimeoutMs: Math.min(60_000, Math.max(5_000, (args.timeoutSec ?? 60) * 1000)),
       leaseSeconds: Math.min(60 * 60, Math.max(60, (args.timeoutSec ?? 60) + 60)),
+      ...quotaEstimate,
     })
     if (!lease) {
       if (attempt === 0) return ADAPTERS[model].chat(args)
@@ -182,7 +181,7 @@ export async function runAdapterCredentialPoolChat(
     } catch (error) {
       lastError = error
       await recordAiCredentialFailure(lease.credential, error)
-      if (!shouldTryNextCredential(error)) throw error
+      if (!shouldFailOverAiCredential(error)) throw error
       console.warn(
         `[ai-credential-adapter] ${model}/${module} 当前账号不可用，尝试下一账号。`,
       )

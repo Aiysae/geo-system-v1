@@ -18,10 +18,16 @@ function isTokenHub(baseUrl: string): boolean {
   return /tokenhub\.tencentmaas\.com/i.test(baseUrl)
 }
 
+function isOfficialDeepSeek(baseUrl: string): boolean {
+  return /(?:^|\.)api\.deepseek\.com$/i.test(new URL(baseUrl).hostname)
+}
+
 function shouldUseToolCompatibleModel(model: string, args: ChatArgs, baseUrl: string): boolean {
-  if (isTokenHub(baseUrl)) return false
-  if (!args.forceWebSearch && args.mode === "consumer") return false
-  return args.forceWebSearch || /reasoner|thinking|r1|v4/i.test(model)
+  if (!isOfficialDeepSeek(baseUrl) || isTokenHub(baseUrl)) return false
+  const useSearchTool =
+    args.forceWebSearch === true
+    || (args.allowWebSearch !== false && args.mode !== "consumer")
+  return useSearchTool && /reasoner|thinking|r1/i.test(model)
 }
 
 export async function isDeepSeekConfigured(): Promise<boolean> {

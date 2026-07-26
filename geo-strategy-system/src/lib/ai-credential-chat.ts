@@ -1,6 +1,8 @@
 import "server-only"
 
 import { buildAiChatUrl } from "@/lib/ai-settings"
+import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
+import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
 import {
   hasAiCredentialCandidate,
   recordAiCredentialFailure,
@@ -37,11 +39,6 @@ export interface CredentialPoolChatInput {
   requiredCapabilities?: AiCredentialCapability[]
 }
 
-function shouldTryNextCredential(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error || "")
-  return /(401|403|408|425|429|500|502|503|504|invalid.*key|unauthorized|forbidden|timeout|timed out|超时|连接失败|fetch failed|network|socket|temporar|余额不足|欠费|无权限|返回空内容)/i.test(message)
-}
-
 async function callRoute(
   input: CredentialPoolChatInput,
   route: LegacyChatRoute,
@@ -68,6 +65,7 @@ export async function runCredentialPoolChat(
   let lastError: unknown
   const requiredCapabilities = input.requiredCapabilities
     ?? [input.chat.jsonMode ? "json" : "chat"]
+  const quotaEstimate = estimateAiCredentialQuota(input.chat)
   const preferredRequest = {
     vendor: input.vendor,
     module: input.module,
@@ -88,6 +86,7 @@ export async function runCredentialPoolChat(
       excludeCredentialIds: excludedCredentialIds,
       waitTimeoutMs: input.waitTimeoutMs,
       leaseSeconds: input.leaseSeconds,
+      ...quotaEstimate,
     })
     if (!lease) {
       if (attempt === 0 && input.legacy.apiKey) {
@@ -115,7 +114,7 @@ export async function runCredentialPoolChat(
     } catch (error) {
       lastError = error
       await recordAiCredentialFailure(lease.credential, error)
-      if (!shouldTryNextCredential(error)) throw error
+      if (!shouldFailOverAiCredential(error)) throw error
       console.warn(
         `[ai-credential-chat] ${input.vendor}/${input.model} 当前账号不可用，尝试下一账号。`,
       )

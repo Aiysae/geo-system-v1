@@ -126,6 +126,9 @@ class LocalFileKv implements KvClient {
     keys: string[],
     args: TData[],
   ): Promise<TResult> {
+    if (script.includes("reserve_rate_limit_v1")) {
+      return this.evalReserveRateLimit(keys[0], args) as TResult
+    }
     if (script.includes("payment_settlement_v1")) {
       return this.evalPaymentSettlement(keys, args) as TResult
     }
@@ -186,6 +189,32 @@ class LocalFileKv implements KvClient {
       ? Math.max(1, Math.ceil((entry.expiresAt - Date.now()) / 1000))
       : windowSec
     return [count, ttl]
+  }
+
+  private evalReserveRateLimit<TData>(
+    key: string,
+    args: TData[],
+  ): [number, number, number] {
+    const amount = Math.max(1, Math.floor(Number(args[0] ?? 1)))
+    const limit = Math.max(1, Math.floor(Number(args[1] ?? 1)))
+    const windowSec = Math.max(1, Math.floor(Number(args[2] ?? 60)))
+    const current = this.getEntry(key)
+    const currentValue = current?.type === "value" ? Number(current.value) : 0
+    const count = Number.isFinite(currentValue) ? currentValue : 0
+    const ttl = current?.expiresAt
+      ? Math.max(1, Math.ceil((current.expiresAt - Date.now()) / 1000))
+      : windowSec
+    if (count + amount > limit) return [0, count, ttl]
+
+    const next = this.increment(key, amount)
+    const entry = this.getEntry(key)
+    if (!current && entry?.type === "value") {
+      entry.expiresAt = Date.now() + windowSec * 1000
+      this.persist()
+    }
+    return [1, next, entry?.expiresAt
+      ? Math.max(1, Math.ceil((entry.expiresAt - Date.now()) / 1000))
+      : windowSec]
   }
 
   private evalEmailVerification<TData>(key: string, args: TData[]): [number, number] {

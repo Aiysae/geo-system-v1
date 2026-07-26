@@ -4,7 +4,10 @@ import type {
   CompetitorCompareResult,
   CompetitorComparison,
 } from "@/types"
-import { ADAPTERS } from "@/lib/llm"
+import {
+  isAdapterCredentialConfigured,
+  runAdapterCredentialPoolChat,
+} from "@/lib/ai-credential-adapter"
 import { parseJsonStrict } from "@/lib/score-utils"
 import {
   formatPersonSubjectContext,
@@ -216,7 +219,7 @@ async function generateComparison(args: {
   const { system, user } = buildPrompt(args)
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const raw = await ADAPTERS.doubao.chat({
+    const raw = await runAdapterCredentialPoolChat("doubao", "research", {
       system: attempt === 0
         ? system
         : `${system}\n\n上一次输出无法解析或字段不完整。请只输出一个完整 JSON 对象，并确保所有数组和引号正确闭合。`,
@@ -317,7 +320,7 @@ async function handler(req: NextRequest) {
         error: `最多只能选择 5 个${subjectType === "person" ? "同行人物" : "竞品"}`,
       }, { status: 400 })
     }
-    if (!(await ADAPTERS.doubao.configured())) {
+    if (!(await isAdapterCredentialConfigured("doubao", "research", { jsonMode: true }))) {
       return NextResponse.json({ error: "豆包 API 未配置，无法生成竞品对比报告" }, { status: 400 })
     }
 

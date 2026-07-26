@@ -48,8 +48,8 @@ export const AI_CREDENTIAL_VENDOR_PRESETS: AiCredentialVendorPreset[] = [
   {
     vendor: "hunyuan",
     label: "腾讯混元",
-    baseUrl: "https://api.hunyuan.cloud.tencent.com/v1",
-    chatPath: "/chat/completions",
+    baseUrl: "https://tokenhub.tencentmaas.com",
+    chatPath: "/v1/chat/completions",
     defaultModels: ["hy3-preview"],
     allowedModules: ["article", "question", "research", "diagnosis", "difficulty", "judge"],
     declaredCapabilities: ["chat", "json", "long_text", "vision"],

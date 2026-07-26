@@ -1,12 +1,13 @@
 import "server-only"
 
 import { randomUUID } from "crypto"
+import { isPermanentAiCredentialFailure } from "@/lib/ai-credential-errors"
 import {
   listAiCredentialRuntimes,
   updateAiCredentialHealth,
 } from "@/lib/ai-credential-store"
 import { kv } from "@/lib/kv"
-import { hitRateLimit } from "@/lib/rate-limit"
+import { reserveRateLimit } from "@/lib/rate-limit"
 import type {
   AiCredentialCapability,
   AiCredentialLease,
@@ -53,7 +54,16 @@ function stableHash(value: string): number {
     hash ^= value.charCodeAt(index)
     hash = Math.imul(hash, 16777619)
   }
-  return Math.abs(hash | 0)
+  return hash >>> 0
+}
+
+function weightedRouteScore(
+  credential: AiCredentialRuntime,
+  sequence: number,
+): number {
+  const hash = stableHash(`${sequence}:${credential.id}`)
+  const unit = (hash + 1) / 4_294_967_297
+  return -Math.log(unit) / Math.max(1, credential.weight)
 }
 
 async function orderedCandidates(
@@ -68,8 +78,8 @@ async function orderedCandidates(
   )
   return credentials.sort((left, right) => {
     if (left.priority !== right.priority) return left.priority - right.priority
-    const leftScore = ((sequence + stableHash(left.id)) % 1_000_003) / left.weight
-    const rightScore = ((sequence + stableHash(right.id)) % 1_000_003) / right.weight
+    const leftScore = weightedRouteScore(left, sequence)
+    const rightScore = weightedRouteScore(right, sequence)
     if (leftScore !== rightScore) return leftScore - rightScore
     const leftLatency = left.lastLatencyMs ?? Number.MAX_SAFE_INTEGER
     const rightLatency = right.lastLatencyMs ?? Number.MAX_SAFE_INTEGER
@@ -112,17 +122,63 @@ async function withinCredentialRpmLimit(
   credential: AiCredentialRuntime,
 ): Promise<boolean> {
   if (!credential.rpmLimit) return true
-  const result = await hitRateLimit(
+  const result = await reserveRateLimit(
     "ai-credential-rpm",
     credential.id,
+    1,
     credential.rpmLimit,
     60,
   )
   return result.ok
 }
 
+function beijingDayWindow(): { day: string; seconds: number } {
+  const now = Date.now()
+  const shifted = new Date(now + 8 * 60 * 60 * 1000)
+  const day = shifted.toISOString().slice(0, 10)
+  const nextMidnightShifted = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate() + 1,
+  )
+  const nextMidnight = nextMidnightShifted - 8 * 60 * 60 * 1000
+  return {
+    day,
+    seconds: Math.max(1, Math.ceil((nextMidnight - now) / 1000)),
+  }
+}
+
+async function withinCredentialUsageLimits(
+  credential: AiCredentialRuntime,
+  request: AiCredentialSelectionRequest,
+): Promise<boolean> {
+  if (credential.tpmLimit && request.estimatedTokens) {
+    const tokenResult = await reserveRateLimit(
+      "ai-credential-tpm",
+      credential.id,
+      request.estimatedTokens,
+      credential.tpmLimit,
+      60,
+    )
+    if (!tokenResult.ok) return false
+  }
+  if (credential.dailyBudgetCents && request.estimatedCostCents) {
+    const window = beijingDayWindow()
+    const budgetResult = await reserveRateLimit(
+      "ai-credential-daily-budget",
+      `${credential.id}:${window.day}`,
+      request.estimatedCostCents,
+      credential.dailyBudgetCents,
+      window.seconds,
+    )
+    if (!budgetResult.ok) return false
+  }
+  return withinCredentialRpmLimit(credential)
+}
+
 async function tryAcquireCredential(
   credential: AiCredentialRuntime,
+  request: AiCredentialSelectionRequest,
   leaseSeconds: number,
 ): Promise<AiCredentialLease | null> {
   const groupScope = `group:${credential.vendor}:${credential.quotaGroup}`
@@ -142,7 +198,7 @@ async function tryAcquireCredential(
     await releaseSlot(groupSlot)
     return null
   }
-  if (!(await withinCredentialRpmLimit(credential))) {
+  if (!(await withinCredentialUsageLimits(credential, request))) {
     await releaseSlot(credentialSlot)
     await releaseSlot(groupSlot)
     return null
@@ -188,7 +244,7 @@ async function acquireFromPool(
     const candidates = await orderedCandidates(request)
     sawCandidate ||= candidates.length > 0
     for (const credential of candidates) {
-      const lease = await tryAcquireCredential(credential, leaseSeconds)
+      const lease = await tryAcquireCredential(credential, request, leaseSeconds)
       if (lease) return lease
     }
     if (Date.now() >= deadline) break
@@ -268,9 +324,8 @@ export async function recordAiCredentialFailure(
   credential: AiCredentialRuntime,
   error: unknown,
 ): Promise<void> {
-  const message = error instanceof Error ? error.message : String(error || "")
   const failures = credential.consecutiveFailures + 1
-  const permanent = /(401|403|invalid.*key|unauthorized|forbidden|余额不足|欠费|无权限)/i.test(message)
+  const permanent = isPermanentAiCredentialFailure(error)
   const cooldownMs = permanent
     ? 30 * 60_000
     : failures >= 3

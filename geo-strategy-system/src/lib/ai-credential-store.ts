@@ -353,6 +353,53 @@ export async function getAiCredentialRuntime(id: string): Promise<AiCredentialRu
   return toRuntime(stored)
 }
 
+export async function prioritizeAiCredentialModel(
+  id: string,
+  model: string,
+  updatedBy = "credential-verification",
+): Promise<AiCredentialPublic> {
+  if (!CREDENTIAL_ID_PATTERN.test(id)) throw new Error("模型账号编号无效")
+  const normalizedModel = String(model || "").trim()
+  if (!normalizedModel) throw new Error("模型名称不能为空")
+
+  const current = await listStored()
+  const previous = current.find(item => item.id === id)
+  if (!previous) throw new Error("模型账号不存在或已经移除")
+  if (!previous.allowedModels.includes(normalizedModel)) {
+    throw new Error("该模型不在账号允许列表中")
+  }
+  if (previous.allowedModels[0] === normalizedModel) return toPublic(previous)
+
+  const now = new Date().toISOString()
+  const next: StoredAiCredential = {
+    ...previous,
+    allowedModels: [
+      normalizedModel,
+      ...previous.allowedModels.filter(item => item !== normalizedModel),
+    ],
+    updatedAt: now,
+    updatedBy: cleanText(updatedBy, 160, "credential-verification"),
+  }
+  const db = databasePool()
+  if (db) {
+    await ensureSchema(db)
+    await db.query(
+      `UPDATE geo_ai_credentials_v1
+       SET allowed_models = $2::jsonb, updated_at = $3, updated_by = $4
+       WHERE id = $1`,
+      [
+        next.id,
+        JSON.stringify(next.allowedModels),
+        next.updatedAt,
+        next.updatedBy,
+      ],
+    )
+  } else {
+    await writeKv(values => values.map(item => item.id === id ? next : item))
+  }
+  return toPublic(next)
+}
+
 export async function closeAiCredentialStoreConnection(): Promise<void> {
   const pool = globalState.__geoAiCredentialPool
   globalState.__geoAiCredentialPool = undefined
