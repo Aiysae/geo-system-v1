@@ -10,6 +10,10 @@ import {
   type DurableTaskPayload,
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
+import {
+  isTaskCancellationRequested,
+  startTaskCancellationMonitor,
+} from "@/lib/task-cancellation"
 
 function workerConcurrency(name: string, fallback: number): number {
   return Math.max(
@@ -102,8 +106,14 @@ async function processTask(job: Job<DurableTaskPayload>): Promise<void> {
       })
   }, refreshMs)
   claimTimer.unref()
+  const stopCancellationMonitor = startTaskCancellationMonitor(source, sourceJobId)
 
   try {
+    if (await isTaskCancellationRequested(source, sourceJobId)) {
+      await releaseDurableTaskDispatch(source, sourceJobId, dispatchToken)
+      console.info("[geo-worker] cancelled before start", source, sourceJobId)
+      return
+    }
     const outcome = await runTask(job)
     await releaseDurableTaskDispatch(source, sourceJobId, dispatchToken)
     if (outcome.requeue) {
@@ -127,6 +137,7 @@ async function processTask(job: Job<DurableTaskPayload>): Promise<void> {
     throw error
   } finally {
     clearInterval(claimTimer)
+    stopCancellationMonitor()
   }
 }
 

@@ -153,6 +153,7 @@ async function chatWithPresearchedContext(args: ToolLoopArgs): Promise<string> {
     extraBody: args.extraBody,
     extraHeaders: args.extraHeaders,
     timeoutMs: timeoutMs(args),
+    signal: args.signal,
   })
 
   const content = messageText(data.choices?.[0]?.message?.content)
@@ -209,6 +210,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
       extraBody: args.extraBody,
       extraHeaders: args.extraHeaders,
       timeoutMs: timeoutMs(args),
+      signal: args.signal,
     })
 
     const choice = data.choices?.[0]
@@ -299,6 +301,7 @@ export async function chatWithLocalWebSearchTool(args: ToolLoopArgs): Promise<st
     extraBody: args.extraBody,
     extraHeaders: args.extraHeaders,
     timeoutMs: timeoutMs(args),
+    signal: args.signal,
   })
 
   const finalContent = messageText(finalData.choices?.[0]?.message?.content)

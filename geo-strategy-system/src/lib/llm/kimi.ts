@@ -123,6 +123,7 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
             : undefined,
         extraBody: shouldDisableThinking(selectedModel) ? { thinking: { type: "disabled" } } : undefined,
         timeoutMs: (args.timeoutSec ?? config.timeout) * 1000,
+        signal: args.signal,
       })
 
     try {

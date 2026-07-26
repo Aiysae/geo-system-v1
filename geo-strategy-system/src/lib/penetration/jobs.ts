@@ -4,6 +4,11 @@ import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
 import { syncPenetrationJobTask } from "@/lib/task-center/adapters"
 import {
+  clearTaskCancellation,
+  registerTaskAbortController,
+  signalTaskCancellation,
+} from "@/lib/task-cancellation"
+import {
   dispatchDurableTaskOrFallback,
   durableTaskQueueEnabled,
   type TaskWorkerOutcome,
@@ -379,7 +384,11 @@ async function patchJob(
 ): Promise<StoredPenetrationJob | null> {
   const current = await getStoredJob(id)
   if (!current) return null
-  if (current.status === "cancelled" && patch.status && patch.status !== "cancelled") return current
+  if (
+    ["succeeded", "blocked", "failed", "cancelled"].includes(current.status)
+    && patch.status
+    && patch.status !== current.status
+  ) return current
   const next = { ...current, ...patch, updatedAt: nowIso() }
   await saveJob(next)
   return next
@@ -631,6 +640,11 @@ async function fetchBatch(job: StoredPenetrationJob, batch: PenetrationBatch): P
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), PENETRATION_JOB_BATCH_TIMEOUT_MS)
       activeAbortControllers.set(job.id, controller)
+      const unregisterTaskController = registerTaskAbortController(
+        "penetration",
+        job.id,
+        controller,
+      )
 
       try {
         const response = await fetch(`${baseUrl}/api/penetration`, {
@@ -664,6 +678,7 @@ async function fetchBatch(job: StoredPenetrationJob, batch: PenetrationBatch): P
           : error
       } finally {
         clearTimeout(timeout)
+        unregisterTaskController()
         if (activeAbortControllers.get(job.id) === controller) {
           activeAbortControllers.delete(job.id)
         }
@@ -1300,14 +1315,35 @@ export async function cancelPenetrationJob(
     || (job.ownerUserId !== requesterUserId && job.workspaceOwnerUserId !== requesterUserId)
   ) return null
   if (["succeeded", "blocked", "failed", "cancelled"].includes(job.status)) return toPublicJob(job)
+  if (job.result && job.completedSlots >= job.totalSlots) {
+    await persistJobResultToWorkspace(job)
+    await settleJobCreditsQuietly(id, successfulNewSlotCount(job))
+    const finishedAt = job.finishedAt || nowIso()
+    const historyPatch = await persistTerminalHistory({
+      job,
+      status: "succeeded",
+      finishedAt,
+    })
+    const succeeded = await patchJob(id, {
+      status: "succeeded",
+      completedSlots: job.totalSlots,
+      completedBatches: job.totalBatches,
+      finishedAt,
+      ...historyPatch,
+    }) || job
+    return toPublicJob(succeeded)
+  }
 
-  const usedSlots = successfulNewSlotCount(job)
-  await settleJobCreditsQuietly(id, usedSlots)
   const cancelled = await patchJob(id, {
     status: "cancelled",
     error: PENETRATION_JOB_CANCELLED_MESSAGE,
     finishedAt: nowIso(),
   }) || job
+  if (cancelled.status !== "cancelled") {
+    await clearTaskCancellation("penetration", id)
+    return toPublicJob(cancelled)
+  }
+  await signalTaskCancellation("penetration", id, requesterUserId)
 
   activeAbortControllers.get(id)?.abort()
   activeAbortControllers.delete(id)
@@ -1317,6 +1353,7 @@ export async function cancelPenetrationJob(
     const index = queuedJobs.indexOf(id)
     if (index >= 0) queuedJobs.splice(index, 1)
   }
+  await settleJobCreditsQuietly(id, successfulNewSlotCount(cancelled))
   const historyPatch = await persistTerminalHistory({
     job: cancelled,
     status: "cancelled",

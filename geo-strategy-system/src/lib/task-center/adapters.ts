@@ -314,7 +314,7 @@ export async function syncReportJobTask(job: CommonJob & {
     resultUrl: status === "succeeded"
       ? `/api/reports/jobs/${encodeURIComponent(job.id)}/view`
       : workspaceUrl(job.clientId, "report", job.teamId),
-    canCancel: false,
+    canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     startedAt: job.startedAt,

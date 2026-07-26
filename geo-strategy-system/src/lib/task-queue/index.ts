@@ -30,6 +30,11 @@ export type TaskWorkerOutcome = {
   delayMs?: number
 }
 
+export type DurableTaskCancellationResult = {
+  state: "local" | "removed" | "active" | "not_found"
+  queueState?: string
+}
+
 type TaskQueueGlobal = typeof globalThis & {
   __geoDurableTaskQueues?: Map<string, Queue<DurableTaskPayload>>
 }
@@ -174,6 +179,43 @@ export async function enqueueDurableTask(
   } catch (error) {
     await releaseDurableTaskDispatch(source, sourceJobId, dispatchToken)
     throw error
+  }
+}
+
+export async function cancelQueuedDurableTask(
+  source: DurableTaskSource,
+  sourceJobIdValue: string,
+): Promise<DurableTaskCancellationResult> {
+  if (!durableTaskQueueEnabled(source)) return { state: "local" }
+  const sourceJobId = cleanSourceJobId(sourceJobIdValue)
+  const claimKey = dispatchClaimKey(source, sourceJobId)
+  const dispatchToken = await kv.get<string>(claimKey)
+  if (!dispatchToken) return { state: "not_found" }
+
+  const jobId = `${source}-${sourceJobId}-${dispatchToken.replace(/-/g, "")}`
+  const queuedJob = await queue(source).getJob(jobId)
+  if (!queuedJob) {
+    await releaseDurableTaskDispatch(source, sourceJobId, dispatchToken)
+    return { state: "not_found" }
+  }
+
+  const queueState = await queuedJob.getState()
+  if (queueState === "active") return { state: "active", queueState }
+
+  try {
+    await queuedJob.remove()
+    await releaseDurableTaskDispatch(source, sourceJobId, dispatchToken)
+    return { state: "removed", queueState }
+  } catch (error) {
+    const latestState = await queuedJob.getState().catch(() => queueState)
+    if (latestState === "active") return { state: "active", queueState: latestState }
+    console.warn(
+      "[task-queue] failed to remove cancelled queue item",
+      source,
+      sourceJobId,
+      error instanceof Error ? error.message : error,
+    )
+    return { state: "not_found", queueState: latestState }
   }
 }
 

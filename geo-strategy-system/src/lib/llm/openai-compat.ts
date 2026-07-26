@@ -55,6 +55,8 @@ export interface ChatArgs {
   officialWebOnly?: boolean
   /** Per-provider request timeout in seconds. */
   timeoutSec?: number
+  /** Allow a parent background task to stop the active upstream request. */
+  signal?: AbortSignal
   /** Observe the public web sources used by local search adapters. */
   onSearchSources?: (event: SearchSourceEvent) => void
   /** Observe token usage returned by the upstream provider. */
@@ -124,9 +126,13 @@ async function postChatCompletionWithTimeout(args: {
   extraHeaders?: Record<string, string>
   timeoutMs: number
   label: string
+  signal?: AbortSignal
 }): Promise<Response> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), args.timeoutMs)
+  const abortFromParent = () => controller.abort()
+  if (args.signal?.aborted) controller.abort()
+  else args.signal?.addEventListener("abort", abortFromParent, { once: true })
 
   try {
     return await postChatCompletion({
@@ -142,6 +148,11 @@ async function postChatCompletionWithTimeout(args: {
       (fetchErr instanceof DOMException && fetchErr.name === "AbortError")
       || (fetchErr instanceof Error && fetchErr.name === "AbortError")
     ) {
+      if (args.signal?.aborted) {
+        const cancelled = new Error("AI 请求已停止")
+        cancelled.name = "AbortError"
+        throw cancelled
+      }
       throw new Error(
         `${args.label} 请求超时 (${args.timeoutMs / 1000}s)，请稍后重试或切换其他可用模型账号`,
       )
@@ -151,11 +162,29 @@ async function postChatCompletionWithTimeout(args: {
     )
   } finally {
     clearTimeout(timeout)
+    args.signal?.removeEventListener("abort", abortFromParent)
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    const cancelled = new Error("AI 请求已停止")
+    cancelled.name = "AbortError"
+    return Promise.reject(cancelled)
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      const cancelled = new Error("AI 请求已停止")
+      cancelled.name = "AbortError"
+      reject(cancelled)
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
 }
 
 function retryDelayMs(headers: Headers, body: string, attempt: number): number {
@@ -222,6 +251,7 @@ export interface OpenAICompatRawArgs {
   extraHeaders?: Record<string, string>
   /** timeout in ms (default 300000) */
   timeoutMs?: number
+  signal?: AbortSignal
 }
 
 // 底层：发请求并返回原始 ChatCompletion（供需要工具循环的场景使用，如 Kimi 联网）
@@ -241,6 +271,7 @@ export async function openaiCompatRaw({
   extraBody,
   extraHeaders,
   timeoutMs,
+  signal,
 }: OpenAICompatRawArgs): Promise<RawChatCompletion> {
   if (!apiKey) {
     // 请求前显式校验：把缺失的 Key 用 console.warn 打印出来，便于在终端立刻定位
@@ -271,6 +302,7 @@ export async function openaiCompatRaw({
     extraHeaders,
     timeoutMs: requestTimeoutMs,
     label,
+    signal,
   })
   const retryableStatuses = new Set([429, 500, 502, 503, 504])
   for (let retry = 0; retry < 3 && retryableStatuses.has(res.status); retry++) {
@@ -281,7 +313,7 @@ export async function openaiCompatRaw({
     console.warn(
       `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`,
     )
-    await sleep(delay)
+    await sleep(delay, signal)
     res = await postChatCompletionWithTimeout({
       url,
       apiKey,
@@ -290,6 +322,7 @@ export async function openaiCompatRaw({
       extraHeaders,
       timeoutMs: requestTimeoutMs,
       label,
+      signal,
     })
   }
 
@@ -307,6 +340,7 @@ export async function openaiCompatRaw({
         extraHeaders,
         timeoutMs: requestTimeoutMs,
         label,
+        signal,
       })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
@@ -322,6 +356,7 @@ export async function openaiCompatRaw({
         extraHeaders,
         timeoutMs: requestTimeoutMs,
         label,
+        signal,
       })
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
@@ -456,6 +491,7 @@ export async function openaiCompatChat({
   extraHeaders,
   images,
   timeoutSec,
+  signal,
   onSearchSources,
   onUsage,
 }: OpenAICompatArgs): Promise<string> {
@@ -513,6 +549,7 @@ export async function openaiCompatChat({
       extraBody,
       extraHeaders,
       timeoutMs,
+      signal,
     })
     emitTokenUsage(data, onUsage)
     const nativeSources = onSearchSources ? extractSourcesFromUnknown(data, String(user)) : []
@@ -586,6 +623,7 @@ export async function openaiCompatChat({
         extraBody,
         extraHeaders,
         timeoutMs,
+        signal,
       })
       emitTokenUsage(fallbackData, onUsage)
       const fallbackChoice = fallbackData.choices?.[0]

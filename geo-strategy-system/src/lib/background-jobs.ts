@@ -5,6 +5,11 @@ import { gzipSync, gunzipSync } from "zlib"
 import { kv } from "@/lib/kv"
 import { syncBackgroundJobTask } from "@/lib/task-center/adapters"
 import {
+  clearTaskCancellation,
+  registerTaskAbortController,
+  signalTaskCancellation,
+} from "@/lib/task-cancellation"
+import {
   dispatchDurableTaskOrFallback,
   durableTaskQueueEnabled,
   type TaskWorkerOutcome,
@@ -279,7 +284,11 @@ async function patchJob(
 ): Promise<StoredBackgroundJob | null> {
   const current = await getStoredJob(id)
   if (!current) return null
-  if (current.status === "cancelled" && patch.status && patch.status !== "cancelled") return current
+  if (
+    ["succeeded", "failed", "cancelled"].includes(current.status)
+    && patch.status
+    && patch.status !== current.status
+  ) return current
   const next = { ...current, ...patch, updatedAt: nowIso() }
   await saveJob(next)
   return next
@@ -357,6 +366,11 @@ async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS)
       activeControllers.set(job.id, controller)
+      const unregisterTaskController = registerTaskAbortController(
+        "background",
+        job.id,
+        controller,
+      )
       try {
         const response = await fetch(`${baseUrl}${job.endpoint}`, {
           method: "POST",
@@ -381,6 +395,7 @@ async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown
           : error
       } finally {
         clearTimeout(timer)
+        unregisterTaskController()
         if (activeControllers.get(job.id) === controller) activeControllers.delete(job.id)
       }
     }
@@ -900,6 +915,16 @@ export async function cancelBackgroundJob(
   const job = await getStoredJob(id)
   if (!job || job.ownerUserId !== ownerUserId) return null
   if (["succeeded", "failed", "cancelled"].includes(job.status)) return toPublicJob(job)
+  if (job.result !== undefined) {
+    await settleJobCredits(id, true)
+    const succeeded = await patchJob(id, {
+      status: "succeeded",
+      progressPercent: 100,
+      stage: "结果已保存",
+      finishedAt: job.finishedAt || nowIso(),
+    }) || job
+    return toPublicJob(succeeded)
+  }
 
   const cancelled = await patchJob(id, {
     status: "cancelled",
@@ -907,6 +932,11 @@ export async function cancelBackgroundJob(
     error: "用户已停止任务",
     finishedAt: nowIso(),
   }) || job
+  if (cancelled.status !== "cancelled") {
+    await clearTaskCancellation("background", id)
+    return toPublicJob(cancelled)
+  }
+  await signalTaskCancellation("background", id, ownerUserId)
   removePendingJob(id, job.kind)
   activeControllers.get(id)?.abort()
   await settleJobCredits(id, false)

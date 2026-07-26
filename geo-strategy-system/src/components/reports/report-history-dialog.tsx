@@ -56,6 +56,7 @@ const STATUS_META: Record<CommercialReportJobStatus, {
   running: { label: "生成中", className: "bg-blue-50 text-blue-700 ring-blue-200", icon: Loader2 },
   succeeded: { label: "已完成", className: "bg-emerald-50 text-emerald-700 ring-emerald-200", icon: CheckCircle2 },
   failed: { label: "失败", className: "bg-rose-50 text-rose-700 ring-rose-200", icon: AlertCircle },
+  cancelled: { label: "已停止", className: "bg-slate-100 text-slate-600 ring-slate-200", icon: AlertCircle },
 }
 
 const subscribeToClientMount = () => () => undefined
@@ -420,6 +421,7 @@ export default function ReportHistoryDialog({
                   <option value="running">生成中</option>
                   <option value="queued">排队中</option>
                   <option value="failed">失败</option>
+                  <option value="cancelled">已停止</option>
                 </select>
                 <select
                   aria-label="筛选报告时间"

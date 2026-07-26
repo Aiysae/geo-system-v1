@@ -1034,6 +1034,7 @@ export async function executeDifficultyStage(args: {
   stageKey: DifficultyStageKey
   context: DifficultyStageContext
   model: ModelKey
+  signal?: AbortSignal
 }): Promise<Record<string, unknown>> {
   const stage = difficultyStagesForMode(args.context.mode).find(item => item.key === args.stageKey)
   if (!stage) throw new Error(`未知测评阶段：${args.stageKey}`)
@@ -1049,6 +1050,7 @@ export async function executeDifficultyStage(args: {
     mode: "judge",
     allowWebSearch: webEvidenceStage,
     timeoutSec: webEvidenceStage ? 240 : 180,
+    signal: args.signal,
   })
   return parseJsonStrict<Record<string, unknown>>(raw, stage.title)
 }

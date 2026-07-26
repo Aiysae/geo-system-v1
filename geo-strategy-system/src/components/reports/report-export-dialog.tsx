@@ -4,6 +4,7 @@ import NextImage from "next/image"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
+  AlertCircle,
   BarChart3,
   Brain,
   Building2,
@@ -19,6 +20,7 @@ import {
   Radar,
   RotateCcw,
   ShieldCheck,
+  Square,
   Trash2,
   X,
 } from "lucide-react"
@@ -228,6 +230,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
     preset?.difficultyEntryId || client.difficultyAssessments?.[0]?.id || "",
   )
   const [generating, setGenerating] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [job, setJob] = useState<CommercialReportJobRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [branding, setBranding] = useState<ReportBrandingSettings>({ ...DEFAULT_REPORT_BRANDING })
@@ -274,11 +277,11 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !generating) onClose()
+      if (event.key === "Escape") onClose()
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [generating, onClose])
+  }, [onClose])
 
   useEffect(() => {
     if (branding.mode === "custom") customBrandingRef.current = branding
@@ -432,6 +435,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
         setJob(current)
       }
       if (current.status === "failed") throw new Error(current.error || "专业报告生成失败")
+      if (current.status === "cancelled") throw new Error("专业报告生成已停止")
       await downloadReport(current)
     } catch (caught) {
       setError(toUserFacingError(caught, { fallback: "专业报告生成失败，请稍后重试。", subject: "专业报告" }))
@@ -440,10 +444,34 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
     }
   }
 
+  async function stopReport() {
+    if (!job || (job.status !== "queued" && job.status !== "running") || stopping) return
+    setStopping(true)
+    setError(null)
+    try {
+      const response = await apiFetch(`/api/reports/jobs/${encodeURIComponent(job.id)}`, {
+        method: "PATCH",
+      })
+      const stopped = await readApiJson<CommercialReportJobRecord & { error?: string }>(
+        response,
+        "专业报告任务",
+      )
+      if (!response.ok) throw new Error(stopped.error || "停止报告生成失败")
+      setJob(stopped)
+    } catch (caught) {
+      setError(toUserFacingError(caught, {
+        fallback: "停止报告生成失败，请稍后重试。",
+        subject: "专业报告",
+      }))
+    } finally {
+      setStopping(false)
+    }
+  }
+
   const dialog = (
     <div
       className="fixed inset-0 z-[9999] overflow-hidden bg-slate-950/65 px-3 py-3 backdrop-blur-sm sm:px-6 sm:py-6"
-      onClick={() => { if (!generating) onClose() }}
+      onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="report-export-title"
@@ -467,10 +495,9 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
               <button
                 type="button"
                 onClick={onClose}
-                disabled={generating}
-                className="rounded-lg p-2 text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                className="rounded-lg p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
                 aria-label="关闭报告窗口"
-                title={generating ? "报告生成中，请稍候" : "关闭"}
+                title="关闭"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -744,7 +771,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
                   <div className="mt-5 rounded-lg border border-sky-100 bg-sky-50/70 px-4 py-3">
                     <div className="flex items-center justify-between gap-3 text-xs">
                       <span className="flex items-center gap-2 font-semibold text-[#003EB3]">
-                        {job?.status === "succeeded" ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+                        {job?.status === "succeeded" ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : job?.status === "cancelled" || job?.status === "failed" ? <AlertCircle className="h-4 w-4 text-rose-500" /> : <Loader2 className="h-4 w-4 animate-spin" />}
                         {job?.stage || "正在生成专业报告"}
                       </span>
                       <span className="font-mono font-bold text-[#003EB3]">{job?.progress || 0}%</span>
@@ -767,12 +794,21 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
               <button
                 type="button"
                 onClick={onClose}
-                disabled={generating}
-                className="h-10 rounded-lg border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+                className="h-10 rounded-lg border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
               >
-                取消
+                关闭
               </button>
-              {customBrandingLocked ? (
+              {generating && job && (job.status === "queued" || job.status === "running") ? (
+                <button
+                  type="button"
+                  onClick={() => void stopReport()}
+                  disabled={stopping}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-6 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {stopping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-3.5 w-3.5 fill-current" />}
+                  {stopping ? "正在停止" : "停止生成"}
+                </button>
+              ) : customBrandingLocked ? (
                 <BillingLink onNavigate={onClose} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-amber-600 px-6 text-sm font-semibold text-white transition hover:bg-amber-700">
                   <LockKeyhole className="h-4 w-4" />
                   充值解锁 VIP1

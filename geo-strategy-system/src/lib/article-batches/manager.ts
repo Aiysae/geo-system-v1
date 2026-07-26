@@ -7,6 +7,10 @@ import {
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
 import {
+  clearTaskCancellation,
+  signalTaskCancellation,
+} from "@/lib/task-cancellation"
+import {
   cancelBackgroundJob,
   createBackgroundJob,
   createBackgroundJobsBatch,
@@ -551,10 +555,19 @@ export async function cancelArticleBatch(
 ): Promise<ArticleBatchRecord | null> {
   const owned = await getOwnedStoredArticleBatch(id, ownerUserId)
   if (!owned) return null
-  await mutateStoredArticleBatch(id, batch => {
+  if (TERMINAL_BATCH_STATUSES.has(owned.status)) return toPublicArticleBatch(owned)
+  const mutation = await mutateStoredArticleBatch(id, batch => {
+    if (TERMINAL_BATCH_STATUSES.has(batch.status)) return false
     batch.cancelRequested = true
     batch.stage = "正在停止未完成任务"
+    return true
   })
+  if (!mutation) return null
+  if (!mutation.result) {
+    await clearTaskCancellation("articleBatch", id)
+    return toPublicArticleBatch(mutation.batch)
+  }
+  await signalTaskCancellation("articleBatch", id, ownerUserId)
   await Promise.all(owned.items
     .filter(item => !TERMINAL_ITEM_STATUSES.has(item.status) && item.jobId)
     .map(item => cancelBackgroundJob(item.jobId || "", ownerUserId).catch(() => null)))

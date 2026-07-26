@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Bell, CreditCard, Handshake, X } from "lucide-react"
+import { createPortal } from "react-dom"
+import { Bell, ChevronRight, CreditCard, Handshake, X } from "lucide-react"
 import type {
   ManagedServiceNotification,
   ManagedServiceNotificationSnapshot,
@@ -25,6 +26,8 @@ export function AdminRechargeNotifier({
   const [managedToast, setManagedToast] = useState<ManagedServiceNotification | null>(null)
   const [additionalCount, setAdditionalCount] = useState(0)
   const [managedAdditionalCount, setManagedAdditionalCount] = useState(0)
+  const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const inFlightRef = useRef(false)
   const shownIdsRef = useRef(new Set<string>())
 
@@ -79,6 +82,11 @@ export function AdminRechargeNotifier({
   }, [])
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 0)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
     const initial = window.setTimeout(() => void poll(), 0)
     const interval = window.setInterval(() => void poll(), POLL_INTERVAL_MS)
     const onFocus = () => void poll()
@@ -103,11 +111,12 @@ export function AdminRechargeNotifier({
 
   return (
     <>
-      <Link
-        href={managedCount > 0 ? "/admin/managed-services" : "/admin/recharge"}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
         className={buttonClass}
-        aria-label={totalCount > 0 ? `有 ${totalCount} 条待处理提醒` : "查看管理提醒"}
-        title={totalCount > 0 ? `${totalCount} 条待处理提醒` : "管理提醒"}
+        aria-label={totalCount > 0 ? `信息中心有 ${totalCount} 条待处理提醒` : "打开信息中心"}
+        title={totalCount > 0 ? `信息中心 · ${totalCount} 条待处理` : "信息中心"}
       >
         <Bell className="h-4 w-4" />
         {totalCount > 0 ? (
@@ -115,7 +124,88 @@ export function AdminRechargeNotifier({
             {totalCount > 99 ? "99+" : totalCount}
           </span>
         ) : null}
-      </Link>
+      </button>
+
+      {mounted && open ? createPortal(
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[88] cursor-default bg-[#00133F]/22 backdrop-blur-[1px]"
+            aria-label="关闭信息中心"
+            onClick={() => setOpen(false)}
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-information-center-title"
+            className="fixed right-3 top-16 z-[89] w-[min(390px,calc(100vw-1.5rem))] overflow-hidden rounded-lg border border-[#B7D9FF] bg-white shadow-[0_24px_70px_-28px_rgba(0,49,128,0.72)] sm:right-6 sm:top-20"
+          >
+            <div className="flex items-center justify-between border-b border-[#DDEBFA] px-4 py-3.5">
+              <div>
+                <h2 id="admin-information-center-title" className="text-sm font-semibold text-slate-900">
+                  信息中心
+                </h2>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  {totalCount > 0 ? `${totalCount} 条事项等待处理` : "当前没有待处理事项"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100"
+                aria-label="关闭信息中心"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-2 p-3">
+              <Link
+                href="/admin/recharge"
+                onClick={() => setOpen(false)}
+                className="flex min-h-16 items-center gap-3 rounded-md border border-slate-200 px-3 py-2.5 transition hover:border-[#91CAFF] hover:bg-[#F3F9FF]"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#EAF5FF] text-[#0958D9]">
+                  <CreditCard className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold text-slate-900">积分充值审核</span>
+                  <span className="mt-0.5 block text-[11px] text-slate-500">
+                    {pendingCount > 0 ? `${pendingCount} 笔申请等待审核` : "暂无待审核申请"}
+                  </span>
+                </span>
+                {pendingCount > 0 ? (
+                  <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                    {pendingCount > 99 ? "99+" : pendingCount}
+                  </span>
+                ) : null}
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+              </Link>
+              <Link
+                href="/admin/managed-services"
+                onClick={() => setOpen(false)}
+                className="flex min-h-16 items-center gap-3 rounded-md border border-slate-200 px-3 py-2.5 transition hover:border-[#8CE8E1] hover:bg-[#F0FFFC]"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-teal-50 text-teal-600">
+                  <Handshake className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold text-slate-900">专业服务订单</span>
+                  <span className="mt-0.5 block text-[11px] text-slate-500">
+                    {managedCount > 0 ? `${managedCount} 条服务消息等待处理` : "暂无待处理服务消息"}
+                  </span>
+                </span>
+                {managedCount > 0 ? (
+                  <span className="rounded-full bg-teal-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                    {managedCount > 99 ? "99+" : managedCount}
+                  </span>
+                ) : null}
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+              </Link>
+            </div>
+          </aside>
+        </>,
+        document.body,
+      ) : null}
 
       {managedToast ? (
         <aside className="fixed right-3 top-16 z-[101] w-[calc(100vw-1.5rem)] max-w-sm overflow-hidden rounded-xl border border-[#B7D9FF] bg-white shadow-2xl shadow-[#0958D9]/20 sm:right-6 sm:top-20" role="status" aria-live="polite">

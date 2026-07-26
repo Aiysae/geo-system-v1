@@ -4,6 +4,7 @@ process.env.TASK_QUEUE_BACKEND = "local"
 delete process.env.REDIS_URL
 
 const {
+  cancelQueuedDurableTask,
   dispatchDurableTaskOrFallback,
   durableTaskQueueEnabled,
   durableTaskQueueLane,
@@ -40,6 +41,11 @@ await dispatchDurableTaskOrFallback(
   },
 )
 assert.equal(fallbackCalls, 1, "local backend must execute the in-process fallback")
+assert.deepEqual(
+  await cancelQueuedDurableTask("penetration", "pjob_task_queue_fallback"),
+  { state: "local" },
+  "local queue cancellation should be handled by the source task state",
+)
 
 for (const source of [
   "penetration",
