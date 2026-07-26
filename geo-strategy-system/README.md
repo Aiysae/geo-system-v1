@@ -49,6 +49,15 @@ unfinished work after restart. Per-lane concurrency can be tuned with
 `pm2 startOrReload ecosystem.config.cjs --update-env` to run both services.
 Local development defaults to the in-process fallback.
 
+Penetration scheduler V2 isolates model batches, groups logical models by the
+provider that actually serves their strict web request, and schedules against
+the verified independent-account capacity. Results are persisted after each
+settled wave, while account saturation is deferred without consuming a sample
+attempt. The admin metrics page reports BullMQ depth and worker heartbeats.
+Set `PENETRATION_SCHEDULER_V2=false` to use the legacy scheduler during an
+emergency rollback; V2 concurrency settings use the `PENETRATION_V2_*` prefix.
+
+
 Production PostgreSQL backups are defined in `deploy/postgres/` and retain 14 days of compressed custom-format dumps.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.

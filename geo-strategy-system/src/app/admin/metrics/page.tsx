@@ -19,6 +19,10 @@ import { formatYuan } from "@/lib/pricing"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import { getPenetrationQueueSnapshot } from "@/lib/penetration/jobs"
 import { getPenetrationConcurrencySnapshot } from "@/lib/penetration/provider-concurrency"
+import {
+  getDurableTaskQueueSnapshot,
+  getDurableTaskWorkerHeartbeats,
+} from "@/lib/task-queue"
 import SiteFooter from "@/components/site-footer"
 import { AdminHeader } from "@/components/admin/admin-header"
 import type { ModelKey } from "@/types"
@@ -65,7 +69,19 @@ export default async function AdminMetricsPage() {
 
   const metrics = await getAdminOperationsMetrics()
   const maxDailyUsage = Math.max(...metrics.daily.map(item => item.usageNet), 0)
-  const penetrationQueue = getPenetrationQueueSnapshot()
+  const localQueueConfig = getPenetrationQueueSnapshot()
+  const [penetrationQueue, workerHeartbeats] = await Promise.all([
+    getDurableTaskQueueSnapshot("penetration"),
+    getDurableTaskWorkerHeartbeats(),
+  ])
+  const penetrationWorkers = workerHeartbeats.filter(worker =>
+    worker.queues.some(item => item.lane === "penetration")
+  )
+  const penetrationWorkerCapacity = penetrationWorkers.reduce((sum, worker) => {
+    return sum + worker.queues
+      .filter(item => item.lane === "penetration")
+      .reduce((queueSum, item) => queueSum + item.concurrency, 0)
+  }, 0)
   const penetrationConcurrency = getPenetrationConcurrencySnapshot()
   const providerWaiting = Object.values(penetrationConcurrency.providers)
     .reduce((sum, provider) => sum + provider.waiting, 0)
@@ -115,24 +131,24 @@ export default async function AdminMetricsPage() {
           <div className="border-b border-slate-100 px-5 py-4">
             <h2 className="text-sm font-semibold text-slate-900">疑问句检测实时调度</h2>
             <p className="mt-1 text-xs text-slate-500">
-              当前进程的用户公平队列与模型并发占用；刷新页面可读取最新状态。
+              BullMQ 真实队列、独立 Worker 心跳与模型并发占用；刷新页面可读取最新状态。
             </p>
           </div>
           <div className="grid gap-px bg-slate-100 sm:grid-cols-2 xl:grid-cols-4">
             <LiveMetric
               label="检测执行中"
-              value={`${penetrationQueue.active}/${penetrationQueue.activeLimit}`}
-              note={`${penetrationQueue.activeUsers} 个账号正在执行`}
+              value={`${penetrationQueue.active}/${penetrationWorkerCapacity || localQueueConfig.activeLimit}`}
+              note={`${penetrationWorkers.length} 个 Worker 实例在线`}
             />
             <LiveMetric
               label="等待执行"
-              value={formatInt(penetrationQueue.queued)}
-              note={`同账号并发上限 ${penetrationQueue.perUserLimit}`}
+              value={formatInt(penetrationQueue.waiting)}
+              note={penetrationQueue.reachable ? `同账号并发上限 ${localQueueConfig.perUserLimit}` : "队列暂不可达"}
             />
             <LiveMetric
               label="延迟补采"
               value={formatInt(penetrationQueue.delayed)}
-              note="按退避时间自动恢复"
+              note={penetrationQueue.oldestAgeMs ? `最早任务已等待 ${Math.ceil(penetrationQueue.oldestAgeMs / 1000)} 秒` : "按退避时间自动恢复"}
             />
             <LiveMetric
               label="模型请求"

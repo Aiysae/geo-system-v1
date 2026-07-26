@@ -4,6 +4,7 @@ import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
 import {
+  getAiCredentialPoolCapacity,
   hasAiCredentialCandidate,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
@@ -117,13 +118,53 @@ export async function hasAdapterCredentialPoolCandidate(
     : false
 }
 
+export interface AdapterCredentialPoolCapacity {
+  vendor: ModelKey
+  candidateCount: number
+  maxConcurrency: number
+  quotaGroupCount: number
+  usesFallback: boolean
+}
+
+export async function getAdapterCredentialPoolCapacity(
+  model: ModelKey,
+  module: AiCredentialModule,
+  args: Partial<ChatArgs> = {},
+): Promise<AdapterCredentialPoolCapacity> {
+  const route = await resolveAdapterCredentialRoute(model, module, args)
+  let capacity = await getAiCredentialPoolCapacity(
+    selectionRequest(route, module),
+  )
+  if (capacity.candidateCount === 0 && route.selectionModel) {
+    capacity = await getAiCredentialPoolCapacity(
+      selectionRequest(route, module, undefined, null),
+    )
+  }
+  if (capacity.candidateCount > 0) {
+    return {
+      vendor: route.vendor,
+      ...capacity,
+      usesFallback: false,
+    }
+  }
+  const fallbackConfigured = await ADAPTERS[route.vendor].configured()
+  return {
+    vendor: route.vendor,
+    candidateCount: fallbackConfigured ? 1 : 0,
+    maxConcurrency: fallbackConfigured ? 1 : 0,
+    quotaGroupCount: fallbackConfigured ? 1 : 0,
+    usesFallback: fallbackConfigured,
+  }
+}
+
 export async function isAdapterCredentialConfigured(
   model: ModelKey,
   module: AiCredentialModule,
   args: Partial<ChatArgs> = {},
 ): Promise<boolean> {
   if (await hasAdapterCredentialPoolCandidate(model, module, args)) return true
-  return ADAPTERS[model].configured()
+  const route = await resolveAdapterCredentialRoute(model, module, args)
+  return ADAPTERS[route.vendor].configured()
 }
 
 export async function runAdapterCredentialPoolChat(
@@ -140,11 +181,18 @@ export async function runAdapterCredentialPoolChat(
     : undefined
   let lastError: unknown
   const quotaEstimate = estimateAiCredentialQuota(args)
+  const maxCredentialAttempts = Math.max(
+    3,
+    Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
+  )
+  const waitTimeoutMs = module === "penetration"
+    ? Math.max(1_000, Math.min(30_000, Number(process.env.PENETRATION_CREDENTIAL_WAIT_MS) || 8_000))
+    : Math.min(60_000, Math.max(5_000, (args.timeoutSec ?? 60) * 1000))
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < maxCredentialAttempts; attempt += 1) {
     const lease = await tryAcquireAiCredential({
       ...selectionRequest(route, module, excludedCredentialIds, selectionModel ?? null),
-      waitTimeoutMs: Math.min(60_000, Math.max(5_000, (args.timeoutSec ?? 60) * 1000)),
+      waitTimeoutMs,
       leaseSeconds: Math.min(60 * 60, Math.max(60, (args.timeoutSec ?? 60) + 60)),
       ...quotaEstimate,
     })

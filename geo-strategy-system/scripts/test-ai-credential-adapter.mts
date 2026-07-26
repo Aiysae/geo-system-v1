@@ -16,6 +16,7 @@ const {
   updateAiCredentialHealth,
 } = await import("../src/lib/ai-credential-store")
 const {
+  getAdapterCredentialPoolCapacity,
   hasAdapterCredentialPoolCandidate,
   runAdapterCredentialPoolChat,
 } = await import("../src/lib/ai-credential-adapter")
@@ -83,6 +84,16 @@ assert.equal(
   await hasAdapterCredentialPoolCandidate("qwen", "penetration", strictArgs),
   true,
   "strict penetration must only see a credential with verified web evidence",
+)
+assert.deepEqual(
+  await getAdapterCredentialPoolCapacity("qwen", "penetration", strictArgs),
+  {
+    vendor: "qwen",
+    candidateCount: 1,
+    maxConcurrency: 1,
+    quotaGroupCount: 1,
+    usesFallback: false,
+  },
 )
 
 const originalFetch = globalThis.fetch

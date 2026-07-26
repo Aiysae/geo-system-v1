@@ -19,6 +19,7 @@ const {
 } = await import("../src/lib/ai-credential-store")
 const {
   acquireAiCredential,
+  getAiCredentialPoolCapacity,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
   resolveAiCredentialModel,
@@ -58,7 +59,7 @@ const second = await saveAiCredential({
   quotaGroupMaxConcurrency: 1,
   allowedModels: ["qwen-plus"],
   allowedModules: ["article", "question"],
-  declaredCapabilities: ["chat", "json", "native_web"],
+  declaredCapabilities: ["chat", "json", "native_web", "auditable_sources"],
 }, "admin-test")
 
 const serialized = readFileSync(kvFile, "utf8")
@@ -86,7 +87,7 @@ await updateAiCredentialHealth(first.id, {
 })
 await updateAiCredentialHealth(second.id, {
   status: "healthy",
-  verifiedCapabilities: ["chat", "json", "native_web"],
+  verifiedCapabilities: ["chat", "json", "native_web", "auditable_sources"],
   latencyMs: 140,
 })
 await setAiCredentialEnabled(first.id, true, "admin-test")
@@ -103,6 +104,18 @@ assert.equal(resolveAiCredentialModel(
   "qwen-stale",
   ["vision"],
 ), "qwen3-vl-plus")
+
+const articleCapacity = await getAiCredentialPoolCapacity({
+  vendor: "qwen",
+  module: "article",
+  model: "qwen-plus",
+  requiredCapabilities: ["chat"],
+})
+assert.deepEqual(articleCapacity, {
+  candidateCount: 2,
+  maxConcurrency: 1,
+  quotaGroupCount: 1,
+})
 
 const firstLease = await acquireAiCredential({
   vendor: "qwen",
@@ -134,6 +147,16 @@ const webLease = await acquireAiCredential({
 assert.equal(webLease.credential.id, second.id)
 await recordAiCredentialSuccess(webLease.credential.id, 88)
 await webLease.release()
+
+const strictWebLease = await acquireAiCredential({
+  vendor: "qwen",
+  module: "penetration",
+  model: "qwen-plus",
+  requiredCapabilities: ["native_web", "auditable_sources"],
+  waitTimeoutMs: 0,
+})
+assert.equal(strictWebLease.credential.id, second.id)
+await strictWebLease.release()
 
 const runtimeAfterSuccess = await getAiCredentialRuntime(second.id)
 assert.equal(runtimeAfterSuccess.healthStatus, "healthy")

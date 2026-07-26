@@ -6,6 +6,12 @@ export function isPermanentPenetrationProviderError(message: string): boolean {
   )
 }
 
+export function isTransientPenetrationCapacityError(message: string): boolean {
+  return /账号任务较多|排队等待超时|too many requests|rate.?limit|HTTP 429|并发(?:数|量|上限)|限流|请求过于频繁|服务繁忙|server busy|temporarily unavailable|connection pool|timeout acquiring/i.test(
+    message,
+  )
+}
+
 export function formatPenetrationProviderError(model: ModelKey, message: string): string {
   if (model === "doubao" && /AccountOverdueError|overdue balance|余额不足|欠费/i.test(message)) {
     return "火山方舟账号存在欠费，豆包联网请求已被平台拒绝。请结清火山方舟欠费或更换有余额的 API Key。"

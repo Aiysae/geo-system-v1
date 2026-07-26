@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+import { hostname } from "node:os"
 import { Job, Worker } from "bullmq"
 import {
   durableTaskQueueConnection,
@@ -5,8 +7,10 @@ import {
   durableTaskQueueNameForLane,
   enqueueDurableTask,
   isDurableTaskSource,
+  recordDurableTaskWorkerHeartbeat,
   refreshDurableTaskDispatch,
   releaseDurableTaskDispatch,
+  removeDurableTaskWorkerHeartbeat,
   type DurableTaskPayload,
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
@@ -25,6 +29,7 @@ function workerConcurrency(name: string, fallback: number): number {
 const legacyConcurrency = workerConcurrency("TASK_WORKER_CONCURRENCY", 4)
 const workerDefinitions = [
   {
+    lane: "penetration" as const,
     queueName: durableTaskQueueNameForLane("penetration"),
     concurrency: workerConcurrency(
       "TASK_WORKER_PENETRATION_CONCURRENCY",
@@ -32,6 +37,7 @@ const workerDefinitions = [
     ),
   },
   {
+    lane: "generation" as const,
     queueName: durableTaskQueueNameForLane("generation"),
     concurrency: workerConcurrency(
       "TASK_WORKER_GENERATION_CONCURRENCY",
@@ -39,16 +45,65 @@ const workerDefinitions = [
     ),
   },
   {
+    lane: "utility" as const,
     queueName: durableTaskQueueNameForLane("utility"),
     concurrency: workerConcurrency("TASK_WORKER_UTILITY_CONCURRENCY", 1),
   },
   {
+    lane: "legacy" as const,
     queueName: durableTaskQueueName(),
     concurrency: workerConcurrency("TASK_WORKER_LEGACY_CONCURRENCY", 1),
   },
 ] as const
 const prefix = String(process.env.TASK_QUEUE_PREFIX || "geo:bull")
 
+const workerStartedAt = new Date().toISOString()
+const workerId = `${hostname().replace(/[^A-Za-z0-9_.-]/g, "-")}:${process.pid}:${randomUUID()
+  .replace(/-/g, "")
+  .slice(0, 12)}`
+const heartbeatIntervalMs = Math.max(
+  5_000,
+  Math.min(60_000, Number(process.env.TASK_WORKER_HEARTBEAT_MS) || 15_000),
+)
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+async function writeWorkerHeartbeat(): Promise<void> {
+  try {
+    await recordDurableTaskWorkerHeartbeat({
+      workerId,
+      startedAt: workerStartedAt,
+      queues: workerDefinitions.map(definition => ({
+        lane: definition.lane,
+        queueName: definition.queueName,
+        concurrency: definition.concurrency,
+      })),
+    })
+  } catch (error) {
+    console.warn(
+      "[geo-worker] heartbeat failed",
+      error instanceof Error ? error.message : error,
+    )
+  }
+}
+
+function startWorkerHeartbeat(): void {
+  void writeWorkerHeartbeat()
+  heartbeatTimer = setInterval(() => {
+    void writeWorkerHeartbeat()
+  }, heartbeatIntervalMs)
+  heartbeatTimer.unref()
+}
+
+async function stopWorkerHeartbeat(): Promise<void> {
+  if (heartbeatTimer) clearInterval(heartbeatTimer)
+  heartbeatTimer = null
+  await removeDurableTaskWorkerHeartbeat(workerId).catch(error => {
+    console.warn(
+      "[geo-worker] heartbeat cleanup failed",
+      error instanceof Error ? error.message : error,
+    )
+  })
+}
 async function runTask(job: Job<DurableTaskPayload>): Promise<TaskWorkerOutcome> {
   const { source, sourceJobId } = job.data
   if (!isDurableTaskSource(source) || !sourceJobId) {
@@ -235,6 +290,7 @@ async function startWorker(): Promise<void> {
   await waitForWebProcess()
   const runPromises = workers.map(worker => worker.run())
   await Promise.all(workers.map(worker => worker.waitUntilReady()))
+  startWorkerHeartbeat()
   await recoverPendingTasks()
   await Promise.all(runPromises)
 }
@@ -255,7 +311,10 @@ async function shutdown(signal: string): Promise<void> {
   }, 30_000)
   forceTimer.unref()
   try {
-    await Promise.all(workers.map(worker => worker.close()))
+    await Promise.all([
+      stopWorkerHeartbeat(),
+      ...workers.map(worker => worker.close()),
+    ])
     clearTimeout(forceTimer)
     process.exit(0)
   } catch (error) {

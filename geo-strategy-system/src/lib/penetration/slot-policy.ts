@@ -2,12 +2,12 @@ import { isAuditableSourceUrl } from "@/lib/llm/source-extract"
 import type { PenetrationItem } from "@/types"
 
 export const PENETRATION_SLOT_RETRY_DELAYS_MS = [
-  5_000,
-  20_000,
-  60_000,
-  120_000,
+  3_000,
+  10_000,
+  30_000,
+  90_000,
+  180_000,
   300_000,
-  900_000,
 ] as const
 
 export const PENETRATION_SLOT_MAX_ATTEMPTS = PENETRATION_SLOT_RETRY_DELAYS_MS.length + 1
@@ -40,6 +40,17 @@ function deterministicRetryJitter(delayMs: number, seed: string): number {
   }
   const ratio = 0.1 + ((hash >>> 0) % 2001) / 10_000
   return Math.floor(delayMs * ratio)
+}
+
+export function nextPenetrationCapacityRetryAt(
+  deferrals: number,
+  fromMs = Date.now(),
+  jitterSeed?: string,
+): string {
+  const delays = [2_000, 4_000, 8_000, 15_000, 30_000] as const
+  const delay = delays[Math.min(delays.length - 1, Math.max(0, deferrals - 1))]
+  const jitter = jitterSeed ? deterministicRetryJitter(delay, jitterSeed) : 0
+  return new Date(fromMs + delay + jitter).toISOString()
 }
 
 export function nextPenetrationRetryAt(
