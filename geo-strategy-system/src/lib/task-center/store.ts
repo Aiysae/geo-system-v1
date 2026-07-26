@@ -19,6 +19,19 @@ type StoredTaskCenterTask = Omit<TaskCenterTaskInput, "canCancel"> & {
   canCancel: boolean
 }
 
+export type TaskCenterCancellationTarget = {
+  id: string
+  source: TaskCenterSource
+  sourceJobId: string
+  module: TaskCenterModule
+  actorUserId: string
+  workspaceOwnerUserId: string
+  clientId: string
+  status: TaskCenterStatus
+  canCancel: boolean
+  teamId?: string
+}
+
 type TaskCenterRow = {
   id: string
   source: string
@@ -508,4 +521,29 @@ export async function markAllTaskCenterTasksRead(userId: string): Promise<number
   const unread = response.tasks.filter(task => task.unread)
   await Promise.all(unread.map(task => markTaskCenterTaskRead(task.id, userId)))
   return unread.length
+}
+
+export async function getTaskCenterCancellationTarget(
+  taskIdValue: string,
+  userId: string,
+): Promise<TaskCenterCancellationTarget | null> {
+  const task = await getStored(taskIdValue)
+  if (!task || !await isAuthorizedVisible(task, userId)) return null
+
+  const teamId = typeof task.metadata?.teamId === "string"
+    ? task.metadata.teamId
+    : undefined
+
+  return {
+    id: task.id,
+    source: task.source,
+    sourceJobId: task.sourceJobId,
+    module: task.module,
+    actorUserId: task.actorUserId,
+    workspaceOwnerUserId: task.workspaceOwnerUserId,
+    clientId: task.clientId,
+    status: task.status,
+    canCancel: task.canCancel,
+    teamId,
+  }
 }

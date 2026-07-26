@@ -10,6 +10,11 @@ import { createInternalApiHeaders } from "@/lib/internal-api"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import { syncQuestionJobTask } from "@/lib/task-center/adapters"
+import {
+  clearTaskCancellation,
+  registerTaskAbortController,
+  signalTaskCancellation,
+} from "@/lib/task-cancellation"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "./question-advantages"
 import type {
   GeoStrategyPlan,
@@ -161,6 +166,11 @@ async function patchQuestionJob(
   const current = await getStoredQuestionJob(id)
   if (!current) return null
   if (current.status === "cancelled" && patch.status !== "cancelled") return current
+  if (
+    ["succeeded", "failed"].includes(current.status)
+    && patch.status
+    && patch.status !== current.status
+  ) return current
   const next = { ...current, ...patch, updatedAt: nowIso() }
   await saveStoredQuestionJob(next)
   return next
@@ -182,8 +192,14 @@ function registerAbortController(jobId: string, controller: AbortController): ()
   const controllers = activeAbortControllers.get(jobId) || new Set<AbortController>()
   controllers.add(controller)
   activeAbortControllers.set(jobId, controllers)
+  const unregisterTaskController = registerTaskAbortController(
+    "question",
+    jobId,
+    controller,
+  )
 
   return () => {
+    unregisterTaskController()
     controllers.delete(controller)
     if (controllers.size === 0) activeAbortControllers.delete(jobId)
   }
@@ -1080,12 +1096,17 @@ export async function cancelQuestionJob(id: string, ownerUserId: string): Promis
     return toPublicJob(job)
   }
 
-  await settleQuestionJobCreditsQuietly(id, 0)
   const cancelled = await patchQuestionJob(id, {
     status: "cancelled",
     error: QUESTION_JOB_CANCELLED_MESSAGE,
     finishedAt: nowIso(),
   }) || job
+  if (cancelled.status !== "cancelled") {
+    await clearTaskCancellation("question", id)
+    return toPublicJob(cancelled)
+  }
+  await signalTaskCancellation("question", id, ownerUserId)
+  await settleQuestionJobCreditsQuietly(id, 0)
 
   const controllers = activeAbortControllers.get(id)
   if (controllers) {

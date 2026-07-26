@@ -8,6 +8,11 @@ import { promisify } from "util"
 import { kv } from "@/lib/kv"
 import { syncReportJobTask } from "@/lib/task-center/adapters"
 import {
+  clearTaskCancellation,
+  registerTaskAbortController,
+  signalTaskCancellation,
+} from "@/lib/task-cancellation"
+import {
   dispatchDurableTaskOrFallback,
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
@@ -52,6 +57,10 @@ let reportQueue: Promise<void> = Promise.resolve()
 
 const jobKey = (id: string) => `geo:commercial-report-jobs:${id}`
 const historyKey = (ownerUserId: string) => `geo:commercial-report-history:${ownerUserId}`
+
+function isTerminalStatus(status: CommercialReportJobRecord["status"]): boolean {
+  return status === "succeeded" || status === "failed" || status === "cancelled"
+}
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -112,7 +121,7 @@ async function saveJob(job: StoredCommercialReportJob): Promise<void> {
   }
   await syncReportJobTask(job)
   try {
-    if (job.status === "succeeded" || job.status === "failed") {
+    if (isTerminalStatus(job.status)) {
       await kv.srem(REPORT_PENDING_SET_KEY, job.id)
     } else {
       await kv.sadd(REPORT_PENDING_SET_KEY, job.id)
@@ -258,7 +267,7 @@ async function patchJob(
   const current = await getStoredJob(id)
   if (!current) return null
   if (
-    (current.status === "succeeded" || current.status === "failed")
+    isTerminalStatus(current.status)
     && patch.status
     && patch.status !== current.status
   ) return current
@@ -319,9 +328,12 @@ async function cleanupExpiredReportFiles(directory: string): Promise<void> {
 async function runCommercialReportJob(id: string): Promise<void> {
   if (activeJobs.has(id)) return
   activeJobs.add(id)
+  let unregisterTaskController: () => void = () => undefined
   try {
     const job = await getStoredJob(id)
-    if (!job || job.status === "succeeded" || job.status === "failed") return
+    if (!job || isTerminalStatus(job.status)) return
+    const controller = new AbortController()
+    unregisterTaskController = registerTaskAbortController("report", id, controller)
 
     await patchJob(id, {
       status: "running",
@@ -362,12 +374,17 @@ async function runCommercialReportJob(id: string): Promise<void> {
           },
           timeout: 15 * 60 * 1000,
           maxBuffer: 1024 * 1024,
+          signal: controller.signal,
         },
       )
       stdout = workerResult.stdout
     } finally {
       clearInterval(progressTimer)
       await pendingProgressUpdate.catch(() => undefined)
+    }
+    const latestBeforeSave = await getStoredJob(id)
+    if (!latestBeforeSave || latestBeforeSave.status === "cancelled") {
+      throw new Error("用户已停止报告生成")
     }
     const workerResult = JSON.parse(stdout || "{}") as { fileSize?: number }
     const fileSize = workerResult.fileSize || (await fs.stat(job.filePath)).size
@@ -385,6 +402,21 @@ async function runCommercialReportJob(id: string): Promise<void> {
       finishedAt: nowIso(),
     })
   } catch (error) {
+    const current = await getStoredJob(id)
+    if (current?.status === "cancelled") {
+      await settleJobCreditsQuietly(id, false)
+      await Promise.all([
+        fs.unlink(current.inputPath).catch(() => undefined),
+        fs.unlink(current.filePath).catch(() => undefined),
+      ])
+      await patchJob(id, {
+        status: "cancelled",
+        stage: "报告生成已停止",
+        error: "用户已停止报告生成",
+        finishedAt: current.finishedAt || nowIso(),
+      })
+      return
+    }
     console.error("[commercial-report-jobs] report generation failed", id, error)
     await settleJobCreditsQuietly(id, false)
     await patchJob(id, {
@@ -395,6 +427,7 @@ async function runCommercialReportJob(id: string): Promise<void> {
       finishedAt: nowIso(),
     })
   } finally {
+    unregisterTaskController()
     activeJobs.delete(id)
   }
 }
@@ -520,6 +553,56 @@ export async function deleteCommercialReportJob(
   return "deleted"
 }
 
+export async function cancelCommercialReportJob(
+  id: string,
+  ownerUserId: string,
+): Promise<CommercialReportJobRecord | null> {
+  const job = await getStoredJob(id)
+  if (!job || job.ownerUserId !== ownerUserId) return null
+  if (isTerminalStatus(job.status)) {
+    if ((job.status === "failed" || job.status === "cancelled") && !job.creditsSettledAt) {
+      await settleJobCreditsQuietly(id, false)
+    }
+    return toPublicJob(await getStoredJob(id) || job)
+  }
+  if (job.progress >= 86) {
+    const fileSize = await fs.stat(job.filePath)
+      .then(stats => stats.size)
+      .catch(() => 0)
+    if (fileSize > 0) {
+      await settleJobCredits(id, true)
+      const succeeded = await patchJob(id, {
+        status: "succeeded",
+        progress: 100,
+        stage: "报告已生成",
+        fileSize,
+        finishedAt: job.finishedAt || nowIso(),
+      }) || job
+      return toPublicJob(succeeded)
+    }
+  }
+
+  const cancelled = await patchJob(id, {
+    status: "cancelled",
+    stage: "报告生成已停止",
+    error: "用户已停止报告生成",
+    finishedAt: nowIso(),
+  }) || job
+  if (cancelled.status !== "cancelled") {
+    await clearTaskCancellation("report", id)
+    return toPublicJob(cancelled)
+  }
+  await signalTaskCancellation("report", id, ownerUserId)
+  await settleJobCreditsQuietly(id, false)
+  if (job.status === "queued") {
+    await Promise.all([
+      fs.unlink(job.inputPath).catch(() => undefined),
+      fs.unlink(job.filePath).catch(() => undefined),
+    ])
+  }
+  return toPublicJob(await getStoredJob(id) || cancelled)
+}
+
 export async function getCommercialReportJobScope(id: string): Promise<{
   ownerUserId: string
   actorUserId: string
@@ -547,7 +630,7 @@ export async function getCommercialReportJob(
   if ((job.status === "queued" || job.status === "running") && !activeJobs.has(id) && !scheduledJobs.has(id)) {
     void dispatchReportJob(id)
   }
-  if (job.status === "failed" && !job.creditsSettledAt) {
+  if ((job.status === "failed" || job.status === "cancelled") && !job.creditsSettledAt) {
     await settleJobCreditsQuietly(id, false)
   }
   return toPublicJob(await getStoredJob(id) || job)
@@ -564,7 +647,7 @@ export async function resumePendingReportJobs(): Promise<void> {
 
   for (const id of ids) {
     const job = await getStoredJob(id)
-    if (!job || job.status === "succeeded" || job.status === "failed") {
+    if (!job || isTerminalStatus(job.status)) {
       await kv.srem(REPORT_PENDING_SET_KEY, id)
       continue
     }
@@ -576,7 +659,7 @@ export async function runReportJobFromWorker(
   id: string,
 ): Promise<TaskWorkerOutcome> {
   const job = await getStoredJob(id)
-  if (!job || job.status === "succeeded" || job.status === "failed") {
+  if (!job || isTerminalStatus(job.status)) {
     if (job) await kv.srem(REPORT_PENDING_SET_KEY, job.id)
     return {}
   }
@@ -584,7 +667,7 @@ export async function runReportJobFromWorker(
 
   await runCommercialReportJob(id)
   const latest = await getStoredJob(id)
-  if (!latest || latest.status === "succeeded" || latest.status === "failed") return {}
+  if (!latest || isTerminalStatus(latest.status)) return {}
   return { requeue: true, delayMs: 2_000 }
 }
 

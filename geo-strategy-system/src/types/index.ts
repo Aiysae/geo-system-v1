@@ -889,7 +889,12 @@ export type CommercialReportKind =
   | "diagnosis"
   | "difficulty"
 export type CommercialReportDetail = "concise" | "full"
-export type CommercialReportJobStatus = "queued" | "running" | "succeeded" | "failed"
+export type CommercialReportJobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
 export type ReportBrandingMode = "shitu" | "custom"
 
 export interface ReportBrandingSettings {

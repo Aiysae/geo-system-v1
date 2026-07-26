@@ -14,6 +14,11 @@ import { kv } from "@/lib/kv"
 import { MODEL_LABELS } from "@/lib/llm"
 import { syncDifficultyJobTask } from "@/lib/task-center/adapters"
 import {
+  clearTaskCancellation,
+  registerTaskAbortController,
+  signalTaskCancellation,
+} from "@/lib/task-cancellation"
+import {
   dispatchDurableTaskOrFallback,
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
@@ -138,7 +143,11 @@ async function patchJob(
 ): Promise<StoredDifficultyJob | null> {
   const current = await getStoredJob(id)
   if (!current) return null
-  if (current.status === "cancelled" && patch.status && patch.status !== "cancelled") return current
+  if (
+    ["succeeded", "failed", "cancelled"].includes(current.status)
+    && patch.status
+    && patch.status !== current.status
+  ) return current
   const next = { ...current, ...patch, updatedAt: nowIso() }
   await saveJob(next)
   return next
@@ -267,15 +276,23 @@ async function runStageWithFallback(
         attempts: current.attempts + 1,
       })
 
+      const controller = new AbortController()
+      const unregisterTaskController = registerTaskAbortController(
+        "difficulty",
+        jobId,
+        controller,
+      )
       try {
         const parsed = await executeDifficultyStage({
           stageKey,
           context: current.context,
           model,
+          signal: controller.signal,
         })
         await assertNotCancelled(jobId)
         return { parsed, model }
       } catch (error) {
+        await assertNotCancelled(jobId)
         if (isCancelledError(error)) throw error
         lastError = error
         const latest = await getStoredJob(jobId)
@@ -291,6 +308,8 @@ async function runStageWithFallback(
         }
         if (attempt >= MAX_MODEL_ATTEMPTS) break
         await sleep(retryDelayMs(attempt))
+      } finally {
+        unregisterTaskController()
       }
     }
   }
@@ -548,6 +567,11 @@ export async function cancelDifficultyJob(
     error: JOB_CANCELLED_MESSAGE,
     finishedAt: nowIso(),
   }) || job
+  if (cancelled.status !== "cancelled") {
+    await clearTaskCancellation("difficulty", id)
+    return toPublicJob(cancelled)
+  }
+  await signalTaskCancellation("difficulty", id, ownerUserId)
   await refundJob(id)
   return toPublicJob(await getStoredJob(id) || cancelled)
 }

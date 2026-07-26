@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
-  Bell,
   CheckCircle2,
   ChevronRight,
   CircleAlert,
   Clock3,
+  ListChecks,
   LoaderCircle,
   RefreshCw,
+  Square,
   X,
   XCircle,
 } from "lucide-react"
@@ -110,7 +111,10 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
   const [mounted, setMounted] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [actionMessage, setActionMessage] = useState("")
   const [toasts, setToasts] = useState<TaskCenterTask[]>([])
+  const [cancelTarget, setCancelTarget] = useState<TaskCenterTask | null>(null)
+  const [cancellingIds, setCancellingIds] = useState<Set<string>>(new Set())
   const previousStatusesRef = useRef(new Map<string, TaskCenterStatus>())
   const displayedIdsRef = useRef<Set<string>>(new Set())
   const initializedRef = useRef(false)
@@ -263,6 +267,41 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
     }).catch(() => undefined)
   }, [])
 
+  const cancelTask = useCallback(async (task: TaskCenterTask) => {
+    setCancellingIds(current => new Set(current).add(task.id))
+    setActionMessage("")
+    try {
+      const response = await fetch(
+        `/api/task-center/${encodeURIComponent(task.id)}/cancel`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+        },
+      )
+      const body = await response.json().catch(() => ({})) as {
+        error?: string
+        message?: string
+      }
+      if (!response.ok) {
+        throw new Error(body.error || "停止任务失败，请稍后重试")
+      }
+      setCancelTarget(null)
+      setActionMessage(body.message || "任务已停止")
+      await refresh()
+    } catch (cancelError) {
+      setActionMessage(
+        cancelError instanceof Error ? cancelError.message : "停止任务失败，请稍后重试",
+      )
+    } finally {
+      setCancellingIds(current => {
+        const next = new Set(current)
+        next.delete(task.id)
+        return next
+      })
+    }
+  }, [refresh])
+
   const activeTasks = useMemo(
     () => snapshot.tasks.filter(task => !isTaskCenterTerminalStatus(task.status)),
     [snapshot.tasks],
@@ -329,12 +368,33 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
                   <RefreshCw className="h-3.5 w-3.5" />
                 </button>
               ) : null}
+              {actionMessage ? (
+                <div className="mb-3 flex items-start justify-between gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-[#0958D9]">
+                  <span>{actionMessage}</span>
+                  <button
+                    type="button"
+                    onClick={() => setActionMessage("")}
+                    className="mt-0.5 shrink-0 text-sky-400 hover:text-[#0958D9]"
+                    aria-label="关闭任务操作提示"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
 
               {activeTasks.length > 0 ? (
                 <section>
                   <h3 className="px-1 pb-2 text-[11px] font-semibold text-slate-500">进行中</h3>
                   <div className="space-y-2">
-                    {activeTasks.map(task => <TaskRow key={task.id} task={task} onRead={markRead} />)}
+                    {activeTasks.map(task => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        onRead={markRead}
+                        onCancel={setCancelTarget}
+                        cancelling={cancellingIds.has(task.id)}
+                      />
+                    ))}
                   </div>
                 </section>
               ) : null}
@@ -354,7 +414,15 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
                 </div>
                 {recentTasks.length > 0 ? (
                   <div className="space-y-2">
-                    {recentTasks.map(task => <TaskRow key={task.id} task={task} onRead={markRead} />)}
+                    {recentTasks.map(task => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        onRead={markRead}
+                        onCancel={setCancelTarget}
+                        cancelling={cancellingIds.has(task.id)}
+                      />
+                    ))}
                   </div>
                 ) : (
                   <div className="flex min-h-40 flex-col items-center justify-center text-center text-xs text-slate-400">
@@ -365,6 +433,69 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
               </section>
             </div>
           </aside>
+        </>
+      ) : null}
+
+      {cancelTarget ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-[84] cursor-default bg-[#00133F]/45 backdrop-blur-[2px]"
+            aria-label="关闭停止任务确认"
+            onClick={() => {
+              if (!cancellingIds.has(cancelTarget.id)) setCancelTarget(null)
+            }}
+          />
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="cancel-task-title"
+            className="fixed left-1/2 top-1/2 z-[85] w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_28px_90px_-30px_rgba(0,29,102,0.72)]"
+          >
+            <div className="flex items-start gap-3 p-5">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-rose-50 text-rose-600 ring-1 ring-rose-200">
+                <Square className="h-4 w-4 fill-current" />
+              </span>
+              <div className="min-w-0">
+                <h2 id="cancel-task-title" className="text-base font-semibold text-slate-900">
+                  {cancelTarget.status === "queued" ? "取消排队任务？" : "停止正在处理的任务？"}
+                </h2>
+                <p className="mt-1.5 text-xs leading-5 text-slate-600">
+                  {cancelTarget.title}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  已完成的结果会保留并按实际完成量结算，尚未执行的部分不会继续处理。
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-3">
+              <button
+                type="button"
+                disabled={cancellingIds.has(cancelTarget.id)}
+                onClick={() => setCancelTarget(null)}
+                className="h-9 rounded-md px-4 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
+              >
+                继续任务
+              </button>
+              <button
+                type="button"
+                disabled={cancellingIds.has(cancelTarget.id)}
+                onClick={() => void cancelTask(cancelTarget)}
+                className="inline-flex h-9 min-w-24 items-center justify-center gap-1.5 rounded-md bg-rose-600 px-4 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-wait disabled:opacity-70"
+              >
+                {cancellingIds.has(cancelTarget.id) ? (
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Square className="h-3 w-3 fill-current" />
+                )}
+                {cancellingIds.has(cancelTarget.id)
+                  ? "正在停止"
+                  : cancelTarget.status === "queued"
+                    ? "取消排队"
+                    : "停止任务"}
+              </button>
+            </div>
+          </section>
         </>
       ) : null}
 
@@ -434,13 +565,14 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
         aria-label="打开任务中心"
         title={snapshot.activeCount > 0 ? `${snapshot.activeCount} 个任务正在处理` : "任务中心"}
       >
-        <Bell className="h-4 w-4" />
-        {snapshot.activeCount > 0 ? (
-          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-cyan-300 ring-2 ring-[#001D66]" />
-        ) : null}
+        <ListChecks className="h-4 w-4" />
         {snapshot.unreadCount > 0 ? (
           <span className="absolute -right-1.5 -top-1.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-4 text-white ring-2 ring-[#001D66]">
             {snapshot.unreadCount > 99 ? "99+" : snapshot.unreadCount}
+          </span>
+        ) : snapshot.activeCount > 0 ? (
+          <span className="absolute -right-1.5 -top-1.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-cyan-300 px-1 text-[9px] font-bold leading-4 text-[#003A70] ring-2 ring-[#001D66]">
+            {snapshot.activeCount > 99 ? "99+" : snapshot.activeCount}
           </span>
         ) : null}
       </button>
@@ -452,9 +584,13 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
 function TaskRow({
   task,
   onRead,
+  onCancel,
+  cancelling,
 }: {
   task: TaskCenterTask
   onRead: (taskId: string) => Promise<void>
+  onCancel: (task: TaskCenterTask) => void
+  cancelling: boolean
 }) {
   const active = !isTaskCenterTerminalStatus(task.status)
   return (
@@ -486,9 +622,29 @@ function TaskRow({
                   style={{ width: `${Math.max(3, task.progressPercent)}%` }}
                 />
               </div>
-              <div className="mt-1 flex justify-between text-[10px] text-slate-400">
-                <span>{STATUS_LABELS[task.status]}</span>
-                <span>{task.progressPercent}%</span>
+              <div className="mt-1.5 flex min-h-7 items-center justify-between gap-2">
+                <span className="text-[10px] text-slate-400">
+                  {STATUS_LABELS[task.status]} · {task.progressPercent}%
+                </span>
+                {task.canCancel ? (
+                  <button
+                    type="button"
+                    disabled={cancelling}
+                    onClick={() => onCancel(task)}
+                    className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 text-[10px] font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {cancelling ? (
+                      <LoaderCircle className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Square className="h-2.5 w-2.5 fill-current" />
+                    )}
+                    {cancelling
+                      ? "正在停止"
+                      : task.status === "queued"
+                        ? "取消排队"
+                        : "停止任务"}
+                  </button>
+                ) : null}
               </div>
             </div>
           ) : (

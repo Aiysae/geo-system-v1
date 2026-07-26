@@ -254,7 +254,7 @@ export async function GET(req: NextRequest) {
 
     if (scopedClientId) jobs = jobs.filter(job => job.clientId === scopedClientId)
     if (REPORT_KINDS.has(kind as CommercialReportKind)) jobs = jobs.filter(job => job.kind === kind)
-    if (["queued", "running", "succeeded", "failed"].includes(status)) {
+    if (["queued", "running", "succeeded", "failed", "cancelled"].includes(status)) {
       jobs = jobs.filter(job => job.status === status)
     }
     if (cutoff) jobs = jobs.filter(job => Date.parse(job.createdAt) >= cutoff)
