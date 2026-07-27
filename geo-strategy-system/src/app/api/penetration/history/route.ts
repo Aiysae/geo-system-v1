@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { listPenetrationHistoryRecords } from "@/lib/penetration/history-store"
 import {
+  getPenetrationHistoryViewerPolicy,
   isPenetrationHistoryAccessError,
 } from "@/lib/penetration/history-access"
 import { requireOperationAccess } from "@/lib/team-access"
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
 
     let ownerUserId = userGuard.userId
     let scopedClientId = clientId || undefined
+    let operationAccess: Awaited<ReturnType<typeof requireOperationAccess>> | null = null
     if (clientId) {
       const access = await requireOperationAccess({
         userId: userGuard.userId,
@@ -69,6 +71,7 @@ export async function GET(req: NextRequest) {
         action: "view",
         teamId,
       })
+      operationAccess = access
       ownerUserId = access.dataOwnerUserId
     } else {
       const access = await resolveWorkspaceAccess(userGuard.userId)
@@ -79,14 +82,36 @@ export async function GET(req: NextRequest) {
       scopedClientId = access.mode === "client" ? access.clientId : undefined
     }
 
+    if (!operationAccess && scopedClientId) {
+      operationAccess = await requireOperationAccess({
+        userId: userGuard.userId,
+        clientId: scopedClientId,
+        module: "penetration",
+        action: "view",
+      })
+    }
+
     const history = await listPenetrationHistoryRecords(ownerUserId, {
       clientId: scopedClientId,
       ...filters,
       page,
       pageSize,
     })
+    const visibleHistory = operationAccess?.mode === "client"
+      ? {
+          ...history,
+          items: (await Promise.all(history.items.map(async item => ({
+            item,
+            policy: await getPenetrationHistoryViewerPolicy({
+              userId: userGuard.userId,
+              access: operationAccess as NonNullable<typeof operationAccess>,
+              record: item,
+            }),
+          })))).filter(entry => entry.policy.visible).map(entry => entry.item),
+        }
+      : history
 
-    return NextResponse.json(history, {
+    return NextResponse.json(visibleHistory, {
       headers: { "Cache-Control": "private, no-store, max-age=0" },
     })
   } catch (error) {

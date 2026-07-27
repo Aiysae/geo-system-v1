@@ -119,10 +119,16 @@ export default function Home({
 }) {
   const restricted = access.mode === "client"
   const canViewModule = useCallback((module: DashboardModuleKey) => {
-    if (access.mode !== "team") return true
-    return hasTeamPermission(access.permissionKeys || [], module, "view")
+    if (access.mode === "standard") return true
+    if (access.mode === "team") {
+      return hasTeamPermission(access.permissionKeys || [], module, "view")
+    }
+    if (module === "penetration" || module === "feedback") {
+      return hasTeamPermission(access.permissionKeys || [], module, "view")
+    }
+    return true
   }, [access.mode, access.permissionKeys])
-  const canViewPenetrationHistory = access.mode !== "team"
+  const canViewPenetrationHistory = access.mode === "standard"
     || hasTeamPermission(access.permissionKeys || [], "penetration", "view")
   const canViewPdfHistory = access.mode === "standard"
     || (
@@ -130,7 +136,7 @@ export default function Home({
       && hasTeamPermission(access.permissionKeys || [], "report", "view")
     )
   const canOpenReportHistory = canViewPenetrationHistory || canViewPdfHistory
-  const initialModule = restricted
+  const initialModule = restricted && canViewModule("feedback")
     ? "feedback"
     : DASHBOARD_MODULES.find(module => canViewModule(module.key))?.key || "penetration"
   const [activeModule, setActiveModule] = useState<DashboardModuleKey>(
@@ -325,6 +331,8 @@ export default function Home({
           activeClientId={activeId}
           teamId={access.mode === "team" ? access.teamId : undefined}
           showPenetrationHistory={canViewPenetrationHistory}
+          showRawAnswers={access.penetrationResultDetail !== "summary"}
+          canManagePenetrationHistory={access.mode !== "client"}
           showPdfHistory={canViewPdfHistory}
           onExportPenetration={access.canCreateReports
             ? historyClient => {
@@ -831,11 +839,15 @@ function Dashboard({
             client={client}
             onChangeClient={onChangeClient}
             identityReadOnly={!access.canManageClientIdentity}
-            questionReadOnly={access.mode === "team" && !hasTeamPermission(
-              access.permissionKeys || [],
-              "penetration",
-              "edit",
-            )}
+            questionReadOnly={
+              (access.mode === "team" || access.mode === "client")
+              && !hasTeamPermission(
+                access.permissionKeys || [],
+                "penetration",
+                "edit",
+              )
+            }
+            canExecute={access.canRunPenetration}
           />
         )}
         {activeModule === "research" && (

@@ -4,6 +4,13 @@ export type ClientFeedbackReportStatus = "draft" | "published"
 export type ClientExecutionActionSource = "manual" | "system"
 export type ClientExecutionActionStatus = "planned" | "completed"
 export type ClientExecutionActionVisibility = "client" | "internal"
+export type ClientExecutionActionPublication = "internal" | "summary" | "full"
+
+export interface ClientExecutionResultRef {
+  module: "penetration"
+  resourceType: "history"
+  resourceId: string
+}
 
 export type ClientExecutionStage =
   | "baseline"
@@ -61,11 +68,29 @@ export interface ClientExecutionAction {
   platform?: string
   evidence: ClientExecutionEvidence[]
   sourceRecordId?: string
+  resultRef?: ClientExecutionResultRef
+  publication?: ClientExecutionActionPublication
   importBatchId?: string
   importedFrom?: "url_batch"
   createdByUserId: string
   createdAt: string
   updatedAt: string
+}
+
+export interface ClientExecutionPublicationOverride {
+  publication: ClientExecutionActionPublication
+  updatedAt: string
+  updatedByUserId: string
+}
+
+export interface ClientExecutionPublicationPolicy {
+  version: 1
+  ownerUserId: string
+  clientId: string
+  defaultPenetration: ClientExecutionActionPublication
+  overrides: Record<string, ClientExecutionPublicationOverride>
+  updatedAt: string
+  updatedByUserId: string
 }
 
 export interface ClientEvidenceImportRowInput {

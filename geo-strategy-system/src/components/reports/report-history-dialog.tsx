@@ -34,6 +34,8 @@ type Props = {
   activeClientId: string | null
   teamId?: string
   showPenetrationHistory?: boolean
+  showRawAnswers?: boolean
+  canManagePenetrationHistory?: boolean
   showPdfHistory?: boolean
   onExportPenetration?: (client: Client) => void
   onClose: () => void
@@ -96,6 +98,8 @@ export default function ReportHistoryDialog({
   activeClientId,
   teamId,
   showPenetrationHistory = true,
+  showRawAnswers = true,
+  canManagePenetrationHistory = true,
   showPdfHistory = true,
   onExportPenetration,
   onClose,
@@ -341,6 +345,8 @@ export default function ReportHistoryDialog({
             clients={clients}
             activeClientId={activeClientId}
             teamId={teamId}
+            showRawAnswers={showRawAnswers}
+            canManageHistory={canManagePenetrationHistory}
             onExportPenetration={onExportPenetration}
           />
         ) : (

@@ -10,6 +10,12 @@ import {
 } from "@/lib/client-feedback/store"
 import { requireOperationAccess } from "@/lib/team-access"
 import { hasTeamPermission } from "@/lib/team-permissions"
+import {
+  applyActionPublication,
+  getClientExecutionPublicationPolicy,
+  publicationForClientViewer,
+  sanitizeFeedbackReportForClient,
+} from "@/lib/client-feedback/publication"
 import { requireUserId } from "@/lib/with-credits"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import type { ClientExecutionProfile } from "@/types/client-feedback"
@@ -40,25 +46,69 @@ export async function GET(
       .find(record => record.client.id === access.clientId)?.client
     if (!client) throw new Error("客户面板不存在或无权访问")
 
-    const [profile, manualActions, systemActions, reports] = await Promise.all([
+    const [profile, manualActions, systemActions, reports, publicationPolicy] = await Promise.all([
       getClientExecutionProfile(access.dataOwnerUserId, access.clientId),
       listClientExecutionActions(access.dataOwnerUserId, access.clientId),
       listSystemClientExecutionActions(access.dataOwnerUserId, access.clientId),
       listClientFeedbackReports(access.dataOwnerUserId, access.clientId),
+      getClientExecutionPublicationPolicy(access.dataOwnerUserId, access.clientId),
     ])
-    const actions = [...manualActions, ...systemActions]
-      .filter(action => access.mode !== "client" || action.visibility === "client")
+    const actions = [
+      ...manualActions.map(action => applyActionPublication(action, publicationPolicy)),
+      ...systemActions,
+    ]
+      .map(action => {
+        if (access.mode !== "client") return action
+        let publication = publicationForClientViewer(
+          action,
+          auth.userId,
+          publicationPolicy,
+        )
+        if (
+          publication === "full"
+          && action.resultRef?.module === "penetration"
+          && !hasTeamPermission(access.permissionKeys, "penetration", "view")
+        ) {
+          publication = "summary"
+        }
+        return {
+            ...action,
+            publication,
+            visibility: publication === "internal"
+              ? "internal" as const
+              : "client" as const,
+          }
+      })
+      .filter(action => access.mode !== "client" || action.publication !== "internal")
       .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
+    const canManage = hasTeamPermission(access.permissionKeys, "feedback", "edit")
+    const canManageVisibility = hasTeamPermission(
+      access.permissionKeys,
+      "feedback",
+      "manage",
+    )
     return noStore(NextResponse.json({
       accessMode: access.mode === "client" ? "client" : "standard",
       workspaceMode: access.mode,
-      canManage: hasTeamPermission(access.permissionKeys, "feedback", "edit"),
+      canManage,
+      canManageVisibility,
+      publicationPolicy: canManageVisibility ? publicationPolicy : undefined,
       profile,
       counters: executionCounters(profile),
       currentWeek: feedbackPeriodForDate(profile, "weekly"),
       currentMonth: feedbackPeriodForDate(profile, "monthly"),
       actions,
-      reports: reports.filter(report => access.mode !== "client" || report.status === "published"),
+      reports: reports
+        .filter(report => access.mode !== "client" || report.status === "published")
+        .map(report => access.mode === "client"
+          ? sanitizeFeedbackReportForClient(report, publicationPolicy, {
+              allowPenetrationResults: hasTeamPermission(
+                access.permissionKeys,
+                "penetration",
+                "view",
+              ),
+            })
+          : report),
     }))
   } catch (error) {
     return noStore(NextResponse.json({

@@ -7,6 +7,7 @@ import {
 } from "@/lib/penetration/history-store"
 import {
   isPenetrationHistoryAccessError,
+  getPenetrationHistoryViewerPolicy,
   requirePenetrationHistoryAccess,
 } from "@/lib/penetration/history-access"
 import { requireUserId } from "@/lib/with-credits"
@@ -40,8 +41,28 @@ export async function GET(
     if (!authorized) {
       return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
     }
+    const overview = await getPenetrationHistoryOverviewRecord(
+      authorized.scope.ownerUserId,
+      historyId,
+    )
+    if (!overview) {
+      return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
+    }
+    const viewerPolicy = await getPenetrationHistoryViewerPolicy({
+      userId: userGuard.userId,
+      access: authorized.access,
+      record: overview,
+    })
+    if (!viewerPolicy.visible) {
+      return NextResponse.json({ error: "该检测报告尚未向当前客户开放" }, { status: 403 })
+    }
     const view = String(request.nextUrl.searchParams.get("view") || "full").trim()
     if (view === "answers") {
+      if (!viewerPolicy.canViewRawAnswers) {
+        return NextResponse.json({
+          error: "当前账号仅可查看报告数据概览",
+        }, { status: 403 })
+      }
       const model = String(request.nextUrl.searchParams.get("model") || "") as ModelKey
       if (!MODEL_KEYS.has(model)) {
         return NextResponse.json({ error: "请选择有效的检测模型" }, { status: 400 })
@@ -58,8 +79,8 @@ export async function GET(
         headers: { "Cache-Control": "private, no-store, max-age=0" },
       })
     }
-    const record = view === "overview"
-      ? await getPenetrationHistoryOverviewRecord(authorized.scope.ownerUserId, historyId)
+    const record = view === "overview" || !viewerPolicy.canViewRawAnswers
+      ? overview
       : await getPenetrationHistoryRecord(authorized.scope.ownerUserId, historyId)
     if (!record) {
       return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })

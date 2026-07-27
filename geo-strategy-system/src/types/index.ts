@@ -1,6 +1,7 @@
 // ============ Legacy (保留兼容 /api/generate) ============
 import type { KeywordStrategyState } from "./geo-strategy"
 import type { TeamPermissionKey, TeamRole } from "@/lib/team-permissions"
+import type { ClientPenetrationResultDetail } from "@/lib/client-account-policy"
 
 export interface BrandInput {
   brandName: string
@@ -80,6 +81,7 @@ export interface WorkspaceAccountAccess {
   dataOwnerUserId?: string
   billingUserId?: string
   permissionKeys?: TeamPermissionKey[]
+  penetrationResultDetail?: ClientPenetrationResultDetail
   canCreateClients: boolean
   canManageClientIdentity: boolean
   canRunPenetration: boolean

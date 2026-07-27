@@ -47,6 +47,7 @@ interface Props {
   onChangeClient: (patch: Partial<Client>) => void
   identityReadOnly?: boolean
   questionReadOnly?: boolean
+  canExecute?: boolean
 }
 
 type PenetrationRunParams = {
@@ -64,6 +65,7 @@ export default function PenetrationModule({
   onChangeClient,
   identityReadOnly = false,
   questionReadOnly = false,
+  canExecute = true,
 }: Props) {
   const subjectType = getClientSubjectType(client)
   const [loading, setLoading] = useState(Boolean(client.penetrationJobId))
@@ -209,6 +211,7 @@ export default function PenetrationModule({
   }, [client.penetrationJobId, onChangeClient])
 
   async function handleRun(params: PenetrationRunParams) {
+    if (!canExecute) return
     setLoading(true)
     setRetestingSampleId(params.retestSampleId || null)
     setError(null)
@@ -261,7 +264,7 @@ export default function PenetrationModule({
   }
 
   function handleRetest(model: ModelKey, item: PenetrationItem, sampleKey: string) {
-    if (loading) return
+    if (loading || !canExecute) return
     void handleRun({
       questions: [item.question],
       models: [model],
@@ -355,6 +358,7 @@ export default function PenetrationModule({
               progressLabel={progressLabel}
               identityReadOnly={identityReadOnly}
               questionReadOnly={questionReadOnly}
+              canExecute={canExecute}
             />
         </div>
 
@@ -483,7 +487,7 @@ export default function PenetrationModule({
                   brandAliases={client.brandAliases ?? []}
                   onRetest={handleRetest}
                   retestingSampleId={retestingSampleId}
-                  retestDisabled={loading}
+                  retestDisabled={loading || !canExecute}
                   subjectType={subjectType}
                 />
 

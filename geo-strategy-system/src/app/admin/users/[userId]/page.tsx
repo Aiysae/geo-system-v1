@@ -70,6 +70,7 @@ const CLIENT_AUDIT_LABEL: Record<ClientAccountAuditAction, string> = {
   updated: "更新授权",
   activated: "恢复授权",
   suspended: "暂停授权",
+  permissions_updated: "更新查看权限",
   source_revoked: "来源授权失效",
   unlinked: "解除授权",
 }

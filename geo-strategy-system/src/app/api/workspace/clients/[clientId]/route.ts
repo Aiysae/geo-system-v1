@@ -4,6 +4,7 @@ import {
   resolveWorkspaceAccess,
 } from "@/lib/client-accounts"
 import { requireOperationAccess } from "@/lib/team-access"
+import { hasTeamPermission } from "@/lib/team-permissions"
 import { workspacePermissionRequirements } from "@/lib/team-workspace-permissions"
 import { requireUserId } from "@/lib/with-credits"
 import {
@@ -80,12 +81,16 @@ export async function GET(
         ))
       }
       if (access.mode === "client") {
-        const allowed = new Set<WorkspaceSection>(["core", "penetration", "jobs"])
-        const disallowed = requestedSections.filter(section => !allowed.has(section))
-        if (disallowed.length > 0) {
+        // Client accounts may read the linked customer's existing module data.
+        // PATCH remains restricted below, so this does not grant execution or edit access.
+        const needsPenetrationView = requestedSections.includes("penetration")
+        if (
+          needsPenetrationView
+          && !hasTeamPermission(access.link.permissionKeys, "penetration", "view")
+        ) {
           return noStore(NextResponse.json({
-            error: "客户专属账号无权读取该模块",
-            code: "CLIENT_ACCOUNT_READ_ONLY",
+            error: "当前客户账号未开通疑问句检测报告权限",
+            code: "CLIENT_ACCOUNT_PERMISSION_DENIED",
           }, { status: 403 }))
         }
       }
@@ -140,6 +145,7 @@ export async function PATCH(
 
     let ownerUserId = auth.userId
     let clientAccountMode = false
+    let clientAccountCanEditPenetration = false
     if (teamId) {
       const viewAccess = await requireOperationAccess({
         userId: auth.userId,
@@ -176,9 +182,17 @@ export async function PATCH(
       }
       ownerUserId = access.ownerUserId
       clientAccountMode = access.mode === "client"
+      clientAccountCanEditPenetration = access.mode === "client"
+        && hasTeamPermission(access.link.permissionKeys, "penetration", "edit")
     }
 
     if (clientAccountMode) {
+      if (!clientAccountCanEditPenetration) {
+        return noStore(NextResponse.json({
+          error: "当前客户账号没有修改检测问题的权限",
+          code: "CLIENT_ACCOUNT_PERMISSION_DENIED",
+        }, { status: 403 }))
+      }
       const disallowed = [...Object.keys(patch), ...unsetFields]
         .filter(field => !CLIENT_ACCOUNT_ALLOWED_PATCH_FIELDS.has(String(field)))
       if (disallowed.length > 0) {

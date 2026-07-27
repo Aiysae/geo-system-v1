@@ -11,12 +11,16 @@ import {
   PauseCircle,
   PlayCircle,
   RotateCcw,
+  Save,
+  ShieldCheck,
   Unlink,
   UserPlus,
   X,
 } from "lucide-react"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type { MembershipSnapshot } from "@/types"
+import type { TeamPermissionKey } from "@/lib/team-permissions"
+import type { ClientPenetrationResultDetail } from "@/lib/client-account-policy"
 
 type ManagedAccount = {
   userId: string
@@ -26,6 +30,8 @@ type ManagedAccount = {
   status: "active" | "suspended"
   sourceStatus: "active" | "revoked"
   provisioning: "admin" | "owner"
+  permissionKeys: TeamPermissionKey[]
+  penetrationResultDetail: ClientPenetrationResultDetail
   creditBalance: number
 }
 
@@ -53,6 +59,25 @@ type Credential = {
   temporaryPassword: string
 }
 
+type PermissionDraft = {
+  feedbackView: boolean
+  penetrationView: boolean
+  penetrationExecute: boolean
+  penetrationResultDetail: ClientPenetrationResultDetail
+}
+
+function permissionDraftFromAccount(
+  account: ManagedAccount | undefined,
+): PermissionDraft | null {
+  if (!account) return null
+  return {
+    feedbackView: account.permissionKeys.includes("feedback.view"),
+    penetrationView: account.permissionKeys.includes("penetration.view"),
+    penetrationExecute: account.permissionKeys.includes("penetration.execute"),
+    penetrationResultDetail: account.penetrationResultDetail,
+  }
+}
+
 export function ClientAccountDialog({
   clientRef,
   clientName,
@@ -72,6 +97,7 @@ export function ClientAccountDialog({
   const [credential, setCredential] = useState<Credential | null>(null)
   const [transferAmount, setTransferAmount] = useState("100")
   const [showTransfer, setShowTransfer] = useState(false)
+  const [permissionDraft, setPermissionDraft] = useState<PermissionDraft | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -83,7 +109,9 @@ export function ClientAccountDialog({
       )
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "客户账号读取失败")
-      setPayload(body as AccountPayload)
+      const nextPayload = body as AccountPayload
+      setPayload(nextPayload)
+      setPermissionDraft(permissionDraftFromAccount(nextPayload.accounts[0]))
     } catch (loadError) {
       setError(toUserFacingError(loadError, {
         fallback: "客户账号读取失败，请稍后重试。",
@@ -234,6 +262,44 @@ export function ClientAccountDialog({
     }
   }
 
+  async function savePermissions(account: ManagedAccount) {
+    if (!permissionDraft) return
+    const permissionKeys: TeamPermissionKey[] = ["client.view"]
+    if (permissionDraft.feedbackView) permissionKeys.push("feedback.view")
+    if (permissionDraft.penetrationView || permissionDraft.penetrationExecute) {
+      permissionKeys.push("penetration.view")
+    }
+    if (permissionDraft.penetrationExecute) {
+      permissionKeys.push("penetration.execute", "penetration.edit")
+    }
+    setPending("permissions")
+    setError("")
+    try {
+      const response = await fetch(
+        `/api/client-accounts/${encodeURIComponent(account.userId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "permissions",
+            permissionKeys,
+            penetrationResultDetail: permissionDraft.penetrationResultDetail,
+          }),
+        },
+      )
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(body?.error || "客户权限保存失败")
+      await refreshAfterChange("客户可见权限已保存")
+    } catch (permissionError) {
+      setError(toUserFacingError(permissionError, {
+        fallback: "客户权限保存失败，请稍后重试。",
+        subject: "客户权限",
+      }))
+    } finally {
+      setPending("")
+    }
+  }
+
   async function copyCredential() {
     if (!credential) return
     await navigator.clipboard.writeText(
@@ -329,6 +395,102 @@ export function ClientAccountDialog({
                       <button type="button" disabled={pending === "credits"} onClick={() => void transferCredits(account)} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-[#1677FF] px-4 text-xs font-semibold text-white disabled:opacity-50">
                         {pending === "credits" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />}确认分配
                       </button>
+                    </div>
+                  ) : null}
+                  {permissionDraft ? (
+                    <div className="mt-4 rounded-lg border border-[#D8E8F8] bg-[#F8FBFF] p-4">
+                      <div className="flex items-start gap-2">
+                        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#1677FF]" />
+                        <div>
+                          <h4 className="text-xs font-semibold text-slate-900">客户可见权限</h4>
+                          <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                            权限由服务端校验，关闭后客户即使保留原链接也无法读取对应内容。
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-white bg-white p-3 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={permissionDraft.feedbackView}
+                            onChange={event => setPermissionDraft(current => current ? {
+                              ...current,
+                              feedbackView: event.target.checked,
+                            } : current)}
+                            className="mt-0.5 h-4 w-4 accent-[#1677FF]"
+                          />
+                          <span>
+                            <span className="block text-xs font-semibold text-slate-800">执行日历</span>
+                            <span className="mt-1 block text-[10px] leading-4 text-slate-500">查看公开动作、周报和月报</span>
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-white bg-white p-3 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={permissionDraft.penetrationView}
+                            onChange={event => setPermissionDraft(current => current ? {
+                              ...current,
+                              penetrationView: event.target.checked,
+                              penetrationExecute: event.target.checked
+                                ? current.penetrationExecute
+                                : false,
+                            } : current)}
+                            className="mt-0.5 h-4 w-4 accent-[#1677FF]"
+                          />
+                          <span>
+                            <span className="block text-xs font-semibold text-slate-800">检测报告</span>
+                            <span className="mt-1 block text-[10px] leading-4 text-slate-500">查看已向客户公开的检测结果</span>
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-white bg-white p-3 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={permissionDraft.penetrationExecute}
+                            onChange={event => setPermissionDraft(current => current ? {
+                              ...current,
+                              penetrationExecute: event.target.checked,
+                              penetrationView: event.target.checked
+                                ? true
+                                : current.penetrationView,
+                            } : current)}
+                            className="mt-0.5 h-4 w-4 accent-[#1677FF]"
+                          />
+                          <span>
+                            <span className="block text-xs font-semibold text-slate-800">自主检测</span>
+                            <span className="mt-1 block text-[10px] leading-4 text-slate-500">允许修改疑问句并发起检测</span>
+                          </span>
+                        </label>
+                      </div>
+                      <label className="mt-3 block text-[11px] font-semibold text-slate-700">
+                        检测报告内容范围
+                        <select
+                          value={permissionDraft.penetrationResultDetail}
+                          disabled={!permissionDraft.penetrationView}
+                          onChange={event => setPermissionDraft(current => current ? {
+                            ...current,
+                            penetrationResultDetail: event.target.value === "summary"
+                              ? "summary"
+                              : "full",
+                          } : current)}
+                          className="mt-1.5 h-9 w-full rounded-lg border border-[#C8D9E8] bg-white px-3 text-xs font-normal outline-none focus:border-[#1677FF] disabled:bg-slate-100 disabled:text-slate-400"
+                        >
+                          <option value="full">完整报告（含原始回答与信源）</option>
+                          <option value="summary">数据概览（不含原始回答与信源）</option>
+                        </select>
+                      </label>
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          disabled={pending === "permissions"}
+                          onClick={() => void savePermissions(account)}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1677FF] px-3 text-xs font-semibold text-white disabled:opacity-50"
+                        >
+                          {pending === "permissions"
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <Save className="h-4 w-4" />}
+                          保存权限
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                 </section>

@@ -6,6 +6,11 @@ import {
   revokeClientFeedbackShare,
 } from "@/lib/client-feedback/store"
 import { requireOperationAccess } from "@/lib/team-access"
+import { hasTeamPermission } from "@/lib/team-permissions"
+import {
+  getClientExecutionPublicationPolicy,
+  sanitizeFeedbackReportForClient,
+} from "@/lib/client-feedback/publication"
 import { requireUserId } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
@@ -33,7 +38,23 @@ export async function GET(
     ) {
       return NextResponse.json({ error: "报告不存在或无权访问" }, { status: 404 })
     }
-    return NextResponse.json({ report })
+    const responseReport = access.mode === "client"
+      ? sanitizeFeedbackReportForClient(
+          report,
+          await getClientExecutionPublicationPolicy(
+            access.dataOwnerUserId,
+            access.clientId,
+          ),
+          {
+            allowPenetrationResults: hasTeamPermission(
+              access.permissionKeys,
+              "penetration",
+              "view",
+            ),
+          },
+        )
+      : report
+    return NextResponse.json({ report: responseReport })
   } catch (error) {
     return NextResponse.json({
       error: error instanceof Error ? error.message : "反馈报告读取失败",
@@ -53,7 +74,7 @@ export async function PATCH(
       userId: auth.userId,
       clientId,
       module: "feedback",
-      action: "execute",
+      action: "manage",
     })
     const body = await request.json() as { action?: unknown }
     if (body.action === "revoke-share") {

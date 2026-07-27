@@ -19,6 +19,7 @@ import {
   RefreshCw,
   UserRound,
   Check,
+  LockKeyhole,
 } from "lucide-react"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
@@ -80,6 +81,7 @@ interface Props {
   progressLabel?: string
   identityReadOnly?: boolean
   questionReadOnly?: boolean
+  canExecute?: boolean
 }
 
 export default function BatchInputPanel({
@@ -95,6 +97,7 @@ export default function BatchInputPanel({
   progressLabel,
   identityReadOnly = false,
   questionReadOnly = false,
+  canExecute = true,
 }: Props) {
   const [questionsText, setQuestionsText] = useState(() => client.questions.join("\n"))
   const [brandAliasesText, setBrandAliasesText] = useState(() => (client.brandAliases ?? []).join("\n"))
@@ -367,6 +370,7 @@ export default function BatchInputPanel({
   }
 
   function handleRun() {
+    if (!canExecute) return
     const questions = parseLines(questionsText)
     const brandAliases = identityReadOnly
       ? client.brandAliases ?? []
@@ -433,7 +437,7 @@ export default function BatchInputPanel({
     [currentQuestions, currentQuestionIntents, eligibleModelCount, plannedSlots],
   )
   const canRun =
-    !loading && client.ourBrand.trim().length > 0 && questionCount > 0 && eligibleSelectedModels.length > 0
+    canExecute && !loading && client.ourBrand.trim().length > 0 && questionCount > 0 && eligibleSelectedModels.length > 0
   const canAiRun =
     !aiLoading
     && aiSettings.categories.length > 0
@@ -1047,12 +1051,21 @@ export default function BatchInputPanel({
         </div>
       )}
 
+      {!canExecute ? (
+        <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs leading-5 text-sky-800">
+          <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          当前账号可查看已公开的检测报告，但不能发起新的检测。
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 border-t border-slate-200/70 pt-4 lg:flex-row lg:items-center lg:justify-between">
-        <CreditCostBadge
-          featureKey="penetrationSlot"
-          units={Math.max(1, questionCount * eligibleSelectedModels.length)}
-          className="w-fit"
-        />
+        {canExecute ? (
+          <CreditCostBadge
+            featureKey="penetrationSlot"
+            units={Math.max(1, questionCount * eligibleSelectedModels.length)}
+            className="w-fit"
+          />
+        ) : <span />}
 
         {loading ? (
           <Button

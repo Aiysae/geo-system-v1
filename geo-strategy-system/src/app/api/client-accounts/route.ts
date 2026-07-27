@@ -130,6 +130,8 @@ export async function GET(request: NextRequest) {
         sourceStatus: source.ok ? "active" : "revoked",
         billingMode: link.billingMode,
         provisioning: link.provisioning,
+        permissionKeys: link.permissionKeys,
+        penetrationResultDetail: link.penetrationResultDetail,
         creditBalance: creditBalance.total,
         createdAt: link.createdAt,
         updatedAt: link.updatedAt,

@@ -23,6 +23,11 @@ import type {
   ClientFeedbackReport,
   ClientFeedbackReportType,
 } from "@/types/client-feedback"
+import {
+  getClientExecutionPublicationPolicy,
+  normalizeActionPublication,
+  sanitizeFeedbackReportForClient,
+} from "@/lib/client-feedback/publication"
 
 const profileKey = (ownerUserId: string, clientId: string) => (
   `geo:client-feedback:profile:${ownerUserId}:${clientId}`
@@ -363,6 +368,19 @@ function buildClientExecutionAction(input: {
         })).filter(item => /^https?:\/\//i.test(item.url)).slice(0, 20)
       : [],
     sourceRecordId: cleanText(input.value.sourceRecordId, 240) || undefined,
+    resultRef: input.value.resultRef?.module === "penetration"
+      && input.value.resultRef.resourceType === "history"
+      && cleanText(input.value.resultRef.resourceId, 240)
+      ? {
+          module: "penetration",
+          resourceType: "history",
+          resourceId: cleanText(input.value.resultRef.resourceId, 240),
+        }
+      : undefined,
+    publication: normalizeActionPublication(
+      input.value.publication,
+      visibility === "client" ? "summary" : "internal",
+    ),
     importBatchId: cleanText(input.value.importBatchId, 120) || undefined,
     importedFrom: input.value.importedFrom === "url_batch" ? "url_batch" : undefined,
     createdByUserId: input.actorUserId,
@@ -647,5 +665,11 @@ export async function getSharedClientFeedbackReport(token: string): Promise<Clie
   if (!report || report.clientId !== ref.clientId || report.status !== "published" || !report.shareEnabled) {
     return null
   }
-  return report
+  const policy = await getClientExecutionPublicationPolicy(
+    report.ownerUserId,
+    report.clientId,
+  )
+  return sanitizeFeedbackReportForClient(report, policy, {
+    allowPenetrationResults: false,
+  })
 }

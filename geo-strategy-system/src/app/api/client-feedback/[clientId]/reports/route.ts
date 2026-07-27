@@ -6,6 +6,11 @@ import {
   listClientFeedbackReports,
 } from "@/lib/client-feedback/store"
 import { requireOperationAccess } from "@/lib/team-access"
+import { hasTeamPermission } from "@/lib/team-permissions"
+import {
+  getClientExecutionPublicationPolicy,
+  sanitizeFeedbackReportForClient,
+} from "@/lib/client-feedback/publication"
 import { requireUserId } from "@/lib/with-credits"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import type { ClientFeedbackReportType } from "@/types/client-feedback"
@@ -27,9 +32,22 @@ export async function GET(
       module: "feedback",
       action: "view",
     })
-    const reports = await listClientFeedbackReports(access.dataOwnerUserId, access.clientId)
+    const [reports, publicationPolicy] = await Promise.all([
+      listClientFeedbackReports(access.dataOwnerUserId, access.clientId),
+      getClientExecutionPublicationPolicy(access.dataOwnerUserId, access.clientId),
+    ])
     return NextResponse.json({
-      reports: reports.filter(report => access.mode !== "client" || report.status === "published"),
+      reports: reports
+        .filter(report => access.mode !== "client" || report.status === "published")
+        .map(report => access.mode === "client"
+          ? sanitizeFeedbackReportForClient(report, publicationPolicy, {
+              allowPenetrationResults: hasTeamPermission(
+                access.permissionKeys,
+                "penetration",
+                "view",
+              ),
+            })
+          : report),
     })
   } catch (error) {
     return NextResponse.json({
@@ -50,7 +68,7 @@ export async function POST(
       userId: auth.userId,
       clientId,
       module: "feedback",
-      action: "execute",
+      action: "edit",
     })
     const body = await request.json() as { type?: unknown; targetDate?: unknown }
     const type: ClientFeedbackReportType = body.type === "monthly" ? "monthly" : "weekly"

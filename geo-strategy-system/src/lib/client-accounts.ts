@@ -4,6 +4,11 @@ import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
 import { hasTeamPermission } from "@/lib/team-permissions"
 import {
+  normalizeClientAccountPermissionPolicy,
+  type ClientPenetrationResultDetail,
+} from "@/lib/client-account-policy"
+import type { TeamPermissionKey } from "@/lib/team-permissions"
+import {
   getTeam,
   getTeamClientShare,
   getTeamMember,
@@ -14,7 +19,7 @@ import type {
 } from "@/types"
 
 export type ClientAccountLink = {
-  version: 2
+  version: 3
   userId: string
   parentUserId: string
   dataOwnerUserId: string
@@ -31,6 +36,8 @@ export type ClientAccountLink = {
   monthlyCredits: number
   provisioning: "admin" | "owner"
   billingMode: "monthly_grant" | "self_funded"
+  permissionKeys: TeamPermissionKey[]
+  penetrationResultDetail: ClientPenetrationResultDetail
   grantedByUserId: string
   createdAt: string
   updatedAt: string
@@ -43,6 +50,7 @@ export type ClientAccountAuditAction =
   | "suspended"
   | "source_revoked"
   | "unlinked"
+  | "permissions_updated"
 
 export type ClientAccountAuditEntry = {
   id: string
@@ -120,11 +128,11 @@ function cleanMonthlyCredits(value: unknown): number {
 function normalizeLink(value: unknown): ClientAccountLink | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const input = value as Partial<Omit<ClientAccountLink, "version">> & {
-    version?: 1 | 2
+    version?: 1 | 2 | 3
     ownerUserId?: string
   }
   if (
-    (input.version !== 1 && input.version !== 2)
+    (input.version !== 1 && input.version !== 2 && input.version !== 3)
     || !input.userId
     || !input.ownerUserId
     || !input.clientId
@@ -137,9 +145,10 @@ function normalizeLink(value: unknown): ClientAccountLink | null {
   const sourceType = input.sourceType === "team" ? "team" : "personal"
   const teamId = sourceType === "team" ? String(input.teamId || "").trim() : ""
   if (sourceType === "team" && !teamId) return null
+  const permissionPolicy = normalizeClientAccountPermissionPolicy(input)
 
   return {
-    version: 2,
+    version: 3,
     userId: String(input.userId),
     parentUserId,
     dataOwnerUserId,
@@ -152,6 +161,8 @@ function normalizeLink(value: unknown): ClientAccountLink | null {
     monthlyCredits: cleanMonthlyCredits(input.monthlyCredits),
     provisioning: input.provisioning === "owner" ? "owner" : "admin",
     billingMode: input.billingMode === "self_funded" ? "self_funded" : "monthly_grant",
+    permissionKeys: permissionPolicy.permissionKeys,
+    penetrationResultDetail: permissionPolicy.penetrationResultDetail,
     grantedByUserId: String(input.grantedByUserId || ""),
     createdAt: String(input.createdAt || ""),
     updatedAt: String(input.updatedAt || ""),
@@ -186,7 +197,7 @@ export async function getClientAccountLink(userId: string): Promise<ClientAccoun
   if (!link) {
     throw new Error("客户专属授权数据异常，请联系管理员检查")
   }
-  if ((stored as { version?: number }).version !== 2) {
+  if ((stored as { version?: number }).version !== 3) {
     await Promise.all([
       kv.set(KEY_LINK(userId), link),
       kv.sadd(KEY_PARENT_INDEX(link.parentUserId), userId),
@@ -364,6 +375,8 @@ export async function saveClientAccountLink(input: {
   status?: ClientAccountStatus
   provisioning?: ClientAccountLink["provisioning"]
   billingMode?: ClientAccountLink["billingMode"]
+  permissionKeys?: TeamPermissionKey[]
+  penetrationResultDetail?: ClientPenetrationResultDetail
   operatorUserId: string
 }): Promise<ClientAccountLink> {
   const userId = cleanId(input.userId, "用户")
@@ -394,8 +407,13 @@ export async function saveClientAccountLink(input: {
     throw new Error("该客户面板已经关联了一个客户专属账号")
   }
   const now = new Date().toISOString()
+  const permissionPolicy = normalizeClientAccountPermissionPolicy({
+    permissionKeys: input.permissionKeys ?? existing?.permissionKeys,
+    penetrationResultDetail: input.penetrationResultDetail
+      ?? existing?.penetrationResultDetail,
+  })
   const link: ClientAccountLink = {
-    version: 2,
+    version: 3,
     userId,
     parentUserId,
     dataOwnerUserId,
@@ -408,6 +426,8 @@ export async function saveClientAccountLink(input: {
     monthlyCredits: cleanMonthlyCredits(input.monthlyCredits ?? existing?.monthlyCredits ?? 1000),
     provisioning: input.provisioning || existing?.provisioning || "admin",
     billingMode: input.billingMode || existing?.billingMode || "monthly_grant",
+    permissionKeys: permissionPolicy.permissionKeys,
+    penetrationResultDetail: permissionPolicy.penetrationResultDetail,
     grantedByUserId: cleanId(input.operatorUserId, "授权人"),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
@@ -427,6 +447,32 @@ export async function saveClientAccountLink(input: {
   await writeAudit({
     userId,
     action: existing ? "updated" : "linked",
+    operatorUserId: input.operatorUserId,
+    before: existing,
+    after: link,
+  })
+  return link
+}
+
+export async function setClientAccountPermissions(input: {
+  userId: string
+  permissionKeys: TeamPermissionKey[]
+  penetrationResultDetail: ClientPenetrationResultDetail
+  operatorUserId: string
+}): Promise<ClientAccountLink> {
+  const existing = await getClientAccountLink(input.userId)
+  if (!existing) throw new Error("该用户还没有客户专属授权")
+  const policy = normalizeClientAccountPermissionPolicy(input)
+  const link: ClientAccountLink = {
+    ...existing,
+    permissionKeys: policy.permissionKeys,
+    penetrationResultDetail: policy.penetrationResultDetail,
+    updatedAt: new Date().toISOString(),
+  }
+  await kv.set(KEY_LINK(link.userId), link)
+  await writeAudit({
+    userId: link.userId,
+    action: "permissions_updated",
     operatorUserId: input.operatorUserId,
     before: existing,
     after: link,
@@ -512,6 +558,8 @@ export async function restoreClientAccountLink(input: {
     status: "active",
     provisioning: previous.provisioning,
     billingMode: previous.billingMode,
+    permissionKeys: previous.permissionKeys,
+    penetrationResultDetail: previous.penetrationResultDetail,
     operatorUserId: input.operatorUserId,
   })
 }
@@ -532,6 +580,8 @@ export async function getWorkspaceAccountAccess(userId: string): Promise<Workspa
     }
   }
   const source = await getClientAccountSourceState(link)
+  const permissionPolicy = normalizeClientAccountPermissionPolicy(link)
+  const active = link.status === "active" && source.ok
   return {
     mode: "client",
     status: link.status === "active" && source.ok ? "active" : "suspended",
@@ -542,10 +592,14 @@ export async function getWorkspaceAccountAccess(userId: string): Promise<Workspa
     monthlyCredits: link.monthlyCredits,
     canCreateClients: false,
     canManageClientIdentity: false,
-    canRunPenetration: link.status === "active" && source.ok,
+    permissionKeys: permissionPolicy.permissionKeys,
+    penetrationResultDetail: permissionPolicy.penetrationResultDetail,
+    canRunPenetration: active
+      && hasTeamPermission(permissionPolicy.permissionKeys, "penetration", "execute"),
     canRunOtherModules: false,
     canCreateReports: false,
-    canViewFeedbackReports: true,
+    canViewFeedbackReports: active
+      && hasTeamPermission(permissionPolicy.permissionKeys, "feedback", "view"),
     canManageFeedbackReports: false,
   }
 }

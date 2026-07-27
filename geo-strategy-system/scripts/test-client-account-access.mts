@@ -16,14 +16,20 @@ process.env.CREDITS_INITIAL = "50"
 const {
   canRunBillableFeature,
   deleteClientAccountLink,
+  getClientAccountLink,
   getRecoverableClientAccountLink,
   getWorkspaceAccountAccess,
   listClientAccountAudit,
   resolveWorkspaceAccess,
   restoreClientAccountLink,
   saveClientAccountLink,
+  setClientAccountPermissions,
   setClientAccountStatus,
 } = await import("../src/lib/client-accounts")
+const { kv } = await import("../src/lib/kv")
+const {
+  normalizeClientAccountPermissionPolicy,
+} = await import("../src/lib/client-account-policy")
 const {
   getCreditBalanceSnapshot,
   initializeManagedAccountCredits,
@@ -62,6 +68,44 @@ const client: Client = {
 }
 
 try {
+  const normalizedPermissionDependency = normalizeClientAccountPermissionPolicy({
+    permissionKeys: ["client.view", "penetration.execute"],
+    penetrationResultDetail: "summary",
+  })
+  assert.equal(
+    normalizedPermissionDependency.permissionKeys.includes("penetration.view"),
+    true,
+    "penetration execution permission must imply view permission",
+  )
+
+  const legacyUserId = "legacy-client-link"
+  await kv.set(`client_account:link:${legacyUserId}`, {
+    version: 2,
+    userId: legacyUserId,
+    parentUserId: ownerUserId,
+    dataOwnerUserId: ownerUserId,
+    sourceType: "personal",
+    ownerUserId,
+    clientId: "legacy-client-contract",
+    clientName: "旧版客户授权",
+    status: "active",
+    monthlyCredits: 1000,
+    provisioning: "owner",
+    billingMode: "monthly_grant",
+    grantedByUserId: operatorUserId,
+    createdAt: now,
+    updatedAt: now,
+  })
+  const migratedLegacyLink = await getClientAccountLink(legacyUserId)
+  assert.equal(migratedLegacyLink?.version, 3)
+  assert.equal(migratedLegacyLink?.permissionKeys.includes("feedback.view"), true)
+  assert.equal(migratedLegacyLink?.penetrationResultDetail, "full")
+  assert.equal(
+    (await kv.get<{ version?: number }>(`client_account:link:${legacyUserId}`))?.version,
+    3,
+    "legacy links must be persisted in the current schema after the first read",
+  )
+
   await createWorkspaceClient(ownerUserId, client)
   const link = await saveClientAccountLink({
     userId: clientUserId,
@@ -72,7 +116,7 @@ try {
     operatorUserId,
   })
   assert.equal(link.status, "active")
-  assert.equal(link.version, 2)
+  assert.equal(link.version, 3)
   assert.equal(link.parentUserId, ownerUserId)
   assert.equal(link.dataOwnerUserId, ownerUserId)
   assert.equal(link.sourceType, "personal")
@@ -89,6 +133,33 @@ try {
   assert.equal(access.canCreateReports, false)
   assert.equal(access.canViewFeedbackReports, true)
   assert.equal(access.canManageFeedbackReports, false)
+  assert.equal(access.penetrationResultDetail, "full")
+  assert.equal(access.permissionKeys?.includes("feedback.view"), true)
+
+  await setClientAccountPermissions({
+    userId: clientUserId,
+    permissionKeys: ["client.view", "penetration.view"],
+    penetrationResultDetail: "summary",
+    operatorUserId,
+  })
+  const restrictedAccess = await getWorkspaceAccountAccess(clientUserId)
+  assert.equal(restrictedAccess.canRunPenetration, false)
+  assert.equal(restrictedAccess.canViewFeedbackReports, false)
+  assert.equal(restrictedAccess.penetrationResultDetail, "summary")
+
+  await setClientAccountPermissions({
+    userId: clientUserId,
+    permissionKeys: [
+      "client.view",
+      "penetration.view",
+      "penetration.execute",
+      "penetration.edit",
+      "feedback.view",
+    ],
+    penetrationResultDetail: "full",
+    operatorUserId,
+  })
+  assert.equal((await getWorkspaceAccountAccess(clientUserId)).canRunPenetration, true)
 
   const allowedScope = await resolveWorkspaceAccess(clientUserId, client.id)
   assert.equal(allowedScope.ok, true)
@@ -205,7 +276,13 @@ try {
   const audit = await listClientAccountAudit(clientUserId)
   assert.deepEqual(
     audit.map(entry => entry.action).sort(),
-    ["activated", "linked", "suspended"].sort(),
+    [
+      "activated",
+      "linked",
+      "permissions_updated",
+      "permissions_updated",
+      "suspended",
+    ].sort(),
   )
 
   const managedChildUserId = "owner-created-managed-child"

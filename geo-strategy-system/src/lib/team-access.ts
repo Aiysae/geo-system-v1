@@ -128,16 +128,6 @@ export async function assertTeamSeatAvailable(teamId: string): Promise<TeamEntit
   return entitlement
 }
 
-function clientAccountPermissions(): TeamPermissionKey[] {
-  return [
-    "client.view",
-    "penetration.view",
-    "penetration.execute",
-    "penetration.edit",
-    "feedback.view",
-  ]
-}
-
 async function personalClientExists(userId: string, clientId: string): Promise<boolean> {
   if (!clientId) return false
   return (await listWorkspaceClients(userId)).some(record => record.client.id === clientId)
@@ -231,7 +221,7 @@ export async function resolveOperationAccess(input: {
         message: source.message,
       }
     }
-    const permissions = clientAccountPermissions()
+    const permissions = clientLink.permissionKeys
     if (!hasTeamPermission(permissions, input.module, input.action)) {
       return {
         ok: false,
