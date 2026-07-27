@@ -13,6 +13,7 @@ import {
 } from "@/lib/ai-credential-router"
 import { ADAPTERS } from "@/lib/llm"
 import { BaiduWebSearchError } from "@/lib/llm/baidu-ai-search"
+import { assertStrictPenetrationBlindArgs } from "@/lib/llm/blind-request-audit"
 import type { ChatArgs } from "@/lib/llm/openai-compat"
 import type { ModelKey } from "@/types"
 import type {
@@ -39,16 +40,16 @@ function isStrictWebCall(module: AiCredentialModule, args: Partial<ChatArgs>): b
     && args.mode === "consumer"
 }
 
-function isKimiAuditableWebCall(
+function usesAuditableExternalSearch(
   model: ModelKey,
   module: AiCredentialModule,
   args: Partial<ChatArgs>,
 ): boolean {
-  return model === "kimi" && isStrictWebCall(module, args)
+  return (model === "kimi" || model === "deepseek")
+    && isStrictWebCall(module, args)
 }
 
 function strictCredentialVendor(model: ModelKey): ModelKey {
-  if (model === "deepseek") return "qwen"
   return model
 }
 
@@ -75,7 +76,7 @@ async function resolveAdapterCredentialRoute(
     targetModel,
     selectionModel,
     requiredCapabilities: strictWeb
-      ? model === "kimi"
+      ? model === "kimi" || model === "deepseek"
         ? ["chat"]
         : ["native_web", "auditable_sources"]
       : args.jsonMode
@@ -105,7 +106,7 @@ function selectionRequest(
   }
 }
 
-function kimiSearchSelectionRequest(
+function externalSearchSelectionRequest(
   module: AiCredentialModule,
   excludeCredentialIds?: string[],
 ): AiCredentialSelectionRequest {
@@ -146,10 +147,10 @@ export async function hasAdapterCredentialPoolCandidate(
   args: Partial<ChatArgs> = {},
 ): Promise<boolean> {
   const route = await resolveAdapterCredentialRoute(model, module, args)
-  if (isKimiAuditableWebCall(model, module, args)) {
+  if (usesAuditableExternalSearch(model, module, args)) {
     const [generationReady, searchReady] = await Promise.all([
       hasRouteCandidate(route, module),
-      hasAiCredentialCandidate(kimiSearchSelectionRequest(module)),
+      hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
     ])
     return generationReady && searchReady
   }
@@ -170,13 +171,13 @@ export async function getAdapterCredentialPoolCapacity(
   args: Partial<ChatArgs> = {},
 ): Promise<AdapterCredentialPoolCapacity> {
   const route = await resolveAdapterCredentialRoute(model, module, args)
-  if (isKimiAuditableWebCall(model, module, args)) {
+  if (usesAuditableExternalSearch(model, module, args)) {
     const [generationPool, searchPool] = await Promise.all([
       routePoolCapacity(route, module),
-      getAiCredentialPoolCapacity(kimiSearchSelectionRequest(module)),
+      getAiCredentialPoolCapacity(externalSearchSelectionRequest(module)),
     ])
     const [generationFallback, searchFallback] = await Promise.all([
-      generationPool.candidateCount === 0 ? ADAPTERS.kimi.configured() : false,
+      generationPool.candidateCount === 0 ? ADAPTERS[model].configured() : false,
       searchPool.candidateCount === 0 ? ADAPTERS.ernie.configured() : false,
     ])
     const generationCount = generationPool.candidateCount || (generationFallback ? 1 : 0)
@@ -219,22 +220,24 @@ export async function isAdapterCredentialConfigured(
   args: Partial<ChatArgs> = {},
 ): Promise<boolean> {
   if (await hasAdapterCredentialPoolCandidate(model, module, args)) return true
-  if (isKimiAuditableWebCall(model, module, args)) {
-    const [kimiConfigured, searchConfigured] = await Promise.all([
-      ADAPTERS.kimi.configured(),
+  if (usesAuditableExternalSearch(model, module, args)) {
+    const [generationConfigured, searchConfigured] = await Promise.all([
+      ADAPTERS[model].configured(),
       ADAPTERS.ernie.configured(),
     ])
-    return kimiConfigured && searchConfigured
+    return generationConfigured && searchConfigured
   }
   const route = await resolveAdapterCredentialRoute(model, module, args)
   return ADAPTERS[route.vendor].configured()
 }
 
-async function runKimiAuditableCredentialPoolChat(
+async function runAuditableExternalCredentialPoolChat(
+  model: ModelKey,
   module: AiCredentialModule,
   args: ChatArgs,
 ): Promise<string> {
-  const route = await resolveAdapterCredentialRoute("kimi", module, args)
+  const route = await resolveAdapterCredentialRoute(model, module, args)
+  const label = ADAPTERS[model].label
   const generationExactRequest = selectionRequest(route, module)
   const generationModel = route.selectionModel
     && await hasAiCredentialCandidate(generationExactRequest)
@@ -242,10 +245,10 @@ async function runKimiAuditableCredentialPoolChat(
     : undefined
   const [hasGenerationPool, hasSearchPool] = await Promise.all([
     hasRouteCandidate(route, module),
-    hasAiCredentialCandidate(kimiSearchSelectionRequest(module)),
+    hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
   ])
   if (!hasGenerationPool || !hasSearchPool) {
-    return ADAPTERS.kimi.chat(args)
+    return ADAPTERS[model].chat(args)
   }
 
   const excludedGenerationIds: string[] = []
@@ -278,34 +281,36 @@ async function runKimiAuditableCredentialPoolChat(
       ...quotaEstimate,
     })
     if (!generationLease) {
-      lastError = new Error("Kimi 生成账号池当前繁忙或暂无可用账号")
+      lastError = new Error(`${label} 生成账号池当前繁忙或暂无可用账号`)
       break
     }
 
     let searchLease: AiCredentialLease | null = null
     try {
       searchLease = await tryAcquireAiCredential({
-        ...kimiSearchSelectionRequest(module, excludedSearchIds),
+        ...externalSearchSelectionRequest(module, excludedSearchIds),
         waitTimeoutMs,
         leaseSeconds,
       })
       if (!searchLease) {
-        lastError = new Error("Kimi 联网搜索账号池当前繁忙或暂无可用账号")
+        lastError = new Error(`${label} 联网搜索账号池当前繁忙或暂无可用账号`)
         continue
       }
 
-      const selectedModel = resolveAiCredentialModel(
-        generationLease.credential,
-        generationModel || route.targetModel,
-        route.requiredCapabilities,
-      )
-      if (!selectedModel) throw new Error("Kimi 可用账号未配置模型")
+      const selectedModel = route.fixedTargetModel
+        ? route.targetModel
+        : resolveAiCredentialModel(
+            generationLease.credential,
+            generationModel || route.targetModel,
+            route.requiredCapabilities,
+          )
+      if (!selectedModel) throw new Error(`${label} 可用账号未配置模型`)
       const startedAt = Date.now()
       try {
-        const result = await ADAPTERS.kimi.chat({
+        const result = await ADAPTERS[model].chat({
           ...args,
           runtimeOverride: {
-            vendor: "kimi",
+            vendor: model,
             baseUrl: generationLease.credential.baseUrl,
             chatPath: generationLease.credential.chatPath,
             apiKey: generationLease.credential.apiKey,
@@ -339,7 +344,7 @@ async function runKimiAuditableCredentialPoolChat(
         }
         if (!shouldFailOverAiCredential(error)) throw error
         console.warn(
-          "[ai-credential-adapter] kimi/penetration 当前账号不可用，尝试下一账号。",
+          `[ai-credential-adapter] ${model}/penetration 当前账号不可用，尝试下一账号。`,
         )
       }
     } finally {
@@ -352,7 +357,7 @@ async function runKimiAuditableCredentialPoolChat(
 
   throw lastError instanceof Error
     ? lastError
-    : new Error("Kimi 严格联网暂无可用账号")
+    : new Error(`${label} 严格联网暂无可用账号`)
 }
 
 export async function runAdapterCredentialPoolChat(
@@ -360,8 +365,9 @@ export async function runAdapterCredentialPoolChat(
   module: AiCredentialModule,
   args: ChatArgs,
 ): Promise<string> {
-  if (isKimiAuditableWebCall(model, module, args)) {
-    return runKimiAuditableCredentialPoolChat(module, args)
+  if (module === "penetration") assertStrictPenetrationBlindArgs(args)
+  if (usesAuditableExternalSearch(model, module, args)) {
+    return runAuditableExternalCredentialPoolChat(model, module, args)
   }
   const route = await resolveAdapterCredentialRoute(model, module, args)
   const excludedCredentialIds: string[] = []

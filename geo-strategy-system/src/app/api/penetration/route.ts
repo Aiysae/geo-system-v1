@@ -6,6 +6,7 @@ import type {
   PenetrationMentionedEntity,
   PenetrationItem,
   PenetrationPromptPurity,
+  PenetrationRequestAudit,
   PenetrationSource,
   PenetrationSearchMode,
   SourceDomainCount,
@@ -371,9 +372,9 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
 
   if (model === "deepseek") {
     return {
-      searchMode: "native_web",
+      searchMode: "external_tool_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式使用百炼托管 DeepSeek V4 强制联网，并返回结构化网页来源。",
+      webVerificationNote: "严格模式由 DeepSeek 官方 V4 模型作答，并通过百度公开搜索返回完整可审计网址。",
     }
   }
 
@@ -387,9 +388,9 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
 
   if (model === "kimi") {
     return {
-      searchMode: "native_web",
+      searchMode: "external_tool_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式通过百度 AI 搜索调用 Kimi K2.6，强制联网并返回网页 references。",
+      webVerificationNote: "严格模式由 Moonshot 官方 Kimi 作答，并通过百度公开搜索返回完整可审计网址。",
     }
   }
 
@@ -410,6 +411,7 @@ function buildAuditFields(
     webFailureReason?: string | null
     webExecutionVerified?: boolean
     providerRequestIds?: string[]
+    requestAudits?: PenetrationRequestAudit[]
     answerReceived?: boolean
   } = {}
 ): Pick<
@@ -419,6 +421,8 @@ function buildAuditFields(
   | "webAttempted"
   | "webExecutionVerified"
   | "providerRequestIds"
+  | "requestAuditVerified"
+  | "requestAudits"
   | "searchQueries"
   | "webFailureReason"
   | "sourceCount"
@@ -429,24 +433,32 @@ function buildAuditFields(
   const webFailureReason = overrides.webFailureReason ?? null
   const webExecutionVerified = overrides.webExecutionVerified === true || sourceCount > 0
   const providerRequestIds = overrides.providerRequestIds ?? []
+  const requestAudits = overrides.requestAudits ?? []
+  const requestAuditVerified =
+    requestAudits.length > 0 && requestAudits.every(audit => audit.verified)
   const webVerified =
     overrides.answerReceived === true
+    && requestAuditVerified
     && webExecutionVerified
     && sourceCount > 0
     && providerRequestIds.some(value => value.trim())
   return {
     searchMode: overrides.searchMode ?? profile.searchMode,
-    promptPurity: overrides.promptPurity ?? profile.promptPurity,
+    promptPurity:
+      overrides.promptPurity
+      ?? (requestAuditVerified ? profile.promptPurity : "unknown"),
     webAttempted: true,
     webExecutionVerified,
     providerRequestIds,
+    requestAuditVerified,
+    requestAudits,
     searchQueries: overrides.searchQueries ?? [],
     webFailureReason,
     sourceCount,
     webVerified,
     webVerificationNote:
       webVerified
-        ? `已记录 ${sourceCount} 条可审计公开网页来源。`
+        ? `纯净出站请求已核验，并记录 ${sourceCount} 条可审计公开网页来源。`
         : webFailureReason || profile.webVerificationNote,
   }
 }
@@ -472,6 +484,8 @@ async function blindQuery(
     | "webAttempted"
     | "webExecutionVerified"
     | "providerRequestIds"
+    | "requestAuditVerified"
+    | "requestAudits"
     | "searchQueries"
     | "webFailureReason"
     | "sourceCount"
@@ -485,8 +499,9 @@ async function blindQuery(
   const collectedSources: PenetrationSource[] = []
   const searchQueries = new Set<string>()
   const providerRequestIds = new Set<string>()
+  const requestAudits: PenetrationRequestAudit[] = []
   let actualSearchMode = auditProfile.searchMode
-  let actualPromptPurity = auditProfile.promptPurity
+  let actualPromptPurity: PenetrationPromptPurity = "unknown"
   let webFailureReason: string | null = null
   let webExecutionVerified = false
 
@@ -510,6 +525,11 @@ async function blindQuery(
             rawQuestionOnly: true,
             requireWebEvidence: true,
             officialWebOnly: true,
+            onRequestAudit: audit => {
+              requestAudits.push(audit)
+              actualSearchMode = audit.searchMode
+              actualPromptPurity = audit.verified ? "raw_question_only" : "unknown"
+            },
             onSearchSources: event => {
               if (event.query?.trim()) searchQueries.add(event.query.trim())
               if (event.mode) {
@@ -519,7 +539,7 @@ async function blindQuery(
                     ? "search_context_augmented"
                     : event.mode === "local_tool_search"
                       ? "tool_augmented"
-                      : auditProfile.promptPurity
+                      : actualPromptPurity
               }
               if (event.failureReason) webFailureReason = event.failureReason
               if (event.searchExecuted) {
@@ -558,6 +578,12 @@ async function blindQuery(
     if (providerRequestIds.size === 0) {
       throw new Error("厂商没有返回可审计请求编号，已进入后台补采。")
     }
+    if (requestAudits.length === 0) {
+      throw new Error("没有取得真实出站请求证明，已阻断本次回答进入渗透率统计。")
+    }
+    if (requestAudits.some(audit => !audit.verified)) {
+      throw new Error("真实出站请求夹带了原问题之外的提示内容，已阻断本次回答进入渗透率统计。")
+    }
     const auditFields = buildAuditFields(auditProfile, searchSources, {
       searchMode: actualSearchMode,
       promptPurity: actualPromptPurity,
@@ -565,10 +591,11 @@ async function blindQuery(
       webFailureReason,
       webExecutionVerified,
       providerRequestIds: Array.from(providerRequestIds),
+      requestAudits,
       answerReceived: true,
     })
     console.log(
-      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | webVerified=${auditFields.webVerified} | webExecuted=${auditFields.webExecutionVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
+      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | payloadVerified=${auditFields.requestAuditVerified} | webVerified=${auditFields.webVerified} | webExecuted=${auditFields.webExecutionVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
     )
     console.log(`[penetration·blind-answer] preservedLen=${answer.length}`)
     return {
@@ -589,6 +616,7 @@ async function blindQuery(
       webFailureReason: webFailureReason || msg,
       webExecutionVerified,
       providerRequestIds: Array.from(providerRequestIds),
+      requestAudits,
       answerReceived: false,
     })
     console.error(`[penetration·blind] ✗ ${adapter.label} | ${msg} | q="${question.slice(0, 30)}..."`)

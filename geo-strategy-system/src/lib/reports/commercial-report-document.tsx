@@ -1644,7 +1644,7 @@ function SourcesPage({ input, answers, sources }: { input: CommercialReportInput
         <MetricCard label="联网可验证回答" value={`${answers.filter(({ item }) => item.webVerified).length}/${answers.length}`} />
         <MetricCard label="引用事件" value={`${diversity?.citationEvents ?? sources.length}`} note="不同模型重复采信会分别计数" />
         <MetricCard label="唯一网址" value={`${diversity?.uniqueUrlCount ?? sources.length}`} note={`重复引用占比 ${percent(diversity?.duplicateCitationRate || 0)}`} />
-        <MetricCard label="不同来源网站" value={`${diversity?.uniqueDomainCount ?? domains.length}`} note={`独立纯净提问 ${answers.filter(({ item }) => item.promptPurity === "raw_question_only").length}/${answers.length}`} />
+        <MetricCard label="不同来源网站" value={`${diversity?.uniqueDomainCount ?? domains.length}`} note={`纯净出站已核验 ${answers.filter(({ item }) => item.promptPurity === "raw_question_only" && item.requestAuditVerified === true).length}/${answers.length}`} />
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>不同网址最多的来源域名</Text>

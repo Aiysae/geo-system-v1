@@ -338,7 +338,7 @@ export default function PenetrationModule({
               <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围，完成后将在下方展示结果和来源</div>
             </div>
             <div className="rounded-md bg-[#001D66] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
-              官方联网 · 纯净盲测
+              可审计联网 · 纯净盲测
             </div>
           </div>
             <BatchInputPanel
@@ -675,7 +675,7 @@ function RawAnswersPanel({
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <AuditStatCard label="回答方式" value={auditStats.modeSummary} />
-              <AuditStatCard label="原问题直接提问" value={`${auditStats.rawQuestionOnly}/${items.length}`} />
+              <AuditStatCard label="纯净出站已核验" value={`${auditStats.rawQuestionOnly}/${items.length}`} />
               <AuditStatCard label="可核验联网回答" value={`${auditStats.webVerified}/${items.length}`} />
             </div>
             {modelDomainStats.length > 0 ? (
@@ -814,7 +814,9 @@ function RawAnswersPanel({
 }
 
 const SEARCH_MODE_LABELS: Record<PenetrationSearchMode, string> = {
-  native_web: "模型联网",
+  native_web: "官方原生联网",
+  provider_hosted_web: "托管模型联网",
+  external_tool_web: "官方模型＋外部联网",
   local_tool_search: "联网补充",
   presearch_context: "联网补充",
   none: "未联网",
@@ -846,7 +848,10 @@ function getModelAuditStats(items: PenetrationItem[]): {
   for (const item of items) {
     const mode = getSearchModeLabel(item.searchMode)
     modeCounts.set(mode, (modeCounts.get(mode) ?? 0) + 1)
-    if (item.promptPurity === "raw_question_only") rawQuestionOnly++
+    if (
+      item.promptPurity === "raw_question_only"
+      && item.requestAuditVerified === true
+    ) rawQuestionOnly++
     if (item.webVerified === true) webVerified++
   }
   const modeSummary =
@@ -871,6 +876,16 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
   const sourceCount = item.sourceCount ?? item.searchSources?.length ?? 0
   const verified = item.webVerified === true
   const executionOnly = verified && item.webExecutionVerified === true && sourceCount === 0
+  const requestAudit = item.requestAudits?.at(-1)
+  const requestAuditTitle = requestAudit
+    ? [
+        `模型：${requestAudit.modelProvider} / ${requestAudit.model}`,
+        `搜索：${requestAudit.searchProvider}`,
+        `端点：${requestAudit.endpointHost}`,
+        `消息角色：${requestAudit.messageRoles.join(", ") || "无"}`,
+        `工具：${requestAudit.toolNames.join(", ") || "无"}`,
+      ].join("\n")
+    : "历史结果没有保存出站请求证明"
   return (
     <div className="pl-7 mb-2 flex flex-wrap gap-1.5">
       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
@@ -878,6 +893,16 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
       </span>
       <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-50 text-slate-600 border border-slate-200">
         {getPromptPurityLabel(item.promptPurity)}
+      </span>
+      <span
+        className={`text-[10px] px-1.5 py-0.5 rounded border ${
+          item.requestAuditVerified === true
+            ? "bg-cyan-50 text-cyan-700 border-cyan-100"
+            : "bg-slate-50 text-slate-500 border-slate-200"
+        }`}
+        title={requestAuditTitle}
+      >
+        {item.requestAuditVerified === true ? "真实出站已核验" : "出站证明未记录"}
       </span>
       <span
         className={`text-[10px] px-1.5 py-0.5 rounded border ${
@@ -889,9 +914,9 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
       >
         {verified
           ? executionOnly
-            ? "官方联网已执行"
-            : "官方联网已验证"
-          : "官方联网不可验证"} · 来源 {sourceCount}
+            ? "联网已执行"
+            : "联网已验证"
+          : "联网不可验证"} · 来源 {sourceCount}
       </span>
 
     </div>

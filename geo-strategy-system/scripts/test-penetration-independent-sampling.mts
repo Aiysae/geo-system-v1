@@ -13,6 +13,7 @@ process.env.ARK_API_KEY = "test-ark-key"
 process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 
 const { ADAPTERS } = await import("../src/lib/llm")
+const { buildPenetrationRequestAudit } = await import("../src/lib/llm/blind-request-audit")
 const { createInternalApiHeaders } = await import("../src/lib/internal-api")
 const { POST } = await import("../src/app/api/penetration/route")
 const { buildPenetrationBatchResult } = await import("../src/lib/penetration/result-merge")
@@ -34,6 +35,15 @@ ADAPTERS.doubao = {
   chat: async args => {
     consumerCalls.push(args)
     const callNumber = consumerCalls.length
+    args.onRequestAudit?.(buildPenetrationRequestAudit(args, {
+      endpoint: "https://ark.cn-beijing.volces.com/api/v3/responses",
+      model: "doubao-test",
+      modelProvider: "volcengine_ark",
+      searchProvider: "volcengine_ark",
+      searchMode: "native_web",
+      messages: [{ role: "user", content: args.user }],
+      tools: [{ type: "web_search" }],
+    }))
     args.onSearchSources?.({
       query: args.user,
       sources: [{
@@ -110,6 +120,11 @@ try {
   assert.notEqual(consumerCalls[0].seed, consumerCalls[1].seed)
   assert.deepEqual(firstItems[0].providerRequestIds, ["provider-request-1"])
   assert.deepEqual(firstItems[1].providerRequestIds, ["provider-request-2"])
+  assert.equal(firstItems.every(item => item.requestAuditVerified === true), true)
+  assert.equal(
+    firstItems.every(item => item.requestAudits?.[0]?.messageRoles.join(",") === "user"),
+    true,
+  )
   assert.equal(consumerCalls.every(call => call.system === ""), true)
   assert.equal(consumerCalls.every(call => call.user === question), true)
   assert.equal(consumerCalls.every(call => call.rawQuestionOnly === true), true)

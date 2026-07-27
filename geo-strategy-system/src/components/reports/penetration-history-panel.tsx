@@ -1006,6 +1006,13 @@ function HistoryAnswerItem({ item, index }: { item: PenetrationItem; index: numb
           <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-slate-600">
             {item.promptPurity === "raw_question_only" ? "独立纯净提问" : "联网辅助提问"}
           </span>
+          <span className={`rounded border px-1.5 py-0.5 ${
+            item.requestAuditVerified === true
+              ? "border-cyan-100 bg-cyan-50 text-cyan-700"
+              : "border-slate-200 bg-white text-slate-400"
+          }`}>
+            {item.requestAuditVerified === true ? "真实出站已核验" : "历史记录未保存出站证明"}
+          </span>
           <span className="rounded border border-emerald-100 bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
             信源 {uniqueSources.length}
           </span>
@@ -1057,7 +1064,9 @@ function HistoryAnswerItem({ item, index }: { item: PenetrationItem; index: numb
 }
 
 function searchModeLabel(mode: PenetrationItem["searchMode"]): string {
-  if (mode === "native_web") return "官方联网"
+  if (mode === "native_web") return "官方原生联网"
+  if (mode === "provider_hosted_web") return "托管模型联网"
+  if (mode === "external_tool_web") return "官方模型＋外部联网"
   if (mode === "local_tool_search") return "搜索工具联网"
   if (mode === "presearch_context") return "预搜索增强"
   return "联网状态未记录"

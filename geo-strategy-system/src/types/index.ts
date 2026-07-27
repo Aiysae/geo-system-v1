@@ -575,6 +575,8 @@ export interface SourceDomainCount {
 
 export type PenetrationSearchMode =
   | "native_web"
+  | "provider_hosted_web"
+  | "external_tool_web"
   | "local_tool_search"
   | "presearch_context"
   | "none"
@@ -584,6 +586,25 @@ export type PenetrationPromptPurity =
   | "tool_augmented"
   | "search_context_augmented"
   | "unknown"
+
+export interface PenetrationRequestAudit {
+  schemaVersion: 1
+  endpointHost: string
+  model: string
+  modelProvider: string
+  searchProvider: string
+  searchMode: PenetrationSearchMode
+  messageRoles: string[]
+  systemMessageCount: number
+  userMessageCount: number
+  additionalPromptTextDetected: boolean
+  exactQuestionMatch: boolean
+  questionSha256: string
+  promptSha256: string
+  toolNames: string[]
+  verified: boolean
+  verifiedAt: string
+}
 
 export type PenetrationEntityKind = "person" | "organization" | "brand" | "product"
 
@@ -609,6 +630,8 @@ export interface PenetrationItem {
   topSourceDomain?: SourceDomainCount | null
   searchMode?: PenetrationSearchMode
   promptPurity?: PenetrationPromptPurity
+  requestAuditVerified?: boolean
+  requestAudits?: PenetrationRequestAudit[]
   webAttempted?: boolean
   webExecutionVerified?: boolean
   providerRequestIds?: string[]

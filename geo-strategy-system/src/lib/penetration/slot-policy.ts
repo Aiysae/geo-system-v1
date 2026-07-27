@@ -18,10 +18,19 @@ function auditableSources(item: PenetrationItem) {
   )
 }
 
+const AUDITABLE_SEARCH_MODES = new Set([
+  "native_web",
+  "provider_hosted_web",
+  "external_tool_web",
+])
+
 export function getPenetrationSlotValidationError(item: PenetrationItem | undefined): string | null {
   if (!item?.answer.trim()) return "模型没有返回完整原始回答"
-  if (item.searchMode !== "native_web") return "本次回答不是模型官方联网搜索结果"
+  if (!item.searchMode || !AUDITABLE_SEARCH_MODES.has(item.searchMode)) {
+    return "本次回答不是可审计的联网搜索结果"
+  }
   if (item.promptPurity !== "raw_question_only") return "本次请求没有保持仅发送原始问题"
+  if (item.requestAuditVerified !== true) return "没有取得真实出站请求的纯净度证明"
   if (item.webExecutionVerified !== true) return "没有确认厂商联网搜索实际执行"
   if (auditableSources(item).length === 0) return "没有返回可点击、可读取的有效信源网址"
   if (!(item.providerRequestIds || []).some(value => value.trim())) return "厂商没有返回可审计请求编号"

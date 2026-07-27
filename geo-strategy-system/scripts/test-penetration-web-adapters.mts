@@ -3,6 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import type { SearchSourceEvent } from "../src/lib/llm/openai-compat"
+import type { PenetrationRequestAudit } from "../src/types"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "geo-penetration-web-"))
 process.env.KV_BACKEND = "file"
@@ -11,6 +12,8 @@ process.env.DASHSCOPE_API_KEY = "test-dashscope-key"
 process.env.DASHSCOPE_MODEL = "qwen-plus"
 process.env.DASHSCOPE_ENABLE_SEARCH = "true"
 process.env.DEEPSEEK_WEB_SEARCH_MODEL = "deepseek-v4-flash"
+process.env.DEEPSEEK_API_KEY = "test-deepseek-key"
+process.env.DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 process.env.MOONSHOT_API_KEY = "test-moonshot-key"
 process.env.MOONSHOT_MODEL = "kimi-k2.6"
 process.env.MOONSHOT_BASE_URL = "https://api.moonshot.cn"
@@ -28,6 +31,8 @@ type CapturedRequest = { url: string; body: Record<string, unknown> }
 const requests: CapturedRequest[] = []
 const originalFetch = globalThis.fetch
 let kimiMoonshotRound = 0
+let deepSeekRound = 0
+let baiduWebSearchRound = 0
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -53,22 +58,53 @@ globalThis.fetch = async (input, init) => {
 
   if (url.includes("dashscope.aliyuncs.com")) {
     return jsonResponse({
-      request_id: "dash-request-1",
+      request_id: "dash-qwen-request-1",
       output: {
         choices: [{
           finish_reason: "stop",
-          message: { role: "assistant", content: "DeepSeek 原始联网回答" },
+          message: { role: "assistant", content: "通义千问原始联网回答" },
         }],
         search_info: {
           search_results: [{
             index: 1,
-            title: "DeepSeek 联网信源",
+            title: "通义千问联网信源",
             snippet: "用于验证结构化来源提取的公开文章摘要。",
-            url: "https://example.com/news/deepseek-web-search",
+            url: "https://example.com/news/qwen-web-search",
           }],
         },
       },
       usage: { plugins: { search: { count: 1 } } },
+    })
+  }
+
+  if (url.includes("api.deepseek.com")) {
+    deepSeekRound += 1
+    if (deepSeekRound === 1) {
+      return jsonResponse({
+        id: "deepseek-tool-1",
+        choices: [{
+          finish_reason: "tool_calls",
+          message: {
+            role: "assistant",
+            content: "",
+            tool_calls: [{
+              id: "deepseek-search-call-1",
+              type: "function",
+              function: {
+                name: "search_web",
+                arguments: JSON.stringify({ query: question }),
+              },
+            }],
+          },
+        }],
+      })
+    }
+    return jsonResponse({
+      id: "deepseek-answer-1",
+      choices: [{
+        finish_reason: "stop",
+        message: { role: "assistant", content: "DeepSeek 原始联网回答" },
+      }],
     })
   }
 
@@ -104,13 +140,15 @@ globalThis.fetch = async (input, init) => {
   }
 
   if (url.includes("qianfan.baidubce.com/v2/ai_search/web_search")) {
+    baiduWebSearchRound += 1
+    const slug = baiduWebSearchRound === 1 ? "deepseek" : "kimi"
     return jsonResponse({
-      request_id: "baidu-kimi-search-request-1",
+      request_id: `baidu-${slug}-search-request-1`,
       references: [{
         type: "web",
-        title: "Kimi 联网信源",
+        title: `${slug === "kimi" ? "Kimi" : "DeepSeek"} 联网信源`,
         content: "用于验证百度透明搜索返回公开文章网址。",
-        url: "https://example.com/news/kimi-search",
+        url: `https://example.com/news/${slug}-search`,
         website: "示例网站",
       }],
     })
@@ -205,6 +243,7 @@ globalThis.fetch = async (input, init) => {
 }
 
 const { chatDeepSeek } = await import("../src/lib/llm/deepseek")
+const { chatQwen } = await import("../src/lib/llm/qwen")
 const { chatKimi } = await import("../src/lib/llm/kimi")
 const { chatErnie } = await import("../src/lib/llm/ernie")
 const { chatDoubao } = await import("../src/lib/llm/doubao")
@@ -235,34 +274,62 @@ try {
   )
 
   const deepSeekEvents: SearchSourceEvent[] = []
+  const deepSeekAudits: PenetrationRequestAudit[] = []
   const deepSeekAnswer = await chatDeepSeek({
     ...baseArgs,
     onSearchSources: event => deepSeekEvents.push(event),
+    onRequestAudit: audit => deepSeekAudits.push(audit),
   })
   assert.equal(deepSeekAnswer, "DeepSeek 原始联网回答")
-  const deepSeekRequest = requests.find(request => request.url.includes("dashscope.aliyuncs.com"))
-  assert.ok(deepSeekRequest)
-  assert.equal(deepSeekRequest.body.model, "deepseek-v4-flash")
+  const deepSeekRequests = requests.filter(request =>
+    request.url.includes("api.deepseek.com")
+  )
+  assert.equal(deepSeekRequests.length, 2)
+  assert.equal(deepSeekRequests[0]?.body.model, "deepseek-v4-flash")
+  assert.deepEqual(deepSeekRequests[0]?.body.messages, [
+    { role: "user", content: question },
+  ])
+  assert.equal(deepSeekRequests[0]?.body.tool_choice, "required")
+  assert.equal(deepSeekEvents.some(event => event.searchExecuted === true), true)
+  assert.equal(deepSeekEvents.flatMap(event => event.sources).length, 1)
+  assert.equal(
+    deepSeekEvents.some(event => event.mode === "external_tool_web"),
+    true,
+  )
+  assert.equal(deepSeekAudits.length, 1)
+  assert.equal(deepSeekAudits[0]?.verified, true)
+  assert.equal(deepSeekAudits[0]?.modelProvider, "deepseek")
+  assert.equal(deepSeekAudits[0]?.searchProvider, "baidu_search")
+  assert.equal(deepSeekAudits[0]?.searchMode, "external_tool_web")
+  assert.deepEqual(deepSeekAudits[0]?.messageRoles, ["user"])
+
+  const qwenEvents: SearchSourceEvent[] = []
+  const qwenAudits: PenetrationRequestAudit[] = []
+  const qwenAnswer = await chatQwen({
+    ...baseArgs,
+    onSearchSources: event => qwenEvents.push(event),
+    onRequestAudit: audit => qwenAudits.push(audit),
+  })
+  assert.equal(qwenAnswer, "通义千问原始联网回答")
+  const qwenRequest = requests.find(request =>
+    request.url.includes("dashscope.aliyuncs.com")
+    && request.body.model === "qwen-plus"
+  )
+  assert.ok(qwenRequest)
   assert.deepEqual(
-    (deepSeekRequest.body.input as { messages: unknown[] }).messages,
+    (qwenRequest.body.input as { messages: unknown[] }).messages,
     [{ role: "user", content: question }],
   )
-  const deepSeekParameters = deepSeekRequest.body.parameters as Record<string, unknown>
-  assert.equal(deepSeekParameters.enable_search, true)
-  assert.deepEqual(deepSeekParameters.search_options, {
-    forced_search: true,
-    search_strategy: "max",
-    enable_source: true,
-    enable_citation: true,
-    citation_format: "[<number>]",
-  })
-  assert.equal(deepSeekEvents[0]?.searchExecuted, true)
-  assert.equal(deepSeekEvents[0]?.sources.length, 1)
+  assert.equal(qwenEvents[0]?.mode, "native_web")
+  assert.equal(qwenAudits[0]?.verified, true)
+  assert.equal(qwenAudits[0]?.searchMode, "native_web")
 
   const kimiEvents: SearchSourceEvent[] = []
+  const kimiAudits: PenetrationRequestAudit[] = []
   const kimiAnswer = await chatKimi({
     ...baseArgs,
     onSearchSources: event => kimiEvents.push(event),
+    onRequestAudit: audit => kimiAudits.push(audit),
   })
   assert.equal(kimiAnswer, "Kimi 原始联网回答")
   const kimiRequests = requests.filter(request => request.url.includes("api.moonshot.cn"))
@@ -300,11 +367,18 @@ try {
     new Set(kimiEvents.map(event => event.providerRequestId).filter(Boolean)).size,
     3,
   )
+  assert.equal(kimiEvents.some(event => event.mode === "external_tool_web"), true)
+  assert.equal(kimiAudits[0]?.verified, true)
+  assert.equal(kimiAudits[0]?.modelProvider, "moonshot")
+  assert.equal(kimiAudits[0]?.searchProvider, "baidu_search")
+  assert.equal(kimiAudits[0]?.searchMode, "external_tool_web")
 
   const ernieEvents: SearchSourceEvent[] = []
+  const ernieAudits: PenetrationRequestAudit[] = []
   const ernieAnswer = await chatErnie({
     ...baseArgs,
     onSearchSources: event => ernieEvents.push(event),
+    onRequestAudit: audit => ernieAudits.push(audit),
   })
   assert.equal(ernieAnswer, "文心 原始联网回答")
   const ernieRequest = requests.find(request =>
@@ -314,11 +388,15 @@ try {
   assert.deepEqual(ernieRequest.body.messages, [{ role: "user", content: question }])
   assert.equal(ernieRequest.body.search_mode, "required")
   assert.equal(ernieEvents[0]?.sources.length, 1)
+  assert.equal(ernieAudits[0]?.verified, true)
+  assert.equal(ernieAudits[0]?.searchMode, "native_web")
 
   const doubaoEvents: SearchSourceEvent[] = []
+  const doubaoAudits: PenetrationRequestAudit[] = []
   const doubaoAnswer = await chatDoubao({
     ...baseArgs,
     onSearchSources: event => doubaoEvents.push(event),
+    onRequestAudit: audit => doubaoAudits.push(audit),
   })
   assert.equal(doubaoAnswer, "豆包原始联网回答")
   const doubaoRequest = requests.find(request => request.url.includes("/api/v3/responses"))
@@ -327,11 +405,15 @@ try {
   assert.deepEqual(doubaoRequest.body.tools, [{ type: "web_search" }])
   assert.equal(doubaoRequest.body.tool_choice, "required")
   assert.equal(doubaoEvents[0]?.sources.length, 1)
+  assert.equal(doubaoAudits[0]?.verified, true)
+  assert.equal(doubaoAudits[0]?.searchMode, "native_web")
 
   const hunyuanEvents: SearchSourceEvent[] = []
+  const hunyuanAudits: PenetrationRequestAudit[] = []
   const hunyuanAnswer = await chatHunyuan({
     ...baseArgs,
     onSearchSources: event => hunyuanEvents.push(event),
+    onRequestAudit: audit => hunyuanAudits.push(audit),
   })
   assert.equal(hunyuanAnswer, "混元原始联网回答")
   const hunyuanRequest = requests.find(request => request.url.includes("tokenhub.tencentmaas.com"))
@@ -344,8 +426,18 @@ try {
   assert.equal("temperature" in hunyuanRequest.body, false)
   assert.equal(hunyuanEvents[0]?.searchExecuted, true)
   assert.equal(hunyuanEvents[0]?.sources.length, 1)
+  assert.equal(hunyuanAudits[0]?.verified, true)
+  assert.equal(hunyuanAudits[0]?.searchMode, "native_web")
 
-  console.log("Penetration native web adapter contract passed.")
+  assert.equal(
+    requests.some(request =>
+      JSON.stringify(request.body).includes("SENTINEL_SYSTEM_PROMPT_MUST_NOT_BE_SENT")
+    ),
+    false,
+    "严格盲测不得把 system Prompt 发送给任何模型或搜索接口",
+  )
+
+  console.log("Penetration auditable web adapter contract passed.")
 } finally {
   globalThis.fetch = originalFetch
   fs.rmSync(tempDir, { recursive: true, force: true })

@@ -63,6 +63,7 @@
     "test:membership-catalog": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-membership-catalog.mts",
     "test:workspace-summaries": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-workspace-client-summaries.mts",
     "test:penetration-web": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-web-adapters.mts",
+    "test:penetration-blind-contract": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-blind-contract.mts",
     "test:penetration-sampling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-independent-sampling.mts",
     "test:penetration-sample-quality": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-sample-quality.mts",
     "test:penetration-balanced-scoring": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-balanced-scoring.mts",

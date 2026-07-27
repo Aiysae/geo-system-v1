@@ -99,7 +99,32 @@ await updateAiCredentialHealth(kimiCredential.id, {
 })
 await setAiCredentialEnabled(kimiCredential.id, true, "adapter-test")
 
-const baiduSearchSecret = "bce-v3/test-baidu-search-account"
+const deepSeekSecret = "test-deepseek-generation-account"
+const deepSeekCredential = await saveAiCredential({
+  vendor: "deepseek",
+  name: "DeepSeek 1号",
+  accountLabel: "1号账号",
+  quotaGroup: "deepseek-account-1",
+  baseUrl: "https://api.deepseek.com",
+  chatPath: "/chat/completions",
+  apiKey: deepSeekSecret,
+  enabled: false,
+  priority: 1,
+  maxConcurrency: 1,
+  quotaGroupMaxConcurrency: 1,
+  allowedModels: ["deepseek-v4-flash"],
+  // Existing rows can predate the new penetration permission.
+  allowedModules: ["article", "judge"],
+  declaredCapabilities: ["chat", "json"],
+}, "adapter-test")
+await updateAiCredentialHealth(deepSeekCredential.id, {
+  status: "healthy",
+  verifiedCapabilities: ["chat", "json"],
+  consecutiveFailures: 0,
+})
+await setAiCredentialEnabled(deepSeekCredential.id, true, "adapter-test")
+
+const baiduSearchSecret = "test-baidu-search-account"
 const baiduSearchCredential = await saveAiCredential({
   vendor: "ernie",
   name: "百度搜索 1号",
@@ -149,6 +174,7 @@ assert.deepEqual(
 const originalFetch = globalThis.fetch
 const usedKeys: string[] = []
 let kimiRound = 0
+let deepSeekRound = 0
 try {
   globalThis.fetch = async (input, init) => {
     const url = String(input)
@@ -193,6 +219,45 @@ try {
         choices: [{
           finish_reason: "stop",
           message: { role: "assistant", content: "Kimi 双账号池联网回答" },
+        }],
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    if (url.includes("api.deepseek.com")) {
+      assert.equal(key, deepSeekSecret)
+      assert.equal(body.model, "deepseek-v4-flash")
+      deepSeekRound += 1
+      if (deepSeekRound === 1) {
+        return new Response(JSON.stringify({
+          id: "deepseek-pool-tool-1",
+          choices: [{
+            finish_reason: "tool_calls",
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [{
+                id: "deepseek-pool-search-call-1",
+                type: "function",
+                function: {
+                  name: "search_web",
+                  arguments: JSON.stringify({ query: "今天是几月几号" }),
+                },
+              }],
+            },
+          }],
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }
+      return new Response(JSON.stringify({
+        id: "deepseek-pool-answer-1",
+        choices: [{
+          finish_reason: "stop",
+          message: { role: "assistant", content: "DeepSeek 双账号池联网回答" },
         }],
       }), {
         status: 200,
@@ -284,6 +349,37 @@ try {
     new Set(searchEvents.map(event => event.providerRequestId).filter(Boolean)).size,
     3,
   )
+
+  usedKeys.length = 0
+  assert.equal(
+    await hasAdapterCredentialPoolCandidate("deepseek", "penetration", strictArgs),
+    true,
+  )
+  assert.deepEqual(
+    await getAdapterCredentialPoolCapacity("deepseek", "penetration", strictArgs),
+    {
+      vendor: "ernie",
+      candidateCount: 1,
+      maxConcurrency: 1,
+      quotaGroupCount: 1,
+      usesFallback: false,
+    },
+  )
+  const deepSeekEvents: SearchSourceEvent[] = []
+  const deepSeekResult = await runAdapterCredentialPoolChat("deepseek", "penetration", {
+    system: "",
+    user: "今天是几月几号",
+    mode: "consumer",
+    forceWebSearch: true,
+    rawQuestionOnly: true,
+    requireWebEvidence: true,
+    officialWebOnly: true,
+    timeoutSec: 30,
+    onSearchSources: event => deepSeekEvents.push(event),
+  })
+  assert.equal(deepSeekResult, "DeepSeek 双账号池联网回答")
+  assert.deepEqual(usedKeys, [deepSeekSecret, baiduSearchSecret, deepSeekSecret])
+  assert.equal(deepSeekEvents.flatMap(event => event.sources).length, 1)
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })

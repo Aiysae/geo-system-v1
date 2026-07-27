@@ -8,7 +8,12 @@
 // 4. 单轮入口 openaiCompatChat 会自动在 system prompt 头部注入"当前北京时间"，
 //    工具循环类（如 deepseek/kimi）自行拼装 messages 时也应使用 withBeijingTime。
 
-import type { LlmMode, PenetrationSearchMode, PenetrationSource } from "@/types"
+import type {
+  LlmMode,
+  PenetrationRequestAudit,
+  PenetrationSearchMode,
+  PenetrationSource,
+} from "@/types"
 import type { AiCredentialVendor } from "@/types/ai-credentials"
 import { extractSourcesFromUnknown, normalizeSourceDomain } from "./source-extract"
 import { withBeijingTime } from "./time-context"
@@ -59,6 +64,8 @@ export interface ChatArgs {
   signal?: AbortSignal
   /** Observe the public web sources used by local search adapters. */
   onSearchSources?: (event: SearchSourceEvent) => void
+  /** Observe the sanitized structure of the first outbound blind-search request. */
+  onRequestAudit?: (audit: PenetrationRequestAudit) => void
   /** Observe token usage returned by the upstream provider. */
   onUsage?: (usage: LlmTokenUsage) => void
   /** Server-selected account override. Never accept this field from a client request. */
