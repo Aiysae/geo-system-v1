@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { SearchSourceEvent } from "../src/lib/llm/openai-compat"
 
 const tempDir = mkdtempSync(join(tmpdir(), "geo-ai-adapter-pool-"))
 delete process.env.DATABASE_URL
@@ -73,6 +74,55 @@ await createCredential({
   web: true,
 })
 
+const kimiSecret = "sk-kimi-generation-account"
+const kimiCredential = await saveAiCredential({
+  vendor: "kimi",
+  name: "Kimi 1号",
+  accountLabel: "1号账号",
+  quotaGroup: "kimi-account-1",
+  baseUrl: "https://api.moonshot.cn/v1",
+  chatPath: "/chat/completions",
+  apiKey: kimiSecret,
+  enabled: false,
+  priority: 1,
+  maxConcurrency: 1,
+  quotaGroupMaxConcurrency: 1,
+  allowedModels: ["kimi-k2.6"],
+  // Existing production rows may predate penetration permission.
+  allowedModules: ["article", "question"],
+  declaredCapabilities: ["chat", "json", "native_web"],
+}, "adapter-test")
+await updateAiCredentialHealth(kimiCredential.id, {
+  status: "healthy",
+  verifiedCapabilities: ["chat", "json"],
+  consecutiveFailures: 0,
+})
+await setAiCredentialEnabled(kimiCredential.id, true, "adapter-test")
+
+const baiduSearchSecret = "bce-v3/test-baidu-search-account"
+const baiduSearchCredential = await saveAiCredential({
+  vendor: "ernie",
+  name: "百度搜索 1号",
+  accountLabel: "1号账号",
+  quotaGroup: "ernie-account-1",
+  baseUrl: "https://qianfan.baidubce.com/v2",
+  chatPath: "/chat/completions",
+  apiKey: baiduSearchSecret,
+  enabled: false,
+  priority: 1,
+  maxConcurrency: 1,
+  quotaGroupMaxConcurrency: 1,
+  allowedModels: ["ernie-5.1"],
+  allowedModules: ["penetration"],
+  declaredCapabilities: ["chat", "native_web", "auditable_sources"],
+}, "adapter-test")
+await updateAiCredentialHealth(baiduSearchCredential.id, {
+  status: "healthy",
+  verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+  consecutiveFailures: 0,
+})
+await setAiCredentialEnabled(baiduSearchCredential.id, true, "adapter-test")
+
 const strictArgs = {
   mode: "consumer" as const,
   forceWebSearch: true,
@@ -98,13 +148,75 @@ assert.deepEqual(
 
 const originalFetch = globalThis.fetch
 const usedKeys: string[] = []
+let kimiRound = 0
 try {
-  globalThis.fetch = async (_input, init) => {
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
     const headers = new Headers(init?.headers)
     const authorization = headers.get("authorization") || ""
     const key = authorization.replace(/^Bearer\s+/i, "")
     usedKeys.push(key)
-    const body = JSON.parse(String(init?.body || "{}")) as { model?: string }
+    const body = JSON.parse(String(init?.body || "{}")) as {
+      model?: string
+      messages?: Array<Record<string, unknown>>
+    }
+
+    if (url.includes("api.moonshot.cn")) {
+      assert.equal(key, kimiSecret)
+      assert.equal(body.model, "kimi-k2.6")
+      kimiRound += 1
+      if (kimiRound === 1) {
+        return new Response(JSON.stringify({
+          id: "moonshot-pool-tool-1",
+          choices: [{
+            finish_reason: "tool_calls",
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [{
+                id: "pool-search-call-1",
+                type: "function",
+                function: {
+                  name: "search_web",
+                  arguments: JSON.stringify({ query: "今天是几月几号" }),
+                },
+              }],
+            },
+          }],
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }
+      return new Response(JSON.stringify({
+        id: "moonshot-pool-answer-1",
+        choices: [{
+          finish_reason: "stop",
+          message: { role: "assistant", content: "Kimi 双账号池联网回答" },
+        }],
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    if (url.includes("/v2/ai_search/web_search")) {
+      assert.equal(key, baiduSearchSecret)
+      assert.deepEqual(body.messages, [{ role: "user", content: "今天是几月几号" }])
+      return new Response(JSON.stringify({
+        request_id: "baidu-pool-search-1",
+        references: [{
+          type: "web",
+          title: "日期信源",
+          content: "用于验证 Kimi 双账号池的公开网页摘要。",
+          url: "https://example.com/news/current-date",
+        }],
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
     assert.equal(body.model, "qwen-plus", "account failover must preserve the selected model")
     if (key === firstSecret) {
       return new Response(JSON.stringify({ error: { message: "invalid key" } }), {
@@ -137,6 +249,41 @@ try {
   assert.deepEqual(usedKeys, [firstSecret, secondSecret])
   assert.equal((await getAiCredentialRuntime(first.id)).healthStatus, "unhealthy")
   assert.equal((await getAiCredentialRuntime(second.id)).healthStatus, "healthy")
+
+  usedKeys.length = 0
+  assert.equal(
+    await hasAdapterCredentialPoolCandidate("kimi", "penetration", strictArgs),
+    true,
+  )
+  assert.deepEqual(
+    await getAdapterCredentialPoolCapacity("kimi", "penetration", strictArgs),
+    {
+      vendor: "ernie",
+      candidateCount: 1,
+      maxConcurrency: 1,
+      quotaGroupCount: 1,
+      usesFallback: false,
+    },
+  )
+  const searchEvents: SearchSourceEvent[] = []
+  const kimiResult = await runAdapterCredentialPoolChat("kimi", "penetration", {
+    system: "",
+    user: "今天是几月几号",
+    mode: "consumer",
+    forceWebSearch: true,
+    rawQuestionOnly: true,
+    requireWebEvidence: true,
+    officialWebOnly: true,
+    timeoutSec: 30,
+    onSearchSources: event => searchEvents.push(event),
+  })
+  assert.equal(kimiResult, "Kimi 双账号池联网回答")
+  assert.deepEqual(usedKeys, [kimiSecret, baiduSearchSecret, kimiSecret])
+  assert.equal(searchEvents.flatMap(event => event.sources).length, 1)
+  assert.equal(
+    new Set(searchEvents.map(event => event.providerRequestId).filter(Boolean)).size,
+    3,
+  )
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })

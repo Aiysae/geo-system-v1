@@ -86,7 +86,7 @@ export const AI_CREDENTIAL_VENDOR_PRESETS: AiCredentialVendorPreset[] = [
     baseUrl: "https://api.moonshot.cn/v1",
     chatPath: "/chat/completions",
     defaultModels: ["kimi-k2.6"],
-    allowedModules: ["article", "question", "research", "diagnosis", "difficulty", "judge"],
+    allowedModules: ["article", "question", "research", "diagnosis", "difficulty", "penetration", "judge"],
     declaredCapabilities: ["chat", "json", "long_text", "vision", "native_web"],
     defaultConcurrency: 1,
   },

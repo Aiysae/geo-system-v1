@@ -39,11 +39,8 @@ export async function verifyAiCredentialWeb(
   ) {
     throw new Error("该账号未声明同时具备官方联网和可审计信源能力")
   }
-  if (
-    credential.vendor === "kimi"
-    && process.env.KIMI_STRICT_SEARCH_PROVIDER?.trim().toLowerCase() !== "moonshot"
-  ) {
-    throw new Error("当前 Kimi 严格联网由百度搜索线路承载，不能用此操作验证 Moonshot Key")
+  if (credential.vendor === "kimi") {
+    throw new Error("Kimi 严格联网由 Moonshot 生成与百度搜索双账号承载，请运行完整联网冒烟检测")
   }
 
   const startedAt = Date.now()

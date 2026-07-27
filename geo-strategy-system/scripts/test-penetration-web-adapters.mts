@@ -27,6 +27,7 @@ process.env.TENCENT_HUNYUAN_CHAT_URL = "https://tokenhub.tencentmaas.com/v1/chat
 type CapturedRequest = { url: string; body: Record<string, unknown> }
 const requests: CapturedRequest[] = []
 const originalFetch = globalThis.fetch
+let kimiMoonshotRound = 0
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -71,19 +72,62 @@ globalThis.fetch = async (input, init) => {
     })
   }
 
-  if (url.includes("qianfan.baidubce.com/v2/ai_search/chat/completions")) {
-    const label = body.model === "kimi-k2.6" ? "Kimi" : "文心"
+  if (url.includes("api.moonshot.cn")) {
+    kimiMoonshotRound += 1
+    if (kimiMoonshotRound === 1) {
+      return jsonResponse({
+        id: "moonshot-kimi-tool-1",
+        choices: [{
+          finish_reason: "tool_calls",
+          message: {
+            role: "assistant",
+            content: "",
+            tool_calls: [{
+              id: "kimi-search-call-1",
+              type: "function",
+              function: {
+                name: "search_web",
+                arguments: JSON.stringify({ query: question }),
+              },
+            }],
+          },
+        }],
+      })
+    }
     return jsonResponse({
-      request_id: `${label.toLowerCase()}-search-request-1`,
+      id: "moonshot-kimi-answer-1",
       choices: [{
         finish_reason: "stop",
-        message: { role: "assistant", content: `${label} 原始联网回答` },
+        message: { role: "assistant", content: "Kimi 原始联网回答" },
+      }],
+    })
+  }
+
+  if (url.includes("qianfan.baidubce.com/v2/ai_search/web_search")) {
+    return jsonResponse({
+      request_id: "baidu-kimi-search-request-1",
+      references: [{
+        type: "web",
+        title: "Kimi 联网信源",
+        content: "用于验证百度透明搜索返回公开文章网址。",
+        url: "https://example.com/news/kimi-search",
+        website: "示例网站",
+      }],
+    })
+  }
+
+  if (url.includes("qianfan.baidubce.com/v2/ai_search/chat/completions")) {
+    return jsonResponse({
+      request_id: "ernie-search-request-1",
+      choices: [{
+        finish_reason: "stop",
+        message: { role: "assistant", content: "文心 原始联网回答" },
       }],
       references: [{
         type: "web",
-        title: `${label} 联网信源`,
+        title: "文心 联网信源",
         content: "用于验证百度 AI 搜索返回公开文章网址。",
-        url: `https://example.com/news/${label.toLowerCase()}-search`,
+        url: "https://example.com/news/ernie-search",
         website: "示例网站",
       }],
     })
@@ -221,15 +265,41 @@ try {
     onSearchSources: event => kimiEvents.push(event),
   })
   assert.equal(kimiAnswer, "Kimi 原始联网回答")
-  const kimiRequest = requests.find(request =>
-    request.url.includes("qianfan.baidubce.com") && request.body.model === "kimi-k2.6"
+  const kimiRequests = requests.filter(request => request.url.includes("api.moonshot.cn"))
+  assert.equal(kimiRequests.length, 2)
+  assert.deepEqual(kimiRequests[0]?.body.messages, [{ role: "user", content: question }])
+  assert.equal(kimiRequests[0]?.body.tool_choice, "required")
+  assert.deepEqual(kimiRequests[0]?.body.thinking, { type: "disabled" })
+  assert.equal(
+    ((kimiRequests[0]?.body.tools as Array<{ function?: { name?: string } }>)[0])
+      ?.function?.name,
+    "search_web",
   )
-  assert.ok(kimiRequest)
-  assert.deepEqual(kimiRequest.body.messages, [{ role: "user", content: question }])
-  assert.equal(kimiRequest.body.search_mode, "required")
-  assert.deepEqual(kimiRequest.body.resource_type_filter, [{ type: "web", top_k: 20 }])
-  assert.equal(kimiEvents[0]?.searchExecuted, true)
-  assert.equal(kimiEvents[0]?.sources.length, 1)
+  const kimiSearchRequest = requests.find(request =>
+    request.url.includes("/v2/ai_search/web_search")
+  )
+  assert.ok(kimiSearchRequest)
+  assert.deepEqual(kimiSearchRequest.body.messages, [{ role: "user", content: question }])
+  assert.deepEqual(
+    kimiSearchRequest.body.resource_type_filter,
+    [{ type: "web", top_k: 20 }],
+  )
+  const secondKimiMessages = kimiRequests[1]?.body.messages as Array<Record<string, unknown>>
+  assert.equal(secondKimiMessages[0]?.role, "user")
+  assert.equal(secondKimiMessages[1]?.role, "assistant")
+  assert.equal(secondKimiMessages[2]?.role, "tool")
+  assert.match(
+    String(secondKimiMessages[2]?.content),
+    /https:\/\/example\.com\/news\/kimi-search/,
+  )
+  assert.equal(
+    kimiEvents.flatMap(event => event.sources).length,
+    1,
+  )
+  assert.equal(
+    new Set(kimiEvents.map(event => event.providerRequestId).filter(Boolean)).size,
+    3,
+  )
 
   const ernieEvents: SearchSourceEvent[] = []
   const ernieAnswer = await chatErnie({
