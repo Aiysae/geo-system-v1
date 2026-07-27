@@ -776,6 +776,9 @@ export interface PenetrationModelProgress {
   retrying: number
   blocked: number
   attempts: number
+  active?: number
+  queued?: number
+  waiting?: number
 }
 
 export interface PenetrationJobRecord {
@@ -796,6 +799,10 @@ export interface PenetrationJobRecord {
   totalAttempts?: number
   retryingSlots?: number
   blockedSlots?: number
+  activeSlots?: number
+  queuedSlots?: number
+  waitingSlots?: number
+  schedulerVersion?: "v1" | "v2" | "v3"
   modelProgress?: Partial<Record<ModelKey, PenetrationModelProgress>>
   result?: PenetrationResult
   skipped: string[]

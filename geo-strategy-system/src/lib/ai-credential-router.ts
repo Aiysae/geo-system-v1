@@ -274,27 +274,55 @@ export interface AiCredentialPoolCapacity {
   quotaGroupCount: number
 }
 
-export async function getAiCredentialPoolCapacity(
-  request: AiCredentialSelectionRequest,
-): Promise<AiCredentialPoolCapacity> {
-  const candidates = (await listAiCredentialRuntimes(request.vendor))
-    .filter(credential => satisfiesRequest(credential, request))
-  const groups = new Map<string, {
-    credentialConcurrency: number
-    groupConcurrency: number
-  }>()
+export interface AiCredentialPoolSnapshot extends AiCredentialPoolCapacity {
+  activeConcurrency: number
+  availableConcurrency: number
+}
+
+type CredentialCapacityGroup = {
+  quotaGroup: string
+  credentialConcurrency: number
+  groupConcurrency: number
+  credentials: AiCredentialRuntime[]
+}
+
+function buildCredentialCapacityGroups(
+  candidates: AiCredentialRuntime[],
+): Map<string, CredentialCapacityGroup> {
+  const groups = new Map<string, CredentialCapacityGroup>()
   for (const credential of candidates) {
     const group = groups.get(credential.quotaGroup) || {
+      quotaGroup: credential.quotaGroup,
       credentialConcurrency: 0,
       groupConcurrency: 0,
+      credentials: [],
     }
     group.credentialConcurrency += credential.maxConcurrency
     group.groupConcurrency = Math.max(
       group.groupConcurrency,
       credential.quotaGroupMaxConcurrency,
     )
+    group.credentials.push(credential)
     groups.set(credential.quotaGroup, group)
   }
+  return groups
+}
+
+async function occupiedSlotCount(scope: string, limit: number): Promise<number> {
+  const slots = await Promise.all(
+    Array.from({ length: Math.max(0, limit) }, (_, slot) =>
+      kv.get<string>(slotKey(scope, slot)),
+    ),
+  )
+  return slots.filter(Boolean).length
+}
+
+export async function getAiCredentialPoolCapacity(
+  request: AiCredentialSelectionRequest,
+): Promise<AiCredentialPoolCapacity> {
+  const candidates = (await listAiCredentialRuntimes(request.vendor))
+    .filter(credential => satisfiesRequest(credential, request))
+  const groups = buildCredentialCapacityGroups(candidates)
   return {
     candidateCount: candidates.length,
     maxConcurrency: [...groups.values()].reduce(
@@ -302,6 +330,78 @@ export async function getAiCredentialPoolCapacity(
       0,
     ),
     quotaGroupCount: groups.size,
+  }
+}
+
+export async function getAiCredentialPoolSnapshot(
+  request: AiCredentialSelectionRequest,
+): Promise<AiCredentialPoolSnapshot> {
+  const candidates = (await listAiCredentialRuntimes(request.vendor))
+    .filter(credential => satisfiesRequest(credential, request))
+  const groups = buildCredentialCapacityGroups(candidates)
+  const maxConcurrency = [...groups.values()].reduce(
+    (sum, group) => sum + Math.min(group.credentialConcurrency, group.groupConcurrency),
+    0,
+  )
+
+  try {
+    const availableByGroup = await Promise.all(
+      [...groups.values()].map(async group => {
+        const [activeGroupSlots, activeCredentialSlots] = await Promise.all([
+          occupiedSlotCount(
+            `group:${request.vendor}:${group.quotaGroup}`,
+            group.groupConcurrency,
+          ),
+          Promise.all(
+            group.credentials.map(credential =>
+              occupiedSlotCount(
+                `credential:${credential.id}`,
+                credential.maxConcurrency,
+              ),
+            ),
+          ),
+        ])
+        const availableGroupSlots = Math.max(
+          0,
+          group.groupConcurrency - activeGroupSlots,
+        )
+        const availableCredentialSlots = group.credentials.reduce(
+          (sum, credential, index) =>
+            sum + Math.max(
+              0,
+              credential.maxConcurrency - activeCredentialSlots[index],
+            ),
+          0,
+        )
+        return Math.min(availableGroupSlots, availableCredentialSlots)
+      }),
+    )
+    const availableConcurrency = availableByGroup.reduce(
+      (sum, available) => sum + available,
+      0,
+    )
+    return {
+      candidateCount: candidates.length,
+      maxConcurrency,
+      quotaGroupCount: groups.size,
+      activeConcurrency: Math.max(0, maxConcurrency - availableConcurrency),
+      availableConcurrency,
+    }
+  } catch (error) {
+    // Capacity inspection is an optimization only. Credential leases remain
+    // the authoritative concurrency gate if the snapshot cannot be read.
+    console.warn(
+      "[ai-credential-router] failed to inspect live pool capacity",
+      request.vendor,
+      error instanceof Error ? error.message : String(error),
+    )
+    return {
+      candidateCount: candidates.length,
+      maxConcurrency,
+      quotaGroupCount: groups.size,
+      activeConcurrency: 0,
+      availableConcurrency: maxConcurrency,
+    }
   }
 }
 

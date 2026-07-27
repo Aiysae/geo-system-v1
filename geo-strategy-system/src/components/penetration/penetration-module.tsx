@@ -528,10 +528,22 @@ function formatPenetrationJobProgress(job: PenetrationJobRecord): string {
       ? `已完成 ${job.completedSlots}/${job.totalSlots} · ${position}`
       : `检测已提交 · ${position}`
   }
-  if (job.status === "queued" || job.phase === "preflight") {
+  if (job.status === "queued") {
     return "检测已提交，正在排队..."
   }
   const base = `已完成 ${job.completedSlots}/${job.totalSlots}`
+  if ((job.activeSlots || 0) > 0) {
+    const waiting = job.waitingSlots || 0
+    return `${base} · ${job.activeSlots} 项正在并行联网${
+      waiting > 0 ? ` · ${waiting} 项等待补采` : ""
+    }`
+  }
+  if ((job.queuedSlots || 0) > 0 && job.schedulerVersion === "v3") {
+    return `${base} · 正在等待空闲检测通道`
+  }
+  if (job.phase === "preflight") {
+    return "检测已提交，正在分配检测通道..."
+  }
   if (job.phase !== "retrying") return `${base} · 正在联网检测`
 
   const retrying = job.retryingSlots || 0

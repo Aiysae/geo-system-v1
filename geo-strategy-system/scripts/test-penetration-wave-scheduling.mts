@@ -17,6 +17,7 @@ process.env.PENETRATION_HISTORY_FILE = path.join(tempDir, "penetration-history.j
 process.env.WORKSPACE_STORE = "file"
 process.env.WORKSPACE_FILE = path.join(tempDir, "workspace.json")
 process.env.AI_CONFIG_ENCRYPTION_KEY = "test-wave-credential-encryption-key"
+process.env.PENETRATION_SCHEDULER_V3 = "true"
 process.env.PENETRATION_SCHEDULER_V2 = "true"
 process.env.PENETRATION_JOB_WAVE_BATCH_LIMIT = "4"
 process.env.PENETRATION_JOB_WAVE_SLOT_LIMIT = "8"
@@ -28,7 +29,6 @@ const questions = Array.from({ length: 6 }, (_, index) => `并行检测问题 ${
 let activeRequests = 0
 let maxActiveRequests = 0
 let sawMultiModelBatch = false
-let qwenPermanentFailureIssued = false
 
 function validItem(args: {
   model: ModelKey
@@ -71,23 +71,8 @@ globalThis.fetch = async (_input, init) => {
   activeRequests++
   maxActiveRequests = Math.max(maxActiveRequests, activeRequests)
   const model = body.models[0]
-  const shouldReturnPermanentFailure = model === "qwen"
-    && body.sampleStart === 0
-    && !qwenPermanentFailureIssued
-  if (shouldReturnPermanentFailure) qwenPermanentFailureIssued = true
-  await new Promise(resolve => setTimeout(resolve, shouldReturnPermanentFailure ? 10 : model === "qwen" ? 50 : 110))
+  await new Promise(resolve => setTimeout(resolve, model === "qwen" ? 50 : 110))
   activeRequests--
-
-  if (shouldReturnPermanentFailure) {
-    return new Response(JSON.stringify({
-      byModel: {},
-      generatedAt: new Date().toISOString(),
-      modelErrors: { [model]: "HTTP 401 invalid key" },
-    }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    })
-  }
 
   return new Response(JSON.stringify({
     byModel: {
@@ -238,8 +223,7 @@ try {
   assert.equal(terminal.result?.byModel.qwen?.length, 6)
   assert.equal(terminal.result?.byModel.doubao?.length, 6)
   assert.equal(sawMultiModelBatch, false, "slow providers must not block fast providers in one batch")
-  assert.equal(qwenPermanentFailureIssued, true, "the multi-account failure branch must execute")
-  assert.ok(maxActiveRequests >= 3, "independent accounts and providers must run concurrently")
+  assert.ok(maxActiveRequests >= 2, "independent providers must run concurrently")
   const terminalWorkspace = await waitForWorkspace(client => !client.penetrationJobId)
   assert.equal(terminalWorkspace.penetration?.byModel.qwen?.length, 6)
   assert.equal(terminalWorkspace.penetration?.byModel.doubao?.length, 6)

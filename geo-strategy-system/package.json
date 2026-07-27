@@ -71,6 +71,7 @@
     "test:penetration-recovery": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-job-recovery.mts",
     "test:penetration-scheduling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-job-scheduling.mts",
     "test:penetration-wave": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-wave-scheduling.mts",
+    "test:penetration-v3": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-v3-scheduling.mts",
     "test:penetration-capacity-deferral": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-capacity-deferral.mts",
     "test:penetration-provider-concurrency": "tsx scripts/test-penetration-provider-concurrency.mts",
     "test:penetration-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-history.mts",

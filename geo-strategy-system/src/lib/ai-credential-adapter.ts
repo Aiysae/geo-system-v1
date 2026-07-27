@@ -5,6 +5,7 @@ import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
 import {
   getAiCredentialPoolCapacity,
+  getAiCredentialPoolSnapshot,
   hasAiCredentialCandidate,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
@@ -141,6 +142,19 @@ async function routePoolCapacity(
   return capacity
 }
 
+async function routePoolSnapshot(
+  route: AdapterCredentialRoute,
+  module: AiCredentialModule,
+) {
+  let snapshot = await getAiCredentialPoolSnapshot(selectionRequest(route, module))
+  if (snapshot.candidateCount === 0 && route.selectionModel) {
+    snapshot = await getAiCredentialPoolSnapshot(
+      selectionRequest(route, module, undefined, null),
+    )
+  }
+  return snapshot
+}
+
 export async function hasAdapterCredentialPoolCandidate(
   model: ModelKey,
   module: AiCredentialModule,
@@ -163,6 +177,12 @@ export interface AdapterCredentialPoolCapacity {
   maxConcurrency: number
   quotaGroupCount: number
   usesFallback: boolean
+}
+
+export interface AdapterCredentialPoolSnapshot
+  extends AdapterCredentialPoolCapacity {
+  activeConcurrency: number
+  availableConcurrency: number
 }
 
 export async function getAdapterCredentialPoolCapacity(
@@ -210,6 +230,67 @@ export async function getAdapterCredentialPoolCapacity(
     candidateCount: fallbackConfigured ? 1 : 0,
     maxConcurrency: fallbackConfigured ? 1 : 0,
     quotaGroupCount: fallbackConfigured ? 1 : 0,
+    usesFallback: fallbackConfigured,
+  }
+}
+
+export async function getAdapterCredentialPoolSnapshot(
+  model: ModelKey,
+  module: AiCredentialModule,
+  args: Partial<ChatArgs> = {},
+): Promise<AdapterCredentialPoolSnapshot> {
+  const route = await resolveAdapterCredentialRoute(model, module, args)
+  if (usesAuditableExternalSearch(model, module, args)) {
+    const [generationPool, searchPool] = await Promise.all([
+      routePoolSnapshot(route, module),
+      getAiCredentialPoolSnapshot(externalSearchSelectionRequest(module)),
+    ])
+    const [generationFallback, searchFallback] = await Promise.all([
+      generationPool.candidateCount === 0 ? ADAPTERS[model].configured() : false,
+      searchPool.candidateCount === 0 ? ADAPTERS.ernie.configured() : false,
+    ])
+    const generationCount = generationPool.candidateCount || (generationFallback ? 1 : 0)
+    const searchCount = searchPool.candidateCount || (searchFallback ? 1 : 0)
+    const generationConcurrency =
+      generationPool.maxConcurrency || (generationFallback ? 1 : 0)
+    const searchConcurrency =
+      searchPool.maxConcurrency || (searchFallback ? 1 : 0)
+    const generationAvailable =
+      generationPool.availableConcurrency || (generationFallback ? 1 : 0)
+    const searchAvailable =
+      searchPool.availableConcurrency || (searchFallback ? 1 : 0)
+    const maxConcurrency = Math.min(generationConcurrency, searchConcurrency)
+    const availableConcurrency = Math.min(generationAvailable, searchAvailable)
+    return {
+      vendor: "ernie",
+      candidateCount: Math.min(generationCount, searchCount),
+      maxConcurrency,
+      quotaGroupCount: Math.min(
+        generationPool.quotaGroupCount || (generationFallback ? 1 : 0),
+        searchPool.quotaGroupCount || (searchFallback ? 1 : 0),
+      ),
+      activeConcurrency: Math.max(0, maxConcurrency - availableConcurrency),
+      availableConcurrency,
+      usesFallback: generationFallback || searchFallback,
+    }
+  }
+
+  const snapshot = await routePoolSnapshot(route, module)
+  if (snapshot.candidateCount > 0) {
+    return {
+      vendor: route.vendor,
+      ...snapshot,
+      usesFallback: false,
+    }
+  }
+  const fallbackConfigured = await ADAPTERS[route.vendor].configured()
+  return {
+    vendor: route.vendor,
+    candidateCount: fallbackConfigured ? 1 : 0,
+    maxConcurrency: fallbackConfigured ? 1 : 0,
+    quotaGroupCount: fallbackConfigured ? 1 : 0,
+    activeConcurrency: 0,
+    availableConcurrency: fallbackConfigured ? 1 : 0,
     usesFallback: fallbackConfigured,
   }
 }
@@ -266,27 +347,22 @@ async function runAuditableExternalCredentialPoolChat(
     60 * 60,
     Math.max(60, (args.timeoutSec ?? 60) + 60),
   )
+  const pairWaitTimeoutMs = Math.max(
+    250,
+    Math.min(
+      waitTimeoutMs,
+      Number(process.env.PENETRATION_DUAL_POOL_PAIR_WAIT_MS) || 1_500,
+    ),
+  )
   let lastError: unknown
 
   for (let attempt = 0; attempt < maxCredentialAttempts; attempt += 1) {
-    const generationLease = await tryAcquireAiCredential({
-      ...selectionRequest(
-        route,
-        module,
-        excludedGenerationIds,
-        generationModel ?? null,
-      ),
-      waitTimeoutMs,
-      leaseSeconds,
-      ...quotaEstimate,
-    })
-    if (!generationLease) {
-      lastError = new Error(`${label} 生成账号池当前繁忙或暂无可用账号`)
-      break
-    }
-
     let searchLease: AiCredentialLease | null = null
+    let generationLease: AiCredentialLease | null = null
     try {
+      // Search is the shared bottleneck for Kimi and DeepSeek strict audits.
+      // Acquire it first, then pair a generation lane with a short wait. This
+      // avoids occupying a scarce generation account while waiting on search.
       searchLease = await tryAcquireAiCredential({
         ...externalSearchSelectionRequest(module, excludedSearchIds),
         waitTimeoutMs,
@@ -294,7 +370,23 @@ async function runAuditableExternalCredentialPoolChat(
       })
       if (!searchLease) {
         lastError = new Error(`${label} 联网搜索账号池当前繁忙或暂无可用账号`)
-        continue
+        break
+      }
+
+      generationLease = await tryAcquireAiCredential({
+        ...selectionRequest(
+          route,
+          module,
+          excludedGenerationIds,
+          generationModel ?? null,
+        ),
+        waitTimeoutMs: pairWaitTimeoutMs,
+        leaseSeconds,
+        ...quotaEstimate,
+      })
+      if (!generationLease) {
+        lastError = new Error(`${label} 生成账号池当前繁忙或暂无可用账号`)
+        break
       }
 
       const selectedModel = route.fixedTargetModel
@@ -349,7 +441,7 @@ async function runAuditableExternalCredentialPoolChat(
       }
     } finally {
       await Promise.all([
-        generationLease.release(),
+        generationLease?.release(),
         searchLease?.release(),
       ])
     }

@@ -1033,7 +1033,8 @@ export default function BatchInputPanel({
               </div>
               <div className="mt-1 text-[10px] text-slate-500">
                 有效 {progress.succeeded}/{progress.total}
-                {progress.retrying > 0 ? ` · 补采 ${progress.retrying}` : ""}
+                {(progress.active || 0) > 0 ? ` · 联网 ${progress.active}` : ""}
+                {(progress.waiting || 0) > 0 ? ` · 等待 ${progress.waiting}` : ""}
               </div>
             </div>
           ))}
