@@ -1,6 +1,7 @@
 import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { chatWithLocalWebSearchTool } from "./tool-loop"
 import { extractSourcesFromUnknown } from "./source-extract"
+import { emitPenetrationRequestAudit } from "./blind-request-audit"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import type { AiProviderRuntimeSetting } from "@/types/ai-settings"
@@ -193,6 +194,24 @@ async function chatTokenHubNativeSearch(
   const timeoutMs = Math.max(30, args.timeoutSec ?? config.timeout) * 1000
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const tools = [{ type: "web_search", search_context_size: "medium" }]
+  const payload = {
+    model: config.model,
+    input: args.user,
+    tools,
+    tool_choice: "auto",
+    max_output_tokens: args.maxTokens ?? 1200,
+    stream: true,
+  }
+  emitPenetrationRequestAudit(args, {
+    endpoint: url,
+    model: config.model,
+    modelProvider: "tencent_tokenhub",
+    searchProvider: "tencent_tokenhub",
+    searchMode: "native_web",
+    messages: [{ role: "user", content: payload.input }],
+    tools,
+  })
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -202,16 +221,7 @@ async function chatTokenHubNativeSearch(
         "Content-Type": "application/json",
         Authorization: `Bearer ${config.apiKey}`,
       },
-      body: JSON.stringify({
-        model: config.model,
-        input: args.user,
-        tools: [{ type: "web_search", search_context_size: "medium" }],
-        // Hy3 preview currently accepts only "auto". Strict completion is
-        // enforced after the response by requiring a real search call + URLs.
-        tool_choice: "auto",
-        max_output_tokens: args.maxTokens ?? 1200,
-        stream: true,
-      }),
+      body: JSON.stringify(payload),
     })
     if (!response.ok) {
       const text = await response.text()

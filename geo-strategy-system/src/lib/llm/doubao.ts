@@ -2,6 +2,7 @@ import { openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { extractSourcesFromUnknown } from "./source-extract"
+import { emitPenetrationRequestAudit } from "./blind-request-audit"
 
 // 豆包 (Volcengine Ark) 适配器
 //
@@ -73,6 +74,24 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
   const timeoutMs = Math.max(30, timeoutSec) * 1000
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const tools = [{ type: "web_search" }]
+  const payload = {
+    model,
+    input: args.user,
+    tools,
+    tool_choice: "required",
+    stream: false,
+    max_output_tokens: args.maxTokens ?? 2048,
+  }
+  emitPenetrationRequestAudit(args, {
+    endpoint: RESPONSES_URL,
+    model,
+    modelProvider: "volcengine_ark",
+    searchProvider: "volcengine_ark",
+    searchMode: "native_web",
+    messages: [{ role: "user", content: payload.input }],
+    tools,
+  })
   try {
     const response = await fetch(RESPONSES_URL, {
       method: "POST",
@@ -82,14 +101,7 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        input: args.user,
-        tools: [{ type: "web_search" }],
-        tool_choice: "required",
-        stream: false,
-        max_output_tokens: args.maxTokens ?? 2048,
-      }),
+      body: JSON.stringify(payload),
     })
     const text = await response.text()
     let data: ArkResponsesPayload

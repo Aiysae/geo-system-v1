@@ -39,7 +39,7 @@ export async function getPenetrationModelReadiness(
     return { model, ready: true }
   }
 
-  if (model === "qwen" || model === "deepseek") {
+  if (model === "qwen") {
     const config = await getAiProviderRuntimeSetting("qwen")
     if (!config.apiKey) {
       return { model, ready: false, reason: "严格联网需要阿里云百炼 API Key" }
@@ -47,8 +47,23 @@ export async function getPenetrationModelReadiness(
     if (!officialHost(config.baseUrl, /(^|\.)dashscope\.aliyuncs\.com$/i)) {
       return { model, ready: false, reason: "严格联网必须使用阿里云百炼官方地址" }
     }
-    if (model === "qwen" && config.extra.enableSearch !== true) {
+    if (config.extra.enableSearch !== true) {
       return { model, ready: false, reason: "百炼官方联网搜索开关未开启" }
+    }
+    return { model, ready: true }
+  }
+
+  if (model === "deepseek") {
+    const config = await getAiProviderRuntimeSetting("deepseek")
+    if (!config.apiKey) {
+      return { model, ready: false, reason: "严格联网需要 DeepSeek 官方 API Key" }
+    }
+    if (!officialHost(config.baseUrl, /(^|\.)api\.deepseek\.com$/i)) {
+      return { model, ready: false, reason: "严格联网必须使用 DeepSeek 官方 API 地址" }
+    }
+    const searchConfig = await getAiProviderRuntimeSetting("ernie")
+    if (!searchConfig.apiKey) {
+      return { model, ready: false, reason: "DeepSeek 严格联网需要百度千帆搜索 API Key" }
     }
     return { model, ready: true }
   }

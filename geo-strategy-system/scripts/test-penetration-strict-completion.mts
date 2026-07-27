@@ -26,6 +26,25 @@ function validItem(overrides: Partial<PenetrationItem> = {}): PenetrationItem {
     sourceCount: 1,
     searchMode: "native_web",
     promptPurity: "raw_question_only",
+    requestAuditVerified: true,
+    requestAudits: [{
+      schemaVersion: 1,
+      endpointHost: "example.com",
+      model: "test-model",
+      modelProvider: "test-provider",
+      searchProvider: "test-provider",
+      searchMode: "native_web",
+      messageRoles: ["user"],
+      systemMessageCount: 0,
+      userMessageCount: 1,
+      additionalPromptTextDetected: false,
+      exactQuestionMatch: true,
+      questionSha256: "question-hash",
+      promptSha256: "prompt-hash",
+      toolNames: ["web_search"],
+      verified: true,
+      verifiedAt: new Date().toISOString(),
+    }],
     webAttempted: true,
     webExecutionVerified: true,
     providerRequestIds: ["provider-request-1"],
@@ -70,6 +89,22 @@ assert.match(getPenetrationSlotValidationError(missingRequestId) || "", /请求�
 const impurePrompt = validItem({ promptPurity: "search_context_augmented" })
 assert.equal(isCompletePenetrationItem(impurePrompt), false)
 assert.match(getPenetrationSlotValidationError(impurePrompt) || "", /原始问题/)
+
+const missingOutboundProof = validItem({
+  requestAuditVerified: false,
+  requestAudits: [],
+})
+assert.equal(isCompletePenetrationItem(missingOutboundProof), false)
+assert.match(getPenetrationSlotValidationError(missingOutboundProof) || "", /出站请求/)
+
+assert.equal(
+  isCompletePenetrationItem(validItem({ searchMode: "provider_hosted_web" })),
+  true,
+)
+assert.equal(
+  isCompletePenetrationItem(validItem({ searchMode: "external_tool_web" })),
+  true,
+)
 
 assert.deepEqual(PENETRATION_SLOT_RETRY_DELAYS_MS, [3_000, 10_000, 30_000, 90_000, 180_000, 300_000])
 const base = Date.parse("2026-07-16T00:00:00.000Z")

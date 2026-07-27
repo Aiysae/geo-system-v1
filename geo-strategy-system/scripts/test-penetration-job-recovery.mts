@@ -34,6 +34,7 @@ function item(valid: boolean): PenetrationItem & { error?: string } {
     sourceCount: valid ? 1 : 0,
     searchMode: "native_web",
     promptPurity: "raw_question_only",
+    requestAuditVerified: valid,
     webAttempted: true,
     webExecutionVerified: true,
     providerRequestIds: valid ? ["provider-request-2"] : ["provider-request-1"],

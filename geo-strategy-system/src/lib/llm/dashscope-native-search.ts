@@ -6,6 +6,7 @@ import {
   isAuditableSourceUrl,
   normalizeSourceDomain,
 } from "./source-extract"
+import { emitPenetrationRequestAudit } from "./blind-request-audit"
 
 type DashScopeContent =
   | string
@@ -45,6 +46,8 @@ export interface DashScopeNativeSearchArgs extends ChatArgs {
   model: string
   timeoutSec: number
   label: string
+  searchMode?: "native_web" | "provider_hosted_web"
+  modelProvider?: string
 }
 
 function nativeEndpoint(baseUrl: string): string {
@@ -123,6 +126,34 @@ export async function chatDashScopeNativeSearch(
     messages.push({ role: "system", content: args.system })
   }
   messages.push({ role: "user", content: args.user })
+  const searchMode = args.searchMode ?? "native_web"
+  const parameters = {
+    result_format: "message",
+    temperature: args.temperature ?? 0,
+    max_tokens: args.maxTokens ?? 1200,
+    enable_search: true,
+    search_options: {
+      forced_search: true,
+      search_strategy: "max",
+      enable_source: true,
+      enable_citation: true,
+      citation_format: "[<number>]",
+    },
+  }
+  const payload = {
+    model: args.model,
+    input: { messages },
+    parameters,
+  }
+  emitPenetrationRequestAudit(args, {
+    endpoint,
+    model: args.model,
+    modelProvider: args.modelProvider ?? "alibaba_dashscope",
+    searchProvider: "alibaba_dashscope",
+    searchMode,
+    messages,
+    tools: [{ type: "web_search" }],
+  })
 
   try {
     const response = await fetch(endpoint, {
@@ -133,23 +164,7 @@ export async function chatDashScopeNativeSearch(
         "Content-Type": "application/json",
         Authorization: `Bearer ${args.apiKey}`,
       },
-      body: JSON.stringify({
-        model: args.model,
-        input: { messages },
-        parameters: {
-          result_format: "message",
-          temperature: args.temperature ?? 0,
-          max_tokens: args.maxTokens ?? 1200,
-          enable_search: true,
-          search_options: {
-            forced_search: true,
-            search_strategy: "max",
-            enable_source: true,
-            enable_citation: true,
-            citation_format: "[<number>]",
-          },
-        },
-      }),
+      body: JSON.stringify(payload),
     })
     const text = await response.text()
     let data: DashScopeResponse
@@ -173,7 +188,7 @@ export async function chatDashScopeNativeSearch(
     args.onSearchSources?.({
       query: args.user,
       sources,
-      mode: "native_web",
+      mode: searchMode,
       searchExecuted,
       providerRequestId: data.request_id,
       failureReason: searchExecuted

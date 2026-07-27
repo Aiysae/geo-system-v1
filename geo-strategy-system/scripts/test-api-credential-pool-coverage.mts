@@ -63,4 +63,22 @@ assert.equal(
   "Auditable Kimi sources must come from the separately verified search account",
 )
 
+const deepSeekPreset = AI_CREDENTIAL_PRESET_BY_VENDOR.get("deepseek")
+assert.ok(deepSeekPreset, "deepseek must have a credential preset")
+assert.equal(
+  deepSeekPreset.allowedModules.includes("penetration"),
+  true,
+  "DeepSeek generation accounts must be eligible for dual-provider penetration jobs",
+)
+assert.equal(
+  deepSeekPreset.declaredCapabilities.includes("chat"),
+  true,
+  "DeepSeek generation accounts must provide verified chat capability",
+)
+assert.equal(
+  deepSeekPreset.declaredCapabilities.includes("auditable_sources"),
+  false,
+  "Auditable DeepSeek sources must come from the separately verified search account",
+)
+
 console.log("All API routes use pooled model access instead of direct adapter calls")

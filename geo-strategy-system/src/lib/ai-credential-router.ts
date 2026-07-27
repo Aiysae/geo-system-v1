@@ -41,7 +41,8 @@ function satisfiesRequest(
     && request.requiredCapabilities?.includes("auditable_sources")
     && verified.has("native_web")
     && verified.has("auditable_sources")
-  const verifiedKimiGenerationOverride = request.vendor === "kimi"
+  const verifiedExternalSearchGenerationOverride =
+    (request.vendor === "kimi" || request.vendor === "deepseek")
     && request.module === "penetration"
     && (request.requiredCapabilities || []).every(capability => capability === "chat")
     && verified.has("chat")
@@ -49,7 +50,7 @@ function satisfiesRequest(
     credential.allowedModules.length > 0
     && !credential.allowedModules.includes(request.module)
     && !verifiedStrictWebOverride
-    && !verifiedKimiGenerationOverride
+    && !verifiedExternalSearchGenerationOverride
   ) return false
   if (
     request.model

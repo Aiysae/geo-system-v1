@@ -1,5 +1,6 @@
 import type { PenetrationSource } from "@/types"
 import type { ChatArgs } from "./openai-compat"
+import { emitPenetrationRequestAudit } from "./blind-request-audit"
 import {
   dedupePenetrationSources,
   isAuditableSourceUrl,
@@ -99,11 +100,11 @@ export async function searchBaiduWeb(
   args: BaiduWebSearchArgs,
 ): Promise<BaiduWebSearchResult> {
   if (!args.apiKey) {
-    throw new BaiduWebSearchError("Kimi 严格联网需要配置百度千帆搜索 API Key。")
+    throw new BaiduWebSearchError("严格联网需要配置百度千帆搜索 API Key。")
   }
 
   const query = args.query.trim()
-  if (!query) throw new BaiduWebSearchError("Kimi 严格联网搜索词为空。")
+  if (!query) throw new BaiduWebSearchError("严格联网搜索词为空。")
   const timeoutMs = Math.max(30, args.timeoutSec || 180) * 1000
   const controller = new AbortController()
   const abortFromParent = () => controller.abort(args.signal?.reason)
@@ -136,24 +137,24 @@ export async function searchBaiduWeb(
       data = JSON.parse(text) as BaiduWebSearchResponse
     } catch (error) {
       throw new BaiduWebSearchError(
-        `Kimi 百度搜索返回体解析失败：${error instanceof Error ? error.message : String(error)}`,
+        `百度联网搜索返回体解析失败：${error instanceof Error ? error.message : String(error)}`,
       )
     }
 
     const hasErrorCode = data.code !== undefined && data.code !== 0 && data.code !== "0"
     if (!response.ok || hasErrorCode) {
       throw new BaiduWebSearchError(
-        `Kimi 百度搜索调用失败 HTTP ${response.status}${data.code ? ` [${data.code}]` : ""}：${data.message || safeError(text) || "(无响应体)"}`,
+        `百度联网搜索调用失败 HTTP ${response.status}${data.code ? ` [${data.code}]` : ""}：${data.message || safeError(text) || "(无响应体)"}`,
       )
     }
 
     const sources = extractWebSources(data.references || [], query)
     const requestId = (data.request_id || data.requestId || "").trim()
     if (sources.length === 0) {
-      throw new BaiduWebSearchError("Kimi 百度搜索没有返回可点击、可读取的网页信源。")
+      throw new BaiduWebSearchError("百度联网搜索没有返回可点击、可读取的网页信源。")
     }
     if (!requestId) {
-      throw new BaiduWebSearchError("Kimi 百度搜索没有返回可审计请求编号。")
+      throw new BaiduWebSearchError("百度联网搜索没有返回可审计请求编号。")
     }
     return { query, sources, requestId }
   } catch (error) {
@@ -161,12 +162,12 @@ export async function searchBaiduWeb(
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new BaiduWebSearchError(
         args.signal?.aborted
-          ? "Kimi 百度搜索已随后台任务取消。"
-          : `Kimi 百度搜索请求超时 (${timeoutMs / 1000}s)。`,
+          ? "百度联网搜索已随后台任务取消。"
+          : `百度联网搜索请求超时 (${timeoutMs / 1000}s)。`,
       )
     }
     throw new BaiduWebSearchError(
-      `Kimi 百度搜索请求失败：${error instanceof Error ? error.message : String(error)}`,
+      `百度联网搜索请求失败：${error instanceof Error ? error.message : String(error)}`,
     )
   } finally {
     clearTimeout(timer)
@@ -197,6 +198,15 @@ export async function chatBaiduAiSearch(args: BaiduAiSearchArgs): Promise<string
     temperature: 0.01,
   }
   if (args.modelAppId?.trim()) body.model_appid = args.modelAppId.trim()
+  emitPenetrationRequestAudit(args, {
+    endpoint: BAIDU_AI_SEARCH_URL,
+    model: args.model,
+    modelProvider: "baidu_qianfan",
+    searchProvider: "baidu_search",
+    searchMode: "native_web",
+    messages: body.messages as Array<{ role: string; content: string }>,
+    tools: [{ type: "web_search" }],
+  })
 
   try {
     const response = await fetch(BAIDU_AI_SEARCH_URL, {

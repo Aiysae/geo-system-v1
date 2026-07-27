@@ -46,6 +46,7 @@ function validItem(args: {
     sourceCount: 1,
     searchMode: "native_web",
     promptPurity: "raw_question_only",
+    requestAuditVerified: true,
     webAttempted: true,
     webExecutionVerified: true,
     providerRequestIds: [`provider-${args.runId}`],

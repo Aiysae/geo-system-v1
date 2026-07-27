@@ -132,21 +132,21 @@ const DEFINITIONS: AiProviderDefinition[] = [
   {
     key: "deepseek",
     label: "DeepSeek",
-    description: "诊断和裁判继续使用当前 DeepSeek 接口；渗透率严格检测使用百炼托管 DeepSeek V4 强制联网。",
+    description: "诊断和裁判使用当前 DeepSeek 接口；渗透率严格检测由官方 DeepSeek V4 模型与透明网页搜索共同完成。",
     defaultBaseUrl: "https://api.deepseek.com",
     defaultChatPath: "/v1/chat/completions",
-    defaultModel: "deepseek-chat",
+    defaultModel: "deepseek-v4-flash",
     defaultTimeout: 300,
     apiKeyEnv: ["DEEPSEEK_API_KEY"],
     modelEnv: ["DEEPSEEK_MODEL"],
     presets: [
       {
         key: "deepseek-official-chat",
-        label: "DeepSeek 官方 · deepseek-chat",
-        description: "适合诊断和裁判；渗透率严格联网会自动改用百炼托管 DeepSeek V4。",
+        label: "DeepSeek 官方 · V4 Flash",
+        description: "适合诊断、裁判与渗透率检测；严格联网会另外调用透明网页搜索。",
         baseUrl: "https://api.deepseek.com",
         chatPath: "/v1/chat/completions",
-        model: "deepseek-chat",
+        model: "deepseek-v4-flash",
       },
       {
         key: "deepseek-tokenhub-flash",

@@ -2,7 +2,7 @@ import { chatWithLocalWebSearchTool } from "./tool-loop"
 import type { ChatArgs } from "./openai-compat"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
-import { chatDashScopeNativeSearch } from "./dashscope-native-search"
+import { chatWithAuditableExternalSearch } from "./auditable-external-search"
 
 // DeepSeek 适配器
 //
@@ -44,14 +44,25 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     args.mode === "consumer"
 
   if (strictPenetrationSearch) {
-    const dashScope = await getChatRuntimeSetting("qwen", args)
-    return chatDashScopeNativeSearch({
-      ...args,
-      apiKey: dashScope.apiKey,
-      baseUrl: dashScope.baseUrl,
+    const searchConfig = await getChatRuntimeSetting("ernie", {
+      runtimeOverride: args.searchRuntimeOverride,
+    })
+    if (!config.apiKey) throw new Error("DeepSeek 严格联网缺少官方 API Key。")
+    if (!searchConfig.apiKey) throw new Error("DeepSeek 严格联网缺少百度千帆搜索 API Key。")
+    if (!isOfficialDeepSeek(config.baseUrl)) {
+      throw new Error("DeepSeek 严格联网必须使用 DeepSeek 官方 API 地址。")
+    }
+    return chatWithAuditableExternalSearch({
+      args,
+      endpoint: buildAiChatUrl(config),
+      apiKey: config.apiKey,
       model: process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-v4-flash",
-      timeoutSec: args.timeoutSec ?? dashScope.timeout,
       label: LABEL,
+      modelProvider: "deepseek",
+      searchApiKey: searchConfig.apiKey,
+      requestTimeoutSec: args.timeoutSec ?? config.timeout,
+      searchTimeoutSec: args.timeoutSec ?? searchConfig.timeout,
+      temperature: args.temperature,
     })
   }
 
