@@ -119,22 +119,26 @@ function concurrencyValue(name: string, fallback: number, maximum: number): numb
 }
 
 function runtimeConfig(): PenetrationConcurrencyConfig {
+  const schedulerV3 = process.env.PENETRATION_SCHEDULER_V3
+    ?.trim().toLowerCase() !== "false"
   const schedulerV2 = process.env.PENETRATION_SCHEDULER_V2
     ?.trim().toLowerCase() !== "false"
-  const variable = (suffix: string) => schedulerV2
-    ? `PENETRATION_V2_${suffix}`
-    : `PENETRATION_${suffix}`
+  const variable = (suffix: string) => schedulerV3
+    ? `PENETRATION_V3_${suffix}`
+    : schedulerV2
+      ? `PENETRATION_V2_${suffix}`
+      : `PENETRATION_${suffix}`
 
   return {
-    total: concurrencyValue(variable("PROVIDER_TOTAL_CONCURRENCY"), 12, 24),
-    judge: concurrencyValue(variable("JUDGE_CONCURRENCY"), 3, 6),
+    total: concurrencyValue(variable("PROVIDER_TOTAL_CONCURRENCY"), schedulerV3 ? 16 : 12, 24),
+    judge: concurrencyValue(variable("JUDGE_CONCURRENCY"), schedulerV3 ? 4 : 3, 6),
     providers: {
-      doubao: concurrencyValue(variable("DOUBAO_CONCURRENCY"), 3, 6),
-      deepseek: concurrencyValue(variable("DEEPSEEK_CONCURRENCY"), 8, 12),
-      qwen: concurrencyValue(variable("QWEN_CONCURRENCY"), 8, 12),
-      kimi: concurrencyValue(variable("KIMI_CONCURRENCY"), 4, 6),
-      ernie: concurrencyValue(variable("ERNIE_CONCURRENCY"), 6, 10),
-      hunyuan: concurrencyValue(variable("HUNYUAN_CONCURRENCY"), 3, 5),
+      doubao: concurrencyValue(variable("DOUBAO_CONCURRENCY"), schedulerV3 ? 6 : 3, 6),
+      deepseek: concurrencyValue(variable("DEEPSEEK_CONCURRENCY"), schedulerV3 ? 12 : 8, 12),
+      qwen: concurrencyValue(variable("QWEN_CONCURRENCY"), schedulerV3 ? 12 : 8, 12),
+      kimi: concurrencyValue(variable("KIMI_CONCURRENCY"), schedulerV3 ? 6 : 4, 6),
+      ernie: concurrencyValue(variable("ERNIE_CONCURRENCY"), schedulerV3 ? 10 : 6, 10),
+      hunyuan: concurrencyValue(variable("HUNYUAN_CONCURRENCY"), schedulerV3 ? 5 : 3, 5),
     },
   }
 }

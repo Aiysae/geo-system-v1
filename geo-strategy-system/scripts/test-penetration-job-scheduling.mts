@@ -15,6 +15,7 @@ process.env.PENETRATION_HISTORY_STORE = "file"
 process.env.PENETRATION_HISTORY_FILE = path.join(tempDir, "penetration-history.json")
 process.env.PENETRATION_JOB_CONCURRENCY = "2"
 process.env.PENETRATION_JOB_PER_USER_CONCURRENCY = "1"
+process.env.PENETRATION_SCHEDULER_V3 = "false"
 process.env.PORT = "3000"
 
 const originalFetch = globalThis.fetch

@@ -14,6 +14,7 @@ import type {
 } from "@/types"
 import { ADAPTERS } from "@/lib/llm"
 import {
+  getAdapterCredentialPoolCapacity,
   isAdapterCredentialConfigured,
   runAdapterCredentialPoolChat,
 } from "@/lib/ai-credential-adapter"
@@ -57,6 +58,17 @@ export const revalidate = 0
 const BLIND_QUERY_MAX_TOKENS = 2048
 const JUDGE_BATCH_TIMEOUT_SEC = 45
 const JUDGE_BATCH_MAX_TOKENS = 3072
+const JUDGE_BATCH_SIZE = Math.max(
+  1,
+  Math.min(10, Math.floor(Number(process.env.PENETRATION_V3_JUDGE_BATCH_SIZE) || 6)),
+)
+const JUDGE_PIPELINE_CONCURRENCY = Math.max(
+  1,
+  Math.min(
+    4,
+    Math.floor(Number(process.env.PENETRATION_V3_JUDGE_PIPELINE_CONCURRENCY) || 2),
+  ),
+)
 
 interface PenetrationAuditProfile {
   searchMode: PenetrationSearchMode
@@ -948,12 +960,12 @@ async function enrichWithBatchJudge(
         id: `${model}-${index + 1}`,
         item: result.item,
       }))
-    for (let start = 0; start < slots.length; start += 5) {
-      jobs.push({ model, slots: slots.slice(start, start + 5) })
+    for (let start = 0; start < slots.length; start += JUDGE_BATCH_SIZE) {
+      jobs.push({ model, slots: slots.slice(start, start + JUDGE_BATCH_SIZE) })
     }
   }
 
-  await mapWithConcurrency(jobs, 2, async job => {
+  await mapWithConcurrency(jobs, JUDGE_PIPELINE_CONCURRENCY, async job => {
     const judged = await judgeAnswersBatch(judgeModel, {
       subjectType,
       personProfile,
@@ -1044,8 +1056,27 @@ async function mapWithConcurrency<T, R>(
   return out
 }
 
-function modelConcurrency(model: ModelKey): number {
-  return model === "kimi" || model === "doubao" || model === "hunyuan" ? 1 : 3
+async function modelConcurrency(model: ModelKey): Promise<number> {
+  const capacity = await getAdapterCredentialPoolCapacity(
+    model,
+    "penetration",
+    {
+      system: "",
+      user: "",
+      mode: "consumer",
+      forceWebSearch: true,
+      rawQuestionOnly: true,
+      requireWebEvidence: true,
+      officialWebOnly: true,
+    },
+  )
+  const configuredLimit = Math.floor(
+    Number(process.env[`PENETRATION_V3_${model.toUpperCase()}_CONCURRENCY`]),
+  )
+  const limit = Number.isFinite(configuredLimit) && configuredLimit > 0
+    ? configuredLimit
+    : capacity.maxConcurrency
+  return Math.max(1, Math.min(12, limit || 1))
 }
 
 async function handler(req: NextRequest) {
@@ -1204,12 +1235,23 @@ async function handler(req: NextRequest) {
       }] + Stage C 原文交叉校验）`
     )
     const t0 = Date.now()
+    const modelConcurrencyLimits = Object.fromEntries(
+      await Promise.all(
+        activeModels.map(async model => [
+          model,
+          await modelConcurrency(model),
+        ] as const),
+      ),
+    ) as Record<ModelKey, number>
 
     const groupedResults = await Promise.all(
       activeModels.map(m => {
         let permanentError = ""
         const auditProfile = auditProfiles[m]
-        return mapWithConcurrency(questionSamples, modelConcurrency(m), async sample => {
+        return mapWithConcurrency(
+          questionSamples,
+          modelConcurrencyLimits[m],
+          async sample => {
           const q = sample.question
           const sampleId = `${runId}_${m}_${sample.sampleIndex + 1}`
           if (permanentError) {
@@ -1249,7 +1291,8 @@ async function handler(req: NextRequest) {
             item.error = permanentError
           }
           return { model: m, item }
-        })
+          },
+        )
       })
     )
     const results = groupedResults.flat()

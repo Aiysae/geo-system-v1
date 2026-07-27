@@ -28,7 +28,12 @@ import {
   isPermanentPenetrationProviderError,
   isTransientPenetrationCapacityError,
 } from "@/lib/penetration/provider-errors"
-import { selectPenetrationDueWave } from "@/lib/penetration/wave-scheduler"
+import {
+  releasePenetrationWaveBatchReservation,
+  releasePenetrationWaveReservations,
+  selectPenetrationDueWave,
+  selectPenetrationDueWaveV3,
+} from "@/lib/penetration/wave-scheduler"
 import { estimateFeatureCredits } from "@/lib/pricing"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
@@ -105,6 +110,10 @@ type PenetrationBatch = {
   questions: string[]
   models: ModelKey[]
   sampleStart: number
+  schedulerReservation?: {
+    token: string
+    keys: string[]
+  }
 }
 
 type PenetrationBatchResponse = {
@@ -116,6 +125,8 @@ type PenetrationBatchResponse = {
 }
 
 const PENETRATION_JOB_SLOT_BATCH_LIMIT = 6
+const PENETRATION_SCHEDULER_V3 = process.env.PENETRATION_SCHEDULER_V3
+  ?.trim().toLowerCase() !== "false"
 const PENETRATION_SCHEDULER_V2 = process.env.PENETRATION_SCHEDULER_V2
   ?.trim().toLowerCase() !== "false"
 const PENETRATION_JOB_BATCH_TIMEOUT_MS = 15 * 60 * 1000
@@ -272,6 +283,9 @@ function summarizeSlotStates(
   | "totalAttempts"
   | "retryingSlots"
   | "blockedSlots"
+  | "activeSlots"
+  | "queuedSlots"
+  | "waitingSlots"
   | "modelProgress"
   | "modelErrors"
 > {
@@ -279,6 +293,9 @@ function summarizeSlotStates(
   const completedSlots = values.filter(state => state.status === "success").length
   const retryingSlots = values.filter(isRecoverableSlot).length
   const blockedSlots = values.filter(state => state.status === "provider_blocked").length
+  const activeSlots = values.filter(state => state.status === "running").length
+  const queuedSlots = values.filter(state => state.status === "queued").length
+  const waitingSlots = values.filter(state => state.status === "retry_wait").length
   const totalAttempts = values.reduce((sum, state) => sum + state.attempts, 0)
   const retryRound = Math.max(0, ...values.map(state => Math.max(0, state.attempts - 1)))
   const retryTimes = values
@@ -296,6 +313,9 @@ function summarizeSlotStates(
       retrying: modelStates.filter(isRecoverableSlot).length,
       blocked: modelStates.filter(state => state.status === "provider_blocked").length,
       attempts: modelStates.reduce((sum, state) => sum + state.attempts, 0),
+      active: modelStates.filter(state => state.status === "running").length,
+      queued: modelStates.filter(state => state.status === "queued").length,
+      waiting: modelStates.filter(state => state.status === "retry_wait").length,
     }
     const latestError = modelStates
       .filter(state => state.status !== "success" && !!state.lastError)
@@ -315,7 +335,7 @@ function summarizeSlotStates(
     ? "finalizing"
     : hasRetried
       ? "retrying"
-      : totalAttempts === 0
+      : totalAttempts === 0 && activeSlots === 0
         ? "preflight"
         : "sampling"
 
@@ -328,6 +348,9 @@ function summarizeSlotStates(
     totalAttempts,
     retryingSlots,
     blockedSlots,
+    activeSlots,
+    queuedSlots,
+    waitingSlots,
     modelProgress,
     modelErrors,
   }
@@ -973,7 +996,8 @@ async function processDueWave(
         index,
         batch,
         error,
-      })),
+      }))
+      .finally(() => releasePenetrationWaveBatchReservation(batch)),
   }))
   const successfulModelsInWave = new Set<ModelKey>()
   const permanentFailures = new Map<ModelKey, Array<{
@@ -1372,6 +1396,7 @@ async function runJobSlice(jobId: string): Promise<void> {
       status: "running",
       startedAt: job.startedAt || nowIso(),
       error: undefined,
+      queueReason: undefined,
       slotStates: states,
       totalBatches: job.request.questions.length,
       ...summarizeSlotStates(job, states),
@@ -1433,26 +1458,56 @@ async function runJobSlice(jobId: string): Promise<void> {
     }
 
     const nowMs = Date.now()
-    const batches: PenetrationBatch[] = PENETRATION_SCHEDULER_V2
-      ? await selectPenetrationDueWave({
+    const batches: PenetrationBatch[] = PENETRATION_SCHEDULER_V3
+      ? await selectPenetrationDueWaveV3({
           models: job.request.models,
           questions: job.request.questions,
           states,
           nowMs,
           rotationSeed: progress.totalAttempts || 0,
         })
-      : [selectDueBatch(job, states, nowMs)].filter(
-          (batch): batch is PenetrationBatch => Boolean(batch),
-        )
+      : PENETRATION_SCHEDULER_V2
+        ? await selectPenetrationDueWave({
+          models: job.request.models,
+          questions: job.request.questions,
+          states,
+          nowMs,
+          rotationSeed: progress.totalAttempts || 0,
+        })
+        : [selectDueBatch(job, states, nowMs)].filter(
+            (batch): batch is PenetrationBatch => Boolean(batch),
+          )
     if (batches.length === 0) {
-      const nextRetryAt = progress.nextRetryAt || new Date(Date.now() + 2_000).toISOString()
-      await patchJob(job.id, { ...progress, status: "running", nextRetryAt })
+      const hasDueSlots = Object.values(states).some(state => isDueSlot(state, nowMs))
+      const capacityPollMs = Math.max(
+        500,
+        Math.min(
+          5_000,
+          Number(process.env.PENETRATION_V3_CAPACITY_POLL_MS) || 1_000,
+        ),
+      )
+      const nextRetryAt = hasDueSlots
+        ? new Date(Date.now() + capacityPollMs).toISOString()
+        : progress.nextRetryAt || new Date(Date.now() + 2_000).toISOString()
+      await patchJob(job.id, {
+        ...progress,
+        status: "running",
+        nextRetryAt,
+        queueReason: hasDueSlots ? "capacity" : "retry_wait",
+      })
       scheduleResume(job.id, nextRetryAt)
       return
     }
 
-    if (PENETRATION_SCHEDULER_V2) await processDueWave(job, batches)
-    else await persistPartialJobResult(await processDueBatch(job, batches[0]))
+    if (PENETRATION_SCHEDULER_V3 || PENETRATION_SCHEDULER_V2) {
+      try {
+        await processDueWave(job, batches)
+      } finally {
+        await releasePenetrationWaveReservations(batches)
+      }
+    } else {
+      await persistPartialJobResult(await processDueBatch(job, batches[0]))
+    }
     shouldRequeue = true
   } catch (error) {
     const current = await getStoredJob(jobId)
@@ -1544,6 +1599,14 @@ export async function createPenetrationJob(args: {
     totalAttempts: 0,
     retryingSlots: args.request.questions.length * args.request.models.length,
     blockedSlots: 0,
+    activeSlots: 0,
+    queuedSlots: args.request.questions.length * args.request.models.length,
+    waitingSlots: 0,
+    schedulerVersion: PENETRATION_SCHEDULER_V3
+      ? "v3"
+      : PENETRATION_SCHEDULER_V2
+        ? "v2"
+        : "v1",
     skipped: args.skipped,
     modelErrors: {},
     createdAt: now,
@@ -1635,10 +1698,21 @@ export async function runPenetrationJobFromWorker(
   if (!latest || ["succeeded", "blocked", "failed", "cancelled"].includes(latest.status)) {
     return {}
   }
+  const states = latest.slotStates || initialSlotStates(latest)
+  const hasDueSlots = Object.values(states).some(state =>
+    isDueSlot(state, Date.now()),
+  )
   const retryAtMs = latest.nextRetryAt ? Date.parse(latest.nextRetryAt) : 0
   return {
     requeue: true,
-    delayMs: retryAtMs > Date.now() ? retryAtMs - Date.now() : 0,
+    delayMs:
+      latest.queueReason === "capacity" && retryAtMs > Date.now()
+        ? retryAtMs - Date.now()
+        : hasDueSlots
+          ? 0
+          : retryAtMs > Date.now()
+            ? retryAtMs - Date.now()
+            : 0,
   }
 }
 
