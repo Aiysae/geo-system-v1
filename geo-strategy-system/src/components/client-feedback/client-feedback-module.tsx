@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import {
   Activity,
   ArrowLeft,
@@ -11,7 +12,10 @@ import {
   ClipboardList,
   Copy,
   ExternalLink,
+  Eye,
+  EyeOff,
   FileBarChart2,
+  FileSearch2,
   FileUp,
   Link2,
   LoaderCircle,
@@ -31,6 +35,8 @@ import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   ClientExecutionAction,
   ClientExecutionProfile,
+  ClientExecutionActionPublication,
+  ClientExecutionPublicationPolicy,
   ClientExecutionStage,
   ClientEvidenceImportResult,
   ClientFeedbackPeriod,
@@ -41,6 +47,8 @@ import type {
 type Payload = {
   accessMode: "standard" | "client"
   canManage: boolean
+  canManageVisibility: boolean
+  publicationPolicy?: ClientExecutionPublicationPolicy
   profile: ClientExecutionProfile
   counters: {
     executionDay: number
@@ -51,6 +59,24 @@ type Payload = {
   currentMonth: ClientFeedbackPeriod
   actions: ClientExecutionAction[]
   reports: ClientFeedbackReport[]
+}
+
+const PUBLICATION_META: Record<ClientExecutionActionPublication, {
+  label: string
+  className: string
+}> = {
+  internal: {
+    label: "仅内部",
+    className: "bg-slate-100 text-slate-600",
+  },
+  summary: {
+    label: "只展示动作",
+    className: "bg-amber-50 text-amber-700",
+  },
+  full: {
+    label: "动作和报告",
+    className: "bg-emerald-50 text-emerald-700",
+  },
 }
 
 const STAGE_OPTIONS: Array<{ value: ClientExecutionStage; label: string }> = [
@@ -149,6 +175,8 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
   const [previewReport, setPreviewReport] = useState<ClientFeedbackReport | null>(null)
   const [copiedReportId, setCopiedReportId] = useState("")
   const [shareUrl, setShareUrl] = useState("")
+  const [selectedActionIds, setSelectedActionIds] = useState<string[]>([])
+  const [customerActionPreview, setCustomerActionPreview] = useState(false)
 
   const endpoint = `/api/client-feedback/${encodeURIComponent(client.id)}`
 
@@ -173,17 +201,34 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     return () => window.clearTimeout(timer)
   }, [load])
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search)
+      const requestedDate = String(params.get("date") || "")
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) return
+      setSelectedDate(requestedDate)
+      setCalendarMonth(requestedDate.slice(0, 7))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
+
   const cells = useMemo(() => calendarCells(calendarMonth), [calendarMonth])
+  const calendarActions = useMemo(() => {
+    const actions = payload?.actions || []
+    if (!customerActionPreview || !payload?.canManageVisibility) return actions
+    return actions.filter(action => action.publication !== "internal")
+  }, [customerActionPreview, payload?.actions, payload?.canManageVisibility])
   const actionsByDate = useMemo(() => {
     const map = new Map<string, ClientExecutionAction[]>()
-    for (const action of payload?.actions || []) {
+    for (const action of calendarActions) {
       const day = dateOnly(action.occurredAt)
       map.set(day, [...(map.get(day) || []), action])
     }
     return map
-  }, [payload?.actions])
+  }, [calendarActions])
   const selectedActions = actionsByDate.get(selectedDate) || []
   const visibleReports = payload?.reports || []
+  const canEditActionVisibility = payload?.canManageVisibility && !customerActionPreview
 
   async function saveProfile() {
     if (!profileDraft) return
@@ -269,6 +314,75 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
       await load(true)
     } catch (caught) {
       setError(toUserFacingError(caught, { fallback: "动作记录删除失败，请稍后重试。", subject: "删除动作记录" }))
+    } finally {
+      setPending("")
+    }
+  }
+
+  async function saveActionPublication(
+    actionIds: string[],
+    publication: ClientExecutionActionPublication,
+  ) {
+    if (actionIds.length === 0) return
+    setPending("publication")
+    setError("")
+    setNotice("")
+    try {
+      const response = await fetch(`${endpoint}/actions/publication`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionIds, publication }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, {
+        status: response.status,
+        fallback: "客户展示权限保存失败，请稍后重试。",
+        subject: "动作权限",
+      }))
+      setSelectedActionIds([])
+      setNotice(`已将 ${actionIds.length} 条动作设为“${PUBLICATION_META[publication].label}”`)
+      await load(true)
+    } catch (caught) {
+      setError(toUserFacingError(caught, {
+        fallback: "客户展示权限保存失败，请稍后重试。",
+        subject: "动作权限",
+      }))
+    } finally {
+      setPending("")
+    }
+  }
+
+  async function saveDefaultPenetrationPublication(
+    publication: ClientExecutionActionPublication,
+  ) {
+    setPending("publication-default")
+    setError("")
+    setNotice("")
+    try {
+      const response = await fetch(`${endpoint}/actions/publication`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set-default",
+          publication,
+        }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, {
+        status: response.status,
+        fallback: "默认展示规则保存失败，请稍后重试。",
+        subject: "默认展示规则",
+      }))
+      setPayload(current => current ? {
+        ...current,
+        publicationPolicy: body.policy as ClientExecutionPublicationPolicy,
+      } : current)
+      setNotice(`以后新完成的检测默认设为“${PUBLICATION_META[publication].label}”`)
+    } catch (caught) {
+      setError(toUserFacingError(caught, {
+        fallback: "默认展示规则保存失败，请稍后重试。",
+        subject: "默认展示规则",
+      }))
     } finally {
       setPending("")
     }
@@ -502,6 +616,40 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
               <button type="button" onClick={() => setCalendarMonth(value => shiftMonth(value, 1))} className="rounded-md p-2 text-[#6B8299] hover:bg-[#EEF5FC]" aria-label="下个月"><ChevronRight className="h-4 w-4" /></button>
             </div>
           </header>
+          {payload.canManageVisibility ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E7EFF6] bg-[#F8FBFF] px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-[#526A83]">未单独设置的检测默认展示</span>
+                <select
+                  value={payload.publicationPolicy?.defaultPenetration || "full"}
+                  disabled={pending === "publication-default" || customerActionPreview}
+                  onChange={event => void saveDefaultPenetrationPublication(
+                    event.target.value as ClientExecutionActionPublication,
+                  )}
+                  className="h-8 rounded-md border border-[#C8D9E8] bg-white px-2 text-[10px] font-semibold text-[#38536E] outline-none focus:border-[#1677FF] disabled:opacity-50"
+                >
+                  <option value="full">动作和完整报告</option>
+                  <option value="summary">只展示动作</option>
+                  <option value="internal">仅内部可见</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomerActionPreview(current => !current)
+                  setSelectedActionIds([])
+                }}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-semibold transition ${
+                  customerActionPreview
+                    ? "bg-[#1677FF] text-white"
+                    : "border border-[#C8D9E8] bg-white text-[#526A83]"
+                }`}
+              >
+                <Eye className="h-3 w-3" />
+                {customerActionPreview ? "退出动作预览" : "预览客户可见动作"}
+              </button>
+            </div>
+          ) : null}
           <div className="p-3 sm:p-4">
             <div className="grid grid-cols-7 text-center text-[10px] font-semibold text-[#8AA0B5]">
               {"一二三四五六日".split("").map(value => <span key={value} className="py-2">周{value}</span>)}
@@ -524,18 +672,48 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         <section className="rounded-lg border border-[#D7E5F2] bg-white">
           <header className="border-b border-[#E7EFF6] px-4 py-3">
             <h3 className="flex items-center gap-2 text-sm font-semibold"><ClipboardList className="h-4 w-4 text-[#13C2C2]" />{selectedDate} 动作</h3>
-            <p className="mt-0.5 text-[10px] text-[#7E91A7]">客户只能看到标记为“客户可见”的内容</p>
+            <p className="mt-0.5 text-[10px] text-[#7E91A7]">
+              {customerActionPreview ? "当前仅显示客户登录后能看到的动作" : "可逐条控制客户是否能查看动作和对应报告"}
+            </p>
           </header>
+          {canEditActionVisibility && selectedActionIds.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 border-b border-[#E7EFF6] bg-[#F8FBFF] px-4 py-2.5">
+              <span className="mr-auto text-[10px] font-semibold text-[#526A83]">
+                已选择 {selectedActionIds.length} 条
+              </span>
+              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "internal")} className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><EyeOff className="h-3 w-3" />隐藏</button>
+              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "summary")} className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-200 bg-white px-2.5 text-[10px] font-semibold text-amber-700"><Eye className="h-3 w-3" />只展示动作</button>
+              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "full")} className="inline-flex h-8 items-center gap-1 rounded-md bg-[#1677FF] px-2.5 text-[10px] font-semibold text-white"><FileSearch2 className="h-3 w-3" />开放报告</button>
+            </div>
+          ) : null}
           <div className="max-h-[420px] divide-y divide-[#EDF2F7] overflow-y-auto">
             {selectedActions.length === 0 ? (
               <div className="px-5 py-16 text-center text-xs text-[#8AA0B5]">当天没有执行记录</div>
             ) : selectedActions.map(action => (
               <article key={action.id} className="px-4 py-4">
                 <div className="flex items-start justify-between gap-3">
+                  {canEditActionVisibility ? (
+                    <input
+                      type="checkbox"
+                      checked={selectedActionIds.includes(action.id)}
+                      onChange={event => setSelectedActionIds(current => (
+                        event.target.checked
+                          ? Array.from(new Set([...current, action.id]))
+                          : current.filter(id => id !== action.id)
+                      ))}
+                      className="mt-1 h-4 w-4 shrink-0 accent-[#1677FF]"
+                      aria-label={`选择动作：${action.title}`}
+                    />
+                  ) : null}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h4 className="break-words text-sm font-semibold">{action.title}</h4>
                       <span className="rounded-md bg-[#EDF5FF] px-2 py-0.5 text-[10px] font-semibold text-[#0958D9]">{CATEGORY_LABELS[action.category] || "其他动作"}</span>
+                      {canEditActionVisibility ? (
+                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${PUBLICATION_META[action.publication || (action.visibility === "client" ? "summary" : "internal")].className}`}>
+                          {PUBLICATION_META[action.publication || (action.visibility === "client" ? "summary" : "internal")].label}
+                        </span>
+                      ) : null}
                     </div>
                     {action.description ? <p className="mt-1 break-words text-xs leading-5 text-[#6B8299]">{action.description}</p> : null}
                     <div className="mt-2 flex flex-wrap gap-x-3 text-[10px] text-[#8AA0B5]">
@@ -544,10 +722,45 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                       {action.visibility === "internal" ? <span className="text-amber-600">仅内部</span> : null}
                     </div>
                     {action.evidence.map(item => <a key={item.url} href={item.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-[#1677FF] hover:underline"><Link2 className="h-3 w-3" />{item.label}</a>)}
+                    {action.resultRef?.module === "penetration"
+                      && action.resultRef.resourceType === "history"
+                      && action.publication === "full" ? (
+                        <Link
+                          href={`/workspace/results/penetration/${encodeURIComponent(action.resultRef.resourceId)}`}
+                          className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-[10px] font-semibold text-white shadow-sm transition hover:brightness-105"
+                        >
+                          <FileSearch2 className="h-3.5 w-3.5" />
+                          查看当次检测报告
+                        </Link>
+                      ) : action.resultRef?.module === "penetration"
+                        && action.publication === "summary"
+                        && !payload.canManageVisibility ? (
+                          <div className="mt-2 inline-flex items-center gap-1 text-[10px] text-[#8AA0B5]">
+                            <LockKeyhole className="h-3 w-3" />本次报告未开放
+                          </div>
+                        ) : null}
                   </div>
-                  {payload.canManage && action.source === "manual" ? (
-                    <button type="button" onClick={() => void deleteAction(action)} disabled={pending === `delete:${action.id}`} className="shrink-0 rounded-md p-2 text-[#8AA0B5] hover:bg-rose-50 hover:text-rose-600" aria-label="删除动作"><Trash2 className="h-3.5 w-3.5" /></button>
-                  ) : null}
+                  <div className="flex shrink-0 items-center gap-1">
+                    {canEditActionVisibility ? (
+                      <select
+                        aria-label={`调整动作权限：${action.title}`}
+                        value={action.publication || (action.visibility === "client" ? "summary" : "internal")}
+                        disabled={pending === "publication"}
+                        onChange={event => void saveActionPublication(
+                          [action.id],
+                          event.target.value as ClientExecutionActionPublication,
+                        )}
+                        className="h-8 max-w-24 rounded-md border border-[#D7E5F2] bg-white px-1.5 text-[9px] font-semibold text-[#526A83] outline-none focus:border-[#1677FF]"
+                      >
+                        <option value="internal">仅内部</option>
+                        <option value="summary">只展示</option>
+                        <option value="full">含报告</option>
+                      </select>
+                    ) : null}
+                    {payload.canManage && action.source === "manual" ? (
+                      <button type="button" onClick={() => void deleteAction(action)} disabled={pending === `delete:${action.id}`} className="rounded-md p-2 text-[#8AA0B5] hover:bg-rose-50 hover:text-rose-600" aria-label="删除动作"><Trash2 className="h-3.5 w-3.5" /></button>
+                    ) : null}
+                  </div>
                 </div>
               </article>
             ))}

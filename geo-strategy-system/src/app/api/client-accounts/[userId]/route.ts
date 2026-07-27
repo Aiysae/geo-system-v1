@@ -14,8 +14,11 @@ import {
   getClientAccountLinkForSource,
   listClientAccountLinksForOwner,
   restoreClientAccountLink,
+  setClientAccountPermissions,
   setClientAccountStatus,
 } from "@/lib/client-accounts"
+import type { ClientPenetrationResultDetail } from "@/lib/client-account-policy"
+import type { TeamPermissionKey } from "@/lib/team-permissions"
 import { syncClientMonthlyAllowance } from "@/lib/credits"
 import { getMembershipWithPaymentRepair, hasMembershipTier } from "@/lib/membership"
 import { listWorkspaceClientSummaries } from "@/lib/workspace-store"
@@ -47,7 +50,12 @@ export async function PATCH(
   if (!auth.ok) return auth.response
   try {
     const { userId } = await context.params
-    const body = await request.json() as { action?: unknown; status?: unknown }
+    const body = await request.json() as {
+      action?: unknown
+      status?: unknown
+      permissionKeys?: unknown
+      penetrationResultDetail?: unknown
+    }
     const action = String(body.action || "status")
     if (action === "restore") {
       const user = await getUserById(userId)
@@ -107,6 +115,25 @@ export async function PATCH(
     }
 
     const { link, manager } = await managedLink(auth.userId, userId)
+    if (action === "permissions") {
+      const permissionKeys = Array.isArray(body.permissionKeys)
+        ? body.permissionKeys.map(value => String(value)) as TeamPermissionKey[]
+        : []
+      const penetrationResultDetail = String(
+        body.penetrationResultDetail || "full",
+      ) as ClientPenetrationResultDetail
+      const updated = await setClientAccountPermissions({
+        userId,
+        permissionKeys,
+        penetrationResultDetail,
+        operatorUserId: auth.userId,
+      })
+      return noStore(NextResponse.json({
+        ok: true,
+        permissionKeys: updated.permissionKeys,
+        penetrationResultDetail: updated.penetrationResultDetail,
+      }))
+    }
     if (action === "reset-password") {
       const password = `ST-${randomBytes(9).toString("base64url")}7`
       const user = await setManagedUserTemporaryPassword({

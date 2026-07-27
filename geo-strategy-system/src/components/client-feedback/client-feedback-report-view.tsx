@@ -9,6 +9,7 @@ import {
   Link2,
   Target,
 } from "lucide-react"
+import Link from "next/link"
 import type {
   ClientExecutionAction,
   ClientExecutionStage,
@@ -254,6 +255,18 @@ export default function ClientFeedbackReportView({
                         ))}
                       </div>
                     ) : null}
+                    {!publicView
+                      && action.publication === "full"
+                      && (action.resultRef?.resourceId || action.sourceRecordId)
+                      && action.category === "penetration_check" ? (
+                        <Link
+                          href={`/workspace/results/penetration/${encodeURIComponent(action.resultRef?.resourceId || action.sourceRecordId || "")}`}
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1677FF] hover:underline"
+                        >
+                          <FileCheck2 className="h-3.5 w-3.5" />
+                          查看当次检测报告
+                        </Link>
+                      ) : null}
                   </div>
                   <span className={`h-fit rounded-md px-2 py-1 text-[10px] font-semibold ${action.status === "completed" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
                     {action.status === "completed" ? "已完成" : "计划中"}

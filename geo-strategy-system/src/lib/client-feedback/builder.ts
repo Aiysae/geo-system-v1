@@ -12,6 +12,11 @@ import {
   saveClientFeedbackReport,
   shanghaiDateOnly,
 } from "@/lib/client-feedback/store"
+import {
+  applyActionPublication,
+  getClientExecutionPublicationPolicy,
+  penetrationHistoryActionId,
+} from "@/lib/client-feedback/publication"
 import type { Client, PenetrationHistoryRecord } from "@/types"
 import type {
   ClientExecutionAction,
@@ -106,10 +111,13 @@ function delta(current: number | null | undefined, baseline: number | null | und
   return Math.round((current - baseline) * 10_000) / 10_000
 }
 
-function systemAction(record: PenetrationHistoryRecord): ClientExecutionAction {
+function systemAction(
+  record: PenetrationHistoryRecord,
+  policy: Awaited<ReturnType<typeof getClientExecutionPublicationPolicy>>,
+): ClientExecutionAction {
   const when = record.completedAt || record.updatedAt
-  return {
-    id: `system_${record.id}`,
+  const action: ClientExecutionAction = {
+    id: penetrationHistoryActionId(record.id),
     ownerUserId: "",
     clientId: record.clientId,
     category: "penetration_check",
@@ -124,17 +132,28 @@ function systemAction(record: PenetrationHistoryRecord): ClientExecutionAction {
     platform: "势途 GEO",
     evidence: [],
     sourceRecordId: record.id,
+    resultRef: {
+      module: "penetration",
+      resourceType: "history",
+      resourceId: record.id,
+    },
+    publication: policy.defaultPenetration,
     createdByUserId: record.actorUserId || "system",
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   }
+  return applyActionPublication(action, policy)
 }
 
 export async function listSystemClientExecutionActions(
   ownerUserId: string,
   clientId: string,
 ): Promise<ClientExecutionAction[]> {
-  return (await listAllHistory(ownerUserId, clientId)).map(systemAction)
+  const [history, policy] = await Promise.all([
+    listAllHistory(ownerUserId, clientId),
+    getClientExecutionPublicationPolicy(ownerUserId, clientId),
+  ])
+  return history.map(record => systemAction(record, policy))
 }
 
 function percentage(value: number | null | undefined): string {
@@ -148,10 +167,11 @@ export async function buildClientFeedbackReport(input: {
   profile: ClientExecutionProfile
   period: ClientFeedbackPeriod
 }): Promise<ClientFeedbackReport> {
-  const [history, manualActions, previousReports] = await Promise.all([
+  const [history, manualActions, previousReports, publicationPolicy] = await Promise.all([
     listAllHistory(input.ownerUserId, input.client.id),
     listClientExecutionActions(input.ownerUserId, input.client.id),
     listClientFeedbackReports(input.ownerUserId, input.client.id),
+    getClientExecutionPublicationPolicy(input.ownerUserId, input.client.id),
   ])
   const eligible = history.filter(record => {
     const date = recordDate(record)
@@ -164,7 +184,9 @@ export async function buildClientFeedbackReport(input: {
   const baselineMetric = metricSnapshot(periodBaseline)
   const currentMetric = metricSnapshot(current)
   const quality = comparability(periodBaseline, current)
-  const manualInPeriod = manualActions.filter(action => {
+  const manualInPeriod = manualActions.map(action => (
+    applyActionPublication(action, publicationPolicy)
+  )).filter(action => {
     const date = shanghaiDateOnly(new Date(action.occurredAt))
     return action.visibility === "client" && date >= input.period.start && date <= input.period.end
   })
@@ -174,7 +196,7 @@ export async function buildClientFeedbackReport(input: {
   })
   const actions = [
     ...manualInPeriod,
-    ...historyInPeriod.map(systemAction),
+    ...historyInPeriod.map(record => systemAction(record, publicationPolicy)),
   ].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))
   const comparison = {
     baseline: baselineMetric,

@@ -73,11 +73,16 @@ export default function WorkspaceSidebar({
   const restricted = access.mode === "client"
   const drawerClass = open ? "translate-x-0" : "-translate-x-full"
   const SubjectIcon = client && getClientSubjectType(client) === "person" ? UserRound : Building2
-  const visibleModules = access.mode === "team"
-    ? DASHBOARD_MODULES.filter(module => (
-        hasTeamPermission(access.permissionKeys || [], module.key, "view")
-      ))
-    : DASHBOARD_MODULES
+  const visibleModules = DASHBOARD_MODULES.filter(module => {
+    if (access.mode === "standard") return true
+    if (access.mode === "team") {
+      return hasTeamPermission(access.permissionKeys || [], module.key, "view")
+    }
+    if (module.key === "penetration" || module.key === "feedback") {
+      return hasTeamPermission(access.permissionKeys || [], module.key, "view")
+    }
+    return true
+  })
 
   return (
     <aside className={cn("no-print fixed inset-y-0 left-0 z-50 flex h-screen w-[248px] shrink-0 transform flex-col overflow-hidden bg-[linear-gradient(180deg,#001743_0%,#002C70_52%,#003B8F_100%)] text-white shadow-[10px_0_36px_-28px_rgba(0,29,102,.9)] transition-transform duration-300 ease-out md:static md:translate-x-0", drawerClass)}>
@@ -103,13 +108,15 @@ export default function WorkspaceSidebar({
         {visibleModules.map(item => {
           const Icon = item.icon
           const selected = active === item.key
-          const teamCanOperate = access.mode !== "team"
-            || (!access.teamReadOnly && (
+          const canOperate = access.mode === "client"
+            ? item.key === "penetration" && access.canRunPenetration
+            : access.mode !== "team"
+              || (!access.teamReadOnly && (
               hasTeamPermission(access.permissionKeys || [], item.key, "execute")
               || hasTeamPermission(access.permissionKeys || [], item.key, "edit")
               || hasTeamPermission(access.permissionKeys || [], item.key, "manage")
             ))
-          const readOnly = (restricted && item.key !== "penetration" && item.key !== "feedback") || !teamCanOperate
+          const readOnly = (restricted && item.key !== "feedback" && !canOperate) || !canOperate
           return (
             <button key={item.key} type="button" onClick={() => { onChange(item.key); onClose?.() }} className={cn("group flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition", selected ? `bg-gradient-to-r ${item.accent} text-white shadow-sm` : "text-white/68 hover:bg-white/9 hover:text-white")} aria-current={selected ? "page" : undefined}>
               <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", selected ? "bg-white/16 text-white" : "bg-white/7 text-cyan-100/70 group-hover:bg-white/12 group-hover:text-white")}><Icon className="h-4 w-4" /></span>

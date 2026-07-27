@@ -31,6 +31,14 @@ const {
   saveClientExecutionProfile,
 } = await import("../src/lib/client-feedback/store")
 const { buildClientFeedbackReport } = await import("../src/lib/client-feedback/builder")
+const {
+  getClientExecutionPublicationPolicy,
+  penetrationHistoryActionId,
+  penetrationHistoryPublication,
+  sanitizeFeedbackReportForClient,
+  setActionPublications,
+  setDefaultPenetrationPublication,
+} = await import("../src/lib/client-feedback/publication")
 
 const ownerUserId = "feedback-owner"
 const actorUserId = "feedback-operator"
@@ -242,6 +250,77 @@ try {
   assert.equal(report.snapshot.actions.some(action => action.title === "搜狐行业文章"), true)
   assert.equal(report.snapshot.evidenceRecordCount, 3)
   assert.equal(report.snapshot.comparison.comparable, false)
+  const reportAction = report.snapshot.actions[0]
+  assert.ok(reportAction)
+  const reportWithResult = {
+    ...report,
+    snapshot: {
+      ...report.snapshot,
+      actions: [{
+        ...reportAction,
+        publication: "summary" as const,
+        sourceRecordId: "history-summary-only",
+        resultRef: {
+          module: "penetration" as const,
+          resourceType: "history" as const,
+          resourceId: "history-summary-only",
+        },
+      }],
+    },
+  }
+  const initialPolicy = await getClientExecutionPublicationPolicy(ownerUserId, client.id)
+  const summaryOnly = sanitizeFeedbackReportForClient(reportWithResult, initialPolicy)
+  assert.equal(summaryOnly.snapshot.actions[0]?.resultRef, undefined)
+  assert.equal(summaryOnly.snapshot.actions[0]?.sourceRecordId, undefined)
+  const reportWithFullResult = {
+    ...reportWithResult,
+    snapshot: {
+      ...reportWithResult.snapshot,
+      actions: reportWithResult.snapshot.actions.map(action => ({
+        ...action,
+        publication: "full" as const,
+      })),
+    },
+  }
+  const resultPermissionDenied = sanitizeFeedbackReportForClient(
+    reportWithFullResult,
+    initialPolicy,
+    { allowPenetrationResults: false },
+  )
+  assert.equal(resultPermissionDenied.snapshot.actions[0]?.resultRef, undefined)
+  assert.equal(resultPermissionDenied.snapshot.actions[0]?.sourceRecordId, undefined)
+
+  const defaultHidden = await setDefaultPenetrationPublication({
+    ownerUserId,
+    clientId: client.id,
+    publication: "internal",
+    operatorUserId: actorUserId,
+  })
+  assert.equal(
+    penetrationHistoryPublication(defaultHidden, {
+      historyId: "history-owned-by-client",
+      actorUserId: "client-viewer",
+      viewerUserId: "client-viewer",
+    }),
+    "full",
+    "a client's own detection remains visible unless the owner explicitly overrides it",
+  )
+  const explicitlyHidden = await setActionPublications({
+    ownerUserId,
+    clientId: client.id,
+    actionIds: [penetrationHistoryActionId("history-owned-by-client")],
+    publication: "internal",
+    operatorUserId: actorUserId,
+  })
+  assert.equal(
+    penetrationHistoryPublication(explicitlyHidden, {
+      historyId: "history-owned-by-client",
+      actorUserId: "client-viewer",
+      viewerUserId: "client-viewer",
+    }),
+    "internal",
+    "an explicit per-action rule must override the own-detection fallback",
+  )
 
   const published = await publishClientFeedbackReport({
     ownerUserId,

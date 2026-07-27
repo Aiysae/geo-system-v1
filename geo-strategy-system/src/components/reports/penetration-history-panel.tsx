@@ -47,6 +47,8 @@ type Props = {
   clients: Array<Pick<Client, "id" | "name">>
   activeClientId: string | null
   teamId?: string
+  showRawAnswers?: boolean
+  canManageHistory?: boolean
   onExportPenetration?: (client: Client) => void
 }
 
@@ -118,6 +120,8 @@ export default function PenetrationHistoryPanel({
   clients,
   activeClientId,
   teamId,
+  showRawAnswers = true,
+  canManageHistory = true,
   onExportPenetration,
 }: Props) {
   const [pageData, setPageData] = useState<PenetrationHistoryListPage>({
@@ -288,18 +292,20 @@ export default function PenetrationHistoryPanel({
                   生成专业报告
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={() => void deleteRecord(detail)}
-                disabled={busyId === detail.id}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                aria-label="删除检测记录"
-                title="删除检测记录"
-              >
-                {busyId === detail.id
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <Trash2 className="h-4 w-4" />}
-              </button>
+              {canManageHistory ? (
+                <button
+                  type="button"
+                  onClick={() => void deleteRecord(detail)}
+                  disabled={busyId === detail.id}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                  aria-label="删除检测记录"
+                  title="删除检测记录"
+                >
+                  {busyId === detail.id
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Trash2 className="h-4 w-4" />}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -317,7 +323,10 @@ export default function PenetrationHistoryPanel({
               正在载入当次检测快照
             </div>
           ) : (
-            <HistoryDetail record={detail} />
+            <PenetrationHistoryDetail
+              record={detail}
+              showRawAnswers={showRawAnswers}
+            />
           )}
         </div>
       </div>
@@ -442,6 +451,7 @@ export default function PenetrationHistoryPanel({
                   setSelectedId(record.id)
                 }}
                 onDelete={() => void deleteRecord(record)}
+                canDelete={canManageHistory}
               />
             ))}
           </div>
@@ -482,11 +492,13 @@ function HistoryRow({
   busy,
   onOpen,
   onDelete,
+  canDelete,
 }: {
   record: PenetrationHistoryListItem
   busy: boolean
   onOpen: () => void
   onDelete: () => void
+  canDelete: boolean
 }) {
   const status = STATUS_META[record.status]
   const subjectType = normalizeAnalysisSubjectType(record.summary.subjectType)
@@ -543,16 +555,18 @@ function HistoryRow({
               <CalendarClock className="h-3.5 w-3.5" />
               {formatDate(record.completedAt || record.createdAt)}
             </span>
-            <button
-              type="button"
-              onClick={onDelete}
-              disabled={busy}
-              className="rounded-md p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
-              aria-label="删除检测记录"
-              title="删除检测记录"
-            >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            </button>
+            {canDelete ? (
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={busy}
+                className="rounded-md p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                aria-label="删除检测记录"
+                title="删除检测记录"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              </button>
+            ) : <span />}
           </div>
         </div>
       </div>
@@ -569,7 +583,13 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
   )
 }
 
-function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
+export function PenetrationHistoryDetail({
+  record,
+  showRawAnswers = true,
+}: {
+  record: PenetrationHistoryRecord
+  showRawAnswers?: boolean
+}) {
   const result = record.result
   const subjectType = normalizeAnalysisSubjectType(record.request.subjectType)
   const status = STATUS_META[record.status]
@@ -716,12 +736,18 @@ function HistoryDetail({ record }: { record: PenetrationHistoryRecord }) {
             </section>
           ) : null}
 
-          <HistoryRawAnswers
-            historyId={record.id}
-            models={record.request.activeModels?.length
-              ? record.request.activeModels
-              : record.request.models}
-          />
+          {showRawAnswers ? (
+            <HistoryRawAnswers
+              historyId={record.id}
+              models={record.request.activeModels?.length
+                ? record.request.activeModels
+                : record.request.models}
+            />
+          ) : (
+            <section className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-4 text-xs leading-5 text-sky-800">
+              当前客户账号可查看本次检测的数据概览；原始回答与全部信源未开放。
+            </section>
+          )}
         </>
       )}
     </div>
