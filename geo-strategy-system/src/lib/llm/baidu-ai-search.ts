@@ -7,6 +7,7 @@ import {
 } from "./source-extract"
 
 const BAIDU_AI_SEARCH_URL = "https://qianfan.baidubce.com/v2/ai_search/chat/completions"
+const BAIDU_WEB_SEARCH_URL = "https://qianfan.baidubce.com/v2/ai_search/web_search"
 
 interface BaiduAiSearchReference {
   type?: string
@@ -28,12 +29,38 @@ interface BaiduAiSearchResponse {
   references?: BaiduAiSearchReference[]
 }
 
+interface BaiduWebSearchResponse {
+  request_id?: string
+  requestId?: string
+  code?: string | number
+  message?: string
+  references?: BaiduAiSearchReference[]
+}
+
 export interface BaiduAiSearchArgs extends ChatArgs {
   apiKey: string
   model: string
   label: string
   timeoutSec: number
   modelAppId?: string
+}
+
+export interface BaiduWebSearchArgs {
+  apiKey: string
+  query: string
+  timeoutSec: number
+  signal?: AbortSignal
+  topK?: number
+}
+
+export interface BaiduWebSearchResult {
+  query: string
+  sources: PenetrationSource[]
+  requestId: string
+}
+
+export class BaiduWebSearchError extends Error {
+  override name = "BaiduWebSearchError"
 }
 
 function safeError(text: string): string {
@@ -66,6 +93,85 @@ function extractWebSources(
     })
     .filter((source): source is PenetrationSource => !!source)
   return dedupePenetrationSources(sources)
+}
+
+export async function searchBaiduWeb(
+  args: BaiduWebSearchArgs,
+): Promise<BaiduWebSearchResult> {
+  if (!args.apiKey) {
+    throw new BaiduWebSearchError("Kimi 严格联网需要配置百度千帆搜索 API Key。")
+  }
+
+  const query = args.query.trim()
+  if (!query) throw new BaiduWebSearchError("Kimi 严格联网搜索词为空。")
+  const timeoutMs = Math.max(30, args.timeoutSec || 180) * 1000
+  const controller = new AbortController()
+  const abortFromParent = () => controller.abort(args.signal?.reason)
+  if (args.signal?.aborted) abortFromParent()
+  else args.signal?.addEventListener("abort", abortFromParent, { once: true })
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(BAIDU_WEB_SEARCH_URL, {
+      method: "POST",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${args.apiKey}`,
+        "X-Appbuilder-Authorization": `Bearer ${args.apiKey}`,
+      },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: query }],
+        search_source: "baidu_search_v2",
+        resource_type_filter: [{
+          type: "web",
+          top_k: Math.max(1, Math.min(20, Math.floor(args.topK || 20))),
+        }],
+      }),
+    })
+    const text = await response.text()
+    let data: BaiduWebSearchResponse
+    try {
+      data = JSON.parse(text) as BaiduWebSearchResponse
+    } catch (error) {
+      throw new BaiduWebSearchError(
+        `Kimi 百度搜索返回体解析失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+
+    const hasErrorCode = data.code !== undefined && data.code !== 0 && data.code !== "0"
+    if (!response.ok || hasErrorCode) {
+      throw new BaiduWebSearchError(
+        `Kimi 百度搜索调用失败 HTTP ${response.status}${data.code ? ` [${data.code}]` : ""}：${data.message || safeError(text) || "(无响应体)"}`,
+      )
+    }
+
+    const sources = extractWebSources(data.references || [], query)
+    const requestId = (data.request_id || data.requestId || "").trim()
+    if (sources.length === 0) {
+      throw new BaiduWebSearchError("Kimi 百度搜索没有返回可点击、可读取的网页信源。")
+    }
+    if (!requestId) {
+      throw new BaiduWebSearchError("Kimi 百度搜索没有返回可审计请求编号。")
+    }
+    return { query, sources, requestId }
+  } catch (error) {
+    if (error instanceof BaiduWebSearchError) throw error
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new BaiduWebSearchError(
+        args.signal?.aborted
+          ? "Kimi 百度搜索已随后台任务取消。"
+          : `Kimi 百度搜索请求超时 (${timeoutMs / 1000}s)。`,
+      )
+    }
+    throw new BaiduWebSearchError(
+      `Kimi 百度搜索请求失败：${error instanceof Error ? error.message : String(error)}`,
+    )
+  } finally {
+    clearTimeout(timer)
+    args.signal?.removeEventListener("abort", abortFromParent)
+  }
 }
 
 export async function chatBaiduAiSearch(args: BaiduAiSearchArgs): Promise<string> {

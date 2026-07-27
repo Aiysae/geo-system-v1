@@ -63,6 +63,8 @@ export interface ChatArgs {
   onUsage?: (usage: LlmTokenUsage) => void
   /** Server-selected account override. Never accept this field from a client request. */
   runtimeOverride?: ChatRuntimeOverride
+  /** Server-selected auditable search account used by dual-provider adapters. */
+  searchRuntimeOverride?: ChatRuntimeOverride
 }
 
 export interface LlmTokenUsage {

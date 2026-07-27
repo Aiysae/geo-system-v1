@@ -4,13 +4,13 @@ import { extractSourcesFromUnknown } from "./source-extract"
 import { withBeijingTime } from "./time-context"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
-import { chatBaiduAiSearch } from "./baidu-ai-search"
+import { searchBaiduWeb } from "./baidu-ai-search"
 
 // Kimi (Moonshot) 适配器
 //
-// 渗透率严格联网盲测通过 forceWebSearch 强制接入 Moonshot 官方 $web_search；
-// 分析/裁判路径默认带联网工具。TokenHub 等不稳定支持官方来源追踪的路径
-// 在严格盲测中直接报错，不再退回本地检索。
+// 渗透率严格联网盲测由 Kimi 负责工具选择和最终作答，由百度公开搜索
+// 返回可审计的标题、摘要和网址。分析/裁判路径仍可使用 Moonshot
+// 官方 $web_search；TokenHub 等路径不参与严格盲测。
 // 严格按 Moonshot 文档处理 tool_calls 循环：
 //   https://platform.moonshot.cn/docs/api/tool_use#web-search
 //
@@ -43,6 +43,25 @@ const WEB_SEARCH_TOOL = {
   function: { name: "$web_search" },
 }
 
+const AUDITABLE_WEB_SEARCH_TOOL = {
+  type: "function",
+  function: {
+    name: "search_web",
+    description: "搜索公开互联网中的实时信息，并返回网页标题、摘要和网址。",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "需要在公开互联网中检索的内容。",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+}
+
 function messageText(content: unknown): string {
   if (typeof content === "string") return content
   if (Array.isArray(content)) {
@@ -58,6 +77,26 @@ function messageText(content: unknown): string {
       .join("\n")
   }
   return ""
+}
+
+function strictSearchQuery(raw: unknown, fallback: string): string {
+  if (typeof raw !== "string") return fallback
+  try {
+    const parsed = JSON.parse(raw) as { query?: unknown }
+    if (typeof parsed.query === "string" && parsed.query.trim()) return parsed.query.trim()
+  } catch {
+    // Use the untouched user question when the model emits malformed tool arguments.
+  }
+  return fallback
+}
+
+function isOfficialMoonshotUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname.toLowerCase()
+    return host === "api.moonshot.cn" || host.endsWith(".moonshot.cn")
+  } catch {
+    return false
+  }
 }
 
 async function chatKimiDirect(args: ChatArgs): Promise<string> {
@@ -243,29 +282,128 @@ async function enqueuePenetrationRequest<T>(task: () => Promise<T>): Promise<T> 
 async function chatKimiStrictSearch(args: ChatArgs): Promise<string> {
   const [kimiConfig, baiduConfig] = await Promise.all([
     getChatRuntimeSetting("kimi", args),
-    getChatRuntimeSetting("ernie", args),
+    getChatRuntimeSetting("ernie", {
+      runtimeOverride: args.searchRuntimeOverride,
+    }),
   ])
-  const model = process.env.KIMI_BAIDU_SEARCH_MODEL?.trim() || kimiConfig.model || "kimi-k2.6"
-  const appId = typeof baiduConfig.extra.appId === "string" ? baiduConfig.extra.appId : ""
-  if (process.env.KIMI_STRICT_SEARCH_PROVIDER?.trim().toLowerCase() === "moonshot") {
-    return chatKimiDirect(args)
+  const key = kimiConfig.apiKey
+  const selectedModel = kimiConfig.model || "kimi-k2.6"
+  const url = buildAiChatUrl(kimiConfig)
+  if (!key) throw new Error("Kimi 严格联网缺少 Moonshot API Key。")
+  if (!baiduConfig.apiKey) throw new Error("Kimi 严格联网缺少百度千帆搜索 API Key。")
+  if (!isOfficialMoonshotUrl(url)) {
+    throw new Error("Kimi 严格联网必须使用 Moonshot 国内官方 API 地址。")
   }
 
-  try {
-    return await chatBaiduAiSearch({
-      ...args,
-      apiKey: baiduConfig.apiKey,
-      model,
-      label: "Kimi",
-      timeoutSec: args.timeoutSec ?? baiduConfig.timeout,
-      modelAppId: appId,
+  const messages: Array<Record<string, unknown>> = [
+    { role: "user", content: args.user },
+  ]
+  const auditableUrls = new Set<string>()
+  let searchExecuted = false
+  const MAX_ROUNDS = 4
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const data = await openaiCompatRaw({
+      url,
+      apiKey: key,
+      model: selectedModel,
+      label: LABEL,
+      messages,
+      temperature: shouldDisableThinking(selectedModel) ? undefined : args.temperature,
+      maxTokens: args.maxTokens,
+      seed: args.seed,
+      jsonMode: false,
+      tools: [AUDITABLE_WEB_SEARCH_TOOL],
+      toolChoice: round === 0 ? "required" : undefined,
+      extraBody: shouldDisableThinking(selectedModel)
+        ? { thinking: { type: "disabled" } }
+        : undefined,
+      timeoutMs: (args.timeoutSec ?? kimiConfig.timeout) * 1000,
+      signal: args.signal,
     })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (!/model_offline|model is offline/i.test(message)) throw error
-    console.warn("[Kimi·strict-web] 百度 AI 搜索的 Kimi 模型当前离线，改用 Moonshot 官方 $web_search。")
-    return chatKimiDirect(args)
+    const choice = data.choices?.[0]
+    if (!choice) throw new Error("Kimi 返回结构异常：缺少 choices。")
+    const msg = choice.message
+
+    if (data.id?.trim()) {
+      args.onSearchSources?.({
+        query: args.user,
+        sources: [],
+        mode: "native_web",
+        searchExecuted: false,
+        providerRequestId: data.id.trim(),
+      })
+    }
+
+    if (
+      choice.finish_reason === "tool_calls"
+      && Array.isArray(msg.tool_calls)
+      && msg.tool_calls.length > 0
+    ) {
+      messages.push({
+        role: "assistant",
+        content: messageText(msg.content),
+        tool_calls: msg.tool_calls,
+      })
+      for (const toolCall of msg.tool_calls) {
+        if (toolCall.function?.name !== "search_web") {
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: toolCall.function?.name ?? "unknown",
+            content: JSON.stringify({ error: "unsupported tool" }),
+          })
+          continue
+        }
+
+        const query = strictSearchQuery(toolCall.function.arguments, args.user)
+        const search = await searchBaiduWeb({
+          apiKey: baiduConfig.apiKey,
+          query,
+          timeoutSec: args.timeoutSec ?? baiduConfig.timeout,
+          signal: args.signal,
+          topK: 20,
+        })
+        searchExecuted = true
+        for (const source of search.sources) auditableUrls.add(source.url)
+        args.onSearchSources?.({
+          query: search.query,
+          sources: search.sources,
+          mode: "native_web",
+          searchExecuted: true,
+          providerRequestId: search.requestId,
+        })
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: toolCall.function.name,
+          content: JSON.stringify({
+            query: search.query,
+            results: search.sources.map(source => ({
+              title: source.title,
+              url: source.url,
+              snippet: source.snippet,
+              domain: source.domain,
+            })),
+          }),
+        })
+      }
+      continue
+    }
+
+    const content = messageText(msg.content)
+    if (!content.trim()) {
+      throw new Error(
+        `Kimi 返回空内容（finish_reason=${choice.finish_reason || "unknown"}）。`,
+      )
+    }
+    if (args.requireWebEvidence && (!searchExecuted || auditableUrls.size === 0)) {
+      throw new Error("Kimi 没有完成带可审计网址的联网搜索，已阻断模型自答。")
+    }
+    return content
   }
+
+  throw new Error(`Kimi 严格联网工具调用超过 ${MAX_ROUNDS} 轮仍未收敛。`)
 }
 
 export async function chatKimi(args: ChatArgs): Promise<string> {

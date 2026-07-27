@@ -1,6 +1,5 @@
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { hasAdapterCredentialPoolCandidate } from "@/lib/ai-credential-adapter"
-import { ADAPTERS } from "@/lib/llm"
 import type { ModelKey } from "@/types"
 
 export interface PenetrationModelReadiness {
@@ -20,17 +19,15 @@ function officialHost(value: string, expected: RegExp): boolean {
 export async function getPenetrationModelReadiness(
   model: ModelKey,
 ): Promise<PenetrationModelReadiness> {
-  const poolReady = model === "kimi" && process.env.KIMI_STRICT_WEB_ENABLED !== "true"
-    ? false
-    : await hasAdapterCredentialPoolCandidate(model, "penetration", {
-        system: "",
-        user: "",
-        mode: "consumer",
-        forceWebSearch: true,
-        rawQuestionOnly: true,
-        requireWebEvidence: true,
-        officialWebOnly: true,
-      })
+  const poolReady = await hasAdapterCredentialPoolCandidate(model, "penetration", {
+    system: "",
+    user: "",
+    mode: "consumer",
+    forceWebSearch: true,
+    rawQuestionOnly: true,
+    requireWebEvidence: true,
+    officialWebOnly: true,
+  })
   if (poolReady) return { model, ready: true }
 
   if (model === "doubao") {
@@ -72,18 +69,14 @@ export async function getPenetrationModelReadiness(
   }
 
   if (model === "kimi") {
-    const generalConfigured = await ADAPTERS.kimi.configured()
-    if (!generalConfigured) return { model, ready: false, reason: "Moonshot API Key 未配置" }
-    if (process.env.KIMI_STRICT_WEB_ENABLED !== "true") {
-      return {
-        model,
-        ready: false,
-        reason: "Kimi K2.6 当前无法稳定同时保证强制联网和返回可审计网址，已在任务开始前停用",
-      }
+    const kimiConfig = await getAiProviderRuntimeSetting("kimi")
+    if (!kimiConfig.apiKey) return { model, ready: false, reason: "Moonshot API Key 未配置" }
+    if (!officialHost(buildAiChatUrl(kimiConfig), /(^|\.)moonshot\.cn$/i)) {
+      return { model, ready: false, reason: "Kimi 严格联网必须使用 Moonshot 国内官方地址" }
     }
     const baiduConfig = await getAiProviderRuntimeSetting("ernie")
     if (!baiduConfig.apiKey) {
-      return { model, ready: false, reason: "Kimi 严格联网需要已验证的百度千帆 AI 搜索配置" }
+      return { model, ready: false, reason: "Kimi 严格联网需要百度千帆搜索 API Key" }
     }
     return { model, ready: true }
   }

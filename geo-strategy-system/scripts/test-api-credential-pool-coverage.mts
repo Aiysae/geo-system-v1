@@ -45,4 +45,22 @@ for (const vendor of ["doubao", "qwen", "ernie", "hunyuan"] as const) {
   )
 }
 
+const kimiPreset = AI_CREDENTIAL_PRESET_BY_VENDOR.get("kimi")
+assert.ok(kimiPreset, "kimi must have a credential preset")
+assert.equal(
+  kimiPreset.allowedModules.includes("penetration"),
+  true,
+  "Kimi generation accounts must be eligible for dual-provider penetration jobs",
+)
+assert.equal(
+  kimiPreset.declaredCapabilities.includes("chat"),
+  true,
+  "Kimi generation accounts must provide verified chat capability",
+)
+assert.equal(
+  kimiPreset.declaredCapabilities.includes("auditable_sources"),
+  false,
+  "Auditable Kimi sources must come from the separately verified search account",
+)
+
 console.log("All API routes use pooled model access instead of direct adapter calls")

@@ -41,10 +41,15 @@ function satisfiesRequest(
     && request.requiredCapabilities?.includes("auditable_sources")
     && verified.has("native_web")
     && verified.has("auditable_sources")
+  const verifiedKimiGenerationOverride = request.vendor === "kimi"
+    && request.module === "penetration"
+    && (request.requiredCapabilities || []).every(capability => capability === "chat")
+    && verified.has("chat")
   if (
     credential.allowedModules.length > 0
     && !credential.allowedModules.includes(request.module)
     && !verifiedStrictWebOverride
+    && !verifiedKimiGenerationOverride
   ) return false
   if (
     request.model
