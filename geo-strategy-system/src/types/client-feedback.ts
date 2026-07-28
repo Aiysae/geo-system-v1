@@ -77,6 +77,36 @@ export interface ClientExecutionAction {
   updatedAt: string
 }
 
+export type ClientExecutionActionDetailKind =
+  | "publication"
+  | "general"
+
+export interface ClientExecutionActionDetailEvidence extends ClientExecutionEvidence {
+  actionId: string
+  platform?: string
+  occurredAt: string
+}
+
+export interface ClientExecutionActionDetailPlatform {
+  name: string
+  count: number
+}
+
+export interface ClientExecutionActionDetail {
+  kind: ClientExecutionActionDetailKind
+  clientId: string
+  clientName: string
+  teamId?: string
+  accessMode: "standard" | "client"
+  action: ClientExecutionAction
+  relatedActions: ClientExecutionAction[]
+  evidence: ClientExecutionActionDetailEvidence[]
+  platforms: ClientExecutionActionDetailPlatform[]
+  itemCount: number
+  totalQuantity: number
+  unit: string
+}
+
 export interface ClientExecutionPublicationOverride {
   publication: ClientExecutionActionPublication
   updatedAt: string
