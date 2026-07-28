@@ -9,6 +9,7 @@ import {
   Download,
   FileDown,
   Files,
+  Globe2,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -519,7 +520,20 @@ export default function ArticleBatchWorkspace({
                 />
               </div>
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
-                <span>完成 {selectedBatch.completedCount} · 失败 {selectedBatch.failedCount} · 停止 {selectedBatch.cancelledCount}</span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>完成 {selectedBatch.completedCount} · 失败 {selectedBatch.failedCount} · 停止 {selectedBatch.cancelledCount}</span>
+                  {(selectedBatch.webCompletedCount || 0) > 0 && (
+                    <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                      <Globe2 className="h-3 w-3" />
+                      联网完成 {selectedBatch.webCompletedCount}
+                    </span>
+                  )}
+                  {(selectedBatch.fallbackCompletedCount || 0) > 0 && (
+                    <span className="font-medium text-amber-700">
+                      普通模式 {selectedBatch.fallbackCompletedCount}
+                    </span>
+                  )}
+                </div>
                 {selectedBatch.completedCount > 0 && (
                   <a
                     href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download`}
@@ -550,6 +564,21 @@ export default function ArticleBatchWorkspace({
                       {item.promptTitle && (
                         <span className="hidden shrink-0 rounded bg-blue-50 px-1.5 py-0.5 font-medium text-[#0958D9] sm:inline">
                           {item.promptTitle}
+                        </span>
+                      )}
+                      {item.status === "succeeded" && item.connectivity && (
+                        <span
+                          className={`hidden shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium sm:inline-flex ${
+                            item.connectivity.mode === "web"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-amber-50 text-amber-700"
+                          }`}
+                          title={item.connectivity.mode === "web"
+                            ? `已使用 ${item.connectivity.sourceCount} 条实时联网资料`
+                            : item.connectivity.fallbackReason || "联网多次未成功，已使用普通模式完成"}
+                        >
+                          <Globe2 className="h-3 w-3" />
+                          {item.connectivity.mode === "web" ? "联网" : "普通"}
                         </span>
                       )}
                     </div>

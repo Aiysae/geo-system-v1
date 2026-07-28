@@ -41,7 +41,7 @@ const workerDefinitions = [
     queueName: durableTaskQueueNameForLane("generation"),
     concurrency: workerConcurrency(
       "TASK_WORKER_GENERATION_CONCURRENCY",
-      Math.max(1, Math.floor(legacyConcurrency / 2)),
+      Math.max(4, Math.floor(legacyConcurrency / 2)),
     ),
   },
   {

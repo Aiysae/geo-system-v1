@@ -257,6 +257,7 @@ export interface ArticleGenerationState {
   methodology?: ArticleMethodologySelection
   methodologyTrace?: ArticleMethodologyTrace
   lineage?: ArticleGenerationLineage
+  connectivity?: ArticleGenerationConnectivity
   extractStatus?: GenerationStatus
   extractError?: string
   coreQuestion: string
@@ -271,6 +272,16 @@ export interface ArticleGenerationState {
   status: GenerationStatus
   error?: string
   generatedAt?: string
+}
+
+export type ArticleGenerationMode = "web" | "standard_fallback"
+
+export interface ArticleGenerationConnectivity {
+  requested: true
+  mode: ArticleGenerationMode
+  webAttempts: number
+  sourceCount: number
+  fallbackReason?: string
 }
 
 export interface ArticlePublishingSettings {
@@ -299,6 +310,7 @@ export interface ArticleGenerationLineage {
   modelProvider: ArticleModelProviderKey
   model: string
   methodologyTrace: ArticleMethodologyTrace
+  connectivity?: ArticleGenerationConnectivity
   generatedAt: string
 }
 
@@ -343,6 +355,7 @@ export interface ArticleBatchItemRecord {
   methodologyVersion?: string
   methodologyTrace?: ArticleMethodologyTrace
   generationId?: string
+  connectivity?: ArticleGenerationConnectivity
   promptKey?: ArticlePromptKey
   promptTitle?: string
   routeConfidence?: number
@@ -375,6 +388,8 @@ export interface ArticleBatchRecord {
   completedCount: number
   failedCount: number
   cancelledCount: number
+  webCompletedCount?: number
+  fallbackCompletedCount?: number
   status: ArticleBatchStatus
   stage: string
   error?: string
