@@ -267,6 +267,17 @@ export default function ClientFeedbackReportView({
                           查看当次检测报告
                         </Link>
                       ) : null}
+                    {!publicView
+                      && action.publication === "full"
+                      && action.category !== "penetration_check" ? (
+                        <Link
+                          href={`/workspace/actions/${encodeURIComponent(action.id)}?clientId=${encodeURIComponent(report.clientId)}`}
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1677FF] hover:underline"
+                        >
+                          <FileCheck2 className="h-3.5 w-3.5" />
+                          查看动作详情
+                        </Link>
+                      ) : null}
                   </div>
                   <span className={`h-fit rounded-md px-2 py-1 text-[10px] font-semibold ${action.status === "completed" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
                     {action.status === "completed" ? "已完成" : "计划中"}

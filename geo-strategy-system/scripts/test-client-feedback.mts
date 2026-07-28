@@ -9,6 +9,8 @@ process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = path.join(directory, "kv.json")
 process.env.PENETRATION_HISTORY_STORE = "file"
 process.env.PENETRATION_HISTORY_FILE = path.join(directory, "penetration-history.json")
+process.env.WORKSPACE_STORE = "file"
+process.env.WORKSPACE_FILE = path.join(directory, "workspaces.json")
 
 const {
   inferEvidencePlatform,
@@ -16,6 +18,7 @@ const {
   parseEvidenceImportText,
 } = await import("../src/lib/client-feedback/evidence-import")
 const {
+  deleteClientExecutionActionBatch,
   deleteClientFeedbackReport,
   executionCounters,
   feedbackPeriodForDate,
@@ -32,6 +35,18 @@ const {
 } = await import("../src/lib/client-feedback/store")
 const { buildClientFeedbackReport } = await import("../src/lib/client-feedback/builder")
 const {
+  getClientExecutionActionDetail,
+} = await import("../src/lib/client-feedback/action-detail")
+const {
+  groupClientExecutionActions,
+} = await import("../src/lib/client-feedback/action-groups")
+const {
+  saveClientAccountLink,
+} = await import("../src/lib/client-accounts")
+const {
+  createWorkspaceClient,
+} = await import("../src/lib/workspace-store")
+const {
   getClientExecutionPublicationPolicy,
   penetrationHistoryActionId,
   penetrationHistoryPublication,
@@ -42,6 +57,7 @@ const {
 
 const ownerUserId = "feedback-owner"
 const actorUserId = "feedback-operator"
+const clientViewerUserId = "feedback-client-viewer"
 const client: Client = {
   id: "feedback-client",
   name: "客户反馈测试",
@@ -58,6 +74,7 @@ const client: Client = {
 }
 
 try {
+  await createWorkspaceClient(ownerUserId, client)
   const initial = await getClientExecutionProfile(ownerUserId, client.id)
   assert.equal(initial.periodMode, "service")
 
@@ -185,6 +202,58 @@ try {
   assert.equal(batch.skipped[0]?.reason, "duplicate_batch")
   assert.equal(batch.created[0]?.importedFrom, "url_batch")
   assert.equal(batch.created[0]?.evidence[0]?.label, "搜狐行业文章")
+  const batchGroup = groupClientExecutionActions(batch.created)
+  assert.equal(batchGroup.length, 1)
+  assert.equal(batchGroup[0]?.isBatch, true)
+  assert.equal(batchGroup[0]?.itemCount, 2)
+  assert.equal(batchGroup[0]?.actionIds.length, 2)
+
+  const ownerBatchDetail = await getClientExecutionActionDetail({
+    userId: ownerUserId,
+    clientId: client.id,
+    actionId: batch.created[0]!.id,
+  })
+  assert.equal(ownerBatchDetail.kind, "publication")
+  assert.equal(ownerBatchDetail.itemCount, 2)
+  assert.equal(ownerBatchDetail.evidence.length, 2)
+  assert.deepEqual(
+    ownerBatchDetail.evidence.map(item => item.label).sort(),
+    ["CSDN 技术文章", "搜狐行业文章"].sort(),
+  )
+
+  await saveClientAccountLink({
+    userId: clientViewerUserId,
+    parentUserId: ownerUserId,
+    dataOwnerUserId: ownerUserId,
+    sourceType: "personal",
+    ownerUserId,
+    clientId: client.id,
+    clientName: client.name,
+    provisioning: "owner",
+    operatorUserId: ownerUserId,
+  })
+  await assert.rejects(
+    getClientExecutionActionDetail({
+      userId: clientViewerUserId,
+      clientId: client.id,
+      actionId: batch.created[0]!.id,
+    }),
+    /详细内容尚未向当前客户开放/,
+  )
+  await setActionPublications({
+    ownerUserId,
+    clientId: client.id,
+    actionIds: batch.created.map(action => action.id),
+    publication: "full",
+    operatorUserId: ownerUserId,
+  })
+  const clientBatchDetail = await getClientExecutionActionDetail({
+    userId: clientViewerUserId,
+    clientId: client.id,
+    actionId: batch.created[0]!.id,
+  })
+  assert.equal(clientBatchDetail.accessMode, "client")
+  assert.equal(clientBatchDetail.evidence.length, 2)
 
   const batchRetry = await saveClientExecutionActionBatch({
     ownerUserId,
@@ -375,6 +444,20 @@ try {
   assert.throws(
     () => feedbackPeriodForDate(profile, "weekly", "not-a-date"),
     /日期无效/,
+  )
+  assert.equal(
+    await deleteClientExecutionActionBatch(
+      ownerUserId,
+      client.id,
+      "cimp_feedback_batch_001",
+    ),
+    2,
+    "a publication batch must be removed in one scoped server operation",
+  )
+  assert.equal(
+    (await listClientExecutionActions(ownerUserId, client.id))
+      .some(action => action.importBatchId === "cimp_feedback_batch_001"),
+    false,
   )
 
   console.log("Client execution calendar, report snapshot and private sharing contract passed")

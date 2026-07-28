@@ -17,7 +17,6 @@ import {
   FileBarChart2,
   FileSearch2,
   FileUp,
-  Link2,
   LoaderCircle,
   LockKeyhole,
   Plus,
@@ -31,6 +30,10 @@ import {
 import BatchEvidenceImportDialog from "@/components/client-feedback/batch-evidence-import-dialog"
 import ClientFeedbackReportView from "@/components/client-feedback/client-feedback-report-view"
 import type { Client } from "@/types"
+import {
+  groupClientExecutionActions,
+  type ClientExecutionActionGroup,
+} from "@/lib/client-feedback/action-groups"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   ClientExecutionAction,
@@ -226,7 +229,10 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     }
     return map
   }, [calendarActions])
-  const selectedActions = actionsByDate.get(selectedDate) || []
+  const selectedActionGroups = useMemo(
+    () => groupClientExecutionActions(actionsByDate.get(selectedDate) || []),
+    [actionsByDate, selectedDate],
+  )
   const visibleReports = payload?.reports || []
   const canEditActionVisibility = payload?.canManageVisibility && !customerActionPreview
 
@@ -270,6 +276,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     setNotice("")
     const form = new FormData(event.currentTarget)
     const evidenceUrl = String(form.get("evidenceUrl") || "").trim()
+    const actionTitle = String(form.get("title") || "").trim()
     try {
       const response = await fetch(`${endpoint}/actions`, {
         method: "POST",
@@ -279,13 +286,13 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             category: String(form.get("category") || "other"),
             status: String(form.get("status") || "completed"),
             visibility: String(form.get("visibility") || "client"),
-            title: String(form.get("title") || ""),
+            title: actionTitle,
             description: String(form.get("description") || ""),
             occurredAt: `${String(form.get("occurredDate") || today())}T12:00:00+08:00`,
             quantity: form.get("quantity") ? Number(form.get("quantity")) : undefined,
             unit: String(form.get("unit") || ""),
             platform: String(form.get("platform") || ""),
-            evidence: evidenceUrl ? [{ label: "查看执行证据", url: evidenceUrl }] : [],
+            evidence: evidenceUrl ? [{ label: actionTitle || "查看执行证据", url: evidenceUrl }] : [],
           },
         }),
       })
@@ -301,19 +308,36 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     }
   }
 
-  async function deleteAction(action: ClientExecutionAction) {
-    if (action.source !== "manual" || !window.confirm(`确认删除“${action.title}”吗？`)) return
-    setPending(`delete:${action.id}`)
+  async function deleteActionGroup(group: ClientExecutionActionGroup) {
+    if (group.actions.some(action => action.source !== "manual")) return
+    const label = group.isBatch
+      ? `这批 ${group.totalQuantity}${group.unit}记录`
+      : `“${group.action.title}”`
+    if (!window.confirm(`确认删除${label}吗？`)) return
+    setPending(`delete:${group.key}`)
     setError("")
     try {
-      const response = await fetch(`${endpoint}/actions?actionId=${encodeURIComponent(action.id)}`, {
+      const deleteQuery = group.isBatch && group.action.importBatchId
+        ? `importBatchId=${encodeURIComponent(group.action.importBatchId)}`
+        : `actionId=${encodeURIComponent(group.action.id)}`
+      const response = await fetch(`${endpoint}/actions?${deleteQuery}`, {
         method: "DELETE",
       })
-      const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "动作记录删除失败，请稍后重试。", subject: "删除动作记录" }))
+      if (!response.ok) {
+        const body = await response.json().catch(() => null)
+        throw new Error(toUserFacingError(body?.error, {
+          status: response.status,
+          fallback: "动作记录删除失败，请稍后重试。",
+          subject: "删除动作记录",
+        }))
+      }
+      setNotice(group.isBatch ? "该批次动作记录已删除" : "动作记录已删除")
       await load(true)
     } catch (caught) {
-      setError(toUserFacingError(caught, { fallback: "动作记录删除失败，请稍后重试。", subject: "删除动作记录" }))
+      setError(toUserFacingError(caught, {
+        fallback: "动作记录删除失败，请稍后重试。",
+        subject: "删除动作记录",
+      }))
     } finally {
       setPending("")
     }
@@ -687,19 +711,35 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             </div>
           ) : null}
           <div className="max-h-[420px] divide-y divide-[#EDF2F7] overflow-y-auto">
-            {selectedActions.length === 0 ? (
+            {selectedActionGroups.length === 0 ? (
               <div className="px-5 py-16 text-center text-xs text-[#8AA0B5]">当天没有执行记录</div>
-            ) : selectedActions.map(action => (
-              <article key={action.id} className="px-4 py-4">
+            ) : selectedActionGroups.map(group => {
+              const action = group.action
+              const detailAllowed = payload.accessMode !== "client"
+                || group.publication === "full"
+              const detailHref = action.resultRef?.module === "penetration"
+                && action.resultRef.resourceType === "history"
+                ? `/workspace/results/penetration/${encodeURIComponent(action.resultRef.resourceId)}`
+                : `/workspace/actions/${encodeURIComponent(action.id)}?clientId=${encodeURIComponent(client.id)}`
+              const detailLabel = action.category === "penetration_check"
+                ? "查看当次检测报告"
+                : group.isPublication
+                  ? `查看发布明细 · ${group.totalQuantity}${group.unit}`
+                  : "查看动作详情"
+              const groupSelected = group.actionIds.every(id => (
+                selectedActionIds.includes(id)
+              ))
+              return (
+              <article key={group.key} className="px-4 py-4">
                 <div className="flex items-start justify-between gap-3">
                   {canEditActionVisibility ? (
                     <input
                       type="checkbox"
-                      checked={selectedActionIds.includes(action.id)}
+                      checked={groupSelected}
                       onChange={event => setSelectedActionIds(current => (
                         event.target.checked
-                          ? Array.from(new Set([...current, action.id]))
-                          : current.filter(id => id !== action.id)
+                          ? Array.from(new Set([...current, ...group.actionIds]))
+                          : current.filter(id => !group.actionIds.includes(id))
                       ))}
                       className="mt-1 h-4 w-4 shrink-0 accent-[#1677FF]"
                       aria-label={`选择动作：${action.title}`}
@@ -707,47 +747,52 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                   ) : null}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="break-words text-sm font-semibold">{action.title}</h4>
+                      <h4 className="break-words text-sm font-semibold">
+                        {group.isBatch
+                          ? `${CATEGORY_LABELS[action.category]} · ${group.totalQuantity}${group.unit}`
+                          : action.title}
+                      </h4>
                       <span className="rounded-md bg-[#EDF5FF] px-2 py-0.5 text-[10px] font-semibold text-[#0958D9]">{CATEGORY_LABELS[action.category] || "其他动作"}</span>
                       {canEditActionVisibility ? (
-                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${PUBLICATION_META[action.publication || (action.visibility === "client" ? "summary" : "internal")].className}`}>
-                          {PUBLICATION_META[action.publication || (action.visibility === "client" ? "summary" : "internal")].label}
+                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${PUBLICATION_META[group.publication].className}`}>
+                          {PUBLICATION_META[group.publication].label}
                         </span>
                       ) : null}
                     </div>
+                    {group.isBatch ? (
+                      <p className="mt-1 text-xs leading-5 text-[#6B8299]">
+                        本批次包含 {group.itemCount} 条发布明细，可进入详情逐条查看标题与网址。
+                      </p>
+                    ) : null}
                     {action.description ? <p className="mt-1 break-words text-xs leading-5 text-[#6B8299]">{action.description}</p> : null}
                     <div className="mt-2 flex flex-wrap gap-x-3 text-[10px] text-[#8AA0B5]">
                       <span>{formatTime(action.occurredAt)}</span>
                       {action.platform ? <span>{action.platform}</span> : null}
+                      {group.evidenceCount > 0 ? <span>{group.evidenceCount} 条证据</span> : null}
                       {action.visibility === "internal" ? <span className="text-amber-600">仅内部</span> : null}
                     </div>
-                    {action.evidence.map(item => <a key={item.url} href={item.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-[#1677FF] hover:underline"><Link2 className="h-3 w-3" />{item.label}</a>)}
-                    {action.resultRef?.module === "penetration"
-                      && action.resultRef.resourceType === "history"
-                      && action.publication === "full" ? (
-                        <Link
-                          href={`/workspace/results/penetration/${encodeURIComponent(action.resultRef.resourceId)}`}
-                          className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-[10px] font-semibold text-white shadow-sm transition hover:brightness-105"
-                        >
-                          <FileSearch2 className="h-3.5 w-3.5" />
-                          查看当次检测报告
-                        </Link>
-                      ) : action.resultRef?.module === "penetration"
-                        && action.publication === "summary"
-                        && !payload.canManageVisibility ? (
-                          <div className="mt-2 inline-flex items-center gap-1 text-[10px] text-[#8AA0B5]">
-                            <LockKeyhole className="h-3 w-3" />本次报告未开放
-                          </div>
-                        ) : null}
+                    {detailAllowed ? (
+                      <Link
+                        href={detailHref}
+                        className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-[10px] font-semibold text-white shadow-sm transition hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1677FF]"
+                      >
+                        <FileSearch2 className="h-3.5 w-3.5" />
+                        {detailLabel}
+                      </Link>
+                    ) : (
+                      <div className="mt-2 inline-flex items-center gap-1 text-[10px] text-[#8AA0B5]">
+                        <LockKeyhole className="h-3 w-3" />该动作详情尚未开放
+                      </div>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     {canEditActionVisibility ? (
                       <select
                         aria-label={`调整动作权限：${action.title}`}
-                        value={action.publication || (action.visibility === "client" ? "summary" : "internal")}
+                        value={group.publication}
                         disabled={pending === "publication"}
                         onChange={event => void saveActionPublication(
-                          [action.id],
+                          group.actionIds,
                           event.target.value as ClientExecutionActionPublication,
                         )}
                         className="h-8 max-w-24 rounded-md border border-[#D7E5F2] bg-white px-1.5 text-[9px] font-semibold text-[#526A83] outline-none focus:border-[#1677FF]"
@@ -757,13 +802,14 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                         <option value="full">含报告</option>
                       </select>
                     ) : null}
-                    {payload.canManage && action.source === "manual" ? (
-                      <button type="button" onClick={() => void deleteAction(action)} disabled={pending === `delete:${action.id}`} className="rounded-md p-2 text-[#8AA0B5] hover:bg-rose-50 hover:text-rose-600" aria-label="删除动作"><Trash2 className="h-3.5 w-3.5" /></button>
+                    {payload.canManage && group.actions.every(item => item.source === "manual") ? (
+                      <button type="button" onClick={() => void deleteActionGroup(group)} disabled={pending === `delete:${group.key}`} className="rounded-md p-2 text-[#8AA0B5] hover:bg-rose-50 hover:text-rose-600" aria-label={group.isBatch ? "删除整批动作" : "删除动作"}><Trash2 className="h-3.5 w-3.5" /></button>
                     ) : null}
                   </div>
                 </div>
               </article>
-            ))}
+              )
+            })}
           </div>
         </section>
       </div>

@@ -315,6 +315,25 @@ export async function listClientExecutionActions(
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
 }
 
+export async function getClientExecutionAction(
+  ownerUserId: string,
+  clientId: string,
+  actionId: string,
+): Promise<ClientExecutionAction | null> {
+  const owner = cleanId(ownerUserId, "客户所有者")
+  const client = cleanId(clientId, "客户")
+  const id = cleanId(actionId, "动作")
+  const action = await kv.get<ClientExecutionAction>(actionKey(id))
+  if (
+    !action
+    || action.ownerUserId !== owner
+    || action.clientId !== client
+  ) {
+    return null
+  }
+  return action
+}
+
 export async function saveClientExecutionAction(input: {
   ownerUserId: string
   clientId: string
@@ -556,6 +575,28 @@ export async function deleteClientExecutionAction(
   await kv.del(actionKey(actionId))
   await kv.srem(actionIndexKey(ownerUserId, clientId), actionId)
   return true
+}
+
+export async function deleteClientExecutionActionBatch(
+  ownerUserId: string,
+  clientId: string,
+  importBatchId: string,
+): Promise<number> {
+  const owner = cleanId(ownerUserId, "客户所有者")
+  const client = cleanId(clientId, "客户")
+  const batchId = cleanId(importBatchId, "导入批次")
+  const actions = (await listClientExecutionActions(owner, client))
+    .filter(action => (
+      action.source === "manual"
+      && action.importBatchId === batchId
+    ))
+  if (actions.length === 0) return 0
+  await Promise.all(actions.map(action => kv.del(actionKey(action.id))))
+  await kv.srem(
+    actionIndexKey(owner, client),
+    ...actions.map(action => action.id),
+  )
+  return actions.length
 }
 
 export async function listClientFeedbackReports(

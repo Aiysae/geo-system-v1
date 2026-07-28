@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   deleteClientExecutionAction,
+  deleteClientExecutionActionBatch,
   saveClientExecutionAction,
 } from "@/lib/client-feedback/store"
 import { requireOperationAccess } from "@/lib/team-access"
@@ -52,6 +53,15 @@ export async function DELETE(
       module: "feedback",
       action: "manage",
     })
+    const importBatchId = request.nextUrl.searchParams.get("importBatchId") || ""
+    if (importBatchId) {
+      const deletedCount = await deleteClientExecutionActionBatch(
+        access.dataOwnerUserId,
+        access.clientId,
+        importBatchId,
+      )
+      return NextResponse.json({ ok: deletedCount > 0, deletedCount })
+    }
     const actionId = request.nextUrl.searchParams.get("actionId") || ""
     const deleted = await deleteClientExecutionAction(
       access.dataOwnerUserId,
