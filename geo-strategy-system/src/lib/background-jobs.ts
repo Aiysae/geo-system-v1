@@ -77,12 +77,12 @@ const MAX_GENERAL_CONCURRENT_JOBS = Math.max(
 )
 const MAX_ARTICLE_CONCURRENT_JOBS = Math.max(
   1,
-  Math.min(3, Math.floor(Number(process.env.ARTICLE_BACKGROUND_JOB_CONCURRENCY) || 2)),
+  Math.min(6, Math.floor(Number(process.env.ARTICLE_BACKGROUND_JOB_CONCURRENCY) || 4)),
 )
 const MAX_TOTAL_CONCURRENT_JOBS = Math.max(
   2,
   Math.min(
-    5,
+    8,
     Math.floor(Number(process.env.BACKGROUND_JOB_TOTAL_CONCURRENCY)
       || Math.max(MAX_GENERAL_CONCURRENT_JOBS, MAX_ARTICLE_CONCURRENT_JOBS + 1)),
   ),

@@ -77,6 +77,7 @@ module.exports = {
         NODE_ENV: "production",
         TASK_QUEUE_BACKEND: taskQueueBackend,
         TASK_WORKER_CONCURRENCY: fileEnv.TASK_WORKER_CONCURRENCY || "4",
+        TASK_WORKER_GENERATION_CONCURRENCY: fileEnv.TASK_WORKER_GENERATION_CONCURRENCY || "4",
       },
     },
   ],

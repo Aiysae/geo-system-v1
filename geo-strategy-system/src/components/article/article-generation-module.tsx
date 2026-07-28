@@ -49,6 +49,7 @@ import { toUserFacingError } from "@/lib/user-facing-errors"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type { AiGatewayArticleOption, AiGatewayModelFamily } from "@/types/ai-gateway"
 import type {
+  ArticleGenerationConnectivity,
   ArticleGenerationState,
   ArticleGenerationLineage,
   ArticleMethodologyTrace,
@@ -90,6 +91,7 @@ interface ArticleGenerationResponse {
   rewriteAudit?: ArticleRewriteAudit
   methodologyTrace?: ArticleMethodologyTrace
   lineage?: ArticleGenerationLineage
+  connectivity?: ArticleGenerationConnectivity
   error?: string
 }
 
@@ -489,6 +491,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         rewriteAudit: data.rewriteAudit || article.rewriteAudit,
         methodologyTrace: data.methodologyTrace || article.methodologyTrace,
         lineage: data.lineage || article.lineage,
+        connectivity: data.connectivity,
         generatedAt: data.generatedAt || new Date().toISOString(),
         status: "done",
         error: undefined,
@@ -820,6 +823,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       ...article,
       rewriteAnalysis: currentRewriteAnalysis,
       rewriteMappings,
+      connectivity: undefined,
       status: "generating",
       error: undefined,
     }
@@ -867,6 +871,21 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {article.connectivity && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium ${
+                  article.connectivity.mode === "web"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-700"
+                }`}
+                title={article.connectivity.mode === "web"
+                  ? `已使用实时联网资料生成，共获取 ${article.connectivity.sourceCount} 条资料`
+                  : article.connectivity.fallbackReason || "联网多次未成功，已使用普通模式完成"}
+              >
+                <Globe2 className="h-3 w-3" />
+                {article.connectivity.mode === "web" ? "联网生成完成" : "普通模式完成"}
+              </span>
+            )}
             {article.generatedAt && (
               <span className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] text-slate-500">
                 {new Date(article.generatedAt).toLocaleString("zh-CN", { hour12: false })}

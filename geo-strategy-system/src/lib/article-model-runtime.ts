@@ -10,7 +10,14 @@ import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import type { LlmTokenUsage } from "@/lib/llm/openai-compat"
 import { nativeModelChat } from "@/lib/llm/native-chat"
 import { recordAiUsageQuietly } from "@/lib/ai-usage"
-import type { LlmMode } from "@/types"
+import {
+  buildArticleWebEnhancedPrompt,
+  collectArticleWebContext,
+} from "@/lib/article-web-context"
+import type {
+  ArticleGenerationConnectivity,
+  LlmMode,
+} from "@/types"
 import {
   hasAiCredentialCandidate,
   recordAiCredentialFailure,
@@ -33,6 +40,8 @@ export interface ArticleModelChatInput {
   maxTokens?: number
   jsonMode?: boolean
   mode?: LlmMode
+  webPolicy?: "disabled" | "required_with_fallback"
+  webSearchQueries?: string[]
   usageContext?: {
     userId: string
     task: string
@@ -43,6 +52,7 @@ export interface ArticleModelChatResult {
   content: string
   model: ResolvedArticleModel
   usedFallback: boolean
+  connectivity?: ArticleGenerationConnectivity
 }
 
 const circuits = new Map<string, CircuitState>()
@@ -319,6 +329,44 @@ export async function runArticleModelChat(
   primary: ResolvedArticleModel,
   input: ArticleModelChatInput,
 ): Promise<ArticleModelChatResult> {
+  let effectiveInput = input
+  let connectivity: ArticleGenerationConnectivity | undefined
+  if (input.webPolicy === "required_with_fallback") {
+    const context = await collectArticleWebContext({
+      queries: input.webSearchQueries?.length
+        ? input.webSearchQueries
+        : [input.user],
+      maxAttempts: Math.max(
+        1,
+        Math.min(4, Math.floor(Number(process.env.ARTICLE_WEB_SEARCH_ATTEMPTS) || 3)),
+      ),
+      maxResults: Math.max(
+        3,
+        Math.min(12, Math.floor(Number(process.env.ARTICLE_WEB_SEARCH_RESULTS) || 8)),
+      ),
+    })
+    if (context.sourceCount > 0) {
+      effectiveInput = {
+        ...input,
+        user: buildArticleWebEnhancedPrompt(input.user, context),
+      }
+      connectivity = {
+        requested: true,
+        mode: "web",
+        webAttempts: context.attempts,
+        sourceCount: context.sourceCount,
+      }
+    } else {
+      connectivity = {
+        requested: true,
+        mode: "standard_fallback",
+        webAttempts: context.attempts,
+        sourceCount: 0,
+        fallbackReason: context.fallbackReason,
+      }
+    }
+  }
+
   const candidates = [primary, ...(await fallbackModels(primary))]
   let lastError: unknown
 
@@ -326,9 +374,10 @@ export async function runArticleModelChat(
     const model = candidates[index]
     try {
       return {
-        content: await callModel(model, input, index > 0),
+        content: await callModel(model, effectiveInput, index > 0),
         model,
         usedFallback: index > 0,
+        connectivity,
       }
     } catch (error) {
       lastError = error

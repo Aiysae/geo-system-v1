@@ -380,14 +380,14 @@ export const QUESTION_MODEL_OPTIONS: Record<QuestionModelProvider, QuestionModel
   ],
 }
 
-export const DEFAULT_QUESTION_MODEL_PROVIDER: QuestionModelProvider = "qwen"
+export const DEFAULT_QUESTION_MODEL_PROVIDER: QuestionModelProvider = "doubao"
 
 export function getDefaultQuestionModel(provider: QuestionModelProvider): string {
   return QUESTION_MODEL_OPTIONS[provider][0]?.model || ""
 }
 
 export function normalizeQuestionModelProvider(value: unknown): QuestionModelProvider {
-  return value === "doubao" ? "doubao" : "qwen"
+  return value === "qwen" ? "qwen" : "doubao"
 }
 
 export function normalizeQuestionModel(

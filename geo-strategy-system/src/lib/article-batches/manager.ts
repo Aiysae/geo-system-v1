@@ -47,6 +47,7 @@ import {
 } from "@/lib/article-batches/store"
 import { recordArticleGenerationAttribution } from "@/lib/geo-methodology/attribution"
 import type {
+  ArticleGenerationConnectivity,
   ArticleGenerationLineage,
   ArticleBatchQuestionTask,
   ArticleBatchRecord,
@@ -95,6 +96,21 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
+}
+
+function articleConnectivity(value: unknown): ArticleGenerationConnectivity | undefined {
+  const input = record(value)
+  const mode = input.mode === "web" || input.mode === "standard_fallback"
+    ? input.mode
+    : null
+  if (input.requested !== true || !mode) return undefined
+  return {
+    requested: true,
+    mode,
+    webAttempts: Math.max(0, Math.floor(Number(input.webAttempts) || 0)),
+    sourceCount: Math.max(0, Math.floor(Number(input.sourceCount) || 0)),
+    fallbackReason: String(input.fallbackReason || "").trim().slice(0, 300) || undefined,
+  }
 }
 
 function safeError(value: unknown): string {
@@ -294,6 +310,7 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
         const markdown = String(jobResult.article || "").trim()
         const trace = record(jobResult.methodologyTrace)
         const lineage = record(jobResult.lineage)
+        item.connectivity = articleConnectivity(jobResult.connectivity)
         if (Object.keys(trace).length > 0) {
           item.methodologyTrace = trace as unknown as ArticleMethodologyTrace
         }

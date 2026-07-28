@@ -158,6 +158,7 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
     methodologyVersion: item.methodologyVersion,
     methodologyTrace: item.methodologyTrace,
     generationId: item.generationId,
+    connectivity: item.connectivity,
     promptKey: item.promptKey,
     promptTitle: item.promptTitle,
     routeConfidence: item.routeConfidence,
@@ -194,6 +195,12 @@ export function toPublicArticleBatch(batch: StoredArticleBatch): ArticleBatchRec
     completedCount: batch.completedCount,
     failedCount: batch.failedCount,
     cancelledCount: batch.cancelledCount,
+    webCompletedCount: batch.items.filter(item => (
+      item.status === "succeeded" && item.connectivity?.mode === "web"
+    )).length,
+    fallbackCompletedCount: batch.items.filter(item => (
+      item.status === "succeeded" && item.connectivity?.mode === "standard_fallback"
+    )).length,
     status: batch.status,
     stage: batch.stage,
     error: batch.error,

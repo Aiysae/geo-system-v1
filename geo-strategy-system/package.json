@@ -14,6 +14,7 @@
     "db:migrate:teams": "tsx scripts/migrate-team-db.mts",
     "test:article-rewrite": "tsx scripts/test-article-rewrite.mts",
     "test:article-default-model": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-default-model.mts",
+    "test:article-web-generation": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-web-generation.mts",
     "test:website-geo-audit": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-website-geo-audit.mts",
     "test:article-publishing": "tsx scripts/test-article-publishing.mts",
     "test:article-batches": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-batches.mts",

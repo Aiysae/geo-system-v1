@@ -93,6 +93,26 @@ function text(value: unknown, max = 4000): string {
     .slice(0, max)
 }
 
+function articleWebSearchQueries(args: {
+  coreQuestion: string
+  primarySubject: string
+  industry: string
+  region: string
+  keywords: string
+}): string[] {
+  const keywordSummary = args.keywords
+    .split(/[\r\n,，;；]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" ")
+  return [
+    args.coreQuestion,
+    [args.primarySubject, args.industry, args.region, "最新"].filter(Boolean).join(" "),
+    [keywordSummary, args.coreQuestion].filter(Boolean).join(" "),
+  ].filter(Boolean)
+}
+
 function stripCodeFence(value: string): string {
   const trimmed = value.trim()
   const match = trimmed.match(/^```(?:markdown|md|text)?\s*\n?([\s\S]*?)\n?```$/i)
@@ -508,6 +528,16 @@ export async function POST(req: NextRequest) {
       temperature: template.temperature,
       maxTokens: template.maxTokens,
       label: "文章生成",
+      webPolicy: isRewrite ? "disabled" : "required_with_fallback",
+      webSearchQueries: isRewrite
+        ? undefined
+        : articleWebSearchQueries({
+            coreQuestion,
+            primarySubject,
+            industry: text(body.industry, 160),
+            region: text(body.region, 160),
+            keywords: text(body.keywords, 2_000),
+          }),
       usageContext: {
         userId: creditGuard.userId,
         task: isRewrite ? "article_rewrite" : "article_generate",
@@ -548,6 +578,7 @@ export async function POST(req: NextRequest) {
           temperature: 0.15,
           maxTokens: template.maxTokens,
           label: "文章品牌映射修复",
+          webPolicy: "disabled",
           usageContext: {
             userId: creditGuard.userId,
             task: "article_rewrite_repair",
@@ -617,6 +648,7 @@ export async function POST(req: NextRequest) {
           temperature: 0.2,
           maxTokens: template.maxTokens,
           label: "文章质量修复",
+          webPolicy: "disabled",
           usageContext: {
             userId: creditGuard.userId,
             task: "article_quality_repair",
@@ -663,6 +695,7 @@ export async function POST(req: NextRequest) {
       modelProvider: effectiveConfig.providerKey,
       model: effectiveConfig.model,
       methodologyTrace: methodology.trace,
+      connectivity: generation.connectivity,
       generatedAt,
     }
     const clientId = text(body.clientId, 200)
@@ -698,6 +731,7 @@ export async function POST(req: NextRequest) {
         model: effectiveConfig.model,
         rewriteAudit,
         methodologyTrace: methodology.trace,
+        connectivity: generation.connectivity,
         lineage,
         generatedAt,
       },
