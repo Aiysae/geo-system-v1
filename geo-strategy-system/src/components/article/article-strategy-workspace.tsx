@@ -79,6 +79,7 @@ export default function ArticleStrategyWorkspace({
     comparisonBrands: Array.isArray(basePayload.comparisonBrands)
       ? (basePayload.comparisonBrands as ArticleComparisonBrand[]).map(item => item.name)
       : [],
+    methodology: basePayload.methodology,
   })
   const totalCredits = plan.reduce((sum, task) => sum + itemCost(task), 0)
   function updateSelection(next: Set<string>) {
@@ -128,6 +129,7 @@ export default function ArticleStrategyWorkspace({
           modelProvider: basePayload.modelProvider,
           model: basePayload.model,
           comparisonBrandCount,
+          methodology: basePayload.methodology,
         }),
       })
       const data = await readApiJson<PlanResponse>(response, "策略自动成文")

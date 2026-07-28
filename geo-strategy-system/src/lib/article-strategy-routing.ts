@@ -1,5 +1,9 @@
 import { getArticlePromptOption } from "@/lib/article-prompt-meta"
-import type { ArticleBatchQuestionTask, ArticlePromptKey } from "@/types"
+import type {
+  ArticleBatchQuestionTask,
+  ArticlePromptKey,
+  GeoMethodologyKey,
+} from "@/types"
 
 const ROUTABLE_PROMPTS = new Set<ArticlePromptKey>([
   "thirdPartyObservation",
@@ -24,12 +28,23 @@ function uniquePromptKeys(values: ArticlePromptKey[]): ArticlePromptKey[] {
   return [...new Set(values)].filter(value => ROUTABLE_PROMPTS.has(value))
 }
 
+const METHODOLOGY_PROMPT_MAP: Record<GeoMethodologyKey, ArticlePromptKey[]> = {
+  problemSolution: ["pitfallGuide", "selectionPitfallGuide", "thirdPartyObservation"],
+  primaryEvidence: ["credentialsAnalysis", "clientCaseStudy", "thirdPartyObservation"],
+  evidenceStory: ["clientCaseStudy", "thirdPartyObservation", "mediaIndustryAnalysis"],
+  explainer: ["pitfallGuide", "mediaIndustryAnalysis", "thirdPartyObservation"],
+  industryWhitepaper: ["industryRankingReport", "mediaIndustryAnalysis", "competitorComparison"],
+  entityKnowledge: ["mediaIndustryAnalysis", "thirdPartyObservation", "pitfallGuide"],
+  recommendationComparison: ["topBrandRanking", "handsOnComparisonReport", "thirdPartyObservation"],
+}
+
 export function articleStrategyPromptCandidates(args: {
   question: string
   category?: string
   intent?: string
   matchedAdvantage?: string
   comparisonBrandCount?: number
+  methodologyCandidates?: GeoMethodologyKey[]
 }): ArticlePromptKey[] {
   const category = String(args.category || "")
   const context = [args.question, args.intent, args.matchedAdvantage].filter(Boolean).join(" ")
@@ -67,7 +82,9 @@ export function articleStrategyPromptCandidates(args: {
   if (EVIDENCE_HINTS.credential.test(context)) candidates.unshift("credentialsAnalysis")
   if (EVIDENCE_HINTS.case.test(context)) candidates.unshift("clientCaseStudy")
   if (EVIDENCE_HINTS.current.test(context)) candidates.unshift("competitorComparison")
-  return uniquePromptKeys(candidates).slice(0, 4)
+  const methodologyCandidates = (args.methodologyCandidates || [])
+    .flatMap(method => METHODOLOGY_PROMPT_MAP[method] || [])
+  return uniquePromptKeys([...methodologyCandidates, ...candidates]).slice(0, 5)
 }
 
 export function articleStrategyMissingEvidence(args: {
@@ -113,7 +130,7 @@ export function fallbackArticleStrategyRoute(args: {
     promptKey,
     promptTitle: option?.title || "第三方测评",
     routeConfidence: 0.68,
-    routeReason: `依据“${args.task.category || "综合问题"}”的问题意图和现有资料，优先采用${option?.title || "第三方测评"}。`,
+    routeReason: `依据“${args.task.subIntent || args.task.category || "综合问题"}”的用户意图和现有资料，优先采用${option?.title || "第三方测评"}。`,
     missingEvidence: articleStrategyMissingEvidence({
       promptKey,
       matchedAdvantage: args.task.matchedAdvantage,

@@ -1,5 +1,9 @@
 import { supportsArticleComparisonBrands } from "@/lib/article-comparison-brands"
-import type { ArticleComparisonBrand, ArticlePromptKey } from "@/types"
+import type {
+  ArticleComparisonBrand,
+  ArticleMethodologyTrace,
+  ArticlePromptKey,
+} from "@/types"
 
 const MARKDOWN_TABLE = /^\s*\|.+\|\s*$[\r\n]+\s*\|(?:\s*:?-{3,}:?\s*\|)+/m
 const PLACEHOLDER = /(?:\{\{[^}\n]{1,120}\}\}|\【(?:请替换|待填写|填写)[^】\n]*\】)/
@@ -26,6 +30,9 @@ export interface ArticleQualityIssue {
     | "primary_subject_missing"
     | "advantage_missing"
     | "comparison_brand_missing"
+    | "title_body_drift"
+    | "methodology_structure_missing"
+    | "unsupported_superlative"
   message: string
   blocking: boolean
 }
@@ -74,6 +81,7 @@ export function validateGeneratedArticle(args: {
   primarySubject: string
   advantage?: string
   comparisonBrands?: ArticleComparisonBrand[]
+  methodologyTrace?: ArticleMethodologyTrace
 }): ArticleQualityReport {
   const article = String(args.article || "").trim()
   const issues: ArticleQualityIssue[] = []
@@ -114,6 +122,14 @@ export function validateGeneratedArticle(args: {
       blocking: true,
     })
   }
+  const title = article.match(/^#\s+(.+)$/m)?.[1]?.trim() || ""
+  if (longForm && title && args.coreQuestion && overlapCount(title, args.coreQuestion) < 1) {
+    issues.push({
+      code: "title_body_drift",
+      message: "标题与本篇核心疑问句的语义关联不足",
+      blocking: true,
+    })
+  }
   if (args.primarySubject && !normalized(article).includes(normalized(args.primarySubject))) {
     issues.push({
       code: "primary_subject_missing",
@@ -140,6 +156,39 @@ export function validateGeneratedArticle(args: {
     }
   }
 
+  const methodologySignals: Partial<Record<ArticleMethodologyTrace["methodKey"], RegExp>> = {
+    problemSolution: /结论|怎么做|步骤|方法|验证|适用|边界/,
+    primaryEvidence: /证据|依据|来源|核验|报告|资质/,
+    evidenceStory: /场景|过程|执行|结果|复盘|经验/,
+    explainer: /定义|原理|误区|判断|为什么/,
+    industryWhitepaper: /口径|样本|维度|趋势|研究|行业/,
+    entityKnowledge: /主体|业务|服务|适用|边界|问答/,
+    recommendationComparison: /比较|对比|维度|怎么选|适用|推荐/,
+  }
+  const methodologySignal = args.methodologyTrace
+    ? methodologySignals[args.methodologyTrace.methodKey]
+    : undefined
+  if (longForm && methodologySignal && !methodologySignal.test(article)) {
+    issues.push({
+      code: "methodology_structure_missing",
+      message: "正文没有形成所选内容策略需要的判断结构",
+      blocking: true,
+    })
+  }
+
+  const factualInput = normalized([
+    args.advantage,
+    ...(args.comparisonBrands || []).map(brand => brand.materials),
+  ].filter(Boolean).join(" "))
+  const superlatives = article.match(/(?:全国|行业|市场)?(?:第一|唯一|最强|最佳|绝对领先|百分之百|100%|零风险|保证有效)/g) || []
+  if (superlatives.some(claim => !factualInput.includes(normalized(claim)))) {
+    issues.push({
+      code: "unsupported_superlative",
+      message: "正文含有输入资料未明确支持的绝对化结论",
+      blocking: false,
+    })
+  }
+
   const score = Math.max(0, 100 - issues.reduce((sum, issue) => (
     sum + (issue.blocking ? 18 : 8)
   ), 0))
@@ -157,6 +206,7 @@ export function buildArticleQualityRepairPrompt(args: {
   primarySubject: string
   advantage?: string
   comparisonBrands?: ArticleComparisonBrand[]
+  methodologyTrace?: ArticleMethodologyTrace
 }): string {
   return [
     "请修复下面这篇文章中列出的质量问题，输出修复后的完整 Markdown 正文。",
@@ -177,6 +227,14 @@ export function buildArticleQualityRepairPrompt(args: {
           sourceUrls: item.sourceUrls,
         })))
       : "未提供"}`,
+    `内容策略追踪：${args.methodologyTrace
+      ? JSON.stringify({
+          methodKey: args.methodologyTrace.methodKey,
+          targetPlatform: args.methodologyTrace.targetPlatform,
+          brandLayout: args.methodologyTrace.brandLayout,
+          titleStrategy: args.methodologyTrace.titleStrategy,
+        })
+      : "自动"}`,
     "",
     "【待修复正文】",
     args.draft,

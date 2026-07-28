@@ -21,6 +21,7 @@ import type { Client, PenetrationHistoryRecord } from "@/types"
 import type {
   ClientExecutionAction,
   ClientExecutionProfile,
+  ClientFeedbackContentAttribution,
   ClientFeedbackMetricSnapshot,
   ClientFeedbackPeriod,
   ClientFeedbackReport,
@@ -160,6 +161,42 @@ function percentage(value: number | null | undefined): string {
   return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "暂无"
 }
 
+function contentAttribution(
+  actions: ClientExecutionAction[],
+): ClientFeedbackContentAttribution {
+  const generated = new Map<string, ClientExecutionAction>()
+  for (const action of actions) {
+    const generationId = action.contentTrace?.generationId
+    if (generationId && !generated.has(generationId)) generated.set(generationId, action)
+  }
+  const contentActions = [...generated.values()]
+  const questions = new Set<string>()
+  const knowledgeAssets = new Set<string>()
+  const platformCounts = new Map<string, number>()
+  let evidenceLinkedArticleCount = 0
+
+  for (const action of contentActions) {
+    const trace = action.contentTrace
+    if (!trace) continue
+    const questionKey = trace.questionId || trace.coreQuestion.trim().toLowerCase()
+    if (questionKey) questions.add(questionKey)
+    if (trace.knowledgeAssetIds.length > 0) evidenceLinkedArticleCount += 1
+    trace.knowledgeAssetIds.forEach(id => knowledgeAssets.add(id))
+    const platform = action.platform || "通用内容"
+    platformCounts.set(platform, (platformCounts.get(platform) || 0) + 1)
+  }
+
+  return {
+    generatedArticleCount: contentActions.length,
+    coveredQuestionCount: questions.size,
+    evidenceLinkedArticleCount,
+    knowledgeAssetUseCount: knowledgeAssets.size,
+    platformCounts: [...platformCounts.entries()]
+      .map(([platform, count]) => ({ platform, count }))
+      .sort((left, right) => right.count - left.count || left.platform.localeCompare(right.platform, "zh-CN")),
+  }
+}
+
 export async function buildClientFeedbackReport(input: {
   ownerUserId: string
   actorUserId: string
@@ -210,8 +247,12 @@ export async function buildClientFeedbackReport(input: {
   }
   const counters = executionCounters(input.profile, input.period.end)
   const completedActions = actions.filter(action => action.status === "completed").length
+  const contentSummary = contentAttribution(actions)
   const executiveSummary = [
     `本期共记录 ${actions.length} 项执行动作，其中 ${completedActions} 项已完成。`,
+    ...(contentSummary.generatedArticleCount > 0
+      ? [`本期完成 ${contentSummary.generatedArticleCount} 篇内容，覆盖 ${contentSummary.coveredQuestionCount} 个用户问题。`]
+      : []),
     currentMetric
       ? `最新有效检测渗透率为 ${percentage(currentMetric.penetrationRate)}，覆盖 ${currentMetric.modelCount} 个模型。`
       : "当前周期尚未形成有效渗透率检测，建议补充一次标准化基线检测。",
@@ -259,6 +300,7 @@ export async function buildClientFeedbackReport(input: {
       executiveSummary,
       actions,
       comparison,
+      contentAttribution: contentSummary,
       nextPlan: input.profile.nextPlan,
       evidenceRecordCount: actions.reduce((sum, action) => (
         sum + action.evidence.length + (action.sourceRecordId ? 1 : 0)

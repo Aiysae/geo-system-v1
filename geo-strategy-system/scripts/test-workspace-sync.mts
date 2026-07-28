@@ -77,6 +77,7 @@ try {
       research: 0,
       diagnosis: 0,
       difficulty: 0,
+      knowledgeBase: 0,
       keywordStrategy: 0,
       articleGeneration: 0,
       jobs: 0,

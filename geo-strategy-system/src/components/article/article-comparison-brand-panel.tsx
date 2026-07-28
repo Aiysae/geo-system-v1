@@ -4,6 +4,7 @@ import { Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import type { ArticleComparisonBrand } from "@/types"
 
@@ -21,8 +22,21 @@ function emptyBrand(position: number, name = ""): ArticleComparisonBrand {
     aliases: [],
     materials: "",
     sourceUrls: [],
+    role: "supporting",
   }
 }
+
+const MAX_COMPARISON_BRANDS = 9
+
+const ROLE_OPTIONS: Array<{
+  value: NonNullable<ArticleComparisonBrand["role"]>
+  label: string
+}> = [
+  { value: "supporting", label: "辅助推荐" },
+  { value: "peer", label: "同级对比" },
+  { value: "benchmark", label: "标杆参照" },
+  { value: "alternative", label: "替代方案" },
+]
 
 export default function ArticleComparisonBrandPanel({
   primaryBrand,
@@ -30,7 +44,7 @@ export default function ArticleComparisonBrandPanel({
   value,
   onChange,
 }: Props) {
-  const brands = value.slice(0, 2)
+  const brands = value.slice(0, MAX_COMPARISON_BRANDS)
 
   function update(index: number, patch: Partial<ArticleComparisonBrand>) {
     onChange(brands.map((item, itemIndex) => (
@@ -39,7 +53,7 @@ export default function ArticleComparisonBrandPanel({
   }
 
   function addBrand() {
-    if (brands.length >= 2) return
+    if (brands.length >= MAX_COMPARISON_BRANDS) return
     const used = new Set([primaryBrand, ...brands.map(item => item.name)].map(item => item.trim()))
     const suggestion = suggestedBrands.find(item => item.trim() && !used.has(item.trim())) || ""
     onChange([...brands, emptyBrand(brands.length + 2, suggestion)])
@@ -51,10 +65,10 @@ export default function ArticleComparisonBrandPanel({
         <div>
           <div className="text-xs font-semibold text-slate-700">对比品牌（选填）</div>
           <div className="mt-1 text-[11px] leading-5 text-slate-500">
-            主品牌为“{primaryBrand || "当前客户"}”，可补充第二、第三品牌及各自资料。
+            主品牌为“{primaryBrand || "当前客户"}”，可补充最多 {MAX_COMPARISON_BRANDS} 个独立对比品牌及各自资料。
           </div>
         </div>
-        {brands.length < 2 && (
+        {brands.length < MAX_COMPARISON_BRANDS && (
           <Button type="button" size="sm" variant="outline" onClick={addBrand} className="h-8 shrink-0 gap-1">
             <Plus className="h-3.5 w-3.5" />
             添加品牌
@@ -76,7 +90,7 @@ export default function ArticleComparisonBrandPanel({
             <div key={brand.id} className="rounded-lg border border-slate-200 bg-white p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-700">
-                  {index === 0 ? "第二品牌" : "第三品牌"}
+                  第 {index + 2} 品牌
                 </span>
                 <Button
                   type="button"
@@ -90,7 +104,7 @@ export default function ArticleComparisonBrandPanel({
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <Label className="text-[11px] text-slate-500">
                   品牌名称
                   <Input
@@ -110,6 +124,20 @@ export default function ArticleComparisonBrandPanel({
                     placeholder="多个别名用顿号分隔"
                     className="mt-1 h-9 bg-white text-xs"
                   />
+                </Label>
+                <Label className="text-[11px] text-slate-500">
+                  对比角色
+                  <Select
+                    value={brand.role || "supporting"}
+                    onChange={event => update(index, {
+                      role: event.target.value as NonNullable<ArticleComparisonBrand["role"]>,
+                    })}
+                    className="mt-1 h-9 bg-white text-xs"
+                  >
+                    {ROLE_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </Select>
                 </Label>
               </div>
               <Label className="mt-2 block text-[11px] text-slate-500">

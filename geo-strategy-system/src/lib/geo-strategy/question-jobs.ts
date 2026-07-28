@@ -16,6 +16,7 @@ import {
   signalTaskCancellation,
 } from "@/lib/task-cancellation"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "./question-advantages"
+import { classifyQuestionMethodology } from "./question-methodology"
 import type {
   GeoStrategyPlan,
   QuestionCategoryConfig,
@@ -558,7 +559,6 @@ function buildFallbackQuestionSeed(
   }
 
   return {
-    layer: "第一层",
     category: type.category,
     difficulty: type.userStage === "认知期" ? "低-中" : "中",
     keyword: safeKeyword,
@@ -570,6 +570,11 @@ function buildFallbackQuestionSeed(
     metricPurpose: type.metricPurpose,
     top10Eligible: type.top10Eligible,
     brandMentionEligible: type.brandMentionEligible,
+    ...classifyQuestionMethodology({
+      category: type.category,
+      question,
+      intent,
+    }),
   }
 }
 

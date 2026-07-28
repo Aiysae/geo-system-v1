@@ -92,15 +92,15 @@ function sectionsForDashboardModule(module: DashboardModuleKey): WorkspaceSectio
     case "penetration":
       return ["core", "penetration", "jobs"]
     case "research":
-      return ["core", "research", "jobs"]
+      return ["core", "knowledgeBase", "research", "jobs"]
     case "diagnosis":
-      return ["core", "diagnosis", "jobs"]
+      return ["core", "knowledgeBase", "diagnosis", "jobs"]
     case "difficulty":
-      return ["core", "difficulty", "jobs"]
+      return ["core", "knowledgeBase", "difficulty", "jobs"]
     case "keyword":
-      return ["core", "keywordStrategy", "jobs"]
+      return ["core", "knowledgeBase", "keywordStrategy", "jobs"]
     case "article":
-      return ["core", "keywordStrategy", "articleGeneration", "jobs"]
+      return ["core", "knowledgeBase", "keywordStrategy", "articleGeneration", "jobs"]
     case "feedback":
       return ["core"]
   }

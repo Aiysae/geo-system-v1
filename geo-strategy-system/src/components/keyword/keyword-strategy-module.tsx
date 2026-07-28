@@ -40,6 +40,7 @@ import {
 } from "@/lib/source-platform-intelligence"
 import { SourcePlatformAdoptionChart } from "@/components/keyword/source-platform-adoption-chart"
 import { getClientSubjectType } from "@/lib/analysis-subject"
+import { mergeExtractedProfileIntoKnowledgeBase } from "@/lib/client-knowledge-base"
 
 // ==================== Brand Data ====================
 
@@ -734,14 +735,24 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         onChangeClient({ backgroundJobs: backgroundJobsWith("keywordExtract") })
         return
       }
+      const profile = normalizeExtractedProfile(job.result)
       updateBrand({
         extracting: false,
         extractionError: "",
-        extractedProfile: normalizeExtractedProfile(job.result),
+        extractedProfile: profile,
         step: "extraction",
         completedSteps: [...new Set([...activeBrand.completedSteps, "extraction" as ToolStep])],
       })
-      onChangeClient({ backgroundJobs: backgroundJobsWith("keywordExtract") })
+      onChangeClient({
+        knowledgeBase: mergeExtractedProfileIntoKnowledgeBase({
+          current: client.knowledgeBase,
+          profile,
+          subjectType,
+          subjectName: client.ourBrand || activeBrand.projectName || client.name,
+          aliases: client.brandAliases,
+        }),
+        backgroundJobs: backgroundJobsWith("keywordExtract"),
+      })
     },
     onFailed: message => {
       updateBrand({ extracting: false, extractionError: message })

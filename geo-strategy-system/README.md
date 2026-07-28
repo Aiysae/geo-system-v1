@@ -57,6 +57,22 @@ attempt. The admin metrics page reports BullMQ depth and worker heartbeats.
 Set `PENETRATION_SCHEDULER_V2=false` to use the legacy scheduler during an
 emergency rollback; V2 concurrency settings use the `PENETRATION_V2_*` prefix.
 
+## GEO content methodology
+
+Long-form article generation uses the versioned Shitu GEO methodology compiler.
+It maps question intent to one of seven content structures, selects relevant
+client knowledge assets, applies a five-dimension title matrix, and preserves
+the resulting lineage in single and batch article records. Completed articles
+are also available to weekly and monthly execution feedback as attributable
+content actions.
+
+Existing clients require no data migration. Missing knowledge-base fields are
+normalized when a workspace is read, while old reports keep their original
+snapshot schema. Set `GEO_METHODOLOGY_VERSION=legacy` and restart the web and
+worker processes to disable the long-form compiler during an emergency
+rollback. The short-video script template and article rewrite flow remain
+outside this compiler.
+
 
 Production PostgreSQL backups are defined in `deploy/postgres/` and retain 14 days of compressed custom-format dumps.
 

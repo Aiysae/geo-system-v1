@@ -7,6 +7,7 @@ import {
   normalizePenetrationQuestionGenerationSettings,
   normalizePenetrationQuestionIntentHints,
 } from "@/lib/penetration/sample-design"
+import { normalizeClientKnowledgeBase } from "@/lib/client-knowledge-base"
 
 export const WORKSPACE_SECTIONS = [
   "core",
@@ -14,6 +15,7 @@ export const WORKSPACE_SECTIONS = [
   "research",
   "diagnosis",
   "difficulty",
+  "knowledgeBase",
   "keywordStrategy",
   "articleGeneration",
   "jobs",
@@ -83,6 +85,7 @@ const SECTION_FIELDS = {
   ],
   diagnosis: ["diagnosis"],
   difficulty: ["difficultyAssessments"],
+  knowledgeBase: ["knowledgeBase"],
   keywordStrategy: ["keywordStrategy"],
   articleGeneration: ["articleGeneration"],
   jobs: ["penetrationJobId", "difficultyJobId", "backgroundJobs"],
@@ -243,6 +246,11 @@ export function normalizeClientPayload(value: unknown): Client {
       questions,
     ),
     competitors: stringArray(input.competitors, 1_000, 500),
+    knowledgeBase: normalizeClientKnowledgeBase(input.knowledgeBase, {
+      subjectType: normalizeAnalysisSubjectType(input.subjectType),
+      subjectName: String(input.ourBrand || input.name || "").slice(0, 300),
+      aliases: stringArray(input.brandAliases, 100, 300),
+    }),
     selectedModels: modelArray(input.selectedModels),
     createdAt: validIso(input.createdAt) || now,
     updatedAt: validIso(input.updatedAt) || now,

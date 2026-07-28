@@ -9,6 +9,8 @@ import type {
   ArticleBatchItemRecord,
   ArticleBatchRecord,
   ArticleGenerationState,
+  ArticleGenerationLineage,
+  ClientKnowledgeBase,
   ArticleModelProviderKey,
   ArticlePromptKey,
 } from "@/types"
@@ -24,6 +26,7 @@ export type ArticleBatchBasePayload = Pick<
   | "business"
   | "advantages"
   | "comparisonBrands"
+  | "methodology"
   | "audience"
   | "extraRequirements"
 > & {
@@ -33,6 +36,7 @@ export type ArticleBatchBasePayload = Pick<
   subjectContext: string
   industry: string
   website: string
+  knowledgeBase?: ClientKnowledgeBase
 }
 
 export interface StoredArticleBatchItem extends ArticleBatchItemRecord {
@@ -41,6 +45,7 @@ export interface StoredArticleBatchItem extends ArticleBatchItemRecord {
   markdown?: string
   fallbackMarkdown?: string
   artifactPath?: string
+  lineage?: ArticleGenerationLineage
 }
 
 export interface StoredArticleBatch extends Omit<ArticleBatchRecord, "items"> {
@@ -142,6 +147,17 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
     keyword: item.keyword,
     contentAngle: item.contentAngle,
     matchedAdvantage: item.matchedAdvantage,
+    subIntent: item.subIntent,
+    queryStyle: item.queryStyle,
+    methodologyCandidates: item.methodologyCandidates,
+    platformCandidates: item.platformCandidates,
+    targetPlatform: item.targetPlatform,
+    brandLayout: item.brandLayout,
+    titleStrategy: item.titleStrategy,
+    knowledgeAssetIds: item.knowledgeAssetIds,
+    methodologyVersion: item.methodologyVersion,
+    methodologyTrace: item.methodologyTrace,
+    generationId: item.generationId,
     promptKey: item.promptKey,
     promptTitle: item.promptTitle,
     routeConfidence: item.routeConfidence,

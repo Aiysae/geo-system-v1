@@ -9,6 +9,8 @@ import { requireOperationAccess, isOperationAccessError } from "@/lib/team-acces
 import { hasUnlimitedCreditAccess, requireUserId } from "@/lib/with-credits"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import type { ArticleBatchQuestionTask, ArticleModelProviderKey } from "@/types"
+import { normalizeArticleMethodologySelection } from "@/lib/geo-methodology/compiler"
+import { GEO_METHODOLOGY_VERSION } from "@/lib/geo-methodology/registry"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -72,6 +74,7 @@ export async function POST(req: NextRequest) {
     const questions = client.keywordStrategy?.questions || []
     const byId = new Map(questions.map(question => [question.id, question]))
     const advantages = extractQuestionAdvantages(client.keywordStrategy?.strategyPlan)
+    const methodology = normalizeArticleMethodologySelection(body.methodology)
     const tasks: ArticleBatchQuestionTask[] = selectedIds.flatMap(id => {
       const question = byId.get(id)
       if (!question) return []
@@ -83,6 +86,18 @@ export async function POST(req: NextRequest) {
         keyword: question.keyword,
         contentAngle: question.content_angle,
         matchedAdvantage: resolveQuestionAdvantage(question, advantages),
+        subIntent: question.subIntent,
+        queryStyle: question.queryStyle,
+        methodologyCandidates: methodology.mode === "manual" && methodology.methodKey
+          ? [methodology.methodKey, ...(question.methodologyCandidates || [])]
+          : question.methodologyCandidates,
+        platformCandidates: question.platformCandidates,
+        targetPlatform: methodology.targetPlatform === "auto"
+          ? question.platformCandidates?.[0] || "auto"
+          : methodology.targetPlatform,
+        brandLayout: methodology.brandLayout,
+        titleStrategy: methodology.titleStrategy,
+        methodologyVersion: GEO_METHODOLOGY_VERSION,
       }]
     })
     if (tasks.length !== selectedIds.length) {
@@ -96,7 +111,7 @@ export async function POST(req: NextRequest) {
     }
     const comparisonBrandCount = Math.max(
       0,
-      Math.min(2, Math.floor(Number(body.comparisonBrandCount) || 0)),
+      Math.min(9, Math.floor(Number(body.comparisonBrandCount) || 0)),
     )
     const routed = await routeArticleStrategyTasks({
       tasks,

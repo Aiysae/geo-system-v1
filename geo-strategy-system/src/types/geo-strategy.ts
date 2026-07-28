@@ -1,5 +1,10 @@
 // ============ GEO 策略生成工具 - 类型定义 ============
 
+import type {
+  GeoEvidenceLevel,
+  GeoKnowledgeAssetKind,
+} from "./geo-methodology"
+
 /** API 供应商配置 */
 export interface ApiProviderConfig {
   id: string
@@ -82,8 +87,19 @@ export interface ExtractedProfile {
   weaknesses: ExtractedItem[]
   competitors: ExtractedItem[]
   scenes: ExtractedItem[]
+  knowledge_assets?: ExtractedKnowledgeAsset[]
   geo_goals: string
   source_notes: string
+}
+
+export interface ExtractedKnowledgeAsset {
+  kind: GeoKnowledgeAssetKind
+  title: string
+  content: string
+  evidence_level: GeoEvidenceLevel
+  source_urls: string[]
+  tags?: string[]
+  occurred_at?: string
 }
 
 /** 可编辑的条目 */
@@ -207,7 +223,8 @@ export interface ExecutionPhase {
 /** 疑问句条目 */
 export interface QuestionItem {
   id: string
-  layer: "第一层" | "第二层"
+  /** @deprecated 仅用于兼容旧数据，新问题不再展示或生成层级标记。 */
+  layer?: "第一层" | "第二层"
   category: string
   difficulty: string
   keyword: string
@@ -220,6 +237,10 @@ export interface QuestionItem {
   metricPurpose?: string
   top10Eligible?: boolean
   brandMentionEligible?: boolean
+  subIntent?: string
+  queryStyle?: import("./geo-methodology").GeoQueryStyle
+  methodologyCandidates?: import("./geo-methodology").GeoMethodologyKey[]
+  platformCandidates?: import("./geo-methodology").GeoContentPlatform[]
 }
 
 /** 完整策略方案 */

@@ -20,6 +20,7 @@ import { Select } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import ArticleRewriteBrandMapper from "@/components/article/article-rewrite-brand-mapper"
 import ArticleComparisonBrandPanel from "@/components/article/article-comparison-brand-panel"
+import ArticleMethodologyPanel from "@/components/article/article-methodology-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import {
   fingerprintRewriteSource,
@@ -49,6 +50,8 @@ import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type { AiGatewayArticleOption, AiGatewayModelFamily } from "@/types/ai-gateway"
 import type {
   ArticleGenerationState,
+  ArticleGenerationLineage,
+  ArticleMethodologyTrace,
   ArticlePublishingSettings,
   ArticleModelProviderKey,
   ArticlePromptKey,
@@ -85,6 +88,8 @@ interface ArticleGenerationResponse {
   model?: string
   generatedAt?: string
   rewriteAudit?: ArticleRewriteAudit
+  methodologyTrace?: ArticleMethodologyTrace
+  lineage?: ArticleGenerationLineage
   error?: string
 }
 
@@ -153,6 +158,10 @@ function articleStrategySourceFingerprint(
       keyword: item.keyword,
       contentAngle: item.content_angle,
       matchedAdvantage: item.matched_advantage,
+      subIntent: item.subIntent,
+      queryStyle: item.queryStyle,
+      methodologyCandidates: item.methodologyCandidates,
+      platformCandidates: item.platformCandidates,
     })),
     advantages,
   })
@@ -185,6 +194,12 @@ function createInitialArticle(client: Client): ArticleGenerationState {
     business: client.industry || "",
     advantages: "",
     comparisonBrands: [],
+    methodology: {
+      mode: "auto",
+      targetPlatform: "auto",
+      brandLayout: "auto",
+      titleStrategy: "auto",
+    },
     audience: "",
     extraRequirements: "",
     output: "",
@@ -214,7 +229,23 @@ function createInitialArticle(client: Client): ArticleGenerationState {
 
 function buildArticleJobPayload(client: Client, article: ArticleGenerationState) {
   const subjectType = getClientSubjectType(client)
+  const matchedQuestion = (client.keywordStrategy?.questions || [])
+    .find(item => item.question.trim() === article.coreQuestion.trim())
+  const methodology = article.methodology?.mode === "auto" && matchedQuestion?.methodologyCandidates?.[0]
+    ? {
+        ...article.methodology,
+        mode: "manual" as const,
+        methodKey: matchedQuestion.methodologyCandidates[0],
+        targetPlatform: article.methodology.targetPlatform === "auto"
+          ? matchedQuestion.platformCandidates?.[0] || "auto"
+          : article.methodology.targetPlatform,
+      }
+    : article.methodology
+  const matchedAdvantage = article.advantages.trim()
+    || matchedQuestion?.matched_advantage
+    || ""
   return {
+    clientId: client.id,
     promptKey: article.promptKey,
     modelProvider: article.modelProvider,
     model: article.model,
@@ -237,8 +268,16 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
     keywords: article.keywords,
     region: article.region,
     business: article.business,
-    advantages: article.advantages,
+    advantages: matchedAdvantage,
     comparisonBrands: article.comparisonBrands,
+    methodology,
+    knowledgeBase: client.knowledgeBase,
+    questionIntent: matchedQuestion?.intent,
+    questionId: matchedQuestion?.id,
+    questionSubIntent: matchedQuestion?.subIntent,
+    questionCategory: matchedQuestion?.category,
+    questionKeyword: matchedQuestion?.keyword,
+    questionContentAngle: matchedQuestion?.content_angle,
     audience: article.audience,
     extraRequirements: article.extraRequirements,
   }
@@ -448,6 +487,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         model: data.model || article.model,
         output: data.article,
         rewriteAudit: data.rewriteAudit || article.rewriteAudit,
+        methodologyTrace: data.methodologyTrace || article.methodologyTrace,
+        lineage: data.lineage || article.lineage,
         generatedAt: data.generatedAt || new Date().toISOString(),
         status: "done",
         error: undefined,
@@ -1301,6 +1342,13 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                   className="min-h-[95px] rounded-lg bg-white"
                 />
               </Label>
+              <ArticleMethodologyPanel
+                value={article.methodology}
+                knowledgeAssetCount={client.knowledgeBase?.assets.length || 0}
+                sourceLinkedAssetCount={(client.knowledgeBase?.assets || [])
+                  .filter(asset => asset.sourceUrls.length > 0).length}
+                onChange={value => updateField("methodology", value)}
+              />
               {(supportsArticleComparisonBrands(article.promptKey) || isStrategy) && (
                 <ArticleComparisonBrandPanel
                   primaryBrand={client.ourBrand || client.name}
@@ -1412,6 +1460,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               business: article.business,
               advantages: "",
               comparisonBrands: article.comparisonBrands || [],
+              methodology: article.methodology,
+              knowledgeBase: client.knowledgeBase,
               audience: article.audience,
               extraRequirements: article.extraRequirements,
             }}
@@ -1440,6 +1490,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               business: article.business,
               advantages: article.advantages,
               comparisonBrands: article.comparisonBrands || [],
+              methodology: article.methodology,
+              knowledgeBase: client.knowledgeBase,
               audience: article.audience,
               extraRequirements: article.extraRequirements,
             }}

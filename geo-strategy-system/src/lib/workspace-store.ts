@@ -738,7 +738,10 @@ function summaryFromCore(
   const questions = Array.isArray(core.questions) ? core.questions : []
   const selectedModels = Array.isArray(core.selectedModels) ? core.selectedModels : []
   const completedModules = WORKSPACE_SECTIONS.filter(section => (
-    section !== "core" && section !== "jobs" && Number(versions[section] || 0) > 0
+    section !== "core"
+    && section !== "jobs"
+    && section !== "knowledgeBase"
+    && Number(versions[section] || 0) > 0
   ))
   const subjectType: AnalysisSubjectType = core.subjectType === "person" ? "person" : "brand"
   return {

@@ -52,6 +52,28 @@ export interface ClientExecutionEvidence {
   url: string
 }
 
+export interface ClientExecutionContentTrace {
+  generationId: string
+  promptKey: string
+  primarySubject: string
+  comparisonSubjects: string[]
+  questionId?: string
+  coreQuestion: string
+  questionIntent?: string
+  questionSubIntent?: string
+  questionCategory?: string
+  questionKeyword?: string
+  matchedAdvantage?: string
+  methodologyVersion: string
+  methodKey: string
+  targetPlatform: string
+  brandLayout: string
+  titleStrategy: string
+  knowledgeAssetIds: string[]
+  modelProvider: string
+  model: string
+}
+
 export interface ClientExecutionAction {
   id: string
   ownerUserId: string
@@ -68,6 +90,7 @@ export interface ClientExecutionAction {
   platform?: string
   evidence: ClientExecutionEvidence[]
   sourceRecordId?: string
+  contentTrace?: ClientExecutionContentTrace
   resultRef?: ClientExecutionResultRef
   publication?: ClientExecutionActionPublication
   importBatchId?: string
@@ -194,8 +217,20 @@ export interface ClientFeedbackReportSnapshot {
   executiveSummary: string[]
   actions: ClientExecutionAction[]
   comparison: ClientFeedbackMetricComparison
+  contentAttribution?: ClientFeedbackContentAttribution
   nextPlan: string[]
   evidenceRecordCount: number
+}
+
+export interface ClientFeedbackContentAttribution {
+  generatedArticleCount: number
+  coveredQuestionCount: number
+  evidenceLinkedArticleCount: number
+  knowledgeAssetUseCount: number
+  platformCounts: Array<{
+    platform: string
+    count: number
+  }>
 }
 
 export interface ClientFeedbackReport {

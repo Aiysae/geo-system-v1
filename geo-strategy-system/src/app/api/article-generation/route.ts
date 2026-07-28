@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { randomUUID } from "crypto"
 import {
   normalizeArticleModelProviderKey,
   resolveArticleModel,
@@ -22,6 +23,7 @@ import {
 import type {
   AnalysisSubjectType,
   ArticlePromptKey,
+  ArticleGenerationLineage,
   ArticleRewriteAnalysis,
   ArticleRewriteAudit,
   ArticleRewriteBrandMapping,
@@ -41,6 +43,13 @@ import {
   buildArticleQualityRepairPrompt,
   validateGeneratedArticle,
 } from "@/lib/article-quality"
+import {
+  compileGeoArticleMethodology,
+  normalizeArticleMethodologySelection,
+} from "@/lib/geo-methodology/compiler"
+import { normalizeClientKnowledgeBase } from "@/lib/client-knowledge-base"
+import { recordArticleGenerationAttribution } from "@/lib/geo-methodology/attribution"
+import { requireOperationAccess } from "@/lib/team-access"
 
 export const runtime = "nodejs"
 export const maxDuration = 900
@@ -93,6 +102,7 @@ function stripCodeFence(value: string): string {
 function buildSystemPrompt(
   template: string,
   subjectType: AnalysisSubjectType,
+  methodologyAddendum = "",
 ): string {
   return [
     "你是资深中文内容策略师、GEO 文章编辑和生成式搜索内容架构师。",
@@ -105,6 +115,7 @@ function buildSystemPrompt(
     "",
     "【用户选择的生成模板】",
     template,
+    methodologyAddendum,
   ].join("\n")
 }
 
@@ -131,9 +142,11 @@ function buildUserPrompt(args: {
   rewriteMappings?: ArticleRewriteBrandMapping[]
   comparisonBrands?: ArticleComparisonBrand[]
   questionIntent?: string
+  questionSubIntent?: string
   questionCategory?: string
   questionKeyword?: string
   questionContentAngle?: string
+  methodologyAddendum?: string
 }): string {
   if (args.promptKey === "rewrite") {
     const mappedSourceKeys = new Set(
@@ -181,7 +194,7 @@ function buildUserPrompt(args: {
     const comparisonPayload = supportsArticleComparisonBrands(args.promptKey)
       ? (args.comparisonBrands || []).map((brand, index) => ({
           order: index + 2,
-          role: index === 0 ? "第二品牌" : "第三品牌",
+          role: brand.role || `第${index + 2}品牌`,
           name: brand.name,
           aliases: brand.aliases,
           materials: brand.materials,
@@ -200,6 +213,7 @@ function buildUserPrompt(args: {
       "【本篇问题语义】",
       `问题类型：${args.questionCategory || "未指定"}`,
       `用户意图：${args.questionIntent || "围绕核心疑问句做出有依据的决策"}`,
+      `问题子意图：${args.questionSubIntent || "按核心疑问句判断"}`,
       `来源关键词：${args.questionKeyword || "未指定"}`,
       `建议切入角度：${args.questionContentAngle || "紧扣核心疑问句"}`,
       ...(comparisonPayload.length > 0
@@ -213,6 +227,7 @@ function buildUserPrompt(args: {
       "【执行约束】",
       `用户补充要求/发布限制：${args.extraRequirements || "无"}`,
       ...batchVariationLines(args.batchVariation),
+      args.methodologyAddendum || "",
       ...(comparisonPayload.length > 0
         ? [
             "主品牌与每个对比品牌都是独立主体。名称、别名、资料、数据和来源不得互相混用。",
@@ -251,6 +266,7 @@ function buildUserPrompt(args: {
     `目标读者/适用人群：${args.audience || "企业决策者、采购负责人、业务负责人"}`,
     `补充要求/发布限制：${args.extraRequirements || "无"}`,
     ...batchVariationLines(args.batchVariation),
+    args.methodologyAddendum || "",
     "",
     "【输出要求】",
     "- 直接输出最终内容，不要输出提纲、变量清单或解释。",
@@ -404,6 +420,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const primarySubject = text(body.brandName, 120) || text(body.clientName, 120)
+    const comparisonBrands = normalizeArticleComparisonBrands(body.comparisonBrands)
+    const methodologySelection = normalizeArticleMethodologySelection(body.methodology)
+    const knowledgeBase = normalizeClientKnowledgeBase(body.knowledgeBase, {
+      subjectType,
+      subjectName: primarySubject,
+      aliases: [],
+    })
+    const methodology = compileGeoArticleMethodology({
+      promptKey,
+      selection: methodologySelection,
+      knowledgeBase,
+      coreQuestion,
+      questionIntent: text(body.questionIntent, 300),
+      questionSubIntent: text(body.questionSubIntent, 300),
+      questionCategory: text(body.questionCategory, 120),
+      matchedAdvantage: text(body.advantages, 3000),
+      primarySubject,
+      comparisonBrands,
+    })
+
     const modelProvider = normalizeArticleModelProviderKey(body.modelProvider)
     const config = await resolveArticleModel(modelProvider, text(body.model, 200))
     const model = config.model
@@ -438,7 +475,7 @@ export async function POST(req: NextRequest) {
     reservation = creditGuard.reservation
 
     const generation = await runArticleModelChat(config, {
-      system: buildSystemPrompt(template.template, subjectType),
+      system: buildSystemPrompt(template.template, subjectType, methodology.systemAddendum),
       user: buildUserPrompt({
         promptKey,
         clientName: text(body.clientName, 120),
@@ -452,11 +489,12 @@ export async function POST(req: NextRequest) {
         region: text(body.region, 160),
         business: text(body.business, 500),
         advantages: text(body.advantages, 3000),
-        comparisonBrands: normalizeArticleComparisonBrands(body.comparisonBrands),
+        comparisonBrands,
         audience: text(body.audience, 800),
         extraRequirements: text(body.extraRequirements, 2000),
         batchVariation: text(body.batchVariation, 2000),
         questionIntent: text(body.questionIntent, 300),
+        questionSubIntent: text(body.questionSubIntent, 300),
         questionCategory: text(body.questionCategory, 120),
         questionKeyword: text(body.questionKeyword, 200),
         questionContentAngle: text(body.questionContentAngle, 500),
@@ -465,6 +503,7 @@ export async function POST(req: NextRequest) {
         sourceMarkdown,
         rewriteAnalysis,
         rewriteMappings,
+        methodologyAddendum: methodology.userAddendum,
       }),
       temperature: template.temperature,
       maxTokens: template.maxTokens,
@@ -544,9 +583,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!isRewrite) {
-      const primarySubject = text(body.brandName, 120) || text(body.clientName, 120)
       const advantage = text(body.advantages, 3000)
-      const comparisonBrands = normalizeArticleComparisonBrands(body.comparisonBrands)
       let quality = validateGeneratedArticle({
         article,
         promptKey,
@@ -554,6 +591,7 @@ export async function POST(req: NextRequest) {
         primarySubject,
         advantage,
         comparisonBrands,
+        methodologyTrace: methodology.trace,
       })
 
       if (!quality.passed) {
@@ -565,6 +603,7 @@ export async function POST(req: NextRequest) {
             "你是 GEO 文章质量校对器。",
             "只修复明确列出的质量问题，保持用户所选模板的章节、论述顺序和事实边界。",
             "直接输出完整 Markdown 正文，不作解释。",
+            methodology.systemAddendum,
           ].join("\n"),
           user: buildArticleQualityRepairPrompt({
             draft: article,
@@ -573,6 +612,7 @@ export async function POST(req: NextRequest) {
             primarySubject,
             advantage,
             comparisonBrands,
+            methodologyTrace: methodology.trace,
           }),
           temperature: 0.2,
           maxTokens: template.maxTokens,
@@ -591,6 +631,7 @@ export async function POST(req: NextRequest) {
           primarySubject,
           advantage,
           comparisonBrands,
+          methodologyTrace: methodology.trace,
         })
       }
 
@@ -606,6 +647,49 @@ export async function POST(req: NextRequest) {
     await settleReservedCredits(reservation, cost)
     reservation = null
 
+    const generatedAt = new Date().toISOString()
+    const lineage: ArticleGenerationLineage = {
+      generationId: `gart_${randomUUID().replace(/-/g, "")}`,
+      promptKey,
+      primarySubject,
+      comparisonSubjects: comparisonBrands.map(brand => brand.name),
+      questionId: text(body.questionId, 200) || undefined,
+      coreQuestion: coreQuestion || text(body.sourceTitle, 500) || "文章改写",
+      questionIntent: text(body.questionIntent, 300) || undefined,
+      questionSubIntent: text(body.questionSubIntent, 300) || undefined,
+      questionCategory: text(body.questionCategory, 120) || undefined,
+      questionKeyword: text(body.questionKeyword, 200) || undefined,
+      matchedAdvantage: text(body.advantages, 3_000) || undefined,
+      modelProvider: effectiveConfig.providerKey,
+      model: effectiveConfig.model,
+      methodologyTrace: methodology.trace,
+      generatedAt,
+    }
+    const clientId = text(body.clientId, 200)
+    const articleBatchId = text(body.articleBatchId, 200)
+    if (clientId && !articleBatchId) {
+      try {
+        const access = await requireOperationAccess({
+          userId: creditGuard.userId,
+          clientId,
+          module: "article",
+          action: "execute",
+        })
+        await recordArticleGenerationAttribution({
+          ownerUserId: access.dataOwnerUserId,
+          clientId: access.clientId,
+          actorUserId: creditGuard.userId,
+          lineage,
+          markdown: article,
+        })
+      } catch (error) {
+        console.warn(
+          "[article-generation] attribution record failed",
+          error instanceof Error ? error.message : error,
+        )
+      }
+    }
+
     return NextResponse.json(
       {
         article,
@@ -613,7 +697,9 @@ export async function POST(req: NextRequest) {
         modelProvider: effectiveConfig.providerKey,
         model: effectiveConfig.model,
         rewriteAudit,
-        generatedAt: new Date().toISOString(),
+        methodologyTrace: methodology.trace,
+        lineage,
+        generatedAt,
       },
       {
         headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },

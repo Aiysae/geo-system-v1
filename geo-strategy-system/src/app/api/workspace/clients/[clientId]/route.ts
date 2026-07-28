@@ -37,6 +37,7 @@ const SECTION_MODULE: Record<WorkspaceSection, Parameters<typeof requireOperatio
   research: "research",
   diagnosis: "diagnosis",
   difficulty: "difficulty",
+  knowledgeBase: "client",
   keywordStrategy: "keyword",
   articleGeneration: "article",
   jobs: "client",

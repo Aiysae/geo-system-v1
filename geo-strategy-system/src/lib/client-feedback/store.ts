@@ -13,6 +13,7 @@ import type {
   ClientEvidenceImportResult,
   ClientEvidenceImportRowInput,
   ClientEvidenceImportSkippedRow,
+  ClientExecutionContentTrace,
   ClientExecutionAction,
   ClientExecutionActionCategory,
   ClientExecutionActionStatus,
@@ -79,6 +80,48 @@ function cleanId(value: unknown, label: string): string {
 
 function cleanText(value: unknown, maxLength: number): string {
   return String(value || "").trim().slice(0, maxLength)
+}
+
+function cleanTextList(
+  value: unknown,
+  limit: number,
+  maxLength: number,
+): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(
+    value
+      .map(item => cleanText(item, maxLength))
+      .filter(Boolean),
+  )].slice(0, limit)
+}
+
+function normalizeContentTrace(value: unknown): ClientExecutionContentTrace | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const input = value as Partial<ClientExecutionContentTrace>
+  const generationId = cleanText(input.generationId, 240)
+  const coreQuestion = cleanText(input.coreQuestion, 500)
+  if (!generationId || !coreQuestion) return undefined
+  return {
+    generationId,
+    promptKey: cleanText(input.promptKey, 120),
+    primarySubject: cleanText(input.primarySubject, 160),
+    comparisonSubjects: cleanTextList(input.comparisonSubjects, 12, 160),
+    questionId: cleanText(input.questionId, 200) || undefined,
+    coreQuestion,
+    questionIntent: cleanText(input.questionIntent, 240) || undefined,
+    questionSubIntent: cleanText(input.questionSubIntent, 300) || undefined,
+    questionCategory: cleanText(input.questionCategory, 120) || undefined,
+    questionKeyword: cleanText(input.questionKeyword, 160) || undefined,
+    matchedAdvantage: cleanText(input.matchedAdvantage, 2_000) || undefined,
+    methodologyVersion: cleanText(input.methodologyVersion, 120),
+    methodKey: cleanText(input.methodKey, 120),
+    targetPlatform: cleanText(input.targetPlatform, 120),
+    brandLayout: cleanText(input.brandLayout, 120),
+    titleStrategy: cleanText(input.titleStrategy, 120),
+    knowledgeAssetIds: cleanTextList(input.knowledgeAssetIds, 30, 200),
+    modelProvider: cleanText(input.modelProvider, 120),
+    model: cleanText(input.model, 240),
+  }
 }
 
 function validDateOnly(value: unknown): string {
@@ -387,6 +430,7 @@ function buildClientExecutionAction(input: {
         })).filter(item => /^https?:\/\//i.test(item.url)).slice(0, 20)
       : [],
     sourceRecordId: cleanText(input.value.sourceRecordId, 240) || undefined,
+    contentTrace: normalizeContentTrace(input.value.contentTrace),
     resultRef: input.value.resultRef?.module === "penetration"
       && input.value.resultRef.resourceType === "history"
       && cleanText(input.value.resultRef.resourceId, 240)
