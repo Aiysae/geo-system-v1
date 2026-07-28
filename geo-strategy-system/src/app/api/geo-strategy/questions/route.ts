@@ -3,6 +3,7 @@ import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { hasAiCredentialCandidate } from "@/lib/ai-credential-router"
 import { runCredentialPoolChat } from "@/lib/ai-credential-chat"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "@/lib/geo-strategy/question-advantages"
+import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
 import { isInternalApiRequest } from "@/lib/internal-api"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
@@ -112,8 +113,8 @@ const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你的�
 9. 输出必须是严格 JSON，不要 Markdown 代码块，不要解释文本。
 10. 当 profile.subject_type 为 person 时，“品牌认知型”是兼容字段，实际含义为“人物认知型”；目标名称是人物姓名，competitors 是同行人物，机构不得当成人物。
 
-每条问题必须同时兼容旧字段和新字段，包含：
-id、category、difficulty、keyword、question、intent、content_angle、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible。`
+每条问题必须包含：
+id、category、difficulty、keyword、question、intent、content_angle、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible、subIntent、queryStyle、methodologyCandidates、platformCandidates。`
 
 // ==================== Prompt Builders ====================
 
@@ -282,7 +283,11 @@ ${formatTypeMix(typeMix)}
       "userStage": "探索期",
       "metricPurpose": "TOP10推荐率",
       "top10Eligible": true,
-      "brandMentionEligible": true
+      "brandMentionEligible": true,
+      "subIntent": "建立候选清单并快速筛选",
+      "queryStyle": "recommendation",
+      "methodologyCandidates": ["recommendationComparison", "industryWhitepaper"],
+      "platformCandidates": ["universal", "sohu", "toutiao"]
     }
   ]
 }`
@@ -730,9 +735,17 @@ function normalizeQuestion(value: unknown, category: string, strategy: Record<st
   const normalizedCategory = normalizeQuestionCategory(data.category || category)
   const defaults = questionTypeDefaults(normalizedCategory)
   const userStage = normalizeUserStage(data.userStage, defaults.defaultStage as UserStage)
+  const methodology = classifyQuestionMethodology({
+    category: normalizedCategory,
+    question,
+    intent: text(data.intent),
+    suppliedSubIntent: text(data.subIntent),
+    suppliedQueryStyle: text(data.queryStyle),
+    suppliedMethodologies: data.methodologyCandidates,
+    suppliedPlatforms: data.platformCandidates,
+  })
 
   return {
-    layer: "第一层",
     category: normalizedCategory,
     difficulty: text(data.difficulty, "中"),
     keyword: text(data.keyword),
@@ -745,6 +758,7 @@ function normalizeQuestion(value: unknown, category: string, strategy: Record<st
     metricPurpose: text(data.metricPurpose, defaults.metricPurpose),
     top10Eligible: normalizeBoolean(data.top10Eligible, defaults.top10Eligible),
     brandMentionEligible: normalizeBoolean(data.brandMentionEligible, defaults.brandMentionEligible),
+    ...methodology,
   }
 }
 

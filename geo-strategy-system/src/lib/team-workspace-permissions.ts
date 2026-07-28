@@ -35,6 +35,7 @@ const FIELD_REQUIREMENTS: Partial<Record<keyof Client, WorkspacePermissionRequir
   industry: { module: "client", action: "edit" },
   website: { module: "client", action: "edit" },
   competitors: { module: "client", action: "edit" },
+  knowledgeBase: { module: "client", action: "edit" },
   questions: { module: "penetration", action: "edit" },
   questionGenerationSettings: { module: "penetration", action: "edit" },
   questionIntentHints: { module: "penetration", action: "edit" },

@@ -45,10 +45,13 @@ import {
   type StoredArticleBatch,
   type StoredArticleBatchItem,
 } from "@/lib/article-batches/store"
+import { recordArticleGenerationAttribution } from "@/lib/geo-methodology/attribution"
 import type {
+  ArticleGenerationLineage,
   ArticleBatchQuestionTask,
   ArticleBatchRecord,
   ArticleBatchTopicMode,
+  ArticleMethodologyTrace,
   BackgroundJobRecord,
 } from "@/types"
 
@@ -114,15 +117,36 @@ async function responseMessage(response: Response): Promise<string> {
 function itemJobPayload(batch: StoredArticleBatch, item: StoredArticleBatchItem, retry = false) {
   return {
     ...batch.basePayload,
+    clientId: batch.clientId,
+    articleBatchId: batch.id,
+    questionId: item.questionId,
     promptKey: item.promptKey || batch.basePayload.promptKey,
     coreQuestion: item.topic,
     advantages: batch.topicMode === "questions" || batch.topicMode === "strategy"
       ? item.matchedAdvantage || ""
       : item.matchedAdvantage ?? batch.basePayload.advantages,
     questionIntent: item.intent || "",
+    questionSubIntent: item.subIntent || "",
     questionCategory: item.category || "",
     questionKeyword: item.keyword || "",
     questionContentAngle: item.contentAngle || "",
+    methodology: {
+      ...record(batch.basePayload.methodology),
+      mode: item.methodologyCandidates?.length
+        ? "manual"
+        : record(batch.basePayload.methodology).mode || "auto",
+      methodKey: item.methodologyCandidates?.[0]
+        || record(batch.basePayload.methodology).methodKey,
+      targetPlatform: item.targetPlatform
+        || record(batch.basePayload.methodology).targetPlatform
+        || "auto",
+      brandLayout: item.brandLayout
+        || record(batch.basePayload.methodology).brandLayout
+        || "auto",
+      titleStrategy: item.titleStrategy
+        || record(batch.basePayload.methodology).titleStrategy
+        || "auto",
+    },
     batchVariation: [
       item.brief,
       retry
@@ -203,6 +227,21 @@ async function finalizeArticle(
   item.error = undefined
   item.updatedAt = nowIso()
   item.fallbackMarkdown = undefined
+
+  if (item.lineage) {
+    try {
+      await recordArticleGenerationAttribution({
+        ownerUserId: batch.workspaceOwnerUserId || batch.ownerUserId,
+        clientId: batch.clientId,
+        actorUserId: batch.ownerUserId,
+        lineage: item.lineage,
+        markdown,
+        batchId: batch.id,
+      })
+    } catch (error) {
+      console.warn("[article-batches] attribution record failed", batch.id, item.id, safeError(error))
+    }
+  }
 }
 
 async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null> {
@@ -251,7 +290,21 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
       }
 
       if (job.status === "succeeded") {
-        const markdown = String(record(job.result).article || "").trim()
+        const jobResult = record(job.result)
+        const markdown = String(jobResult.article || "").trim()
+        const trace = record(jobResult.methodologyTrace)
+        const lineage = record(jobResult.lineage)
+        if (Object.keys(trace).length > 0) {
+          item.methodologyTrace = trace as unknown as ArticleMethodologyTrace
+        }
+        if (
+          String(lineage.generationId || "").trim()
+          && String(lineage.coreQuestion || "").trim()
+          && lineage.methodologyTrace
+        ) {
+          item.lineage = lineage as unknown as ArticleGenerationLineage
+          item.generationId = item.lineage.generationId
+        }
         if (!markdown) {
           item.status = "failed"
           item.progressPercent = 100
@@ -422,6 +475,15 @@ export async function createArticleBatch(
     keyword: plan.keyword,
     contentAngle: plan.contentAngle,
     matchedAdvantage: plan.matchedAdvantage,
+    subIntent: plan.subIntent,
+    queryStyle: plan.queryStyle,
+    methodologyCandidates: plan.methodologyCandidates,
+    platformCandidates: plan.platformCandidates,
+    targetPlatform: plan.targetPlatform,
+    brandLayout: plan.brandLayout,
+    titleStrategy: plan.titleStrategy,
+    knowledgeAssetIds: plan.knowledgeAssetIds,
+    methodologyVersion: plan.methodologyVersion,
     promptKey: plan.promptKey,
     promptTitle: plan.promptTitle,
     routeConfidence: plan.routeConfidence,

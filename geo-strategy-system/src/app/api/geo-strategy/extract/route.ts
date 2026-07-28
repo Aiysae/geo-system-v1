@@ -33,6 +33,8 @@ const EXTRACTION_SYSTEM = `你是一个专业的客户资料抽取助手。你�
 8. industry、audience、product_description、geo_goals 从原文提取，找不到就设为空字符串。
 9. 当 subject_type 为 person 时，这是个人 IP 项目：competitors 只能抽取同职业、同专业方向或同服务场景中的具名同行人物；医院、律所、公司、学校、协会和平台必须保留在人物背景资料中，不能当作同行人物。
 10. 个人 IP 模式必须避免同名串人，不得凭姓名编造职称、机构、资质、履历和案例。
+11. 将资料中明确出现的主体身份、产品、服务、优势、资质证书、官方或第三方报告、真实案例、客户原话、价格、媒体报道、竞争主体和内容边界抽取到 knowledge_assets。每条资料独立保存，保留原文事实和公开来源网址，不合并不同主体的资料。
+12. knowledge_assets.kind 只能是 identity/product/service/advantage/credential/report/case/quote/pricing/media/competitor/boundary/other；evidence_level 只能是 official/primary/verifiedThirdParty/ownedRecord/context。
 
 输出必须是严格 JSON，格式：
 {
@@ -47,6 +49,7 @@ const EXTRACTION_SYSTEM = `你是一个专业的客户资料抽取助手。你�
   "weaknesses": [{"text": "...", "confidence": "high/medium/low"}],
   "competitors": [{"text": "...", "confidence": "high/medium/low"}],
   "scenes": [{"text": "...", "confidence": "high/medium/low"}],
+  "knowledge_assets": [{"kind": "credential", "title": "资料标题", "content": "原文事实", "evidence_level": "official", "source_urls": ["https://..."], "tags": ["标签"], "occurred_at": "可选日期"}],
   "geo_goals": "GEO目标",
   "source_notes": "来源备注"
 }
@@ -142,6 +145,41 @@ interface ExtractProjectInfo {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
+}
+
+const KNOWLEDGE_ASSET_KINDS = new Set([
+  "identity", "product", "service", "advantage", "credential", "report", "case",
+  "quote", "pricing", "media", "competitor", "boundary", "other",
+])
+const EVIDENCE_LEVELS = new Set([
+  "official", "primary", "verifiedThirdParty", "ownedRecord", "context",
+])
+
+function normalizeKnowledgeAsset(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const input = value as Record<string, unknown>
+  const title = String(input.title || "").trim().slice(0, 300)
+  const content = String(input.content || input.text || "").trim().slice(0, 12_000)
+  if (!title && !content) return null
+  const kind = String(input.kind || "")
+  const evidenceLevel = String(input.evidence_level || input.evidenceLevel || "")
+  const sourceUrls = asArray(input.source_urls || input.sourceUrls)
+    .map(item => String(item || "").trim().slice(0, 2_000))
+    .filter(item => /^https?:\/\//i.test(item))
+    .slice(0, 30)
+  return {
+    kind: KNOWLEDGE_ASSET_KINDS.has(kind) ? kind : "other",
+    title: title || content.slice(0, 80),
+    content,
+    evidence_level: EVIDENCE_LEVELS.has(evidenceLevel)
+      ? evidenceLevel
+      : sourceUrls.length > 0
+        ? "verifiedThirdParty"
+        : "context",
+    source_urls: sourceUrls,
+    tags: asArray(input.tags).map(item => String(item || "").trim().slice(0, 120)).filter(Boolean).slice(0, 30),
+    occurred_at: String(input.occurred_at || input.occurredAt || "").trim().slice(0, 80) || undefined,
+  }
 }
 
 async function handler(req: NextRequest) {
@@ -263,6 +301,9 @@ async function handler(req: NextRequest) {
       weaknesses: asArray(extracted.weaknesses).map(normalizeItem),
       competitors: mergeItems(asArray(extracted.competitors).map(normalizeItem), splitRawItems(projectInfo?.competitors_raw)),
       scenes: asArray(extracted.scenes).map(normalizeItem),
+      knowledge_assets: asArray(extracted.knowledge_assets)
+        .map(normalizeKnowledgeAsset)
+        .filter((item): item is Record<string, unknown> => Boolean(item)),
       geo_goals: extracted.geo_goals || projectInfo?.geo_goals || "",
       source_notes: extracted.source_notes || (files.length > 0
         ? `基于 ${files.map(f => f.name).join("、")} 抽取` + (mediaDataUrls.length > 0 ? `（含 ${mediaDataUrls.length} 个图片/PDF 视觉识别）` : "")

@@ -2,6 +2,7 @@
 
 import type { AnalysisSubjectType, Client, ModelKey } from "@/types"
 import { createEmptyPersonSubjectProfile } from "@/lib/analysis-subject"
+import { emptyClientKnowledgeBase } from "@/lib/client-knowledge-base"
 import { normalizePenetrationQuestionGenerationSettings } from "@/lib/penetration/sample-design"
 
 const LEGACY_CLIENTS_KEY = "geo:clients"
@@ -121,6 +122,10 @@ export function createClient(
     questionGenerationSettings: normalizePenetrationQuestionGenerationSettings(undefined),
     questionIntentHints: [],
     competitors: [],
+    knowledgeBase: emptyClientKnowledgeBase({
+      subjectType,
+      subjectName: name,
+    }),
     selectedModels: DEFAULT_MODELS,
     createdAt: now,
     updatedAt: now,

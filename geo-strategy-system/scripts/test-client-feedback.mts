@@ -35,6 +35,9 @@ const {
 } = await import("../src/lib/client-feedback/store")
 const { buildClientFeedbackReport } = await import("../src/lib/client-feedback/builder")
 const {
+  recordArticleGenerationAttribution,
+} = await import("../src/lib/geo-methodology/attribution")
+const {
   getClientExecutionActionDetail,
 } = await import("../src/lib/client-feedback/action-detail")
 const {
@@ -306,6 +309,38 @@ try {
     /客户可访问的 http\/https 公网网址/,
   )
 
+  await recordArticleGenerationAttribution({
+    ownerUserId,
+    clientId: client.id,
+    actorUserId,
+    markdown: "# 企业内容服务怎么选\n\n正文",
+    lineage: {
+      generationId: "gart_feedback_article_001",
+      promptKey: "thirdPartyObservation",
+      primarySubject: client.ourBrand,
+      comparisonSubjects: [],
+      questionId: "question-001",
+      coreQuestion: "企业内容服务怎么选？",
+      questionIntent: "采购决策",
+      questionSubIntent: "建立选择标准",
+      questionCategory: "采购决策型",
+      questionKeyword: "企业内容服务",
+      matchedAdvantage: "统一资料管理",
+      modelProvider: "deepseek",
+      model: "deepseek-chat",
+      methodologyTrace: {
+        version: "shitu-geo-2026.07.1",
+        methodKey: "problemSolution",
+        targetPlatform: "universal",
+        brandLayout: "singlePrimary",
+        titleStrategy: "directAnswer",
+        knowledgeAssetIds: ["asset-001"],
+        compiledAt: "2026-03-01T05:30:00.000Z",
+      },
+      generatedAt: "2026-03-01T05:30:00.000Z",
+    },
+  })
+
   const report = await buildClientFeedbackReport({
     ownerUserId,
     actorUserId,
@@ -314,11 +349,18 @@ try {
     period: month,
   })
   assert.equal(report.status, "draft")
-  assert.equal(report.snapshot.actions.length, 3, "internal actions must not leak into client reports")
+  assert.equal(report.snapshot.actions.length, 4, "internal actions must not leak into client reports")
   assert.equal(report.snapshot.actions.some(action => action.title === "完成首批自媒体发布"), true)
   assert.equal(report.snapshot.actions.some(action => action.title === "搜狐行业文章"), true)
-  assert.equal(report.snapshot.evidenceRecordCount, 3)
+  assert.equal(report.snapshot.evidenceRecordCount, 4)
   assert.equal(report.snapshot.comparison.comparable, false)
+  assert.deepEqual(report.snapshot.contentAttribution, {
+    generatedArticleCount: 1,
+    coveredQuestionCount: 1,
+    evidenceLinkedArticleCount: 1,
+    knowledgeAssetUseCount: 1,
+    platformCounts: [{ platform: "通用内容", count: 1 }],
+  })
   const reportAction = report.snapshot.actions[0]
   assert.ok(reportAction)
   const reportWithResult = {

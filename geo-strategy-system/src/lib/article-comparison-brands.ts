@@ -36,7 +36,7 @@ function cleanList(value: unknown, maxItems: number, itemMax: number): string[] 
 export function normalizeArticleComparisonBrands(value: unknown): ArticleComparisonBrand[] {
   if (!Array.isArray(value)) return []
   return value
-    .slice(0, 2)
+    .slice(0, 9)
     .map((raw, index) => {
       const item = raw && typeof raw === "object" && !Array.isArray(raw)
         ? raw as Record<string, unknown>
@@ -48,6 +48,9 @@ export function normalizeArticleComparisonBrands(value: unknown): ArticleCompari
         materials: clean(item.materials, 8_000),
         sourceUrls: cleanList(item.sourceUrls, 20, 1_000)
           .filter(url => /^https?:\/\//i.test(url)),
+        role: ["supporting", "peer", "benchmark", "alternative"].includes(String(item.role || ""))
+          ? item.role as ArticleComparisonBrand["role"]
+          : "supporting",
       }
     })
     .filter(item => Boolean(item.name))

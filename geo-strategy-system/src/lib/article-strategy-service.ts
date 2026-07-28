@@ -60,6 +60,10 @@ export async function routeArticleStrategyTasks(args: {
     question: task.question,
     category: task.category,
     intent: task.intent,
+    subIntent: task.subIntent,
+    queryStyle: task.queryStyle,
+    methodologyCandidates: task.methodologyCandidates,
+    platformCandidates: task.platformCandidates,
     contentAngle: task.contentAngle,
     matchedAdvantage: task.matchedAdvantage,
     candidates: articleStrategyPromptCandidates({

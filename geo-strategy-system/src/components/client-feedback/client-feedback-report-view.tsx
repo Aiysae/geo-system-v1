@@ -193,6 +193,37 @@ export default function ClientFeedbackReportView({
           </div>
         </section>
 
+        {snapshot.contentAttribution && snapshot.contentAttribution.generatedArticleCount > 0 ? (
+          <section>
+            <div className="flex items-center gap-2">
+              <FileCheck2 className="h-4 w-4 text-[#1677FF]" />
+              <h2 className="text-base font-bold">内容执行结构</h2>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: "完成内容", value: `${snapshot.contentAttribution.generatedArticleCount} 篇` },
+                { label: "覆盖问题", value: `${snapshot.contentAttribution.coveredQuestionCount} 个` },
+                { label: "引用客户资料", value: `${snapshot.contentAttribution.evidenceLinkedArticleCount} 篇` },
+                { label: "使用资料资产", value: `${snapshot.contentAttribution.knowledgeAssetUseCount} 项` },
+              ].map(item => (
+                <div key={item.label} className="rounded-lg border border-[#DCE8F4] bg-[#F8FBFF] p-4">
+                  <p className="text-[11px] font-medium text-[#6B8299]">{item.label}</p>
+                  <p className="mt-2 text-xl font-bold text-[#102A43]">{item.value}</p>
+                </div>
+              ))}
+            </div>
+            {snapshot.contentAttribution.platformCounts.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {snapshot.contentAttribution.platformCounts.map(item => (
+                  <span key={item.platform} className="rounded-md bg-[#EAF4FF] px-2.5 py-1 text-[11px] font-semibold text-[#0958D9]">
+                    {item.platform} {item.count} 篇
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         <section>
           <div className="flex items-end justify-between gap-3">
             <div>

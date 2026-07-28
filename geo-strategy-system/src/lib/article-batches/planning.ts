@@ -39,6 +39,15 @@ export interface PlannedArticleItem {
   keyword?: string
   contentAngle?: string
   matchedAdvantage?: string
+  subIntent?: ArticleBatchQuestionTask["subIntent"]
+  queryStyle?: ArticleBatchQuestionTask["queryStyle"]
+  methodologyCandidates?: ArticleBatchQuestionTask["methodologyCandidates"]
+  platformCandidates?: ArticleBatchQuestionTask["platformCandidates"]
+  targetPlatform?: ArticleBatchQuestionTask["targetPlatform"]
+  brandLayout?: ArticleBatchQuestionTask["brandLayout"]
+  titleStrategy?: ArticleBatchQuestionTask["titleStrategy"]
+  knowledgeAssetIds?: ArticleBatchQuestionTask["knowledgeAssetIds"]
+  methodologyVersion?: ArticleBatchQuestionTask["methodologyVersion"]
   promptKey?: ArticleBatchQuestionTask["promptKey"]
   promptTitle?: string
   routeConfidence?: number
@@ -61,6 +70,15 @@ function normalizeQuestionTasks(value: ArticleBatchQuestionTask[] | undefined): 
       keyword: clean(task.keyword, 200) || undefined,
       contentAngle: clean(task.contentAngle, 500) || undefined,
       matchedAdvantage: clean(task.matchedAdvantage, 3_000) || undefined,
+      subIntent: clean(task.subIntent, 300) || undefined,
+      queryStyle: task.queryStyle,
+      methodologyCandidates: task.methodologyCandidates,
+      platformCandidates: task.platformCandidates,
+      targetPlatform: task.targetPlatform,
+      brandLayout: task.brandLayout,
+      titleStrategy: task.titleStrategy,
+      knowledgeAssetIds: task.knowledgeAssetIds,
+      methodologyVersion: clean(task.methodologyVersion, 120) || undefined,
       promptKey: task.promptKey,
       promptTitle: clean(task.promptTitle, 160) || undefined,
       routeConfidence: Number.isFinite(task.routeConfidence)
@@ -92,6 +110,15 @@ function plannedQuestionTask(task: ArticleBatchQuestionTask, position: number): 
     keyword: task.keyword,
     contentAngle: task.contentAngle,
     matchedAdvantage: task.matchedAdvantage,
+    subIntent: task.subIntent,
+    queryStyle: task.queryStyle,
+    methodologyCandidates: task.methodologyCandidates,
+    platformCandidates: task.platformCandidates,
+    targetPlatform: task.targetPlatform,
+    brandLayout: task.brandLayout,
+    titleStrategy: task.titleStrategy,
+    knowledgeAssetIds: task.knowledgeAssetIds,
+    methodologyVersion: task.methodologyVersion,
     promptKey: task.promptKey,
     promptTitle: task.promptTitle,
     routeConfidence: task.routeConfidence,

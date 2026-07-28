@@ -1,7 +1,32 @@
 // ============ Legacy (保留兼容 /api/generate) ============
 import type { KeywordStrategyState } from "./geo-strategy"
+import type {
+  ArticleMethodologySelection,
+  ArticleMethodologyTrace,
+  ClientKnowledgeBase,
+  GeoBrandLayout,
+  GeoContentPlatform,
+  GeoMethodologyKey,
+  GeoQueryStyle,
+  GeoTitleStrategy,
+} from "./geo-methodology"
 import type { TeamPermissionKey, TeamRole } from "@/lib/team-permissions"
 import type { ClientPenetrationResultDetail } from "@/lib/client-account-policy"
+
+export type {
+  ArticleMethodologySelection,
+  ArticleMethodologyTrace,
+  ClientKnowledgeBase,
+  GeoBrandLayout,
+  GeoContentPlatform,
+  GeoEvidenceLevel,
+  GeoKnowledgeAsset,
+  GeoKnowledgeAssetKind,
+  GeoKnowledgeAssetStatus,
+  GeoMethodologyKey,
+  GeoQueryStyle,
+  GeoTitleStrategy,
+} from "./geo-methodology"
 
 export interface BrandInput {
   brandName: string
@@ -152,6 +177,7 @@ export interface ArticleComparisonBrand {
   aliases: string[]
   materials: string
   sourceUrls: string[]
+  role?: "supporting" | "peer" | "benchmark" | "alternative"
 }
 
 export interface ArticleBatchQuestionTask {
@@ -162,6 +188,15 @@ export interface ArticleBatchQuestionTask {
   keyword?: string
   contentAngle?: string
   matchedAdvantage?: string
+  subIntent?: string
+  queryStyle?: GeoQueryStyle
+  methodologyCandidates?: GeoMethodologyKey[]
+  platformCandidates?: GeoContentPlatform[]
+  targetPlatform?: GeoContentPlatform
+  brandLayout?: GeoBrandLayout
+  titleStrategy?: GeoTitleStrategy
+  knowledgeAssetIds?: string[]
+  methodologyVersion?: string
   promptKey?: ArticlePromptKey
   promptTitle?: string
   routeConfidence?: number
@@ -219,6 +254,9 @@ export interface ArticleGenerationState {
   rewriteMappings?: ArticleRewriteBrandMapping[]
   rewriteAudit?: ArticleRewriteAudit
   comparisonBrands?: ArticleComparisonBrand[]
+  methodology?: ArticleMethodologySelection
+  methodologyTrace?: ArticleMethodologyTrace
+  lineage?: ArticleGenerationLineage
   extractStatus?: GenerationStatus
   extractError?: string
   coreQuestion: string
@@ -244,6 +282,24 @@ export interface ArticlePublishingSettings {
   publishMode?: "review" | "auto"
   original?: boolean
   allowComment?: boolean
+}
+
+export interface ArticleGenerationLineage {
+  generationId: string
+  promptKey: ArticlePromptKey
+  primarySubject: string
+  comparisonSubjects: string[]
+  questionId?: string
+  coreQuestion: string
+  questionIntent?: string
+  questionSubIntent?: string
+  questionCategory?: string
+  questionKeyword?: string
+  matchedAdvantage?: string
+  modelProvider: ArticleModelProviderKey
+  model: string
+  methodologyTrace: ArticleMethodologyTrace
+  generatedAt: string
 }
 
 export type ArticleBatchTopicMode = "auto" | "questions" | "custom" | "strategy"
@@ -276,6 +332,17 @@ export interface ArticleBatchItemRecord {
   keyword?: string
   contentAngle?: string
   matchedAdvantage?: string
+  subIntent?: string
+  queryStyle?: GeoQueryStyle
+  methodologyCandidates?: GeoMethodologyKey[]
+  platformCandidates?: GeoContentPlatform[]
+  targetPlatform?: GeoContentPlatform
+  brandLayout?: GeoBrandLayout
+  titleStrategy?: GeoTitleStrategy
+  knowledgeAssetIds?: string[]
+  methodologyVersion?: string
+  methodologyTrace?: ArticleMethodologyTrace
+  generationId?: string
   promptKey?: ArticlePromptKey
   promptTitle?: string
   routeConfidence?: number
@@ -1215,6 +1282,7 @@ export interface Client {
   questionGenerationSettings?: PenetrationQuestionGenerationSettings
   questionIntentHints?: PenetrationQuestionIntentHint[]
   competitors: string[]
+  knowledgeBase?: ClientKnowledgeBase
   selectedModels: ModelKey[]
   createdAt: string
   updatedAt: string

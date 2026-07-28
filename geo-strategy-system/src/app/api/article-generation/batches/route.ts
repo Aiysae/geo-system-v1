@@ -25,6 +25,9 @@ import {
   isRecognizedArticleModelProviderKey,
   resolveArticleModel,
 } from "@/lib/article-models"
+import { normalizeArticleComparisonBrands } from "@/lib/article-comparison-brands"
+import { normalizeArticleMethodologySelection } from "@/lib/geo-methodology/compiler"
+import { normalizeClientKnowledgeBase } from "@/lib/client-knowledge-base"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -48,18 +51,7 @@ function stringList(value: unknown, maxItems: number, maxLength: number): string
 }
 
 function comparisonBrands(value: unknown): ArticleComparisonBrand[] {
-  if (!Array.isArray(value)) return []
-  return value.slice(0, 2).map((raw, index) => {
-    const item = record(raw)
-    return {
-      id: text(item.id, 120) || `comparison_${index + 2}`,
-      name: text(item.name, 160),
-      aliases: stringList(item.aliases, 12, 120),
-      materials: text(item.materials, 8_000),
-      sourceUrls: stringList(item.sourceUrls, 20, 1_000)
-        .filter(url => /^https?:\/\//i.test(url)),
-    }
-  }).filter(item => Boolean(item.name))
+  return normalizeArticleComparisonBrands(value)
 }
 
 function questionTasks(value: unknown): ArticleBatchQuestionTask[] {
@@ -75,6 +67,15 @@ function questionTasks(value: unknown): ArticleBatchQuestionTask[] {
       keyword: text(item.keyword, 200) || undefined,
       contentAngle: text(item.contentAngle, 500) || undefined,
       matchedAdvantage: text(item.matchedAdvantage, 3_000) || undefined,
+      subIntent: text(item.subIntent, 300) || undefined,
+      queryStyle: item.queryStyle as ArticleBatchQuestionTask["queryStyle"],
+      methodologyCandidates: stringList(item.methodologyCandidates, 7, 80) as ArticleBatchQuestionTask["methodologyCandidates"],
+      platformCandidates: stringList(item.platformCandidates, 10, 80) as ArticleBatchQuestionTask["platformCandidates"],
+      targetPlatform: text(item.targetPlatform, 80) as ArticleBatchQuestionTask["targetPlatform"],
+      brandLayout: text(item.brandLayout, 80) as ArticleBatchQuestionTask["brandLayout"],
+      titleStrategy: text(item.titleStrategy, 80) as ArticleBatchQuestionTask["titleStrategy"],
+      knowledgeAssetIds: stringList(item.knowledgeAssetIds, 30, 140),
+      methodologyVersion: text(item.methodologyVersion, 120) || undefined,
       promptKey: getArticlePromptOption(promptKey) && promptKey !== "rewrite"
         ? promptKey
         : undefined,
@@ -189,6 +190,9 @@ export async function POST(req: NextRequest) {
           intent: question.intent,
           category: question.category,
           matchedAdvantage,
+          methodologyCandidates: task.methodologyCandidates?.length
+            ? task.methodologyCandidates
+            : question.methodologyCandidates,
           comparisonBrandCount: parsedComparisonBrands.length,
         })
         if (!candidates.includes(task.promptKey)) return []
@@ -200,6 +204,12 @@ export async function POST(req: NextRequest) {
           keyword: question.keyword,
           contentAngle: question.content_angle,
           matchedAdvantage,
+          subIntent: question.subIntent,
+          queryStyle: question.queryStyle,
+          methodologyCandidates: task.methodologyCandidates?.length
+            ? task.methodologyCandidates
+            : question.methodologyCandidates,
+          platformCandidates: question.platformCandidates,
           promptTitle: getArticlePromptOption(task.promptKey)?.title,
         }]
       })
@@ -222,6 +232,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请先填写核心搜索问题或内容主题" }, { status: 400 })
     }
 
+    const subjectType = normalizeAnalysisSubjectType(base.subjectType)
+    const brandName = text(base.brandName, 160)
     const result = await createArticleBatch({
       requestId,
       clientId,
@@ -236,8 +248,8 @@ export async function POST(req: NextRequest) {
         modelProvider: resolvedModel.providerKey,
         model: resolvedModel.model,
         clientName: text(base.clientName, 160),
-        brandName: text(base.brandName, 160),
-        subjectType: normalizeAnalysisSubjectType(base.subjectType),
+        brandName,
+        subjectType,
         subjectContext: text(base.subjectContext, 4_000),
         industry: text(base.industry, 240),
         website: text(base.website, 2_000),
@@ -247,6 +259,12 @@ export async function POST(req: NextRequest) {
         business: text(base.business, 1_000),
         advantages: text(base.advantages, 12_000),
         comparisonBrands: parsedComparisonBrands,
+        methodology: normalizeArticleMethodologySelection(base.methodology),
+        knowledgeBase: normalizeClientKnowledgeBase(base.knowledgeBase, {
+          subjectType,
+          subjectName: brandName || text(base.clientName, 160),
+          aliases: [],
+        }),
         audience: text(base.audience, 2_000),
         extraRequirements: text(base.extraRequirements, 5_000),
       },
