@@ -112,6 +112,7 @@ function buildUserPrompt(
     "- platform_type 只能使用 self_media、industry_vertical、authority_media、government_association、brand_official、other。",
     "- 可以补充资料和检测结果之外的适配平台，但必须排在检测命中平台之后，并明确标为 system_recommended。",
     `- geo_monitoring_plan 至少包含${isPerson ? "人物主动提及率、同名身份准确率" : "品牌主动提及率"}、引用/事实一致性、第三方交叉验证覆盖、疑问句内容覆盖率。`,
+    "- 每个 geo_monitoring_plan 条目同时给出复盘频率、触发改进的内容动作和需要核验的证据；不要只写抽象指标。",
     "- execution_roadmap 至少包含第1周、第2-3周、第3-5周、持续执行。",
     "",
     "输出 JSON Schema：",
@@ -143,7 +144,7 @@ function buildUserPrompt(
   "authority_media_plan": [
     {"platform_key": "", "platform": "", "platform_type": "authority_media", "source_origin": "penetration_detected", "role": "", "keyword_focus": "", "sample_title": "", "cadence": ""}
   ],
-  "geo_monitoring_plan": [{"metric": "", "method": "", "target": ""}],
+  "geo_monitoring_plan": [{"metric": "", "method": "", "target": "", "cadence": "每周/每月", "contentAction": "指标未达标时优先制作或更新什么内容", "evidenceRequired": "复盘时需要核验的回答、信源或资料"}],
   "execution_roadmap": [{"phase": "", "focus": "", "deliverable": ""}]
 }`
   )

@@ -66,6 +66,7 @@ export interface ClientExecutionContentTrace {
   matchedAdvantage?: string
   methodologyVersion: string
   methodKey: string
+  articleFormat?: string
   targetPlatform: string
   brandLayout: string
   titleStrategy: string

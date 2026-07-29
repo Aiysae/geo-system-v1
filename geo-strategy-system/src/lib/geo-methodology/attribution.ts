@@ -58,6 +58,7 @@ function contentTrace(lineage: ArticleGenerationLineage): ClientExecutionContent
     matchedAdvantage: lineage.matchedAdvantage,
     methodologyVersion: lineage.methodologyTrace.version,
     methodKey: lineage.methodologyTrace.methodKey,
+    articleFormat: lineage.methodologyTrace.articleFormat,
     targetPlatform: lineage.methodologyTrace.targetPlatform,
     brandLayout: lineage.methodologyTrace.brandLayout,
     titleStrategy: lineage.methodologyTrace.titleStrategy,

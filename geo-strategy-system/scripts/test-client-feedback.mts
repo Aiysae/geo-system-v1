@@ -331,6 +331,7 @@ try {
       methodologyTrace: {
         version: "shitu-geo-2026.07.1",
         methodKey: "problemSolution",
+        articleFormat: "directAnswerGuide",
         targetPlatform: "universal",
         brandLayout: "singlePrimary",
         titleStrategy: "directAnswer",

@@ -1,4 +1,5 @@
 import { getArticlePromptOption } from "@/lib/article-prompt-meta"
+import { articleFormatForArticlePrompt } from "@/lib/geo-methodology/registry"
 import type {
   ArticleBatchQuestionTask,
   ArticlePromptKey,
@@ -129,6 +130,7 @@ export function fallbackArticleStrategyRoute(args: {
     ...args.task,
     promptKey,
     promptTitle: option?.title || "第三方测评",
+    articleFormat: args.task.articleFormat || articleFormatForArticlePrompt(promptKey),
     routeConfidence: 0.68,
     routeReason: `依据“${args.task.subIntent || args.task.category || "综合问题"}”的用户意图和现有资料，优先采用${option?.title || "第三方测评"}。`,
     missingEvidence: articleStrategyMissingEvidence({

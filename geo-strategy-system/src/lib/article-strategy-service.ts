@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getArticlePromptOption } from "@/lib/article-prompt-meta"
+import { articleFormatForArticlePrompt } from "@/lib/geo-methodology/registry"
 import { runArticleModelChat } from "@/lib/article-model-runtime"
 import type { ResolvedArticleModel } from "@/lib/article-models"
 import {
@@ -114,6 +115,7 @@ export async function routeArticleStrategyTasks(args: {
         ...fallback,
         promptKey,
         promptTitle: option?.title || fallback.promptTitle,
+        articleFormat: fallback.articleFormat || articleFormatForArticlePrompt(promptKey),
         routeConfidence: assignment?.confidence ?? fallback.routeConfidence,
         routeReason: assignment?.reason || fallback.routeReason,
         missingEvidence: articleStrategyMissingEvidence({

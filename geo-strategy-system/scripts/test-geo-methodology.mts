@@ -3,6 +3,8 @@ import { createRequire } from "node:module"
 import type * as RegistryModule from "../src/lib/geo-methodology/registry"
 import type * as CompilerModule from "../src/lib/geo-methodology/compiler"
 import type * as TitleMatrixModule from "../src/lib/geo-methodology/title-matrix"
+import type * as ArticleFormatsModule from "../src/lib/geo-methodology/article-formats"
+import type * as ReadinessModule from "../src/lib/geo-methodology/readiness"
 import type * as KnowledgeModule from "../src/lib/client-knowledge-base"
 import type * as QuestionMethodologyModule from "../src/lib/geo-strategy/question-methodology"
 import type * as ComparisonBrandsModule from "../src/lib/article-comparison-brands"
@@ -17,6 +19,10 @@ const {
   normalizeArticleMethodologySelection,
 } = require("../src/lib/geo-methodology/compiler.ts") as typeof CompilerModule
 const { buildGeoTitleMatrix } = require("../src/lib/geo-methodology/title-matrix.ts") as typeof TitleMatrixModule
+const { GEO_ARTICLE_FORMATS } = require("../src/lib/geo-methodology/article-formats.ts") as typeof ArticleFormatsModule
+const {
+  evaluateArticleReadiness,
+} = require("../src/lib/geo-methodology/readiness.ts") as typeof ReadinessModule
 const {
   mergeExtractedProfileIntoKnowledgeBase,
   selectKnowledgeAssets,
@@ -26,8 +32,10 @@ const { normalizeArticleComparisonBrands } = require("../src/lib/article-compari
 const forbiddenSourceLabel = String.fromCodePoint(0x8001, 0x80e1)
 
 assert.equal(Object.keys(GEO_METHODOLOGIES).length, 7)
+assert.equal(Object.keys(GEO_ARTICLE_FORMATS).length, 11)
 assert.match(GEO_METHODOLOGY_VERSION, /^shitu-geo-/)
 assert.equal(JSON.stringify(GEO_METHODOLOGIES).includes(forbiddenSourceLabel), false)
+assert.equal(JSON.stringify(GEO_ARTICLE_FORMATS).includes(forbiddenSourceLabel), false)
 
 const knowledgeBase = mergeExtractedProfileIntoKnowledgeBase({
   subjectType: "brand",
@@ -70,12 +78,15 @@ const questionMetadata = classifyQuestionMethodology({
 })
 assert.equal(questionMetadata.queryStyle, "evidence")
 assert.equal(questionMetadata.methodologyCandidates[0], "primaryEvidence")
+assert.equal(questionMetadata.articleFormatCandidates[0], "primaryEvidenceDossier")
+assert.equal(questionMetadata.titleStrategyCandidates[0], "evidenceHook")
 
 const compiled = compileGeoArticleMethodology({
   promptKey: "credentialsAnalysis",
   selection: normalizeArticleMethodologySelection({
     mode: "manual",
     methodKey: "primaryEvidence",
+    articleFormat: "primaryEvidenceDossier",
     targetPlatform: "officialSite",
     brandLayout: "singlePrimary",
     titleStrategy: "evidenceHook",
@@ -91,6 +102,7 @@ const compiled = compileGeoArticleMethodology({
 })
 assert.equal(compiled.enabled, true)
 assert.equal(compiled.trace.methodKey, "primaryEvidence")
+assert.equal(compiled.trace.articleFormat, "primaryEvidenceDossier")
 assert.ok(compiled.trace.knowledgeAssetIds.length > 0)
 assert.match(compiled.systemAddendum, /势途 GEO 方法论/)
 assert.equal(`${compiled.systemAddendum}${compiled.userAddendum}`.includes(forbiddenSourceLabel), false)
@@ -111,6 +123,25 @@ const titles = buildGeoTitleMatrix({
 })
 assert.equal(titles.length, 5)
 assert.deepEqual(titles.map(item => item.dimension), ["问题", "人群", "场景", "决策", "证据"])
+
+const oldSelection = normalizeArticleMethodologySelection({
+  mode: "auto",
+  targetPlatform: "auto",
+})
+assert.equal(oldSelection.articleFormat, "auto", "legacy saved state must migrate without errors")
+
+const readiness = evaluateArticleReadiness({
+  promptKey: "competitorComparison",
+  selection: normalizeArticleMethodologySelection({
+    articleFormat: "neutralComparisonReview",
+  }),
+  coreQuestion: "服务方案甲和方案乙应该怎么比较？",
+  primarySubject: "示例主体甲",
+  business: "企业内容服务",
+  comparisonBrands: [],
+})
+assert.equal(readiness.ready, false)
+assert.ok(readiness.issues.some(item => item.code === "missing_comparison_subject"))
 
 const brands = normalizeArticleComparisonBrands(Array.from({ length: 12 }, (_, index) => ({
   id: `brand_${index}`,

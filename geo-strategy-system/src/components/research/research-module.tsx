@@ -10,6 +10,7 @@ import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
+import { getGeoArticleFormat } from "@/lib/geo-methodology/article-formats"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type { BackgroundJobKind, BackgroundJobRef, Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import {
@@ -17,6 +18,7 @@ import {
   Brain,
   CheckCircle2,
   FlaskConical,
+  Layers3,
   Loader2,
   RefreshCw,
   Search,
@@ -30,6 +32,31 @@ const EMPTY_MANUAL_INPUT: ResearchManualInput = {
   industry: "",
   fullName: "",
   aliases: "",
+}
+
+const CONTENT_PLATFORM_LABELS: Record<string, string> = {
+  universal: "通用长文",
+  officialSite: "官网",
+  sohu: "搜狐",
+  toutiao: "今日头条",
+  netease: "网易",
+  baijiahao: "百家号",
+  zhihu: "知乎",
+  xiaohongshu: "小红书",
+  douyin: "抖音图文",
+}
+
+const TITLE_STRATEGY_LABELS: Record<string, string> = {
+  directAnswer: "直接回答",
+  audienceScenario: "人群场景",
+  decisionCriteria: "决策标准",
+  evidenceHook: "证据切入",
+  riskAvoidance: "风险避坑",
+  localService: "本地服务",
+  comparisonMatrix: "对比矩阵",
+  tieredList: "分层清单",
+  marketTrend: "趋势研究",
+  priceTransparency: "价格成本",
 }
 
 interface Props {
@@ -704,6 +731,38 @@ function ResearchReport({
         <ListPanel title="风险暴露" items={result.risks} tone="rose" />
       </div>
       <ListPanel title="机会与行动建议" items={[...result.opportunities, ...result.recommendations]} tone="blue" />
+
+      {Boolean(result.contentBlueprints?.length) && (
+        <section className="overflow-hidden rounded-lg border border-violet-200 bg-white">
+          <div className="flex items-center gap-2 border-b border-violet-100 bg-violet-50 px-4 py-3">
+            <Layers3 className="h-4 w-4 text-violet-600" />
+            <div>
+              <div className="text-sm font-semibold text-slate-800">建议优先制作的内容</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">根据本次调研结论匹配文章结构与证据准备项</div>
+            </div>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {result.contentBlueprints?.map((item, index) => (
+              <div key={`${item.question}-${index}`} className="px-4 py-3">
+                <div className="text-sm font-medium leading-6 text-slate-800">{item.question}</div>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{item.rationale}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                  <span className="rounded bg-violet-50 px-2 py-1 text-violet-700">
+                    {getGeoArticleFormat(item.articleFormat).title}
+                  </span>
+                  <span className="rounded bg-blue-50 px-2 py-1 text-blue-700">
+                    {CONTENT_PLATFORM_LABELS[item.targetPlatform] || "通用长文"}
+                  </span>
+                  <span className="rounded bg-cyan-50 px-2 py-1 text-cyan-700">{TITLE_STRATEGY_LABELS[item.titleStrategy] || "自动标题"}</span>
+                  {item.evidenceNeeded.slice(0, 3).map(evidence => (
+                    <span key={evidence} className="rounded bg-amber-50 px-2 py-1 text-amber-700">需准备：{evidence}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="text-[11px] text-slate-400 text-right">
         生成于 {new Date(result.generatedAt).toLocaleString("zh-CN")}

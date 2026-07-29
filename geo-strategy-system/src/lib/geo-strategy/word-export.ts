@@ -578,9 +578,14 @@ function strategyChildren(input: KeywordStrategyWordInput): Array<Paragraph | Ta
     children.push(
       heading("GEO 复盘指标"),
       dataTable(
-        ["指标", "复盘方法", "阶段目标"],
-        plan.geo_monitoring_plan.map(item => [item.metric, item.method, item.target]),
-        [24, 46, 30],
+        ["指标", "复盘方法与频率", "阶段目标", "内容动作与证据"],
+        plan.geo_monitoring_plan.map(item => [
+          item.metric,
+          [item.method, item.cadence].filter(Boolean).join("；"),
+          item.target,
+          [item.contentAction, item.evidenceRequired].filter(Boolean).join("；"),
+        ]),
+        [20, 28, 16, 36],
       ),
     )
   }

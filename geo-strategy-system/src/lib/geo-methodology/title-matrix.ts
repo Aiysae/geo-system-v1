@@ -38,6 +38,8 @@ export function buildGeoTitleMatrix(args: {
     localService: "自然加入地域需求，不堆词",
     comparisonMatrix: "明确比较对象与统一维度",
     tieredList: "说明分层口径与清单范围",
+    marketTrend: `明确研究范围与 ${new Date().getFullYear()} 年时效`,
+    priceTransparency: "突出成本构成与预算判断，不编造金额",
   }
 
   const matrix: GeoTitleMatrixItem[] = [

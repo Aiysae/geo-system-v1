@@ -4,6 +4,7 @@ import type {
   ArticleMethodologySelection,
   ArticleMethodologyTrace,
   ClientKnowledgeBase,
+  GeoArticleFormatKey,
   GeoBrandLayout,
   GeoContentPlatform,
   GeoMethodologyKey,
@@ -17,6 +18,7 @@ export type {
   ArticleMethodologySelection,
   ArticleMethodologyTrace,
   ClientKnowledgeBase,
+  GeoArticleFormatKey,
   GeoBrandLayout,
   GeoContentPlatform,
   GeoEvidenceLevel,
@@ -193,6 +195,7 @@ export interface ArticleBatchQuestionTask {
   methodologyCandidates?: GeoMethodologyKey[]
   platformCandidates?: GeoContentPlatform[]
   targetPlatform?: GeoContentPlatform
+  articleFormat?: GeoArticleFormatKey
   brandLayout?: GeoBrandLayout
   titleStrategy?: GeoTitleStrategy
   knowledgeAssetIds?: string[]
@@ -349,6 +352,7 @@ export interface ArticleBatchItemRecord {
   methodologyCandidates?: GeoMethodologyKey[]
   platformCandidates?: GeoContentPlatform[]
   targetPlatform?: GeoContentPlatform
+  articleFormat?: GeoArticleFormatKey
   brandLayout?: GeoBrandLayout
   titleStrategy?: GeoTitleStrategy
   knowledgeAssetIds?: string[]
@@ -1244,6 +1248,16 @@ export interface ResearchDimension {
   evidence: string[]
 }
 
+export interface ResearchContentBlueprint {
+  question: string
+  rationale: string
+  methodKey: GeoMethodologyKey
+  articleFormat: Exclude<GeoArticleFormatKey, "auto">
+  titleStrategy: Exclude<GeoTitleStrategy, "auto">
+  targetPlatform: GeoContentPlatform
+  evidenceNeeded: string[]
+}
+
 export interface ResearchResult {
   mode: ResearchMode
   sourceMode?: ResearchSourceMode
@@ -1260,6 +1274,7 @@ export interface ResearchResult {
   risks: string[]
   opportunities: string[]
   recommendations: string[]
+  contentBlueprints?: ResearchContentBlueprint[]
   generatedAt: string
 }
 

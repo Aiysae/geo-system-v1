@@ -44,6 +44,7 @@ export interface PlannedArticleItem {
   methodologyCandidates?: ArticleBatchQuestionTask["methodologyCandidates"]
   platformCandidates?: ArticleBatchQuestionTask["platformCandidates"]
   targetPlatform?: ArticleBatchQuestionTask["targetPlatform"]
+  articleFormat?: ArticleBatchQuestionTask["articleFormat"]
   brandLayout?: ArticleBatchQuestionTask["brandLayout"]
   titleStrategy?: ArticleBatchQuestionTask["titleStrategy"]
   knowledgeAssetIds?: ArticleBatchQuestionTask["knowledgeAssetIds"]
@@ -75,6 +76,7 @@ function normalizeQuestionTasks(value: ArticleBatchQuestionTask[] | undefined): 
       methodologyCandidates: task.methodologyCandidates,
       platformCandidates: task.platformCandidates,
       targetPlatform: task.targetPlatform,
+      articleFormat: task.articleFormat,
       brandLayout: task.brandLayout,
       titleStrategy: task.titleStrategy,
       knowledgeAssetIds: task.knowledgeAssetIds,
@@ -115,6 +117,7 @@ function plannedQuestionTask(task: ArticleBatchQuestionTask, position: number): 
     methodologyCandidates: task.methodologyCandidates,
     platformCandidates: task.platformCandidates,
     targetPlatform: task.targetPlatform,
+    articleFormat: task.articleFormat,
     brandLayout: task.brandLayout,
     titleStrategy: task.titleStrategy,
     knowledgeAssetIds: task.knowledgeAssetIds,

@@ -47,6 +47,7 @@ import {
   compileGeoArticleMethodology,
   normalizeArticleMethodologySelection,
 } from "@/lib/geo-methodology/compiler"
+import { evaluateArticleReadiness } from "@/lib/geo-methodology/readiness"
 import { normalizeClientKnowledgeBase } from "@/lib/client-knowledge-base"
 import { recordArticleGenerationAttribution } from "@/lib/geo-methodology/attribution"
 import { requireOperationAccess } from "@/lib/team-access"
@@ -460,6 +461,24 @@ export async function POST(req: NextRequest) {
       primarySubject,
       comparisonBrands,
     })
+
+    if (!isRewrite && promptKey !== "shortVideoScript") {
+      const readiness = evaluateArticleReadiness({
+        promptKey,
+        selection: methodologySelection,
+        coreQuestion,
+        primarySubject,
+        region: text(body.region, 160),
+        business: text(body.business, 500),
+        advantages: text(body.advantages, 3000),
+        comparisonBrands,
+        knowledgeBase,
+      })
+      const blockingIssue = readiness.issues.find(issue => issue.severity === "blocking")
+      if (blockingIssue) {
+        return NextResponse.json({ error: blockingIssue.message }, { status: 400 })
+      }
+    }
 
     const modelProvider = normalizeArticleModelProviderKey(body.modelProvider)
     const config = await resolveArticleModel(modelProvider, text(body.model, 200))

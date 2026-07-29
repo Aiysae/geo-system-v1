@@ -1723,7 +1723,7 @@ function InputStep({
                 <input
                   value={projectName}
                   onChange={e => onProjectNameChange(e.target.value)}
-                  placeholder={isPerson ? "例：张医生个人 IP GEO 优化" : "例：贵竹风 GEO 优化"}
+                  placeholder={isPerson ? "例：某专业人士个人 IP GEO 优化" : "例：某品牌 GEO 优化"}
                   className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200/40 transition"
                 />
               </div>
@@ -2517,10 +2517,19 @@ function StrategyStep({
           <Card title="GEO 复盘指标" icon={<RefreshCw className="h-4 w-4 text-rose-500" />}>
             <div className="space-y-2">
               {plan.geo_monitoring_plan.map((item, i) => (
-                <div key={i} className="flex flex-col gap-1 text-xs p-2 rounded-lg bg-slate-50 sm:flex-row sm:items-start sm:gap-2">
-                  <span className="font-medium text-slate-700 sm:w-24 sm:shrink-0">{item.metric}</span>
-                  <span className="text-slate-500 flex-1">{item.method}</span>
-                  <span className="text-slate-400 sm:w-16 sm:text-right">{item.target}</span>
+                <div key={i} className="rounded-lg bg-slate-50 p-2 text-xs">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-2">
+                    <span className="font-medium text-slate-700 sm:w-24 sm:shrink-0">{item.metric}</span>
+                    <span className="flex-1 text-slate-500">{item.method}</span>
+                    {item.cadence && <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-600">{item.cadence}</span>}
+                    <span className="text-slate-400 sm:w-16 sm:text-right">{item.target}</span>
+                  </div>
+                  {(item.contentAction || item.evidenceRequired) && (
+                    <div className="mt-2 space-y-1 border-t border-slate-200 pt-2 text-[11px] leading-5 text-slate-500">
+                      {item.contentAction && <div><span className="font-medium text-slate-600">改进动作：</span>{item.contentAction}</div>}
+                      {item.evidenceRequired && <div><span className="font-medium text-slate-600">核验证据：</span>{item.evidenceRequired}</div>}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -3613,8 +3622,10 @@ export function generateLegacyWordHtml(
 
   // Geo monitoring
   if (plan.geo_monitoring_plan?.length) {
-    parts.push(`<h2>GEO 复盘指标</h2><table><tr><th>指标</th><th>方法</th><th>目标</th></tr>`)
-    plan.geo_monitoring_plan.forEach(g => parts.push(`<tr><td>${h(g.metric)}</td><td>${h(g.method)}</td><td>${h(g.target)}</td></tr>`))
+    parts.push(`<h2>GEO 复盘指标</h2><table><tr><th>指标</th><th>方法与频率</th><th>目标</th><th>内容动作与证据</th></tr>`)
+    plan.geo_monitoring_plan.forEach(g => parts.push(
+      `<tr><td>${h(g.metric)}</td><td>${h([g.method, g.cadence].filter(Boolean).join("；"))}</td><td>${h(g.target)}</td><td>${h([g.contentAction, g.evidenceRequired].filter(Boolean).join("；"))}</td></tr>`,
+    ))
     parts.push(`</table>`)
   }
 

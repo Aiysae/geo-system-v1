@@ -156,6 +156,9 @@ function itemJobPayload(batch: StoredArticleBatch, item: StoredArticleBatchItem,
       targetPlatform: item.targetPlatform
         || record(batch.basePayload.methodology).targetPlatform
         || "auto",
+      articleFormat: item.articleFormat
+        || record(batch.basePayload.methodology).articleFormat
+        || "auto",
       brandLayout: item.brandLayout
         || record(batch.basePayload.methodology).brandLayout
         || "auto",
@@ -497,6 +500,7 @@ export async function createArticleBatch(
     methodologyCandidates: plan.methodologyCandidates,
     platformCandidates: plan.platformCandidates,
     targetPlatform: plan.targetPlatform,
+    articleFormat: plan.articleFormat,
     brandLayout: plan.brandLayout,
     titleStrategy: plan.titleStrategy,
     knowledgeAssetIds: plan.knowledgeAssetIds,
@@ -698,6 +702,16 @@ export async function restartArticleBatch(
           keyword: item.keyword,
           contentAngle: item.contentAngle,
           matchedAdvantage: item.matchedAdvantage,
+          subIntent: item.subIntent,
+          queryStyle: item.queryStyle,
+          methodologyCandidates: item.methodologyCandidates,
+          platformCandidates: item.platformCandidates,
+          targetPlatform: item.targetPlatform,
+          articleFormat: item.articleFormat,
+          brandLayout: item.brandLayout,
+          titleStrategy: item.titleStrategy,
+          knowledgeAssetIds: item.knowledgeAssetIds,
+          methodologyVersion: item.methodologyVersion,
           promptKey: item.promptKey,
           promptTitle: item.promptTitle,
           routeConfidence: item.routeConfidence,
