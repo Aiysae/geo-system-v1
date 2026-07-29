@@ -16,16 +16,12 @@ import ModelAvatar from "@/components/model-avatar"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
-import {
-  getBrandVoiceAction,
-  getKeywordCompetitionAction,
-} from "@/app/actions/dashboards"
 import { aggregatePenetration } from "@/lib/score-utils"
 import { getClientSubjectType } from "@/lib/analysis-subject"
 import { isSameSubject } from "@/lib/subject-canonicalization"
-import type {
-  BrandVoiceItem,
-  KeywordCompetitionItem,
+import {
+  computeBrandVoice,
+  computeKeywordCompetition,
 } from "@/lib/dashboard-aggregations"
 import type {
   AnalysisSubjectType,
@@ -36,6 +32,7 @@ import type {
   PenetrationModelProgress,
   PenetrationPromptPurity,
   PenetrationQuestionIntentHint,
+  PenetrationRetryableSlot,
   PenetrationResult,
   PenetrationSource,
   PenetrationSearchMode,
@@ -58,6 +55,10 @@ type PenetrationRunParams = {
   questionIntents: PenetrationQuestionIntentHint[]
   operation?: "replace" | "append"
   retestSampleId?: string
+  slotSelection?: Array<{
+    model: ModelKey
+    questionIndex: number
+  }>
 }
 
 export default function PenetrationModule({
@@ -76,6 +77,7 @@ export default function PenetrationModule({
   const [progressLabel, setProgressLabel] = useState("")
   const [completionNotice, setCompletionNotice] = useState("")
   const [retestingSampleId, setRetestingSampleId] = useState<string | null>(null)
+  const [retryableSlots, setRetryableSlots] = useState<PenetrationRetryableSlot[]>([])
   const publishedResultAtRef = useRef(client.penetration?.generatedAt || "")
 
   useEffect(() => {
@@ -120,6 +122,7 @@ export default function PenetrationModule({
           }
 
           if (job.status === "succeeded") {
+            setRetryableSlots([])
             const completedQuestions = new Set(
               Object.values(job.result?.byModel || {}).flatMap(items =>
                 (items || []).map(item => item.question.trim()).filter(Boolean),
@@ -139,7 +142,9 @@ export default function PenetrationModule({
               : "检测记录正在保存。"
             setCompletionNotice(
               job.operation === "append"
-                ? `本题重新检测完成，新的联网回答已追加，原回答仍然保留。${historyNotice}`
+                ? job.totalSlots > 1
+                  ? `未完成项补采完成：${job.completedSlots}/${job.totalSlots} 项结果已追加，原回答仍然保留。${historyNotice}`
+                  : `本题重新检测完成，新的联网回答已追加，原回答仍然保留。${historyNotice}`
                 : completedQuestions && completedModels
                 ? `疑问句检测完成：共 ${job.totalSlots} 项结果，覆盖 ${completedQuestions} 个问题和 ${completedModels} 个模型。${historyNotice}`
                 : `疑问句检测完成：${job.completedSlots} 项结果已更新。${historyNotice}`,
@@ -147,6 +152,7 @@ export default function PenetrationModule({
             return
           }
           if (job.status === "failed") {
+            setRetryableSlots(job.retryableSlots || [])
             onChangeClient({ penetrationJobId: undefined })
             setError(job.error || "疑问句检测未完成，请稍后重试。")
             setCompletionNotice(
@@ -160,6 +166,7 @@ export default function PenetrationModule({
             return
           }
           if (job.status === "blocked") {
+            setRetryableSlots(job.retryableSlots || [])
             onChangeClient({
               ...(job.result ? { penetration: job.result } : {}),
               penetrationJobId: undefined,
@@ -176,6 +183,7 @@ export default function PenetrationModule({
             return
           }
           if (job.status === "cancelled") {
+            setRetryableSlots(job.retryableSlots || [])
             onChangeClient({
               ...(job.result ? { penetration: job.result } : {}),
               penetrationJobId: undefined,
@@ -212,12 +220,14 @@ export default function PenetrationModule({
 
   async function handleRun(params: PenetrationRunParams) {
     if (!canExecute) return
+    const previousRetryableSlots = retryableSlots
     setLoading(true)
     setRetestingSampleId(params.retestSampleId || null)
     setError(null)
     setSkipped([])
     setModelErrors({})
     setModelProgress({})
+    setRetryableSlots([])
     setProgressLabel(params.operation === "append" ? "正在重新检测本题..." : "正在开始检测...")
     try {
       const requestId = createBackgroundRequestId("penetration")
@@ -236,6 +246,7 @@ export default function PenetrationModule({
           questionIntents: params.questionIntents,
           competitors: params.competitors,
           models: params.models,
+          slotSelection: params.slotSelection,
           operation: params.operation || "replace",
         },
         onRetry: () => {
@@ -256,6 +267,7 @@ export default function PenetrationModule({
             penetrationJobId: job.id,
           })
     } catch (e) {
+      if (params.slotSelection?.length) setRetryableSlots(previousRetryableSlots)
       setError(e instanceof Error ? e.message : "未知错误")
       setLoading(false)
       setRetestingSampleId(null)
@@ -274,6 +286,36 @@ export default function PenetrationModule({
         .filter(hint => hint.question === item.question),
       operation: "append",
       retestSampleId: sampleKey,
+    })
+  }
+
+  function handleRetryIncomplete() {
+    if (loading || retryableSlots.length === 0 || !canExecute) return
+    const originalIndexes = Array.from(
+      new Set(retryableSlots.map(slot => slot.questionIndex)),
+    ).sort((left, right) => left - right)
+    const questionIndexMap = new Map(
+      originalIndexes.map((questionIndex, newIndex) => [questionIndex, newIndex]),
+    )
+    const questionByIndex = new Map(
+      retryableSlots.map(slot => [slot.questionIndex, slot.question]),
+    )
+    const questions = originalIndexes.map(index => questionByIndex.get(index) || "")
+    const models = Array.from(new Set(retryableSlots.map(slot => slot.model)))
+    const slotSelection = retryableSlots.map(slot => ({
+      model: slot.model,
+      questionIndex: questionIndexMap.get(slot.questionIndex)!,
+    }))
+
+    void handleRun({
+      questions,
+      models,
+      brandAliases: client.brandAliases ?? [],
+      competitors: client.competitors,
+      questionIntents: (client.questionIntentHints || [])
+        .filter(hint => questions.includes(hint.question)),
+      operation: "append",
+      slotSelection,
     })
   }
 
@@ -360,6 +402,27 @@ export default function PenetrationModule({
               questionReadOnly={questionReadOnly}
               canExecute={canExecute}
             />
+            {!loading && retryableSlots.length > 0 ? (
+              <div className="mt-3 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-amber-900">
+                    仍有 {retryableSlots.length} 项联网回答未完成
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-amber-700">
+                    已完成结果会继续保留，仅重新检测这些未完成项。
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRetryIncomplete}
+                  disabled={!canExecute}
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-amber-600 px-3 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  仅重新检测未完成项
+                </button>
+              </div>
+            ) : null}
         </div>
 
         <div className="min-w-0 space-y-4">
@@ -1099,115 +1162,53 @@ function BrandAndKeywordPanels({
   competitors: string[]
   subjectType: "brand" | "person"
 }) {
-  const [voice, setVoice] = useState<BrandVoiceItem[] | null>(null)
-  const [competition, setCompetition] = useState<KeywordCompetitionItem[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  // generatedAt 是 PenetrationResult 的稳定指纹：byModel 一变它就变，
-  // 用它做 cache key 既能命中 React.cache、又能避免重复请求。
   const cacheKey = penetration.generatedAt
-
-  useEffect(() => {
-    let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- kick off server-action fetch on cacheKey change
-    setLoading(true)
-    setError(null)
-    Promise.all([
-      getBrandVoiceAction({
-        byModel: penetration.byModel,
-        ourBrand,
-        brandAliases,
-        competitors,
-        subjectType,
-        cacheKey,
-      }),
-      getKeywordCompetitionAction({
-        byModel: penetration.byModel,
-        ourBrand,
-        brandAliases,
-        competitors,
-        subjectType,
-        cacheKey,
-      }),
-    ])
-      .then(([v, c]) => {
-        if (cancelled) return
-        setVoice(v)
-        setCompetition(c)
-      })
-      .catch(e => {
-        if (cancelled) return
-        setError(e instanceof Error ? e.message : "聚合失败")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [penetration.byModel, ourBrand, brandAliases, competitors, subjectType, cacheKey])
+  const voice = useMemo(
+    () => computeBrandVoice(
+      penetration.byModel,
+      ourBrand,
+      brandAliases,
+      competitors,
+      subjectType,
+    ),
+    [penetration.byModel, ourBrand, brandAliases, competitors, subjectType],
+  )
+  const competition = useMemo(
+    () => computeKeywordCompetition(
+      penetration.byModel,
+      ourBrand,
+      brandAliases,
+      competitors,
+      subjectType,
+    ),
+    [penetration.byModel, ourBrand, brandAliases, competitors, subjectType],
+  )
 
   return (
     <div className="min-w-0">
-      {loading && !voice && !competition ? (
-        <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-          <DashboardPanelLoading title={subjectType === "person" ? "人物声量表" : "品牌声量表"} />
-          <DashboardPanelLoading title="关键词竞争热度" />
-        </div>
-      ) : null}
-
-      {error ? (
-        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-          {error}
-        </div>
-      ) : null}
-
-      {voice || competition ? (
-        <div className="grid min-w-0 gap-4 xl:grid-cols-2 xl:items-start">
-          {voice ? (
-            <section
-              aria-label={subjectType === "person" ? "人物声量表" : "品牌声量表"}
-              className="min-h-[360px] min-w-0 overflow-hidden xl:aspect-square xl:min-h-0"
-            >
-              <BrandShareOfVoice
-                key={`voice-${cacheKey}`}
-                compact
-                items={voice}
-                subjectType={subjectType}
-              />
-            </section>
-          ) : null}
-          {competition ? (
-            <section
-              aria-label="关键词竞争热度"
-              className="min-h-[360px] min-w-0 overflow-hidden xl:aspect-square xl:min-h-0"
-            >
-              <KeywordCompetition
-                key={`competition-${cacheKey}`}
-                compact
-                items={competition}
-                subjectType={subjectType}
-              />
-            </section>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function DashboardPanelLoading({ title }: { title: string }) {
-  return (
-    <div
-      className="geo-panel flex min-h-[360px] min-w-0 items-center justify-center overflow-hidden xl:aspect-square xl:min-h-0"
-      role="status"
-      aria-label={`${title}聚合中`}
-    >
-      <div className="text-center">
-        <span className="mx-auto block h-6 w-6 animate-spin rounded-full border-2 border-[#D6E8FF] border-t-[#1677FF]" />
-        <div className="mt-3 text-sm font-medium text-slate-600">{title}</div>
-        <div className="mt-1 text-xs text-slate-400">正在聚合本次盲测结果</div>
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2 xl:items-start">
+        <section
+          aria-label={subjectType === "person" ? "人物声量表" : "品牌声量表"}
+          className="min-h-[360px] min-w-0 overflow-hidden xl:aspect-square xl:min-h-0"
+        >
+          <BrandShareOfVoice
+            key={`voice-${cacheKey}`}
+            compact
+            items={voice}
+            subjectType={subjectType}
+          />
+        </section>
+        <section
+          aria-label="关键词竞争热度"
+          className="min-h-[360px] min-w-0 overflow-hidden xl:aspect-square xl:min-h-0"
+        >
+          <KeywordCompetition
+            key={`competition-${cacheKey}`}
+            compact
+            items={competition}
+            subjectType={subjectType}
+          />
+        </section>
       </div>
     </div>
   )

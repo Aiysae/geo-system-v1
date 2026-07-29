@@ -1434,7 +1434,7 @@ async function handler(req: NextRequest) {
     for (const m of activeModels) byModel[m] = []
     for (const { model, item } of results) byModel[model]!.push(item)
 
-    // 各模型错误透传（用于前端在对应栏显示红色提示）
+    // 仅透传模型整体失败。部分失败保留在各自 item 上，避免批次摘要污染成功题。
     const modelErrors: Partial<Record<ModelKey, string>> = {}
     const judgeErrors: Partial<Record<ModelKey, string>> = {}
     for (const m of activeModels) {
@@ -1445,8 +1445,6 @@ async function handler(req: NextRequest) {
       const judgeErrs = slots.map(it => it.judgeError).filter((x): x is string => !!x)
       if (errs.length > 0 && errs.length === slots.length) {
         modelErrors[m] = errs[0]
-      } else if (errs.length > 0) {
-        modelErrors[m] = `部分请求失败（${errs.length}/${slots.length}）：${errs[0]}`
       }
       if (judgeErrs.length > 0) judgeErrors[m] = judgeErrs[0]
     }

@@ -68,10 +68,18 @@ const second = await createCredential({
   key: secondSecret,
   priority: 2,
 })
+const qwenWebSecret = "sk-adapter-web-account"
 await createCredential({
   label: "3号联网账号",
-  key: "sk-adapter-web-account",
+  key: qwenWebSecret,
   priority: 3,
+  web: true,
+})
+const qwenWebSecondSecret = "sk-adapter-web-account-second"
+await createCredential({
+  label: "4号联网账号",
+  key: qwenWebSecondSecret,
+  priority: 4,
   web: true,
 })
 
@@ -166,9 +174,9 @@ assert.deepEqual(
   await getAdapterCredentialPoolCapacity("qwen", "penetration", strictArgs),
   {
     vendor: "qwen",
-    candidateCount: 1,
-    maxConcurrency: 1,
-    quotaGroupCount: 1,
+    candidateCount: 2,
+    maxConcurrency: 2,
+    quotaGroupCount: 2,
     usesFallback: false,
   },
 )
@@ -178,6 +186,7 @@ const usedKeys: string[] = []
 let kimiRound = 0
 let deepSeekRound = 0
 let deepSeekFailureMode = false
+let qwenStrictFirstKey = ""
 try {
   globalThis.fetch = async (input, init) => {
     const url = String(input)
@@ -296,6 +305,34 @@ try {
       })
     }
 
+    if (url.includes("dashscope.aliyuncs.com/api/v1/services/aigc")) {
+      if (!qwenStrictFirstKey) qwenStrictFirstKey = key
+      const hasAuditableSources = key !== qwenStrictFirstKey
+      return new Response(JSON.stringify({
+        request_id: `dashscope-${hasAuditableSources ? "recovered" : "empty"}`,
+        output: {
+          choices: [{
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: hasAuditableSources ? "千问切换账号后的联网回答" : "无来源自答",
+            },
+          }],
+          search_info: {
+            search_results: hasAuditableSources ? [{
+              title: "千问联网公开文章",
+              snippet: "用于验证无信源时自动切换另一独立账号。",
+              url: "https://example.com/news/qwen-credential-failover",
+            }] : [],
+          },
+        },
+        usage: { plugins: { search: { count: 1 } } },
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
     assert.equal(body.model, "qwen-plus", "account failover must preserve the selected model")
     if (key === firstSecret) {
       return new Response(JSON.stringify({ error: { message: "invalid key" } }), {
@@ -328,6 +365,28 @@ try {
   assert.deepEqual(usedKeys, [firstSecret, secondSecret])
   assert.equal((await getAiCredentialRuntime(first.id)).healthStatus, "unhealthy")
   assert.equal((await getAiCredentialRuntime(second.id)).healthStatus, "healthy")
+
+  usedKeys.length = 0
+  const qwenStrictEvents: SearchSourceEvent[] = []
+  const qwenStrictResult = await runAdapterCredentialPoolChat("qwen", "penetration", {
+    system: "",
+    user: "今天有哪些公开人工智能新闻？",
+    mode: "consumer",
+    forceWebSearch: true,
+    rawQuestionOnly: true,
+    requireWebEvidence: true,
+    officialWebOnly: true,
+    timeoutSec: 30,
+    onSearchSources: event => qwenStrictEvents.push(event),
+  })
+  assert.equal(qwenStrictResult, "千问切换账号后的联网回答")
+  assert.equal(usedKeys.length, 2)
+  assert.equal(new Set(usedKeys).size, 2)
+  assert.equal(
+    usedKeys.every(key => [qwenWebSecret, qwenWebSecondSecret].includes(key)),
+    true,
+  )
+  assert.equal(qwenStrictEvents.flatMap(event => event.sources).length, 1)
 
   usedKeys.length = 0
   assert.equal(

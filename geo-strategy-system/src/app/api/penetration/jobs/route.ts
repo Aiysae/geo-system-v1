@@ -50,6 +50,18 @@ export async function POST(req: NextRequest) {
       (model): model is ModelKey => model in ADAPTERS,
     )
     const questions = stringList(body.questions)
+    const hasSlotSelection = Array.isArray(body.slotSelection)
+    const parsedSlotSelection = hasSlotSelection
+      ? (body.slotSelection as unknown[]).map(value => {
+          const entry = value && typeof value === "object"
+            ? value as { model?: unknown; questionIndex?: unknown }
+            : {}
+          return {
+            model: String(entry.model || "") as ModelKey,
+            questionIndex: Number(entry.questionIndex),
+          }
+        })
+      : []
     const questionIntents = normalizePenetrationQuestionIntentHints(
       body.questionIntents,
       questions,
@@ -63,6 +75,12 @@ export async function POST(req: NextRequest) {
     const operation: PenetrationJobOperation = body.operation === "append" ? "append" : "replace"
 
     if (!clientId) return NextResponse.json({ error: "客户标识缺失，请刷新页面后重试" }, { status: 400 })
+    if (hasSlotSelection && operation !== "append") {
+      return NextResponse.json(
+        { error: "未完成项重试必须追加到原报告，不能覆盖已有检测结果" },
+        { status: 400 },
+      )
+    }
     if (questions.length === 0) return NextResponse.json({ error: "请至少提供一个疑问句" }, { status: 400 })
     if (questions.length > MAX_PENETRATION_QUESTIONS) {
       return NextResponse.json(
@@ -72,6 +90,20 @@ export async function POST(req: NextRequest) {
     }
     if (requestedModels.length === 0) {
       return NextResponse.json({ error: "请至少选择一个模型" }, { status: 400 })
+    }
+    if (
+      hasSlotSelection
+      && (
+        parsedSlotSelection.length === 0
+        || parsedSlotSelection.some(slot =>
+          !requestedModels.includes(slot.model)
+          || !Number.isInteger(slot.questionIndex)
+          || slot.questionIndex < 0
+          || slot.questionIndex >= questions.length
+        )
+      )
+    ) {
+      return NextResponse.json({ error: "未完成检测项参数无效，请刷新后重试" }, { status: 400 })
     }
 
     const access = await requireOperationAccess({
@@ -114,7 +146,7 @@ export async function POST(req: NextRequest) {
       : String(body.industry || "").trim()
 
     const readiness = await Promise.all(requestedModels.map(getPenetrationModelReadiness))
-    const activeModels = readiness.filter(item => item.ready).map(item => item.model)
+    let activeModels = readiness.filter(item => item.ready).map(item => item.model)
     const skipped = readiness
       .filter(item => !item.ready)
       .map(item => `${ADAPTERS[item.model].label}（${item.reason || "严格联网预检未通过"}）`)
@@ -123,6 +155,25 @@ export async function POST(req: NextRequest) {
         { error: `所选模型均未通过严格联网预检：${skipped.join("、")}`, skipped },
         { status: 400 },
       )
+    }
+    const slotSelection = hasSlotSelection
+      ? Array.from(
+          new Map(
+            parsedSlotSelection
+              .filter(slot => activeModels.includes(slot.model))
+              .map(slot => [`${slot.model}:${slot.questionIndex}`, slot]),
+          ).values(),
+        )
+      : undefined
+    if (hasSlotSelection && slotSelection?.length === 0) {
+      return NextResponse.json(
+        { error: `未完成项所需模型均未通过严格联网预检：${skipped.join("、")}` },
+        { status: 400 },
+      )
+    }
+    if (slotSelection) {
+      const selectedModels = new Set(slotSelection.map(slot => slot.model))
+      activeModels = activeModels.filter(model => selectedModels.has(model))
     }
 
     const acquired = await acquireJobRequest({
@@ -156,11 +207,12 @@ export async function POST(req: NextRequest) {
       competitors,
       selectedModels: requestedModels,
       models: activeModels,
+      slotSelection,
     }
     const baseResult: PenetrationResult | undefined = operation === "append"
       ? currentClient.penetration
       : undefined
-    const slotCount = questions.length * activeModels.length
+    const slotCount = slotSelection?.length || questions.length * activeModels.length
     const credits = estimateFeatureCredits("penetrationSlot", slotCount)
     const creditGuard = await reserveCreditsForUser(access.billingUserId, credits, {
       featureKey: "penetrationSlot",
@@ -172,6 +224,7 @@ export async function POST(req: NextRequest) {
         modelCount: activeModels.length,
         questionCount: questions.length,
         slotCount,
+        selectiveRetry: Boolean(slotSelection),
         subjectType,
         actorUserId: access.actorUserId,
         billingUserId: access.billingUserId,

@@ -1,4 +1,5 @@
 import { isAuditableSourceUrl } from "@/lib/llm/source-extract"
+import { isRetryableAiCredentialAuditFailure } from "@/lib/ai-credential-errors"
 import type { PenetrationItem } from "@/types"
 
 export const PENETRATION_SLOT_RETRY_DELAYS_MS = [
@@ -11,6 +12,11 @@ export const PENETRATION_SLOT_RETRY_DELAYS_MS = [
 ] as const
 
 export const PENETRATION_SLOT_MAX_ATTEMPTS = PENETRATION_SLOT_RETRY_DELAYS_MS.length + 1
+
+export const PENETRATION_AUDIT_RETRY_DELAYS_MS = [
+  5_000,
+  30_000,
+] as const
 
 function auditableSources(item: PenetrationItem) {
   return (item.searchSources || []).filter(source =>
@@ -68,6 +74,21 @@ export function nextPenetrationRetryAt(
   jitterSeed?: string,
 ): string | null {
   const delay = PENETRATION_SLOT_RETRY_DELAYS_MS[attempts - 1]
+  if (delay === undefined) return null
+  const jitter = jitterSeed ? deterministicRetryJitter(delay, jitterSeed) : 0
+  return new Date(fromMs + delay + jitter).toISOString()
+}
+
+export function nextPenetrationRetryAtForError(
+  message: string,
+  attempts: number,
+  fromMs = Date.now(),
+  jitterSeed?: string,
+): string | null {
+  if (!isRetryableAiCredentialAuditFailure(message)) {
+    return nextPenetrationRetryAt(attempts, fromMs, jitterSeed)
+  }
+  const delay = PENETRATION_AUDIT_RETRY_DELAYS_MS[attempts - 1]
   if (delay === undefined) return null
   const jitter = jitterSeed ? deterministicRetryJitter(delay, jitterSeed) : 0
   return new Date(fromMs + delay + jitter).toISOString()

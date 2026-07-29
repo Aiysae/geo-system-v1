@@ -869,6 +869,13 @@ export interface PenetrationModelProgress {
   waiting?: number
 }
 
+export interface PenetrationRetryableSlot {
+  model: ModelKey
+  question: string
+  questionIndex: number
+  error: string
+}
+
 export interface PenetrationJobRecord {
   id: string
   clientId: string
@@ -892,6 +899,7 @@ export interface PenetrationJobRecord {
   waitingSlots?: number
   schedulerVersion?: "v1" | "v2" | "v3"
   modelProgress?: Partial<Record<ModelKey, PenetrationModelProgress>>
+  retryableSlots?: PenetrationRetryableSlot[]
   result?: PenetrationResult
   skipped: string[]
   modelErrors: Partial<Record<ModelKey, string>>
