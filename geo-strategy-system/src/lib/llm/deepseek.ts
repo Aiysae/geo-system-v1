@@ -52,11 +52,18 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     if (!isOfficialDeepSeek(config.baseUrl)) {
       throw new Error("DeepSeek 严格联网必须使用 DeepSeek 官方 API 地址。")
     }
+    const requestedModel = args.runtimeOverride?.model?.trim()
+      || process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim()
+      || config.model
+      || "deepseek-chat"
+    const model = shouldUseToolCompatibleModel(requestedModel, args, config.baseUrl)
+      ? "deepseek-chat"
+      : requestedModel
     return chatWithAuditableExternalSearch({
       args,
       endpoint: buildAiChatUrl(config),
       apiKey: config.apiKey,
-      model: process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-chat",
+      model,
       label: LABEL,
       modelProvider: "deepseek",
       searchApiKey: searchConfig.apiKey,
