@@ -1,13 +1,13 @@
 import type { ModelKey } from "@/types"
 
 export function isPermanentPenetrationProviderError(message: string): boolean {
-  return /AccountOverdueError|overdue balance|insufficient balance|余额不足|欠费|invalid[_ ]api[_ ]key|incorrect api key|unauthorized|HTTP 401|HTTP 403|does not exist or you do not have access|InvalidEndpointOrModel|ModelNotOpen|model_offline|model is offline|model.*not.*available|unsupported.*web[_ ]?search|does not support.*web[_ ]?search|not support.*web[_ ]?search|权限不足|无权访问/i.test(
+  return /AccountOverdueError|overdue balance|insufficient balance|余额不足|欠费|invalid[_ ]api[_ ]key|incorrect api key|unauthorized|HTTP 401|HTTP 403|does not exist or you do not have access|InvalidEndpointOrModel|ModelNotOpen|model_offline|model is offline|model.*not.*available|unsupported.*web[_ ]?search|does not support.*web[_ ]?search|not support.*web[_ ]?search|ToolNotOpen|tool.*not.*open|web search is not activated|has not activated.*web search|联网搜索(?:服务|插件)?.{0,8}(?:未开通|未启用)|未开通.*联网搜索|权限不足|无权访问/i.test(
     message,
   )
 }
 
 export function isTransientPenetrationCapacityError(message: string): boolean {
-  return /账号任务较多|排队等待超时|too many requests|rate.?limit|HTTP 429|并发(?:数|量|上限)|限流|请求过于频繁|服务繁忙|server busy|temporarily unavailable|connection pool|timeout acquiring/i.test(
+  return /账号任务较多|排队等待超时|too many requests|rate.?limit|HTTP 429|并发(?:数|量|上限)|限流|请求过于频繁|服务繁忙|server busy|temporarily unavailable|connection pool|timeout acquiring|暂不可用|等待账号恢复|等待空闲通道/i.test(
     message,
   )
 }
@@ -18,6 +18,9 @@ export function formatPenetrationProviderError(model: ModelKey, message: string)
   }
   if (model === "doubao" && /InvalidEndpointOrModel|does not exist or you do not have access/i.test(message)) {
     return "豆包模型不存在或当前火山方舟账号无权访问，请检查后台豆包模型和 API Key。"
+  }
+  if (model === "doubao" && /ToolNotOpen|tool.*not.*open|web search is not activated|联网搜索(?:服务|插件)?.{0,8}(?:未开通|未启用)|未开通.*联网搜索/i.test(message)) {
+    return "火山方舟账号尚未开通或授权联网搜索服务；该账号已暂停参与检测，请在方舟控制台开通后重新验证。"
   }
   if (model === "ernie" && /HTTP 401|HTTP 403|unauthorized|权限不足|无权访问/i.test(message)) {
     return "百度千帆 API Key 没有百度 AI 搜索或所选文心模型权限，请在千帆控制台补充权限后重试。"

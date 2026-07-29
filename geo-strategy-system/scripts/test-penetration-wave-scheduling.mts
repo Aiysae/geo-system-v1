@@ -29,6 +29,17 @@ const questions = Array.from({ length: 6 }, (_, index) => `并行检测问题 ${
 let activeRequests = 0
 let maxActiveRequests = 0
 let sawMultiModelBatch = false
+const requestWindows: Array<{
+  model: ModelKey
+  sampleStart: number
+  startedAt: number
+  finishedAt?: number
+}> = []
+const judgeWindows: Array<{
+  model: ModelKey
+  startedAt: number
+  finishedAt?: number
+}> = []
 
 function validItem(args: {
   model: ModelKey
@@ -66,12 +77,41 @@ globalThis.fetch = async (_input, init) => {
     models: ModelKey[]
     questions: string[]
     sampleStart: number
+    pipelineStage?: "sample" | "judge"
+    sampledByModel?: Record<ModelKey, PenetrationItem[]>
+  }
+  if (body.pipelineStage === "judge") {
+    const judgeWindow = {
+      model: body.models[0],
+      startedAt: Date.now(),
+      finishedAt: undefined as number | undefined,
+    }
+    judgeWindows.push(judgeWindow)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    judgeWindow.finishedAt = Date.now()
+    return new Response(JSON.stringify({
+      byModel: body.sampledByModel,
+      generatedAt: new Date().toISOString(),
+      modelErrors: {},
+      pipelineStage: "judge",
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
   }
   if (body.models.length > 1) sawMultiModelBatch = true
   activeRequests++
   maxActiveRequests = Math.max(maxActiveRequests, activeRequests)
   const model = body.models[0]
-  await new Promise(resolve => setTimeout(resolve, model === "qwen" ? 50 : 110))
+  const requestWindow = {
+    model,
+    sampleStart: body.sampleStart,
+    startedAt: Date.now(),
+    finishedAt: undefined as number | undefined,
+  }
+  requestWindows.push(requestWindow)
+  await new Promise(resolve => setTimeout(resolve, model === "qwen" ? 40 : 500))
+  requestWindow.finishedAt = Date.now()
   activeRequests--
 
   return new Response(JSON.stringify({
@@ -84,6 +124,7 @@ globalThis.fetch = async (_input, init) => {
     },
     generatedAt: new Date().toISOString(),
     modelErrors: {},
+    pipelineStage: "sample",
   }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
@@ -150,6 +191,7 @@ try {
     await updateAiCredentialHealth(credential.id, {
       status: "healthy",
       verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+      verifiedWebModels: ["qwen-plus"],
       latencyMs: 20 + index,
     })
     await setAiCredentialEnabled(credential.id, true, "admin-test")
@@ -224,6 +266,22 @@ try {
   assert.equal(terminal.result?.byModel.doubao?.length, 6)
   assert.equal(sawMultiModelBatch, false, "slow providers must not block fast providers in one batch")
   assert.ok(maxActiveRequests >= 2, "independent providers must run concurrently")
+  const firstSlowRequest = requestWindows.find(item => item.model === "doubao")
+  const qwenRefill = requestWindows.find(item =>
+    item.model === "qwen" && item.sampleStart >= 4
+  )
+  assert.ok(firstSlowRequest?.finishedAt)
+  assert.ok(qwenRefill)
+  assert.ok(
+    qwenRefill.startedAt < firstSlowRequest.finishedAt,
+    "a released fast lane must accept the next question before a slow lane finishes",
+  )
+  const firstQwenJudge = judgeWindows.find(item => item.model === "qwen")
+  assert.ok(firstQwenJudge?.finishedAt)
+  assert.ok(
+    qwenRefill.startedAt < firstQwenJudge.finishedAt,
+    "web sampling must continue while the independent judge pipeline is running",
+  )
   const terminalWorkspace = await waitForWorkspace(client => !client.penetrationJobId)
   assert.equal(terminalWorkspace.penetration?.byModel.qwen?.length, 6)
   assert.equal(terminalWorkspace.penetration?.byModel.doubao?.length, 6)

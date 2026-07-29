@@ -119,10 +119,11 @@ export async function testCredentialAction(
 
 export async function testCredentialWebAction(
   id: string,
+  model?: string,
 ): Promise<CredentialActionResult> {
   try {
     await assertAdmin()
-    const result = await verifyAiCredentialWeb(id)
+    const result = await verifyAiCredentialWeb(id, { model })
     refreshPaths()
     return { ok: true, id, message: result.message }
   } catch (error) {

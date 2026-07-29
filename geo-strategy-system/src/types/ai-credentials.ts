@@ -53,6 +53,7 @@ export interface AiCredentialPublic {
   allowedModules: AiCredentialModule[]
   declaredCapabilities: AiCredentialCapability[]
   verifiedCapabilities: AiCredentialCapability[]
+  verifiedWebModels: string[]
   healthStatus: AiCredentialHealthStatus
   consecutiveFailures: number
   cooldownUntil?: string

@@ -47,6 +47,44 @@ const HEALTH_STYLES: Record<AiCredentialHealthStatus, string> = {
   unhealthy: "bg-rose-50 text-rose-700",
 }
 
+function strictWebCapacityByModel(items: AiCredentialPublic[]) {
+  const models = new Map<string, AiCredentialPublic[]>()
+  for (const credential of items) {
+    if (!credential.enabled) continue
+    if (!credential.verifiedCapabilities.includes("native_web")) continue
+    if (!credential.verifiedCapabilities.includes("auditable_sources")) continue
+    for (const model of credential.verifiedWebModels) {
+      models.set(model, [...(models.get(model) || []), credential])
+    }
+  }
+
+  return [...models.entries()]
+    .map(([model, credentials]) => {
+      const groups = new Map<string, { accountLanes: number; groupLanes: number }>()
+      for (const credential of credentials) {
+        const group = groups.get(credential.quotaGroup) || {
+          accountLanes: 0,
+          groupLanes: 0,
+        }
+        group.accountLanes += credential.maxConcurrency
+        group.groupLanes = Math.max(
+          group.groupLanes,
+          credential.quotaGroupMaxConcurrency,
+        )
+        groups.set(credential.quotaGroup, group)
+      }
+      return {
+        model,
+        accounts: credentials.length,
+        lanes: [...groups.values()].reduce(
+          (sum, group) => sum + Math.min(group.accountLanes, group.groupLanes),
+          0,
+        ),
+      }
+    })
+    .sort((left, right) => left.model.localeCompare(right.model))
+}
+
 function CredentialForm({
   credential,
   onComplete,
@@ -219,6 +257,9 @@ export function AiCredentialPoolManager({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(credentials.length === 0)
   const [workingId, setWorkingId] = useState<string | null>(null)
+  const [webModelSelections, setWebModelSelections] = useState<Record<string, string>>(
+    {},
+  )
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
   const grouped = useMemo(() => {
     const map = new Map<AiCredentialVendor, AiCredentialPublic[]>()
@@ -296,10 +337,25 @@ export function AiCredentialPoolManager({
           <div className="px-5 py-10 text-center text-sm text-slate-500">尚未添加多账号凭证。</div>
         ) : [...grouped.entries()].map(([vendor, items]) => {
           const preset = AI_CREDENTIAL_PRESET_BY_VENDOR.get(vendor)
+          const strictCapacity = strictWebCapacityByModel(items)
           return (
             <div key={vendor} className="px-5 py-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-xs font-bold text-slate-700">{preset?.label || vendor}</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-700">{preset?.label || vendor}</h3>
+                  {strictCapacity.length > 0 ? (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {strictCapacity.map(item => (
+                        <span
+                          key={item.model}
+                          className="rounded-md border border-cyan-100 bg-cyan-50 px-2 py-1 text-[10px] font-medium text-cyan-800"
+                        >
+                          {item.model} · {item.accounts} 个账号 · 配置 {item.lanes} 路
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <span className="text-[11px] text-slate-400">{items.filter(item => item.enabled).length}/{items.length} 已启用</span>
               </div>
               <div className="grid gap-3 xl:grid-cols-2">
@@ -328,6 +384,11 @@ export function AiCredentialPoolManager({
                               {capability}
                             </span>
                           ))}
+                          {credential.verifiedWebModels.map(model => (
+                            <span key={`web-${model}`} className="rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] text-cyan-700">
+                              严格联网：{model}
+                            </span>
+                          ))}
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -344,15 +405,34 @@ export function AiCredentialPoolManager({
                         </button>
                         {credential.declaredCapabilities.includes("native_web")
                         && credential.declaredCapabilities.includes("auditable_sources") ? (
-                          <button
-                            type="button"
-                            title="检测严格联网与可点击信源"
-                            disabled={workingId === credential.id}
-                            onClick={() => runAction(credential.id, () => testCredentialWebAction(credential.id))}
-                            className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-cyan-600 disabled:opacity-50"
-                          >
-                            <Globe2 className="h-4 w-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <select
+                              title="选择要验证的具体模型"
+                              value={webModelSelections[credential.id] || credential.allowedModels[0] || ""}
+                              disabled={workingId === credential.id}
+                              onChange={event => setWebModelSelections(current => ({
+                                ...current,
+                                [credential.id]: event.target.value,
+                              }))}
+                              className="h-8 max-w-40 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600 outline-none focus:border-cyan-500"
+                            >
+                              {credential.allowedModels.map(model => (
+                                <option key={model} value={model}>{model}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              title="验证所选模型的严格联网与可点击信源"
+                              disabled={workingId === credential.id || credential.allowedModels.length === 0}
+                              onClick={() => runAction(credential.id, () => testCredentialWebAction(
+                                credential.id,
+                                webModelSelections[credential.id] || credential.allowedModels[0],
+                              ))}
+                              className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-cyan-600 disabled:opacity-50"
+                            >
+                              <Globe2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         ) : null}
                         <button
                           type="button"

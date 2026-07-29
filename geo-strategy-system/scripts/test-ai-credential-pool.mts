@@ -57,7 +57,7 @@ const second = await saveAiCredential({
   priority: 1,
   maxConcurrency: 1,
   quotaGroupMaxConcurrency: 1,
-  allowedModels: ["qwen-plus"],
+  allowedModels: ["qwen-plus", "qwen-max"],
   allowedModules: ["article", "question"],
   declaredCapabilities: ["chat", "json", "native_web", "auditable_sources"],
 }, "admin-test")
@@ -88,6 +88,7 @@ await updateAiCredentialHealth(first.id, {
 await updateAiCredentialHealth(second.id, {
   status: "healthy",
   verifiedCapabilities: ["chat", "json", "native_web", "auditable_sources"],
+  verifiedWebModels: ["qwen-plus"],
   latencyMs: 140,
 })
 await setAiCredentialEnabled(first.id, true, "admin-test")
@@ -158,6 +159,18 @@ const strictWebLease = await acquireAiCredential({
 assert.equal(strictWebLease.credential.id, second.id)
 await strictWebLease.release()
 
+const unverifiedStrictCapacity = await getAiCredentialPoolCapacity({
+  vendor: "qwen",
+  module: "penetration",
+  model: "qwen-max",
+  requiredCapabilities: ["native_web", "auditable_sources"],
+})
+assert.deepEqual(unverifiedStrictCapacity, {
+  candidateCount: 0,
+  maxConcurrency: 0,
+  quotaGroupCount: 0,
+})
+
 const runtimeAfterSuccess = await getAiCredentialRuntime(second.id)
 assert.equal(runtimeAfterSuccess.healthStatus, "healthy")
 assert.equal(runtimeAfterSuccess.lastLatencyMs, 88)
@@ -166,6 +179,29 @@ await recordAiCredentialFailure(runtimeAfterSuccess, new Error("HTTP 401 invalid
 const runtimeAfterFailure = await getAiCredentialRuntime(second.id)
 assert.equal(runtimeAfterFailure.healthStatus, "unhealthy")
 assert.ok(runtimeAfterFailure.cooldownUntil)
+
+await saveAiCredential({
+  id: second.id,
+  vendor: "qwen",
+  name: "千问 2 号",
+  accountLabel: "2号账号",
+  quotaGroup: "qwen-account-1",
+  baseUrl: "https://dashscope.aliyuncs.com/compatible-mode",
+  chatPath: "/v1/chat/completions",
+  apiKey: "sk-test-account-two-rotated-secret",
+  enabled: true,
+  priority: 1,
+  maxConcurrency: 1,
+  quotaGroupMaxConcurrency: 1,
+  allowedModels: ["qwen-plus", "qwen-max"],
+  allowedModules: ["article", "question", "penetration"],
+  declaredCapabilities: ["chat", "json", "native_web", "auditable_sources"],
+}, "admin-test")
+const runtimeAfterKeyRotation = await getAiCredentialRuntime(second.id)
+assert.equal(runtimeAfterKeyRotation.healthStatus, "unchecked")
+assert.deepEqual(runtimeAfterKeyRotation.verifiedWebModels, [])
+assert.equal(runtimeAfterKeyRotation.verifiedCapabilities.includes("native_web"), false)
+assert.equal(runtimeAfterKeyRotation.verifiedCapabilities.includes("auditable_sources"), false)
 
 rmSync(tempDir, { recursive: true, force: true })
 console.log("AI multi-account credential storage, encryption, routing and shared quota gates passed")

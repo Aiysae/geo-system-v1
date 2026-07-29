@@ -49,6 +49,7 @@ async function createCredential(args: {
     verifiedCapabilities: args.web
       ? ["chat", "json", "native_web", "auditable_sources"]
       : ["chat", "json"],
+    verifiedWebModels: args.web ? ["qwen-plus"] : [],
     consecutiveFailures: 0,
   })
   await setAiCredentialEnabled(saved.id, true, "adapter-test")
@@ -144,6 +145,7 @@ const baiduSearchCredential = await saveAiCredential({
 await updateAiCredentialHealth(baiduSearchCredential.id, {
   status: "healthy",
   verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+  verifiedWebModels: ["ernie-5.1"],
   consecutiveFailures: 0,
 })
 await setAiCredentialEnabled(baiduSearchCredential.id, true, "adapter-test")

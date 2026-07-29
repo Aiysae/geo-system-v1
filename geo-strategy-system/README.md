@@ -49,13 +49,36 @@ unfinished work after restart. Per-lane concurrency can be tuned with
 `pm2 startOrReload ecosystem.config.cjs --update-env` to run both services.
 Local development defaults to the in-process fallback.
 
-Penetration scheduler V2 isolates model batches, groups logical models by the
-provider that actually serves their strict web request, and schedules against
-the verified independent-account capacity. Results are persisted after each
-settled wave, while account saturation is deferred without consuming a sample
-attempt. The admin metrics page reports BullMQ depth and worker heartbeats.
-Set `PENETRATION_SCHEDULER_V2=false` to use the legacy scheduler during an
-emergency rollback; V2 concurrency settings use the `PENETRATION_V2_*` prefix.
+Penetration scheduler V3 routes strict web sampling only to an account whose
+exact model has passed auditable web verification. It reserves independent API
+account lanes globally, starts each job with a fair six-lane share, and can use
+idle capacity up to the configured elastic limit. Settled sampling batches are
+persisted and immediately refilled; the non-web judge runs in a separate narrow
+pipeline so it cannot hold a web-search account lease. Capacity waits do not
+consume retry attempts, and the task UI reports retries only after a real
+provider attempt failed. Set `PENETRATION_SCHEDULER_V3=false` to fall back to V2.
+
+Verify one exact account/model without touching other keys:
+
+```bash
+npm run ai-credentials:verify -- --all --strict-web --strict-only \
+  --vendor doubao --account "2号账号" --model "your-endpoint-model-id"
+```
+
+Qualify production concurrency in stages. Every request must keep the original
+answer, a provider request id, confirmed web execution, and at least one
+readable source URL; the command fails when the success-rate or p95 threshold is
+missed:
+
+```bash
+PENETRATION_STRESS_MODELS=doubao PENETRATION_STRESS_CONCURRENCY=9 \
+PENETRATION_STRESS_REQUESTS=36 npm run stress:penetration-live
+```
+
+Use 1, 3, 6, and 9 lanes in order. Enable 12 only after the 9-lane run passes
+and each independent provider account has also passed its own staged pressure
+test. Credential leases and the global provider semaphore remain the final
+limits even when the elastic job ceiling is higher.
 
 ## GEO content methodology
 
