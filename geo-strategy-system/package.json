@@ -23,6 +23,7 @@
     "test:ai-gateways": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-gateways.mts",
     "test:ai-credential-pool": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-credential-pool.mts",
     "test:ai-credential-adapter": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-credential-adapter.mts",
+    "test:deepseek-credential-failover": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-deepseek-credential-failover.mts",
     "test:ai-credential-verification": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-credential-verification.mts",
     "test:deepseek-model-routing": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-deepseek-model-routing.mts",
     "test:api-credential-pool-coverage": "tsx scripts/test-api-credential-pool-coverage.mts",

@@ -30,7 +30,6 @@ interface AdapterCredentialRoute {
   selectionModel?: string
   requiredCapabilities: AiCredentialCapability[]
   extra?: Record<string, string | boolean>
-  fixedTargetModel?: boolean
   exactModelRequired?: boolean
 }
 
@@ -65,12 +64,10 @@ async function resolveAdapterCredentialRoute(
   const config = await getAiProviderRuntimeSetting(vendor)
   let targetModel = config.model
   let selectionModel: string | undefined = targetModel
-  let fixedTargetModel = false
 
   if (strictWeb && model === "deepseek") {
     targetModel = process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-chat"
     selectionModel = undefined
-    fixedTargetModel = true
   }
 
   return {
@@ -89,7 +86,6 @@ async function resolveAdapterCredentialRoute(
       : vendor === "doubao"
         ? { botId: "" }
         : undefined,
-    fixedTargetModel,
     exactModelRequired: strictWeb,
   }
 }
@@ -388,13 +384,11 @@ async function runAuditableExternalCredentialPoolChat(
         break
       }
 
-      const selectedModel = route.fixedTargetModel
-        ? route.targetModel
-        : resolveAiCredentialModel(
-            generationLease.credential,
-            generationModel || route.targetModel,
-            route.requiredCapabilities,
-          )
+      const selectedModel = resolveAiCredentialModel(
+        generationLease.credential,
+        generationModel || route.targetModel,
+        route.requiredCapabilities,
+      )
       if (!selectedModel) throw new Error(`${label} 可用账号未配置模型`)
       const startedAt = Date.now()
       try {
@@ -502,13 +496,11 @@ export async function runAdapterCredentialPoolChat(
     excludedCredentialIds.push(lease.credential.id)
     const startedAt = Date.now()
     try {
-      const credentialModel = route.fixedTargetModel
-        ? route.targetModel
-        : resolveAiCredentialModel(
-            lease.credential,
-            selectionModel || route.targetModel,
-            route.requiredCapabilities,
-          )
+      const credentialModel = resolveAiCredentialModel(
+        lease.credential,
+        selectionModel || route.targetModel,
+        route.requiredCapabilities,
+      )
       if (!credentialModel) throw new Error(`${ADAPTERS[model].label} 可用账号未配置模型`)
       const result = await ADAPTERS[model].chat({
         ...args,
