@@ -36,9 +36,14 @@ function satisfiesRequest(
   if (!credential.enabled || !credential.apiKey || isCoolingDown(credential)) return false
   if (request.excludeCredentialIds?.includes(credential.id)) return false
   const verified = new Set(credential.verifiedCapabilities)
-  const verifiedStrictWebOverride = request.module === "penetration"
+  const strictWebRequest = request.module === "penetration"
     && request.requiredCapabilities?.includes("native_web")
     && request.requiredCapabilities?.includes("auditable_sources")
+  const verifiedStrictWebModel = strictWebRequest
+    && (request.model
+      ? credential.verifiedWebModels.includes(request.model)
+      : credential.verifiedWebModels.length > 0)
+  const verifiedStrictWebOverride = verifiedStrictWebModel
     && verified.has("native_web")
     && verified.has("auditable_sources")
   const verifiedExternalSearchGenerationOverride =
@@ -57,6 +62,7 @@ function satisfiesRequest(
     && credential.allowedModels.length > 0
     && !credential.allowedModels.includes(request.model)
   ) return false
+  if (strictWebRequest && !verifiedStrictWebModel) return false
   return (request.requiredCapabilities || []).every(capability => verified.has(capability))
 }
 

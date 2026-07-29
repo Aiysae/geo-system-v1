@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS geo_ai_credentials_v1 (
   allowed_modules JSONB NOT NULL DEFAULT '[]'::jsonb,
   declared_capabilities JSONB NOT NULL DEFAULT '[]'::jsonb,
   verified_capabilities JSONB NOT NULL DEFAULT '[]'::jsonb,
+  verified_web_models JSONB NOT NULL DEFAULT '[]'::jsonb,
   health_status TEXT NOT NULL DEFAULT 'unchecked',
   consecutive_failures INTEGER NOT NULL DEFAULT 0,
   cooldown_until TIMESTAMPTZ,
@@ -89,6 +90,9 @@ CREATE TABLE IF NOT EXISTS geo_ai_credentials_v1 (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_by TEXT NOT NULL
 );
+ALTER TABLE geo_ai_credentials_v1
+  ADD COLUMN IF NOT EXISTS verified_web_models JSONB NOT NULL DEFAULT '[]'::jsonb;
+
 CREATE UNIQUE INDEX IF NOT EXISTS geo_ai_credentials_v1_vendor_key_idx
   ON geo_ai_credentials_v1 (vendor, key_fingerprint)
   WHERE key_fingerprint IS NOT NULL;
@@ -206,6 +210,17 @@ function normalizeStored(value: unknown): StoredAiCredential | null {
   }
   const createdAt = parseDate(row.createdAt ?? row.created_at) || new Date().toISOString()
   const updatedAt = parseDate(row.updatedAt ?? row.updated_at) || createdAt
+  const allowedModels = uniqueStrings(row.allowedModels ?? row.allowed_models, 500)
+  const verifiedCapabilities = normalizeCapabilities(
+    row.verifiedCapabilities ?? row.verified_capabilities,
+  )
+  const rawVerifiedWebModels = row.verifiedWebModels ?? row.verified_web_models
+  const verifiedWebModels = rawVerifiedWebModels === undefined
+    && verifiedCapabilities.includes("native_web")
+    && verifiedCapabilities.includes("auditable_sources")
+    ? allowedModels.slice(0, 1)
+    : uniqueStrings(rawVerifiedWebModels, 500)
+        .filter(model => allowedModels.includes(model))
   return {
     id: String(row.id),
     vendor,
@@ -233,14 +248,13 @@ function normalizeStored(value: unknown): StoredAiCredential | null {
       row.dailyBudgetCents ?? row.daily_budget_cents,
       1_000_000_000,
     ),
-    allowedModels: uniqueStrings(row.allowedModels ?? row.allowed_models, 500),
+    allowedModels,
     allowedModules: normalizeModules(row.allowedModules ?? row.allowed_modules),
     declaredCapabilities: normalizeCapabilities(
       row.declaredCapabilities ?? row.declared_capabilities,
     ),
-    verifiedCapabilities: normalizeCapabilities(
-      row.verifiedCapabilities ?? row.verified_capabilities,
-    ),
+    verifiedCapabilities,
+    verifiedWebModels,
     healthStatus: normalizeHealth(row.healthStatus ?? row.health_status),
     consecutiveFailures: clampInteger(
       row.consecutiveFailures ?? row.consecutive_failures,
@@ -444,14 +458,45 @@ export async function saveAiCredential(
   const now = new Date().toISOString()
   const id = previous?.id || `cred_${randomUUID().replace(/-/g, "").slice(0, 24)}`
   const accountLabel = cleanText(input.accountLabel, 80, "未命名账号")
+  const baseUrl = validateAiBaseUrl(input.baseUrl)
+  const chatPath = cleanAiPath(input.chatPath || "/v1/chat/completions")
+  const allowedModels = uniqueStrings(input.allowedModels ?? previous?.allowedModels, 500)
+  const allowedModules = normalizeModules(input.allowedModules ?? previous?.allowedModules)
+  const declaredCapabilities = normalizeCapabilities(
+    input.declaredCapabilities ?? previous?.declaredCapabilities,
+  )
+  const apiKeyChanged = previous
+    ? input.clearApiKey === true
+      ? Boolean(previous.keyFingerprint)
+      : Boolean(rawKey && keyFingerprint !== previous.keyFingerprint)
+    : true
+  const endpointChanged = Boolean(previous && (
+    previous.vendor !== vendor
+    || previous.baseUrl !== baseUrl
+    || previous.chatPath !== chatPath
+  ))
+  const verificationIdentityChanged = apiKeyChanged || endpointChanged
+  const declaresStrictWeb = declaredCapabilities.includes("native_web")
+    && declaredCapabilities.includes("auditable_sources")
+  const verifiedWebModels = verificationIdentityChanged || !declaresStrictWeb
+    ? []
+    : (previous?.verifiedWebModels || []).filter(model => allowedModels.includes(model))
+  const retainedCapabilities = verificationIdentityChanged
+    ? []
+    : [...(previous?.verifiedCapabilities || [])]
+  const verifiedCapabilities = verifiedWebModels.length > 0
+    ? [...new Set([...retainedCapabilities, "native_web", "auditable_sources"])]
+    : retainedCapabilities.filter(
+        capability => capability !== "native_web" && capability !== "auditable_sources",
+      )
   const stored: StoredAiCredential = {
     id,
     vendor,
     name: cleanText(input.name, 80, `${vendor} · ${accountLabel}`),
     accountLabel,
     quotaGroup: cleanSlug(input.quotaGroup, `${vendor}-${accountLabel}`),
-    baseUrl: validateAiBaseUrl(input.baseUrl),
-    chatPath: cleanAiPath(input.chatPath || "/v1/chat/completions"),
+    baseUrl,
+    chatPath,
     encryptedApiKey,
     keyFingerprint,
     apiKeyPreview: input.clearApiKey
@@ -478,17 +523,16 @@ export async function saveAiCredential(
     tpmLimit: optionalInteger(input.tpmLimit, 100_000_000) ?? previous?.tpmLimit,
     dailyBudgetCents: optionalInteger(input.dailyBudgetCents, 1_000_000_000)
       ?? previous?.dailyBudgetCents,
-    allowedModels: uniqueStrings(input.allowedModels ?? previous?.allowedModels, 500),
-    allowedModules: normalizeModules(input.allowedModules ?? previous?.allowedModules),
-    declaredCapabilities: normalizeCapabilities(
-      input.declaredCapabilities ?? previous?.declaredCapabilities,
-    ),
-    verifiedCapabilities: previous?.verifiedCapabilities || [],
-    healthStatus: previous?.healthStatus || "unchecked",
-    consecutiveFailures: previous?.consecutiveFailures || 0,
-    cooldownUntil: previous?.cooldownUntil,
-    lastCheckedAt: previous?.lastCheckedAt,
-    lastLatencyMs: previous?.lastLatencyMs,
+    allowedModels,
+    allowedModules,
+    declaredCapabilities,
+    verifiedCapabilities: verifiedCapabilities as AiCredentialCapability[],
+    verifiedWebModels,
+    healthStatus: verificationIdentityChanged ? "unchecked" : previous?.healthStatus || "unchecked",
+    consecutiveFailures: verificationIdentityChanged ? 0 : previous?.consecutiveFailures || 0,
+    cooldownUntil: verificationIdentityChanged ? undefined : previous?.cooldownUntil,
+    lastCheckedAt: verificationIdentityChanged ? undefined : previous?.lastCheckedAt,
+    lastLatencyMs: verificationIdentityChanged ? undefined : previous?.lastLatencyMs,
     createdAt: previous?.createdAt || now,
     updatedAt: now,
     updatedBy: cleanText(adminUserId, 160, "system"),
@@ -503,13 +547,13 @@ export async function saveAiCredential(
         encrypted_api_key, key_fingerprint, api_key_preview, enabled, priority,
         weight, max_concurrency, quota_group_max_concurrency, rpm_limit,
         tpm_limit, daily_budget_cents, allowed_models, allowed_modules,
-        declared_capabilities, verified_capabilities, health_status,
+        declared_capabilities, verified_capabilities, verified_web_models, health_status,
         consecutive_failures, cooldown_until, last_checked_at, last_latency_ms,
         created_at, updated_at, updated_by
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
         $15, $16, $17, $18, $19::jsonb, $20::jsonb, $21::jsonb, $22::jsonb,
-        $23, $24, $25, $26, $27, $28, $29, $30
+        $23::jsonb, $24, $25, $26, $27, $28, $29, $30, $31
       )
       ON CONFLICT (id) DO UPDATE SET
         vendor = EXCLUDED.vendor,
@@ -533,6 +577,7 @@ export async function saveAiCredential(
         allowed_modules = EXCLUDED.allowed_modules,
         declared_capabilities = EXCLUDED.declared_capabilities,
         verified_capabilities = EXCLUDED.verified_capabilities,
+        verified_web_models = EXCLUDED.verified_web_models,
         health_status = EXCLUDED.health_status,
         consecutive_failures = EXCLUDED.consecutive_failures,
         cooldown_until = EXCLUDED.cooldown_until,
@@ -563,6 +608,7 @@ export async function saveAiCredential(
         JSON.stringify(stored.allowedModules),
         JSON.stringify(stored.declaredCapabilities),
         JSON.stringify(stored.verifiedCapabilities),
+        JSON.stringify(stored.verifiedWebModels),
         stored.healthStatus,
         stored.consecutiveFailures,
         stored.cooldownUntil || null,
@@ -587,6 +633,7 @@ export async function updateAiCredentialHealth(
   input: {
     status: AiCredentialHealthStatus
     verifiedCapabilities?: AiCredentialCapability[]
+    verifiedWebModels?: string[]
     latencyMs?: number
     consecutiveFailures?: number
     cooldownUntil?: string
@@ -595,12 +642,25 @@ export async function updateAiCredentialHealth(
   const current = await listStored()
   const previous = current.find(item => item.id === id)
   if (!previous) throw new Error("模型账号不存在或已经移除")
+  const verifiedWebModels = input.verifiedWebModels === undefined
+    ? previous.verifiedWebModels
+    : uniqueStrings(input.verifiedWebModels, 500)
+        .filter(model => previous.allowedModels.includes(model))
+  const inputCapabilities = input.verifiedCapabilities === undefined
+    ? previous.verifiedCapabilities
+    : normalizeCapabilities(input.verifiedCapabilities)
+  const verifiedCapabilities = input.verifiedWebModels === undefined
+    ? inputCapabilities
+    : verifiedWebModels.length > 0
+      ? [...new Set([...inputCapabilities, "native_web", "auditable_sources"])]
+      : inputCapabilities.filter(
+          capability => capability !== "native_web" && capability !== "auditable_sources",
+        )
   const next: StoredAiCredential = {
     ...previous,
     healthStatus: normalizeHealth(input.status),
-    verifiedCapabilities: input.verifiedCapabilities === undefined
-      ? previous.verifiedCapabilities
-      : normalizeCapabilities(input.verifiedCapabilities),
+    verifiedCapabilities: verifiedCapabilities as AiCredentialCapability[],
+    verifiedWebModels,
     lastCheckedAt: new Date().toISOString(),
     lastLatencyMs: optionalInteger(input.latencyMs, 24 * 60 * 60 * 1000),
     consecutiveFailures: clampInteger(
@@ -619,16 +679,18 @@ export async function updateAiCredentialHealth(
       `UPDATE geo_ai_credentials_v1
        SET health_status = $2,
            verified_capabilities = $3::jsonb,
-           last_checked_at = $4,
-           last_latency_ms = $5,
-           consecutive_failures = $6,
-           cooldown_until = $7,
-           updated_at = $8
+           verified_web_models = $4::jsonb,
+           last_checked_at = $5,
+           last_latency_ms = $6,
+           consecutive_failures = $7,
+           cooldown_until = $8,
+           updated_at = $9
        WHERE id = $1`,
       [
         next.id,
         next.healthStatus,
         JSON.stringify(next.verifiedCapabilities),
+        JSON.stringify(next.verifiedWebModels),
         next.lastCheckedAt,
         next.lastLatencyMs || null,
         next.consecutiveFailures,

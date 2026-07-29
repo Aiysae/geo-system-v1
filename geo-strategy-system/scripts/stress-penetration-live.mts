@@ -1,13 +1,38 @@
-import type { ModelKey, PenetrationByModel } from "../src/types"
+import type { ModelKey, PenetrationByModel, PenetrationItem } from "../src/types"
 
 const { createInternalApiHeaders } = await import("../src/lib/internal-api")
-const {
-  getPenetrationSlotValidationError,
-  isCompletePenetrationItem,
-} = await import("../src/lib/penetration/slot-policy")
+const { getPenetrationSlotValidationError } = await import(
+  "../src/lib/penetration/slot-policy"
+)
 
-const baseUrl = (process.env.PENETRATION_STRESS_BASE_URL || "http://127.0.0.1:3101").replace(/\/$/, "")
-const models = (process.env.PENETRATION_STRESS_MODELS || "doubao,deepseek,qwen,ernie,hunyuan")
+function boundedInteger(name: string, fallback: number, max: number): number {
+  const value = Math.floor(Number(process.env[name]) || fallback)
+  return Math.max(1, Math.min(max, value))
+}
+
+function boundedRatio(name: string, fallback: number): number {
+  const value = Number(process.env[name])
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback
+}
+
+function percentile(values: number[], ratio: number): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)]
+}
+
+function safeError(value: unknown): string {
+  return String(value || "unknown error")
+    .replace(/bce-v3\/[A-Za-z0-9_\-/]+/g, "bce-v3/***")
+    .replace(/Bearer\s+[A-Za-z0-9._\-/]{16,}/gi, "Bearer ***")
+    .replace(/sk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
+    .replace(/\s+/g, " ")
+    .slice(0, 240)
+}
+
+const baseUrl = (process.env.PENETRATION_STRESS_BASE_URL || "http://127.0.0.1:3101")
+  .replace(/\/$/, "")
+const models = (process.env.PENETRATION_STRESS_MODELS || "doubao")
   .split(",")
   .map(value => value.trim())
   .filter(Boolean) as ModelKey[]
@@ -28,105 +53,166 @@ const requestedQuestionIndex = Number(process.env.PENETRATION_STRESS_QUESTION_IN
 const questions = requestedQuestionIndex > 0
   ? allQuestions.slice(requestedQuestionIndex - 1, requestedQuestionIndex)
   : allQuestions
+const concurrency = boundedInteger("PENETRATION_STRESS_CONCURRENCY", 3, 12)
+const requestCount = boundedInteger(
+  "PENETRATION_STRESS_REQUESTS",
+  Math.max(concurrency * 2, questions.length),
+  240,
+)
+const maxAttempts = boundedInteger("PENETRATION_STRESS_ATTEMPTS", 1, 3)
+const minSuccessRate = boundedRatio("PENETRATION_STRESS_MIN_SUCCESS_RATE", 0.95)
+const maxP95Ms = Math.max(0, Number(process.env.PENETRATION_STRESS_MAX_P95_MS) || 120_000)
 
-type ModelStats = { succeeded: number; attempts: number; sources: number }
-const stats = Object.fromEntries(models.map(model => [model, {
-  succeeded: 0,
-  attempts: 0,
-  sources: 0,
-}])) as Record<ModelKey, ModelStats>
-const failures: Array<{ questionIndex: number; model: ModelKey; error: string }> = []
+if (models.length === 0) throw new Error("PENETRATION_STRESS_MODELS 至少需要一个模型")
+if (questions.length === 0) throw new Error("PENETRATION_STRESS_QUESTION_INDEX 超出题库范围")
 
-function safeError(value: unknown): string {
-  return String(value || "unknown error")
-    .replace(/bce-v3\/[A-Za-z0-9_\-/]+/g, "bce-v3/***")
-    .replace(/Bearer\s+[A-Za-z0-9._\-/]{16,}/gi, "Bearer ***")
-    .replace(/sk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
-    .replace(/\s+/g, " ")
-    .slice(0, 240)
+interface StressResult {
+  index: number
+  model: ModelKey
+  success: boolean
+  attempts: number
+  durationMs: number
+  sources: number
+  error?: string
 }
 
-for (let questionIndex = 0; questionIndex < questions.length; questionIndex++) {
-  const question = questions[questionIndex]
-  let pending = [...models]
-  const completed = new Set<ModelKey>()
+async function runCase(index: number): Promise<StressResult> {
+  const model = models[index % models.length]
+  const question = questions[index % questions.length]
+  const startedAt = Date.now()
+  let lastError = ""
 
-  for (let attempt = 1; attempt <= 3 && pending.length > 0; attempt++) {
-    for (const model of pending) stats[model].attempts++
-    const response = await fetch(`${baseUrl}/api/penetration`, {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        ...createInternalApiHeaders("penetration-job"),
-      },
-      body: JSON.stringify({
-        runId: "penetration_stress_20260716",
-        sampleStart: questionIndex,
-        ourBrand: "势途 GEO",
-        brandAliases: ["势途"],
-        industry: "GEO 服务",
-        questions: [question],
-        competitors: [],
-        models: pending,
-      }),
-    })
-    const text = await response.text()
-    let data: {
-      error?: string
-      byModel?: PenetrationByModel
-      modelErrors?: Partial<Record<ModelKey, string>>
-    } = {}
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      data = JSON.parse(text) as typeof data
-    } catch {
-      data = { error: `non-JSON response HTTP ${response.status}` }
-    }
-    if (!response.ok || !data.byModel) {
-      if (attempt === 3) {
-        for (const model of pending) {
-          failures.push({ questionIndex: questionIndex + 1, model, error: safeError(data.error) })
-        }
-      } else {
-        await new Promise(resolve => setTimeout(resolve, attempt === 1 ? 2_000 : 5_000))
+      const response = await fetch(`${baseUrl}/api/penetration`, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          ...createInternalApiHeaders("penetration-job"),
+        },
+        body: JSON.stringify({
+          runId: `penetration_stress_${Date.now()}_${index}_${attempt}`,
+          sampleStart: index,
+          pipelineStage: "sample",
+          ourBrand: "势途 GEO",
+          brandAliases: ["势途"],
+          industry: "GEO 服务",
+          questions: [question],
+          competitors: [],
+          models: [model],
+        }),
+      })
+      const text = await response.text()
+      let data: {
+        error?: string
+        byModel?: PenetrationByModel
+        modelErrors?: Partial<Record<ModelKey, string>>
+      } = {}
+      try {
+        data = JSON.parse(text) as typeof data
+      } catch {
+        data = { error: `non-JSON response HTTP ${response.status}` }
       }
-      continue
-    }
-
-    const retry: ModelKey[] = []
-    for (const model of pending) {
-      const item = data.byModel[model]?.[0]
-      if (isCompletePenetrationItem(item)) {
-        completed.add(model)
-        stats[model].succeeded++
-        stats[model].sources += item.searchSources?.length || 0
-      } else if (attempt === 3) {
-        failures.push({
-          questionIndex: questionIndex + 1,
+      const item = data.byModel?.[model]?.[0] as PenetrationItem | undefined
+      const validationError = getPenetrationSlotValidationError(item)
+      if (response.ok && item && !validationError) {
+        return {
+          index,
           model,
-          error: safeError(
-            data.modelErrors?.[model]
-            || getPenetrationSlotValidationError(item)
-            || "strict evidence incomplete",
-          ),
-        })
-      } else {
-        retry.push(model)
+          success: true,
+          attempts: attempt,
+          durationMs: Date.now() - startedAt,
+          sources: item.searchSources?.length || 0,
+        }
       }
+      lastError = safeError(
+        data.modelErrors?.[model]
+        || validationError
+        || data.error
+        || `HTTP ${response.status}`,
+      )
+    } catch (error) {
+      lastError = safeError(error instanceof Error ? error.message : error)
     }
-    pending = retry
-    console.log(
-      `[stress] question=${questionIndex + 1}/${questions.length} attempt=${attempt} complete=${completed.size}/${models.length} retry=${pending.join(",") || "none"}`,
-    )
-    if (pending.length > 0) {
-      await new Promise(resolve => setTimeout(resolve, attempt === 1 ? 2_000 : 5_000))
+    if (attempt < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, attempt * 1_000))
     }
+  }
+
+  return {
+    index,
+    model,
+    success: false,
+    attempts: maxAttempts,
+    durationMs: Date.now() - startedAt,
+    sources: 0,
+    error: lastError || "strict evidence incomplete",
   }
 }
 
-console.table(Object.entries(stats).map(([model, value]) => ({ model, ...value })))
-console.log(`[stress] complete=${Object.values(stats).reduce((sum, value) => sum + value.succeeded, 0)}/${questions.length * models.length}`)
+console.log(
+  `[stress] start requests=${requestCount} concurrency=${concurrency} models=${models.join(",")} attempts=${maxAttempts}`,
+)
+const startedAt = Date.now()
+const results: StressResult[] = []
+let cursor = 0
+
+async function worker(): Promise<void> {
+  while (true) {
+    const index = cursor++
+    if (index >= requestCount) return
+    const result = await runCase(index)
+    results.push(result)
+    console.log(
+      `[stress] ${result.success ? "ok" : "fail"} request=${index + 1}/${requestCount} model=${result.model} duration=${result.durationMs}ms sources=${result.sources}${result.error ? ` error=${result.error}` : ""}`,
+    )
+  }
+}
+
+await Promise.all(Array.from(
+  { length: Math.min(concurrency, requestCount) },
+  () => worker(),
+))
+
+const elapsedMs = Date.now() - startedAt
+const succeeded = results.filter(result => result.success)
+const failures = results.filter(result => !result.success)
+const durations = results.map(result => result.durationMs)
+const successRate = succeeded.length / requestCount
+const summary = {
+  requestCount,
+  concurrency,
+  succeeded: succeeded.length,
+  failed: failures.length,
+  successRate: Number(successRate.toFixed(4)),
+  elapsedMs,
+  throughputPerMinute: Number((succeeded.length / Math.max(1, elapsedMs) * 60_000).toFixed(2)),
+  latencyMs: {
+    p50: percentile(durations, 0.5),
+    p95: percentile(durations, 0.95),
+    p99: percentile(durations, 0.99),
+    max: Math.max(...durations),
+  },
+  averageSources: Number((
+    succeeded.reduce((sum, result) => sum + result.sources, 0)
+    / Math.max(1, succeeded.length)
+  ).toFixed(2)),
+}
+console.log(JSON.stringify(summary, null, 2))
 if (failures.length > 0) {
-  console.table(failures)
+  console.table(failures.slice(0, 20).map(result => ({
+    request: result.index + 1,
+    model: result.model,
+    durationMs: result.durationMs,
+    error: result.error,
+  })))
+}
+if (successRate < minSuccessRate) {
+  console.error(`[stress] success rate ${successRate.toFixed(2)} below ${minSuccessRate.toFixed(2)}`)
+  process.exitCode = 1
+}
+if (maxP95Ms > 0 && summary.latencyMs.p95 > maxP95Ms) {
+  console.error(`[stress] p95 ${summary.latencyMs.p95}ms exceeds ${maxP95Ms}ms`)
   process.exitCode = 1
 }

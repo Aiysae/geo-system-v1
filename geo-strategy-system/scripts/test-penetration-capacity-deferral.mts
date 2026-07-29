@@ -18,6 +18,27 @@ process.env.PENETRATION_JOB_WAVE_BATCH_LIMIT = "1"
 process.env.PENETRATION_JOB_WAVE_SLOT_LIMIT = "1"
 process.env.PORT = "3000"
 
+const {
+  formatPenetrationProviderError,
+  isPermanentPenetrationProviderError,
+  isTransientPenetrationCapacityError,
+} = await import("../src/lib/penetration/provider-errors")
+
+assert.equal(isPermanentPenetrationProviderError(
+  "HTTP 403 [ToolNotOpen]: web search is not activated",
+), true)
+assert.equal(isPermanentPenetrationProviderError(
+  "火山方舟联网搜索插件未开通",
+), true)
+assert.equal(isPermanentPenetrationProviderError("HTTP 429 too many requests"), false)
+assert.equal(isTransientPenetrationCapacityError(
+  "当前严格联网账号暂不可用，请等待账号恢复",
+), true)
+assert.match(formatPenetrationProviderError(
+  "doubao",
+  "HTTP 403 [ToolNotOpen]: web search is not activated",
+), /联网搜索/)
+
 const originalFetch = globalThis.fetch
 const runId = "penetration_capacity_test_123456"
 const question = "账号繁忙后是否会继续独立联网检测？"
@@ -128,8 +149,10 @@ try {
     skipped: [],
   })
 
-  const deferred = await waitFor(job => job.phase === "retrying")
+  const deferred = await waitFor(job => (job.waitingSlots || 0) === 1)
   assert.equal(deferred.status, "running")
+  assert.equal(deferred.phase, "preflight")
+  assert.equal(deferred.retryingSlots, 0)
   assert.equal(deferred.totalAttempts, 0, "capacity deferral must not consume a sample attempt")
 
   const terminal = await waitFor(job => job.status === "succeeded")

@@ -3,10 +3,40 @@ import type {
   AiCredentialVendor,
 } from "../src/types/ai-credentials"
 
+function readArg(name: string): string {
+  const inline = process.argv.find(value => value.startsWith(`${name}=`))
+  if (inline) return inline.slice(name.length + 1).trim()
+  const index = process.argv.indexOf(name)
+  if (index < 0) return ""
+  const value = process.argv[index + 1] || ""
+  return value.startsWith("--") ? "" : value.trim()
+}
+
+const supportedVendors = new Set<AiCredentialVendor>([
+  "doubao",
+  "qwen",
+  "hunyuan",
+  "deepseek",
+  "kimi",
+  "ernie",
+  "minimax",
+  "zhipu",
+])
 const enablePassed = process.argv.includes("--enable-passed")
 const verifyStrictWeb = process.argv.includes("--strict-web")
 const includeEnabled = process.argv.includes("--all")
 const verifyAllModels = process.argv.includes("--all-models")
+const strictOnly = process.argv.includes("--strict-only")
+const vendorValue = readArg("--vendor")
+const accountFilter = readArg("--account").toLocaleLowerCase()
+const modelFilter = readArg("--model")
+if (vendorValue && !supportedVendors.has(vendorValue as AiCredentialVendor)) {
+  throw new Error(`不支持的供应商筛选：${vendorValue}`)
+}
+if (strictOnly && !verifyStrictWeb) {
+  throw new Error("--strict-only 必须与 --strict-web 一起使用")
+}
+const vendorFilter = vendorValue as AiCredentialVendor | ""
 
 const {
   closeAiCredentialStoreConnection,
@@ -59,7 +89,21 @@ function safeError(error: unknown): string {
 
 const credentials = (await listAiCredentialsPublic())
   .filter(credential => includeEnabled || !credential.enabled)
+  .filter(credential => !vendorFilter || credential.vendor === vendorFilter)
+  .filter(credential => {
+    if (!accountFilter) return true
+    return [
+      credential.id,
+      credential.name,
+      credential.accountLabel,
+      credential.quotaGroup,
+    ].some(value => value.toLocaleLowerCase().includes(accountFilter))
+  })
+  .filter(credential => !modelFilter || credential.allowedModels.includes(modelFilter))
 const rows: VerificationRow[] = []
+if (credentials.length === 0) {
+  throw new Error("没有找到符合筛选条件的模型账号，未执行任何验证")
+}
 
 for (const credential of credentials) {
   const row: VerificationRow = {
@@ -70,12 +114,14 @@ for (const credential of credentials) {
     enabled: credential.enabled,
   }
   try {
-    const basic = await verifyAiCredentialChat(credential.id, {
+    const basic = strictOnly ? null : await verifyAiCredentialChat(credential.id, {
       allModels: verifyAllModels,
     })
-    row.basic = "passed"
-    row.models = { basic: basic.models }
-    if (enablePassed && !credential.enabled) {
+    if (basic) {
+      row.basic = "passed"
+      row.models = { basic: basic.models }
+    }
+    if (enablePassed && !credential.enabled && !verifyStrictWeb) {
       await setAiCredentialEnabled(credential.id, true, "credential-verification-script")
       row.enabled = true
     }
@@ -83,12 +129,17 @@ for (const credential of credentials) {
     if (verifyStrictWeb && supportsStrictWeb(credential)) {
       try {
         const strictWeb = await verifyAiCredentialWeb(credential.id, {
-          allModels: verifyAllModels,
+          allModels: modelFilter ? false : verifyAllModels,
+          model: modelFilter || undefined,
         })
         row.strictWeb = "passed"
         row.models = {
           ...row.models,
           strictWeb: strictWeb.models,
+        }
+        if (enablePassed && !credential.enabled) {
+          await setAiCredentialEnabled(credential.id, true, "credential-verification-script")
+          row.enabled = true
         }
       } catch (error) {
         row.strictWeb = "failed"
@@ -132,6 +183,12 @@ console.log(JSON.stringify({
   enablePassed,
   verifyStrictWeb,
   verifyAllModels,
+  strictOnly,
+  filters: {
+    vendor: vendorFilter || undefined,
+    account: accountFilter || undefined,
+    model: modelFilter || undefined,
+  },
   providers: summary,
 }, null, 2))
 

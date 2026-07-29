@@ -10,6 +10,7 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "geo-penetration-sampling-
 process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = path.join(tempDir, "kv.json")
 process.env.ARK_API_KEY = "test-ark-key"
+process.env.AI_CONFIG_ENCRYPTION_KEY = "test-independent-sampling-encryption-key"
 process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 
 const { ADAPTERS } = await import("../src/lib/llm")
@@ -17,6 +18,33 @@ const { buildPenetrationRequestAudit } = await import("../src/lib/llm/blind-requ
 const { createInternalApiHeaders } = await import("../src/lib/internal-api")
 const { POST } = await import("../src/app/api/penetration/route")
 const { buildPenetrationBatchResult } = await import("../src/lib/penetration/result-merge")
+const {
+  saveAiCredential,
+  setAiCredentialEnabled,
+  updateAiCredentialHealth,
+} = await import("../src/lib/ai-credential-store")
+
+const strictCredential = await saveAiCredential({
+  vendor: "doubao",
+  name: "豆包独立采样账号",
+  accountLabel: "独立采样账号",
+  quotaGroup: "doubao-independent-sampling",
+  baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+  chatPath: "/responses",
+  apiKey: "test-ark-key",
+  enabled: false,
+  maxConcurrency: 2,
+  quotaGroupMaxConcurrency: 2,
+  allowedModels: ["doubao-seed-2-0-lite-260215"],
+  allowedModules: ["penetration"],
+  declaredCapabilities: ["chat", "native_web", "auditable_sources"],
+}, "sampling-test")
+await updateAiCredentialHealth(strictCredential.id, {
+  status: "healthy",
+  verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+  verifiedWebModels: ["doubao-seed-2-0-lite-260215"],
+})
+await setAiCredentialEnabled(strictCredential.id, true, "sampling-test")
 
 const originalAdapters = { ...ADAPTERS }
 const consumerCalls: ChatArgs[] = []
@@ -102,6 +130,7 @@ async function runDetection(runId: string, questions: string[]): Promise<Penetra
 }
 
 try {
+  const testStartedAt = Date.now()
   const question = "同一个问题是否会重新联网回答？"
   const first = await runDetection("penetration_first_run_123456", [question, question])
   const firstItems = first.byModel.doubao || []
@@ -155,6 +184,10 @@ try {
     "第 3 次独立原始回答",
   ])
   assert.equal(appended.aggregated.totalSlots, 3, "追加样本必须参与统计")
+  assert.ok(
+    Date.now() - testStartedAt < 5_000,
+    "an empty credential pool must fall back immediately instead of waiting for a lease timeout",
+  )
 
   console.log("Penetration independent sampling contract passed.")
 } finally {

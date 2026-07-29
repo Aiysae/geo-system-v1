@@ -31,6 +31,7 @@ interface AdapterCredentialRoute {
   requiredCapabilities: AiCredentialCapability[]
   extra?: Record<string, string | boolean>
   fixedTargetModel?: boolean
+  exactModelRequired?: boolean
 }
 
 function isStrictWebCall(module: AiCredentialModule, args: Partial<ChatArgs>): boolean {
@@ -89,6 +90,7 @@ async function resolveAdapterCredentialRoute(
         ? { botId: "" }
         : undefined,
     fixedTargetModel,
+    exactModelRequired: strictWeb,
   }
 }
 
@@ -124,6 +126,7 @@ async function hasRouteCandidate(
   module: AiCredentialModule,
 ): Promise<boolean> {
   if (await hasAiCredentialCandidate(selectionRequest(route, module))) return true
+  if (route.exactModelRequired) return false
   return route.selectionModel
     ? hasAiCredentialCandidate(selectionRequest(route, module, undefined, null))
     : false
@@ -134,6 +137,7 @@ async function routePoolCapacity(
   module: AiCredentialModule,
 ) {
   let capacity = await getAiCredentialPoolCapacity(selectionRequest(route, module))
+  if (route.exactModelRequired) return capacity
   if (capacity.candidateCount === 0 && route.selectionModel) {
     capacity = await getAiCredentialPoolCapacity(
       selectionRequest(route, module, undefined, null),
@@ -147,6 +151,7 @@ async function routePoolSnapshot(
   module: AiCredentialModule,
 ) {
   let snapshot = await getAiCredentialPoolSnapshot(selectionRequest(route, module))
+  if (route.exactModelRequired) return snapshot
   if (snapshot.candidateCount === 0 && route.selectionModel) {
     snapshot = await getAiCredentialPoolSnapshot(
       selectionRequest(route, module, undefined, null),
@@ -196,23 +201,13 @@ export async function getAdapterCredentialPoolCapacity(
       routePoolCapacity(route, module),
       getAiCredentialPoolCapacity(externalSearchSelectionRequest(module)),
     ])
-    const [generationFallback, searchFallback] = await Promise.all([
-      generationPool.candidateCount === 0 ? ADAPTERS[model].configured() : false,
-      searchPool.candidateCount === 0 ? ADAPTERS.ernie.configured() : false,
-    ])
-    const generationCount = generationPool.candidateCount || (generationFallback ? 1 : 0)
-    const searchCount = searchPool.candidateCount || (searchFallback ? 1 : 0)
-    const generationConcurrency = generationPool.maxConcurrency || (generationFallback ? 1 : 0)
-    const searchConcurrency = searchPool.maxConcurrency || (searchFallback ? 1 : 0)
-    const generationGroups = generationPool.quotaGroupCount || (generationFallback ? 1 : 0)
-    const searchGroups = searchPool.quotaGroupCount || (searchFallback ? 1 : 0)
     return {
       // The auditable search pool is the shared bottleneck with Ernie jobs.
       vendor: "ernie",
-      candidateCount: Math.min(generationCount, searchCount),
-      maxConcurrency: Math.min(generationConcurrency, searchConcurrency),
-      quotaGroupCount: Math.min(generationGroups, searchGroups),
-      usesFallback: generationFallback || searchFallback,
+      candidateCount: Math.min(generationPool.candidateCount, searchPool.candidateCount),
+      maxConcurrency: Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency),
+      quotaGroupCount: Math.min(generationPool.quotaGroupCount, searchPool.quotaGroupCount),
+      usesFallback: false,
     }
   }
 
@@ -225,6 +220,15 @@ export async function getAdapterCredentialPoolCapacity(
     }
   }
   const fallbackConfigured = await ADAPTERS[route.vendor].configured()
+  if (route.exactModelRequired) {
+    return {
+      vendor: route.vendor,
+      candidateCount: 0,
+      maxConcurrency: 0,
+      quotaGroupCount: 0,
+      usesFallback: false,
+    }
+  }
   return {
     vendor: route.vendor,
     candidateCount: fallbackConfigured ? 1 : 0,
@@ -245,33 +249,19 @@ export async function getAdapterCredentialPoolSnapshot(
       routePoolSnapshot(route, module),
       getAiCredentialPoolSnapshot(externalSearchSelectionRequest(module)),
     ])
-    const [generationFallback, searchFallback] = await Promise.all([
-      generationPool.candidateCount === 0 ? ADAPTERS[model].configured() : false,
-      searchPool.candidateCount === 0 ? ADAPTERS.ernie.configured() : false,
-    ])
-    const generationCount = generationPool.candidateCount || (generationFallback ? 1 : 0)
-    const searchCount = searchPool.candidateCount || (searchFallback ? 1 : 0)
-    const generationConcurrency =
-      generationPool.maxConcurrency || (generationFallback ? 1 : 0)
-    const searchConcurrency =
-      searchPool.maxConcurrency || (searchFallback ? 1 : 0)
-    const generationAvailable =
-      generationPool.availableConcurrency || (generationFallback ? 1 : 0)
-    const searchAvailable =
-      searchPool.availableConcurrency || (searchFallback ? 1 : 0)
-    const maxConcurrency = Math.min(generationConcurrency, searchConcurrency)
-    const availableConcurrency = Math.min(generationAvailable, searchAvailable)
+    const maxConcurrency = Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency)
+    const availableConcurrency = Math.min(
+      generationPool.availableConcurrency,
+      searchPool.availableConcurrency,
+    )
     return {
       vendor: "ernie",
-      candidateCount: Math.min(generationCount, searchCount),
+      candidateCount: Math.min(generationPool.candidateCount, searchPool.candidateCount),
       maxConcurrency,
-      quotaGroupCount: Math.min(
-        generationPool.quotaGroupCount || (generationFallback ? 1 : 0),
-        searchPool.quotaGroupCount || (searchFallback ? 1 : 0),
-      ),
+      quotaGroupCount: Math.min(generationPool.quotaGroupCount, searchPool.quotaGroupCount),
       activeConcurrency: Math.max(0, maxConcurrency - availableConcurrency),
       availableConcurrency,
-      usesFallback: generationFallback || searchFallback,
+      usesFallback: false,
     }
   }
 
@@ -280,6 +270,17 @@ export async function getAdapterCredentialPoolSnapshot(
     return {
       vendor: route.vendor,
       ...snapshot,
+      usesFallback: false,
+    }
+  }
+  if (route.exactModelRequired) {
+    return {
+      vendor: route.vendor,
+      candidateCount: 0,
+      maxConcurrency: 0,
+      quotaGroupCount: 0,
+      activeConcurrency: 0,
+      availableConcurrency: 0,
       usesFallback: false,
     }
   }
@@ -301,14 +302,8 @@ export async function isAdapterCredentialConfigured(
   args: Partial<ChatArgs> = {},
 ): Promise<boolean> {
   if (await hasAdapterCredentialPoolCandidate(model, module, args)) return true
-  if (usesAuditableExternalSearch(model, module, args)) {
-    const [generationConfigured, searchConfigured] = await Promise.all([
-      ADAPTERS[model].configured(),
-      ADAPTERS.ernie.configured(),
-    ])
-    return generationConfigured && searchConfigured
-  }
   const route = await resolveAdapterCredentialRoute(model, module, args)
+  if (route.exactModelRequired) return false
   return ADAPTERS[route.vendor].configured()
 }
 
@@ -329,7 +324,7 @@ async function runAuditableExternalCredentialPoolChat(
     hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
   ])
   if (!hasGenerationPool || !hasSearchPool) {
-    return ADAPTERS[model].chat(args)
+    throw new Error(`${label} 严格联网账号池未配置完整或当前模型尚未通过验证`)
   }
 
   const excludedGenerationIds: string[] = []
@@ -462,12 +457,19 @@ export async function runAdapterCredentialPoolChat(
     return runAuditableExternalCredentialPoolChat(model, module, args)
   }
   const route = await resolveAdapterCredentialRoute(model, module, args)
+  const hasPoolCandidate = await hasRouteCandidate(route, module)
+  if (!hasPoolCandidate && !route.exactModelRequired) {
+    return ADAPTERS[model].chat(args)
+  }
   const excludedCredentialIds: string[] = []
   const exactRequest = selectionRequest(route, module)
   const selectionModel = route.selectionModel
     && await hasAiCredentialCandidate(exactRequest)
     ? route.selectionModel
     : undefined
+  if (route.exactModelRequired && !selectionModel) {
+    throw new Error(`${ADAPTERS[model].label} 当前模型尚未通过严格联网验证`)
+  }
   let lastError: unknown
   const quotaEstimate = estimateAiCredentialQuota(args)
   const maxCredentialAttempts = Math.max(
@@ -486,6 +488,9 @@ export async function runAdapterCredentialPoolChat(
       ...quotaEstimate,
     })
     if (!lease) {
+      if (route.exactModelRequired) {
+        throw new Error(`${ADAPTERS[model].label} 当前独立账号并发已满，请等待空闲通道`)
+      }
       if (attempt === 0) return ADAPTERS[model].chat(args)
       break
     }

@@ -1079,12 +1079,110 @@ async function modelConcurrency(model: ModelKey): Promise<number> {
   return Math.max(1, Math.min(12, limit || 1))
 }
 
+async function judgeSampledBatch(args: {
+  sampledByModel: unknown
+  models: ModelKey[]
+  questions: string[]
+  ourBrand: string
+  brandAliases: string[]
+  competitors: string[]
+  subjectType: AnalysisSubjectType
+  personProfile?: PersonSubjectProfile
+}) {
+  const sampled = args.sampledByModel && typeof args.sampledByModel === "object"
+    ? args.sampledByModel as Partial<Record<ModelKey, unknown>>
+    : {}
+  const results: ProcessedSlot[] = []
+  for (const model of args.models) {
+    const items = Array.isArray(sampled[model]) ? sampled[model] : []
+    for (const candidate of items) {
+      if (!candidate || typeof candidate !== "object") continue
+      const item = candidate as ProcessedSlot["item"]
+      if (
+        typeof item.sampleId !== "string"
+        || typeof item.question !== "string"
+        || typeof item.answer !== "string"
+      ) continue
+      results.push({
+        model,
+        item: {
+          ...item,
+          mentionedBrands: Array.isArray(item.mentionedBrands)
+            ? item.mentionedBrands
+            : [],
+          topRecommended: typeof item.topRecommended === "string"
+            ? item.topRecommended
+            : null,
+        },
+      })
+    }
+  }
+  if (results.length === 0) {
+    return NextResponse.json({ error: "裁判阶段没有收到可处理的联网回答" }, { status: 400 })
+  }
+
+  const judgeModel = await pickJudge(args.models)
+  if (!judgeModel) {
+    return NextResponse.json(
+      { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
+      { status: 400 },
+    )
+  }
+  const knownSubjectResolver = createSubjectResolver({
+    subjectType: args.subjectType,
+    ourBrand: args.ourBrand,
+    brandAliases: args.brandAliases,
+    competitors: args.competitors,
+  })
+  await enrichWithBatchJudge(
+    results,
+    judgeModel,
+    knownSubjectResolver.knownNames,
+    args.ourBrand,
+    args.brandAliases,
+    args.subjectType,
+    args.personProfile,
+  )
+
+  const byModel: PenetrationByModel = {}
+  for (const model of args.models) byModel[model] = []
+  for (const result of results) byModel[result.model]!.push(result.item)
+  const judgeErrors: Partial<Record<ModelKey, string>> = {}
+  for (const model of args.models) {
+    const error = (byModel[model] || [])
+      .map(item => (item as ProcessedSlot["item"]).judgeError)
+      .find((value): value is string => Boolean(value))
+    if (error) judgeErrors[model] = error
+  }
+
+  return NextResponse.json({
+    byModel,
+    generatedAt: new Date().toISOString(),
+    judgeModel,
+    judgeLabel: `${ADAPTERS[judgeModel].label}（批量${
+      args.subjectType === "person" ? "人物与同行" : "品牌"
+    }裁判，不联网）`,
+    judgeErrors,
+    pipelineStage: "judge",
+  }, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  })
+}
+
 async function handler(req: NextRequest) {
   let reservation: CreditReservation | null = null
   let directAccess: OperationAccessContext | null = null
   try {
     const internalJobRequest = isInternalApiRequest(req, "penetration-job")
     const body = await req.json()
+    const pipelineStage = internalJobRequest
+      && (body.pipelineStage === "sample" || body.pipelineStage === "judge")
+      ? body.pipelineStage as "sample" | "judge"
+      : "complete"
     let subjectType = normalizeAnalysisSubjectType(body.subjectType)
     let personProfile = normalizePersonSubjectProfile(body.personProfile)
     let ourBrand = String(body.ourBrand || "").trim()
@@ -1159,6 +1257,19 @@ async function handler(req: NextRequest) {
     if (models.length === 0) {
       return NextResponse.json({ error: "请至少选择一个模型" }, { status: 400 })
     }
+    if (pipelineStage === "judge") {
+      return judgeSampledBatch({
+        sampledByModel: body.sampledByModel,
+        models,
+        questions,
+        ourBrand,
+        brandAliases,
+        competitors,
+        subjectType,
+        personProfile,
+      })
+    }
+    const sampleOnly = pipelineStage === "sample"
 
     // 强校验严格联网能力：未通过预检的模型显式跳过，绝不返回 Mock 或无来源自答。
     const activeModels: ModelKey[] = []
@@ -1188,8 +1299,8 @@ async function handler(req: NextRequest) {
     const featureKey = "penetrationSlot"
     const slotCount = activeModels.length * questions.length
     const requiredCredits = estimateFeatureCredits(featureKey, slotCount)
-    const judgeModel = await pickJudge(activeModels)
-    if (!judgeModel) {
+    const judgeModel = sampleOnly ? null : await pickJudge(activeModels)
+    if (!sampleOnly && !judgeModel) {
       return NextResponse.json(
         { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
         { status: 400 }
@@ -1230,9 +1341,12 @@ async function handler(req: NextRequest) {
     console.log(
       `[penetration] 启动 ${activeModels.length} 模型 × ${questions.length} 问题 = ${
         activeModels.length * questions.length
-      } 个 slot（Stage A 客观联网单问 + Stage B 非联网批量裁判 [${
-        ADAPTERS[judgeModel].label
-      }] + Stage C 原文交叉校验）`
+      } 个 slot（${sampleOnly
+        ? "Stage A 客观联网采样"
+        : `Stage A 客观联网单问 + Stage B 非联网批量裁判 [${
+            ADAPTERS[judgeModel!].label
+          }] + Stage C 原文交叉校验`
+      }）`
     )
     const t0 = Date.now()
     const modelConcurrencyLimits = Object.fromEntries(
@@ -1302,15 +1416,17 @@ async function handler(req: NextRequest) {
       brandAliases,
       competitors,
     })
-    await enrichWithBatchJudge(
-      results,
-      judgeModel,
-      knownSubjectResolver.knownNames,
-      ourBrand,
-      brandAliases,
-      subjectType,
-      personProfile,
-    )
+    if (judgeModel) {
+      await enrichWithBatchJudge(
+        results,
+        judgeModel,
+        knownSubjectResolver.knownNames,
+        ourBrand,
+        brandAliases,
+        subjectType,
+        personProfile,
+      )
+    }
     console.log(`[penetration] 全部完成 耗时 ${Date.now() - t0}ms`)
 
     // mapWithConcurrency 保留输入下标顺序；不能再按问题文字建 Map，重复问题是独立样本。
@@ -1359,10 +1475,13 @@ async function handler(req: NextRequest) {
         byModel,
         aggregated,
         generatedAt: new Date().toISOString(),
-        judgeModel,
-        judgeLabel: `${ADAPTERS[judgeModel].label}（批量${
-          subjectType === "person" ? "人物与同行" : "品牌"
-        }裁判，不联网）`,
+        judgeModel: judgeModel || undefined,
+        judgeLabel: judgeModel
+          ? `${ADAPTERS[judgeModel].label}（批量${
+              subjectType === "person" ? "人物与同行" : "品牌"
+            }裁判，不联网）`
+          : undefined,
+        pipelineStage: sampleOnly ? "sample" : "complete",
         skipped: skipped.map(item => `${ADAPTERS[item.model].label}（${item.reason}）`),
         skippedDetail: skipped.map(item => ({
           model: item.model,

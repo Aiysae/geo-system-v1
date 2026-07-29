@@ -297,14 +297,23 @@ export async function selectPenetrationDueWaveV3(args: {
   states: Record<string, PenetrationWaveSlotState>
   nowMs: number
   rotationSeed: number
+  allowElasticCapacity?: boolean
 }): Promise<PenetrationWaveBatch[]> {
   const batchLimit = boundedEnv("PENETRATION_V3_WAVE_BATCH_LIMIT", 12, 32)
   const slotLimit = boundedEnv("PENETRATION_V3_WAVE_SLOT_LIMIT", 24, 64)
-  const perJobVendorLimit = boundedEnv(
+  const stablePerJobVendorLimit = boundedEnv(
     "PENETRATION_V3_MAX_LANES_PER_JOB",
     6,
     24,
   )
+  const elasticPerJobVendorLimit = boundedEnv(
+    "PENETRATION_V3_ELASTIC_MAX_LANES_PER_JOB",
+    12,
+    24,
+  )
+  const perJobVendorLimit = args.allowElasticCapacity
+    ? Math.max(stablePerJobVendorLimit, elasticPerJobVendorLimit)
+    : stablePerJobVendorLimit
   const routes = new Map<ModelKey, LiveCapacityRoute>(
     await Promise.all(args.models.map(async model => (
       [model, await modelLiveCapacity(model)] as const

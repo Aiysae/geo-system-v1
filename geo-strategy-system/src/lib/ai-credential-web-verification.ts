@@ -25,7 +25,7 @@ const STRICT_WEB_MODEL_BY_VENDOR: Partial<Record<AiCredentialVendor, ModelKey>> 
 
 export async function verifyAiCredentialWeb(
   credentialId: string,
-  options: { allModels?: boolean } = {},
+  options: { allModels?: boolean; model?: string } = {},
 ): Promise<AiCredentialVerificationResult> {
   const credential = await getAiCredentialRuntime(credentialId)
   const modelKey = STRICT_WEB_MODEL_BY_VENDOR[credential.vendor]
@@ -43,10 +43,18 @@ export async function verifyAiCredentialWeb(
     throw new Error("Kimi 严格联网由 Moonshot 生成与百度搜索双账号承载，请运行完整联网冒烟检测")
   }
 
+  const requestedModel = String(options.model || "").trim()
+  if (requestedModel && !credential.allowedModels.includes(requestedModel)) {
+    throw new Error("指定模型不在该账号的允许模型列表中")
+  }
+  const modelsToTest = requestedModel
+    ? [requestedModel]
+    : credential.allowedModels
+
   const startedAt = Date.now()
   const models: AiCredentialModelVerification[] = []
   let lastError: unknown
-  for (const model of credential.allowedModels) {
+  for (const model of modelsToTest) {
     const modelStartedAt = Date.now()
     const sourceUrls = new Set<string>()
     const requestIds = new Set<string>()
@@ -109,9 +117,16 @@ export async function verifyAiCredentialWeb(
   }
 
   const passedModels = models.filter(item => item.status === "passed")
+  const verifiedWebModels = new Set(credential.verifiedWebModels)
+  for (const result of models) {
+    verifiedWebModels.delete(result.model)
+    if (result.status === "passed") verifiedWebModels.add(result.model)
+  }
   if (passedModels.length > 0) {
     const preferred = passedModels[0]
-    await prioritizeAiCredentialModel(credential.id, preferred.model)
+    if (!requestedModel) {
+      await prioritizeAiCredentialModel(credential.id, preferred.model)
+    }
     const verified = new Set<AiCredentialCapability>(credential.verifiedCapabilities)
     verified.add("chat")
     verified.add("native_web")
@@ -120,6 +135,7 @@ export async function verifyAiCredentialWeb(
     const updated = await updateAiCredentialHealth(credential.id, {
       status: "healthy",
       verifiedCapabilities: [...verified],
+      verifiedWebModels: [...verifiedWebModels],
       latencyMs,
       consecutiveFailures: 0,
     })
@@ -127,7 +143,9 @@ export async function verifyAiCredentialWeb(
       credential: updated,
       message: options.allModels
         ? `严格联网检测完成 · ${passedModels.length}/${models.length} 个型号可用 · ${latencyMs}ms`
-        : `严格联网检测通过 · ${preferred.model} · ${latencyMs}ms`,
+        : requestedModel
+          ? `严格联网检测通过 · ${requestedModel} · ${latencyMs}ms`
+          : `严格联网检测通过 · ${preferred.model} · ${latencyMs}ms`,
       models,
     }
   }
@@ -136,12 +154,17 @@ export async function verifyAiCredentialWeb(
     lastError instanceof Error ? lastError.message : String(lastError || ""),
     240,
   )
-  const verified = credential.verifiedCapabilities.filter(
-    capability => capability !== "native_web" && capability !== "auditable_sources",
-  )
+  const verified = verifiedWebModels.size > 0
+    ? credential.verifiedCapabilities
+    : credential.verifiedCapabilities.filter(
+        capability => capability !== "native_web" && capability !== "auditable_sources",
+      )
   await updateAiCredentialHealth(credential.id, {
-    status: verified.includes("chat") ? "healthy" : "degraded",
+    status: verified.includes("chat") || verifiedWebModels.size > 0
+      ? "healthy"
+      : "degraded",
     verifiedCapabilities: verified,
+    verifiedWebModels: [...verifiedWebModels],
     latencyMs: Date.now() - startedAt,
     consecutiveFailures: credential.consecutiveFailures,
   })

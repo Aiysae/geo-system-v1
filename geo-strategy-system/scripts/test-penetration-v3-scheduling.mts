@@ -48,6 +48,7 @@ try {
     await updateAiCredentialHealth(credential.id, {
       status: "healthy",
       verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+      verifiedWebModels: ["qwen-plus"],
       consecutiveFailures: 0,
       latencyMs: 20 + account,
     })

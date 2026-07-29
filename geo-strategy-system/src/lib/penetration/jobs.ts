@@ -122,6 +122,7 @@ type PenetrationBatchResponse = {
   generatedAt?: string
   skipped?: string[]
   modelErrors?: Partial<Record<ModelKey, string>>
+  pipelineStage?: "sample" | "judge" | "complete"
 }
 
 const PENETRATION_JOB_SLOT_BATCH_LIMIT = 6
@@ -264,6 +265,10 @@ function isRecoverableSlot(state: StoredPenetrationSlotState): boolean {
   return state.status === "queued" || state.status === "running" || state.status === "retry_wait"
 }
 
+function isRetryingSlot(state: StoredPenetrationSlotState): boolean {
+  return state.status === "retry_wait" && state.attempts > 0
+}
+
 function isDueSlot(state: StoredPenetrationSlotState, nowMs: number): boolean {
   if (state.status === "queued") return true
   if (state.status !== "retry_wait") return false
@@ -291,7 +296,7 @@ function summarizeSlotStates(
 > {
   const values = Object.values(states)
   const completedSlots = values.filter(state => state.status === "success").length
-  const retryingSlots = values.filter(isRecoverableSlot).length
+  const retryingSlots = values.filter(isRetryingSlot).length
   const blockedSlots = values.filter(state => state.status === "provider_blocked").length
   const activeSlots = values.filter(state => state.status === "running").length
   const queuedSlots = values.filter(state => state.status === "queued").length
@@ -310,7 +315,7 @@ function summarizeSlotStates(
     modelProgress[model] = {
       total: modelStates.length,
       succeeded: modelStates.filter(state => state.status === "success").length,
-      retrying: modelStates.filter(isRecoverableSlot).length,
+      retrying: modelStates.filter(isRetryingSlot).length,
       blocked: modelStates.filter(state => state.status === "provider_blocked").length,
       attempts: modelStates.reduce((sum, state) => sum + state.attempts, 0),
       active: modelStates.filter(state => state.status === "running").length,
@@ -330,7 +335,7 @@ function summarizeSlotStates(
     }
   }
 
-  const hasRetried = values.some(state => state.attempts > 1 || state.status === "retry_wait")
+  const hasRetried = retryingSlots > 0
   const phase = completedSlots === job.totalSlots
     ? "finalizing"
     : hasRetried
@@ -734,6 +739,7 @@ async function fetchBatch(job: StoredPenetrationJob, batch: PenetrationBatch): P
             questions: batch.questions,
             models: batch.models,
             sampleStart: batch.sampleStart,
+            pipelineStage: PENETRATION_SCHEDULER_V3 ? "sample" : "complete",
           }),
           signal: controller.signal,
         })
@@ -762,6 +768,71 @@ async function fetchBatch(job: StoredPenetrationJob, batch: PenetrationBatch): P
   }
 
   throw lastError instanceof Error ? lastError : new Error("检测批次执行失败")
+}
+
+async function fetchBatchJudge(
+  job: StoredPenetrationJob,
+  batch: PenetrationBatch,
+  sampledByModel: PenetrationByModel,
+): Promise<PenetrationBatchResponse> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < PENETRATION_JOB_MAX_BATCH_ATTEMPTS; attempt++) {
+    await assertNotCancelled(job.id)
+    for (const baseUrl of job.batchBaseUrls) {
+      const controller = new AbortController()
+      const timeout = setTimeout(
+        () => controller.abort(),
+        Math.min(PENETRATION_JOB_BATCH_TIMEOUT_MS, 3 * 60 * 1000),
+      )
+      activeAbortControllers.set(job.id, controller)
+      const unregisterTaskController = registerTaskAbortController(
+        "penetration",
+        job.id,
+        controller,
+      )
+      try {
+        const response = await fetch(`${baseUrl}/api/penetration`, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            ...createInternalApiHeaders("penetration-job"),
+          },
+          body: JSON.stringify({
+            ...job.request,
+            questions: batch.questions,
+            models: batch.models,
+            sampleStart: batch.sampleStart,
+            pipelineStage: "judge",
+            sampledByModel,
+          }),
+          signal: controller.signal,
+        })
+        const data = await readBatchResponse(response)
+        if (!response.ok) {
+          throw new Error(data.error || `裁判批次请求失败（HTTP ${response.status}）`)
+        }
+        if (!data.byModel || !data.generatedAt) {
+          throw new Error("裁判批次没有返回完整结果")
+        }
+        return data
+      } catch (error) {
+        await assertNotCancelled(job.id)
+        lastError = controller.signal.aborted
+          ? new Error("裁判批次执行超时，已保留原始联网回答")
+          : error
+      } finally {
+        clearTimeout(timeout)
+        unregisterTaskController()
+        if (activeAbortControllers.get(job.id) === controller) {
+          activeAbortControllers.delete(job.id)
+        }
+      }
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("裁判批次执行失败，已保留原始联网回答")
 }
 
 type PenetrationAttemptItem = PenetrationItem & { error?: string; judgeError?: string }
@@ -950,6 +1021,12 @@ type SettledPenetrationBatch = {
   error?: unknown
 }
 
+type SettledPenetrationJudgeBatch = {
+  batch: PenetrationBatch
+  data?: PenetrationBatchResponse
+  error?: unknown
+}
+
 function monotonicGeneratedAt(current: string | undefined, candidate: string): string {
   const currentMs = current ? Date.parse(current) : 0
   const candidateMs = Date.parse(candidate)
@@ -988,6 +1065,7 @@ async function processDueWave(
     ...summarizeSlotStates(job, states),
   }) || job
 
+  let nextBatchIndex = batches.length
   const pending = batches.map((batch, index) => ({
     index,
     promise: fetchBatch(job, batch)
@@ -1005,7 +1083,74 @@ async function processDueWave(
     message: string
     completedAt: string
   }>>()
+  const rollingRefillSlotLimit = batches.reduce(
+    (sum, batch) => sum + batch.questions.length,
+    0,
+  ) * 2
+  let rollingRefillSlots = 0
+  const judgePipelineConcurrency = Math.max(
+    1,
+    Math.min(4, Math.floor(Number(process.env.PENETRATION_V3_JUDGE_HTTP_CONCURRENCY) || 2)),
+  )
+  const judgeLaneTails = Array.from(
+    { length: judgePipelineConcurrency },
+    () => Promise.resolve(),
+  )
+  const pendingJudgeBatches: Array<Promise<SettledPenetrationJudgeBatch>> = []
+  let judgeLaneCursor = 0
 
+  function enqueueBatchJudge(
+    batch: PenetrationBatch,
+    data: PenetrationBatchResponse | undefined,
+  ): void {
+    if (data?.pipelineStage !== "sample" || !data.byModel) return
+    const lane = judgeLaneCursor++ % judgeLaneTails.length
+    const sampledByModel = data.byModel
+    const task = judgeLaneTails[lane]
+      .then(() => fetchBatchJudge(job, batch, sampledByModel))
+      .then((judged): SettledPenetrationJudgeBatch => ({ batch, data: judged }))
+      .catch((error): SettledPenetrationJudgeBatch => ({ batch, error }))
+    judgeLaneTails[lane] = task.then(() => undefined)
+    pendingJudgeBatches.push(task)
+  }
+
+  async function enqueueRollingBatches(nextBatches: PenetrationBatch[]): Promise<void> {
+    if (nextBatches.length === 0) return
+    const refillStartedAt = nowIso()
+    const latest = await getStoredJob(job.id)
+    if (latest) job = latest
+    states = cloneSlotStates(job.slotStates || states)
+    for (const batch of nextBatches) {
+      for (const model of batch.models) {
+        for (let offset = 0; offset < batch.questions.length; offset++) {
+          const state = states[slotKey(model, batch.sampleStart + offset)]
+          if (!state || !isDueSlot(state, Date.now())) continue
+          state.status = "running"
+          state.nextRetryAt = undefined
+          state.updatedAt = refillStartedAt
+        }
+      }
+    }
+    job = await patchJob(job.id, {
+      slotStates: states,
+      ...summarizeSlotStates(job, states),
+    }) || { ...job, slotStates: states }
+
+    for (const batch of nextBatches) {
+      const index = nextBatchIndex++
+      pending.push({
+        index,
+        promise: fetchBatch(job, batch)
+          .then((data): SettledPenetrationBatch => ({ index, batch, data }))
+          .catch((error): SettledPenetrationBatch => ({
+            index,
+            batch,
+            error,
+          }))
+          .finally(() => releasePenetrationWaveBatchReservation(batch)),
+      })
+    }
+  }
 
   while (pending.length > 0) {
     const settled = await Promise.race(pending.map(item => item.promise))
@@ -1137,6 +1282,114 @@ async function processDueWave(
       skipped: mergeStrings(job.skipped, settled.data?.skipped || []),
       ...progress,
     }) || { ...job, slotStates: states, result, ...progress }
+    job = await persistPartialJobResult(job)
+    enqueueBatchJudge(settled.batch, settled.data)
+
+    const remainingRefillSlots = rollingRefillSlotLimit - rollingRefillSlots
+    if (
+      PENETRATION_SCHEDULER_V3
+      && pending.length > 0
+      && remainingRefillSlots > 0
+    ) {
+      const candidates = await selectPenetrationDueWaveV3({
+        models: job.request.models,
+        questions: job.request.questions,
+        states,
+        nowMs: Date.now(),
+        rotationSeed: (progress.totalAttempts || 0) + nextBatchIndex,
+        allowElasticCapacity: true,
+      })
+      const accepted: PenetrationBatch[] = []
+      const unusedReservations: PenetrationBatch[] = []
+      let slotsLeft = remainingRefillSlots
+      for (const candidate of candidates) {
+        const acceptedCount = Math.min(slotsLeft, candidate.questions.length)
+        const reservation = candidate.schedulerReservation
+        if (acceptedCount > 0) {
+          accepted.push({
+            ...candidate,
+            questions: candidate.questions.slice(0, acceptedCount),
+            schedulerReservation: reservation
+              ? {
+                  token: reservation.token,
+                  keys: reservation.keys.slice(0, acceptedCount),
+                }
+              : undefined,
+          })
+          slotsLeft -= acceptedCount
+        }
+        const unusedKeys = reservation?.keys.slice(acceptedCount) || []
+        if (unusedKeys.length > 0) {
+          unusedReservations.push({
+            ...candidate,
+            questions: [],
+            schedulerReservation: {
+              token: reservation!.token,
+              keys: unusedKeys,
+            },
+          })
+        }
+      }
+      await releasePenetrationWaveReservations(unusedReservations)
+      rollingRefillSlots += accepted.reduce(
+        (sum, batch) => sum + batch.questions.length,
+        0,
+      )
+      await enqueueRollingBatches(accepted)
+    }
+  }
+
+  const judgedBatches = await Promise.all(pendingJudgeBatches)
+  for (const judged of judgedBatches) {
+    if (judged.error || !judged.data?.byModel) {
+      console.warn(
+        "[penetration-jobs] independent judge stage failed; raw answers retained",
+        job.id,
+        judged.error instanceof Error ? judged.error.message : judged.error,
+      )
+      continue
+    }
+    const incomingByModel: PenetrationByModel = {}
+    for (const [model, items] of Object.entries(judged.data.byModel) as Array<[
+      ModelKey,
+      PenetrationItem[] | undefined,
+    ]>) {
+      const completeItems = (items || []).filter(isCompletePenetrationItem)
+      if (completeItems.length > 0) incomingByModel[model] = completeItems
+    }
+    if (!Object.values(incomingByModel).some(items => (items || []).length > 0)) continue
+    const latest = await getStoredJob(job.id)
+    if (latest) job = latest
+    const judgedResult = buildPenetrationBatchResult({
+      operation: job.request.operation || "replace",
+      currentResult: job.result,
+      baseResult: job.baseResult,
+      incomingByModel,
+      ourBrand: job.request.ourBrand,
+      brandAliases: job.request.brandAliases,
+      competitors: job.request.competitors,
+      subjectType: job.request.subjectType || "brand",
+      generatedAt: monotonicGeneratedAt(
+        job.result?.generatedAt,
+        judged.data.generatedAt || nowIso(),
+      ),
+      plannedQuestions: job.request.operation === "append"
+        ? undefined
+        : job.request.questions,
+      questionIntents: job.request.questionIntents,
+      plannedSlots: job.request.operation === "append"
+        ? (
+            job.baseResult?.aggregated.plannedSlots
+            ?? job.baseResult?.aggregated.totalSlots
+            ?? 0
+          ) + job.totalSlots
+        : job.totalSlots,
+      modelCount: job.request.operation === "append"
+        ? undefined
+        : job.request.models.length,
+    })
+    job = await patchJob(job.id, { result: judgedResult })
+      || { ...job, result: judgedResult }
     job = await persistPartialJobResult(job)
   }
 
@@ -1597,7 +1850,7 @@ export async function createPenetrationJob(args: {
     phase: "preflight",
     retryRound: 0,
     totalAttempts: 0,
-    retryingSlots: args.request.questions.length * args.request.models.length,
+    retryingSlots: 0,
     blockedSlots: 0,
     activeSlots: 0,
     queuedSlots: args.request.questions.length * args.request.models.length,

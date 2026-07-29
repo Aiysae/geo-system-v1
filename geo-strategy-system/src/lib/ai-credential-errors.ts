@@ -5,5 +5,5 @@ export function shouldFailOverAiCredential(error: unknown): boolean {
 
 export function isPermanentAiCredentialFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "")
-  return /(401|402|403|invalid.*key|unauthorized|forbidden|payment required|insufficient.*(?:balance|credit)|余额不足|欠费|无权限)/i.test(message)
+  return /(401|402|403|invalid.*key|unauthorized|forbidden|payment required|insufficient.*(?:balance|credit)|余额不足|欠费|ToolNotOpen|tool.*not.*open|web search is not activated|联网搜索(?:服务|插件)?.{0,8}(?:未开通|未启用)|未开通.*联网搜索|无权限)/i.test(message)
 }
