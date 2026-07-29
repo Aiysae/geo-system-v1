@@ -8,6 +8,10 @@ const requestedModels = (process.env.PENETRATION_SMOKE_MODELS || "doubao,deepsee
   .filter(Boolean) as ModelKey[]
 
 const { ADAPTERS } = await import("../src/lib/llm")
+const {
+  isAdapterCredentialConfigured,
+  runAdapterCredentialPoolChat,
+} = await import("../src/lib/ai-credential-adapter")
 const { isAuditableSourceUrl } = await import("../src/lib/llm/source-extract")
 const { getPenetrationModelReadiness } = await import("../src/lib/penetration/model-readiness")
 
@@ -35,9 +39,14 @@ function safeError(error: unknown): string {
 }
 
 async function probe(model: ModelKey): Promise<SmokeResult> {
-  const adapter = ADAPTERS[model]
   const started = Date.now()
-  const configured = await adapter.configured().catch(() => false)
+  const configured = await isAdapterCredentialConfigured(model, "penetration", {
+    mode: "consumer",
+    forceWebSearch: true,
+    rawQuestionOnly: true,
+    requireWebEvidence: true,
+    officialWebOnly: true,
+  }).catch(() => false)
   const readiness = await getPenetrationModelReadiness(model).catch(error => ({
     model,
     ready: false,
@@ -80,7 +89,7 @@ async function probe(model: ModelKey): Promise<SmokeResult> {
     const requestIds = new Set<string>()
     let searchExecuted = false
     try {
-      const answer = await adapter.chat({
+      const answer = await runAdapterCredentialPoolChat(model, "penetration", {
         system: "",
         user: question,
         temperature: 0,
@@ -155,3 +164,10 @@ for (const model of requestedModels) {
 
 console.table(results)
 if (results.some(result => result.eligible && !result.ok)) process.exitCode = 1
+
+const { closeAiCredentialStoreConnection } = await import("../src/lib/ai-credential-store")
+const { closeKvConnection } = await import("../src/lib/kv")
+await Promise.allSettled([
+  closeAiCredentialStoreConnection(),
+  closeKvConnection(),
+])
