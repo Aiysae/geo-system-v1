@@ -113,7 +113,7 @@ const deepSeekCredential = await saveAiCredential({
   priority: 1,
   maxConcurrency: 1,
   quotaGroupMaxConcurrency: 1,
-  allowedModels: ["deepseek-v4-flash"],
+  allowedModels: ["deepseek-chat"],
   // Existing rows can predate the new penetration permission.
   allowedModules: ["article", "judge"],
   declaredCapabilities: ["chat", "json"],
@@ -177,6 +177,7 @@ const originalFetch = globalThis.fetch
 const usedKeys: string[] = []
 let kimiRound = 0
 let deepSeekRound = 0
+let deepSeekFailureMode = false
 try {
   globalThis.fetch = async (input, init) => {
     const url = String(input)
@@ -230,7 +231,18 @@ try {
 
     if (url.includes("api.deepseek.com")) {
       assert.equal(key, deepSeekSecret)
-      assert.equal(body.model, "deepseek-v4-flash")
+      assert.equal(body.model, "deepseek-chat")
+      if (deepSeekFailureMode) {
+        return new Response(JSON.stringify({
+          error: {
+            code: "invalid_request_error",
+            message: "Thinking mode does not support this tool_choice",
+          },
+        }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        })
+      }
       deepSeekRound += 1
       if (deepSeekRound === 1) {
         return new Response(JSON.stringify({
@@ -382,6 +394,22 @@ try {
   assert.equal(deepSeekResult, "DeepSeek 双账号池联网回答")
   assert.deepEqual(usedKeys, [deepSeekSecret, baiduSearchSecret, deepSeekSecret])
   assert.equal(deepSeekEvents.flatMap(event => event.sources).length, 1)
+
+  deepSeekFailureMode = true
+  await assert.rejects(
+    () => runAdapterCredentialPoolChat("deepseek", "penetration", {
+      system: "",
+      user: "今天是几月几号",
+      mode: "consumer",
+      forceWebSearch: true,
+      rawQuestionOnly: true,
+      requireWebEvidence: true,
+      officialWebOnly: true,
+      timeoutSec: 30,
+    }),
+    /Thinking mode does not support this tool_choice/,
+    "exhausted account failover must preserve the real upstream error",
+  )
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })
