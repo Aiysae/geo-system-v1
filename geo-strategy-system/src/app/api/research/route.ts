@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type {
   AnalysisSubjectType,
+  ResearchContentBlueprint,
   ResearchDimension,
   ResearchMode,
   ResearchResult,
@@ -45,6 +46,49 @@ function score(value: unknown, fallback = 60): number {
 function text(value: unknown, fallback = ""): string {
   const s = String(value ?? "").trim()
   return s || fallback
+}
+
+function enumText<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  const candidate = String(value || "") as T
+  return allowed.includes(candidate) ? candidate : fallback
+}
+
+function normalizeContentBlueprints(value: unknown): ResearchContentBlueprint[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap(raw => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return []
+    const item = raw as Record<string, unknown>
+    const question = text(item.question)
+    if (!question) return []
+    return [{
+      question: question.slice(0, 240),
+      rationale: text(item.rationale, "根据调研结论补齐认知或证据缺口").slice(0, 400),
+      methodKey: enumText(item.methodKey, [
+        "problemSolution", "primaryEvidence", "evidenceStory", "explainer",
+        "industryWhitepaper", "entityKnowledge", "recommendationComparison",
+      ] as const, "problemSolution"),
+      articleFormat: enumText(item.articleFormat, [
+        "directAnswerGuide", "primaryEvidenceDossier", "evidenceCaseStory",
+        "professionalExplainer", "industryWhitepaper", "entityKnowledgeProfile",
+        "recommendationRoundup", "fieldReviewQa", "tieredEvaluation",
+        "neutralComparisonReview", "localPitfallGuide",
+      ] as const, "directAnswerGuide"),
+      titleStrategy: enumText(item.titleStrategy, [
+        "directAnswer", "audienceScenario", "decisionCriteria", "evidenceHook",
+        "riskAvoidance", "localService", "comparisonMatrix", "tieredList",
+        "marketTrend", "priceTransparency",
+      ] as const, "directAnswer"),
+      targetPlatform: enumText(item.targetPlatform, [
+        "universal", "officialSite", "sohu", "toutiao", "netease", "baijiahao",
+        "zhihu", "xiaohongshu", "douyin",
+      ] as const, "universal"),
+      evidenceNeeded: asStringArray(item.evidenceNeeded, 8),
+    }]
+  }).slice(0, 5)
 }
 
 function buildPenetrationContext(
@@ -116,8 +160,9 @@ function buildPrompt(args: {
 1. 必须基于公开可验证信息、用户给定数据、疑问句检测样本进行推断；不确定处要写成"证据不足/需要验证"，禁止编造事实。
 2. ${args.mode === "hypothesis" ? "用户会提供一个假设。请围绕这个假设做验证式研究：哪些现象支持它、哪些现象反驳它、需要补哪些证据。" : `请做 AI 深度调研：完整刻画${subjectNoun}在豆包里的心智位置、用户感知、信任信号、风险与机会。`}
 3. 结论要能指导后续内容、官网或个人资料页、第三方信源、问答和${peerNoun}对比策略。
-${isPerson ? `4. 必须把人物与所在医院、律所、公司、学校、协会等机构分开；只把同职业、同专业方向、同地区或同类服务场景中的具名人物视作同行，不得把机构名、职称或普通形容词当成人名。
-5. 人物姓名相同但身份无法确认时必须提示同名歧义；不得凭姓名自行补造履历、资质、职称、案例或任职机构。` : ""}
+4. 根据研究结论输出 3-5 个后续内容任务，每项绑定真实用户问题、文章形态、标题方向和需要补齐的证据。
+${isPerson ? `5. 必须把人物与所在医院、律所、公司、学校、协会等机构分开；只把同职业、同专业方向、同地区或同类服务场景中的具名人物视作同行，不得把机构名、职称或普通形容词当成人名。
+6. 人物姓名相同但身份无法确认时必须提示同名歧义；不得凭姓名自行补造履历、资质、职称、案例或任职机构。` : ""}
 
 【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止额外文字】
 {
@@ -136,7 +181,16 @@ ${isPerson ? `4. 必须把人物与所在医院、律所、公司、学校、协
   "evidenceGaps": ["证据缺口，4-6 条"],
   "risks": ["AI 回答中可能出现的不利形象，4-6 条"],
   "opportunities": ["可以放大的机会，4-6 条"],
-  "recommendations": ["具体行动建议，6-10 条"]
+  "recommendations": ["具体行动建议，6-10 条"],
+  "contentBlueprints": [{
+    "question": "真实用户问题",
+    "rationale": "为什么优先制作这篇内容",
+    "methodKey": "problemSolution | primaryEvidence | evidenceStory | explainer | industryWhitepaper | entityKnowledge | recommendationComparison",
+    "articleFormat": "directAnswerGuide | primaryEvidenceDossier | evidenceCaseStory | professionalExplainer | industryWhitepaper | entityKnowledgeProfile | recommendationRoundup | fieldReviewQa | tieredEvaluation | neutralComparisonReview | localPitfallGuide",
+    "titleStrategy": "directAnswer | audienceScenario | decisionCriteria | evidenceHook | riskAvoidance | localService | comparisonMatrix | tieredList | marketTrend | priceTransparency",
+    "targetPlatform": "universal | officialSite | sohu | toutiao | netease | baijiahao | zhihu | xiaohongshu | douyin",
+    "evidenceNeeded": ["生成前需要准备或核验的资料"]
+  }]
 }`
 
   const sourceNote = args.sourceMode === "manual"
@@ -200,6 +254,7 @@ function normalizeResult(
     risks: asStringArray(data.risks, 6),
     opportunities: asStringArray(data.opportunities, 6),
     recommendations: asStringArray(data.recommendations, 10),
+    contentBlueprints: normalizeContentBlueprints(data.contentBlueprints),
     generatedAt: new Date().toISOString(),
   }
 }

@@ -27,6 +27,20 @@ export type GeoBrandLayout =
   | "comparisonMatrix"
   | "topList"
 
+export type GeoArticleFormatKey =
+  | "auto"
+  | "directAnswerGuide"
+  | "primaryEvidenceDossier"
+  | "evidenceCaseStory"
+  | "professionalExplainer"
+  | "industryWhitepaper"
+  | "entityKnowledgeProfile"
+  | "recommendationRoundup"
+  | "fieldReviewQa"
+  | "tieredEvaluation"
+  | "neutralComparisonReview"
+  | "localPitfallGuide"
+
 export type GeoTitleStrategy =
   | "auto"
   | "directAnswer"
@@ -37,6 +51,8 @@ export type GeoTitleStrategy =
   | "localService"
   | "comparisonMatrix"
   | "tieredList"
+  | "marketTrend"
+  | "priceTransparency"
 
 export type GeoQueryStyle =
   | "directQuestion"
@@ -111,6 +127,7 @@ export interface ClientKnowledgeBase {
 export interface ArticleMethodologySelection {
   mode: "auto" | "manual"
   methodKey?: GeoMethodologyKey
+  articleFormat: GeoArticleFormatKey
   targetPlatform: GeoContentPlatform
   brandLayout: GeoBrandLayout
   titleStrategy: GeoTitleStrategy
@@ -119,6 +136,7 @@ export interface ArticleMethodologySelection {
 export interface ArticleMethodologyTrace {
   version: string
   methodKey: GeoMethodologyKey
+  articleFormat: Exclude<GeoArticleFormatKey, "auto">
   targetPlatform: GeoContentPlatform
   brandLayout: GeoBrandLayout
   titleStrategy: GeoTitleStrategy

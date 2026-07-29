@@ -987,7 +987,7 @@ async function enrichWithBatchJudge(
       slot.item.mentionedBrands = merged.mentionedSubjects
       slot.item.mentionedEntities = merged.entities
       // 裁判抽出的品牌必须先通过回答原文字面校验。通过后，再允许简称/公司全称
-      // 之间的同品牌匹配回写 hitOur，例如“木点点”命中“木点点整装（深圳）有限公司”。
+      // 之间的同品牌匹配正确回写 hitOur。
       slot.item.hitOur =
         slot.item.hitOur ||
         slot.item.mentionedBrands.some(brand =>

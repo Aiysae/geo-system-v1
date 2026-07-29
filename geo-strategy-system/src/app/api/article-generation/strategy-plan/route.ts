@@ -4,6 +4,7 @@ import { isAdminUser } from "@/lib/admin"
 import { resolveArticleModel } from "@/lib/article-models"
 import { routeArticleStrategyTasks } from "@/lib/article-strategy-service"
 import { resolveQuestionAdvantage, extractQuestionAdvantages } from "@/lib/geo-strategy/question-advantages"
+import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
 import { getMembershipWithPaymentRepair, hasMembershipTier } from "@/lib/membership"
 import { requireOperationAccess, isOperationAccessError } from "@/lib/team-access"
 import { hasUnlimitedCreditAccess, requireUserId } from "@/lib/with-credits"
@@ -78,6 +79,17 @@ export async function POST(req: NextRequest) {
     const tasks: ArticleBatchQuestionTask[] = selectedIds.flatMap(id => {
       const question = byId.get(id)
       if (!question) return []
+      const questionMethodology = classifyQuestionMethodology({
+        category: question.category,
+        question: question.question,
+        intent: question.intent,
+        suppliedSubIntent: question.subIntent,
+        suppliedQueryStyle: question.queryStyle,
+        suppliedMethodologies: question.methodologyCandidates,
+        suppliedArticleFormats: question.articleFormatCandidates,
+        suppliedTitleStrategies: question.titleStrategyCandidates,
+        suppliedPlatforms: question.platformCandidates,
+      })
       return [{
         questionId: question.id,
         question: question.question,
@@ -86,17 +98,22 @@ export async function POST(req: NextRequest) {
         keyword: question.keyword,
         contentAngle: question.content_angle,
         matchedAdvantage: resolveQuestionAdvantage(question, advantages),
-        subIntent: question.subIntent,
-        queryStyle: question.queryStyle,
+        subIntent: questionMethodology.subIntent,
+        queryStyle: questionMethodology.queryStyle,
         methodologyCandidates: methodology.mode === "manual" && methodology.methodKey
-          ? [methodology.methodKey, ...(question.methodologyCandidates || [])]
-          : question.methodologyCandidates,
-        platformCandidates: question.platformCandidates,
+          ? [methodology.methodKey, ...questionMethodology.methodologyCandidates]
+          : questionMethodology.methodologyCandidates,
+        platformCandidates: questionMethodology.platformCandidates,
         targetPlatform: methodology.targetPlatform === "auto"
-          ? question.platformCandidates?.[0] || "auto"
+          ? questionMethodology.platformCandidates[0] || "auto"
           : methodology.targetPlatform,
+        articleFormat: methodology.articleFormat === "auto"
+          ? questionMethodology.articleFormatCandidates[0] || "auto"
+          : methodology.articleFormat,
         brandLayout: methodology.brandLayout,
-        titleStrategy: methodology.titleStrategy,
+        titleStrategy: methodology.titleStrategy === "auto"
+          ? questionMethodology.titleStrategyCandidates[0] || "auto"
+          : methodology.titleStrategy,
         methodologyVersion: GEO_METHODOLOGY_VERSION,
       }]
     })

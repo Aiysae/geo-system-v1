@@ -211,6 +211,9 @@ export interface GeoMonitoringItem {
   metric: string
   method: string
   target: string
+  cadence?: string
+  contentAction?: string
+  evidenceRequired?: string
 }
 
 /** 执行排期 */
@@ -240,6 +243,8 @@ export interface QuestionItem {
   subIntent?: string
   queryStyle?: import("./geo-methodology").GeoQueryStyle
   methodologyCandidates?: import("./geo-methodology").GeoMethodologyKey[]
+  articleFormatCandidates?: Exclude<import("./geo-methodology").GeoArticleFormatKey, "auto">[]
+  titleStrategyCandidates?: Exclude<import("./geo-methodology").GeoTitleStrategy, "auto">[]
   platformCandidates?: import("./geo-methodology").GeoContentPlatform[]
 }
 

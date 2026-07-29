@@ -72,6 +72,7 @@ function questionTasks(value: unknown): ArticleBatchQuestionTask[] {
       methodologyCandidates: stringList(item.methodologyCandidates, 7, 80) as ArticleBatchQuestionTask["methodologyCandidates"],
       platformCandidates: stringList(item.platformCandidates, 10, 80) as ArticleBatchQuestionTask["platformCandidates"],
       targetPlatform: text(item.targetPlatform, 80) as ArticleBatchQuestionTask["targetPlatform"],
+      articleFormat: text(item.articleFormat, 80) as ArticleBatchQuestionTask["articleFormat"],
       brandLayout: text(item.brandLayout, 80) as ArticleBatchQuestionTask["brandLayout"],
       titleStrategy: text(item.titleStrategy, 80) as ArticleBatchQuestionTask["titleStrategy"],
       knowledgeAssetIds: stringList(item.knowledgeAssetIds, 30, 140),
@@ -210,6 +211,12 @@ export async function POST(req: NextRequest) {
             ? task.methodologyCandidates
             : question.methodologyCandidates,
           platformCandidates: question.platformCandidates,
+          articleFormat: task.articleFormat && task.articleFormat !== "auto"
+            ? task.articleFormat
+            : question.articleFormatCandidates?.[0] || "auto",
+          titleStrategy: task.titleStrategy && task.titleStrategy !== "auto"
+            ? task.titleStrategy
+            : question.titleStrategyCandidates?.[0] || "auto",
           promptTitle: getArticlePromptOption(task.promptKey)?.title,
         }]
       })

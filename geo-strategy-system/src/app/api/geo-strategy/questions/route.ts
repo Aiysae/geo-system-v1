@@ -114,7 +114,7 @@ const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你的�
 10. 当 profile.subject_type 为 person 时，“品牌认知型”是兼容字段，实际含义为“人物认知型”；目标名称是人物姓名，competitors 是同行人物，机构不得当成人物。
 
 每条问题必须包含：
-id、category、difficulty、keyword、question、intent、content_angle、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible、subIntent、queryStyle、methodologyCandidates、platformCandidates。`
+id、category、difficulty、keyword、question、intent、content_angle、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible、subIntent、queryStyle、methodologyCandidates、articleFormatCandidates、titleStrategyCandidates、platformCandidates。`
 
 // ==================== Prompt Builders ====================
 
@@ -287,6 +287,8 @@ ${formatTypeMix(typeMix)}
       "subIntent": "建立候选清单并快速筛选",
       "queryStyle": "recommendation",
       "methodologyCandidates": ["recommendationComparison", "industryWhitepaper"],
+      "articleFormatCandidates": ["recommendationRoundup", "tieredEvaluation"],
+      "titleStrategyCandidates": ["tieredList", "comparisonMatrix"],
       "platformCandidates": ["universal", "sohu", "toutiao"]
     }
   ]
@@ -742,6 +744,8 @@ function normalizeQuestion(value: unknown, category: string, strategy: Record<st
     suppliedSubIntent: text(data.subIntent),
     suppliedQueryStyle: text(data.queryStyle),
     suppliedMethodologies: data.methodologyCandidates,
+    suppliedArticleFormats: data.articleFormatCandidates,
+    suppliedTitleStrategies: data.titleStrategyCandidates,
     suppliedPlatforms: data.platformCandidates,
   })
 

@@ -36,6 +36,7 @@ const fallback = fallbackArticleStrategyRoute({
   comparisonBrandCount: 1,
 })
 assert.equal(fallback.promptKey, "thirdPartyObservation")
+assert.equal(fallback.articleFormat, "recommendationRoundup")
 assert.ok(fallback.promptTitle)
 
 assert.equal(

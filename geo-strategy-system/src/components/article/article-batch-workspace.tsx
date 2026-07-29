@@ -201,6 +201,12 @@ export default function ArticleBatchWorkspace({
           category: known?.category,
           keyword: known?.keyword,
           contentAngle: known?.content_angle,
+          subIntent: known?.subIntent,
+          queryStyle: known?.queryStyle,
+          methodologyCandidates: known?.methodologyCandidates,
+          platformCandidates: known?.platformCandidates,
+          articleFormat: known?.articleFormatCandidates?.[0],
+          titleStrategy: known?.titleStrategyCandidates?.[0],
           matchedAdvantage: known
             ? resolveQuestionAdvantage(known, keywordAdvantages)
             : undefined,

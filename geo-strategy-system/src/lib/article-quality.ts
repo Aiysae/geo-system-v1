@@ -1,8 +1,11 @@
 import { supportsArticleComparisonBrands } from "@/lib/article-comparison-brands"
+import { getGeoArticleFormat } from "@/lib/geo-methodology/article-formats"
+import { articleFormatForArticlePrompt } from "@/lib/geo-methodology/registry"
 import type {
   ArticleComparisonBrand,
   ArticleMethodologyTrace,
   ArticlePromptKey,
+  GeoArticleFormatKey,
 } from "@/types"
 
 const MARKDOWN_TABLE = /^\s*\|.+\|\s*$[\r\n]+\s*\|(?:\s*:?-{3,}:?\s*\|)+/m
@@ -25,6 +28,7 @@ export interface ArticleQualityIssue {
     | "too_short"
     | "missing_heading"
     | "missing_table"
+    | "forbidden_table"
     | "unresolved_placeholder"
     | "question_drift"
     | "primary_subject_missing"
@@ -32,6 +36,7 @@ export interface ArticleQualityIssue {
     | "comparison_brand_missing"
     | "title_body_drift"
     | "methodology_structure_missing"
+    | "article_format_structure_missing"
     | "unsupported_superlative"
   message: string
   blocking: boolean
@@ -74,6 +79,30 @@ function overlapCount(article: string, source: string): number {
   return meaningfulTokens(source).filter(token => articleText.includes(token)).length
 }
 
+const ARTICLE_FORMAT_SIGNALS: Record<
+  Exclude<GeoArticleFormatKey, "auto">,
+  RegExp[]
+> = {
+  directAnswerGuide: [/结论|答案|可以|建议/, /步骤|方法|清单|怎么做/, /适用|边界|注意/],
+  primaryEvidenceDossier: [/证据|依据|资料/, /来源|核验|查询/, /边界|待核验|主体自述/],
+  evidenceCaseStory: [/场景|背景|当时/, /过程|执行|步骤/, /结果|证据|复盘|经验/],
+  professionalExplainer: [/定义|是指|本质/, /原理|原因|为什么/, /误区|判断|清单/],
+  industryWhitepaper: [/摘要|研究|行业/, /范围|口径|样本|来源/, /趋势|建议|维度/],
+  entityKnowledgeProfile: [/主体|名称|别名/, /业务|产品|服务/, /对象|地域|边界|问答/],
+  recommendationRoundup: [/范围|入选|推荐/, /标准|维度|依据/, /适用|场景|怎么选/],
+  fieldReviewQa: [/体验|观察|核验|资料/, /条件|方法|样本/, /限制|边界|适用/],
+  tieredEvaluation: [/分层|层级|梯队/, /规则|标准|维度/, /差异|适用|选择/],
+  neutralComparisonReview: [/比较|对比|横评/, /维度|标准|口径/, /适用|场景|结论/],
+  localPitfallGuide: [/地域|本地|区域|服务范围/, /风险|误区|避坑/, /核验|步骤|清单/],
+}
+
+function formatSignalCount(
+  article: string,
+  formatKey: Exclude<GeoArticleFormatKey, "auto">,
+): number {
+  return ARTICLE_FORMAT_SIGNALS[formatKey].filter(signal => signal.test(article)).length
+}
+
 export function validateGeneratedArticle(args: {
   article: string
   promptKey: ArticlePromptKey
@@ -86,6 +115,10 @@ export function validateGeneratedArticle(args: {
   const article = String(args.article || "").trim()
   const issues: ArticleQualityIssue[] = []
   const longForm = LONG_FORM_PROMPTS.has(args.promptKey)
+  const articleFormat = args.methodologyTrace?.articleFormat
+    || articleFormatForArticlePrompt(args.promptKey)
+  const format = getGeoArticleFormat(articleFormat)
+  const hasMarkdownTable = MARKDOWN_TABLE.test(article)
 
   if (article.length < (longForm ? 700 : 120)) {
     issues.push({
@@ -101,10 +134,17 @@ export function validateGeneratedArticle(args: {
       blocking: true,
     })
   }
-  if (longForm && !MARKDOWN_TABLE.test(article)) {
+  if (longForm && format.tablePolicy === "required" && !hasMarkdownTable) {
     issues.push({
       code: "missing_table",
-      message: "缺少模板要求的标准 Markdown 表格",
+      message: `${format.title}需要一个使用统一维度的标准 Markdown 表格`,
+      blocking: true,
+    })
+  }
+  if (longForm && format.tablePolicy === "forbidden" && hasMarkdownTable) {
+    issues.push({
+      code: "forbidden_table",
+      message: `${format.title}不应使用表格，请改用清晰标题、段落和清单`,
       blocking: true,
     })
   }
@@ -144,7 +184,10 @@ export function validateGeneratedArticle(args: {
       blocking: true,
     })
   }
-  if (supportsArticleComparisonBrands(args.promptKey)) {
+  const multiSubjectFormat = [
+    "recommendationRoundup", "tieredEvaluation", "neutralComparisonReview",
+  ].includes(articleFormat)
+  if (supportsArticleComparisonBrands(args.promptKey) || multiSubjectFormat) {
     for (const brand of args.comparisonBrands || []) {
       if (brand.name && !normalized(article).includes(normalized(brand.name))) {
         issues.push({
@@ -172,6 +215,13 @@ export function validateGeneratedArticle(args: {
     issues.push({
       code: "methodology_structure_missing",
       message: "正文没有形成所选内容策略需要的判断结构",
+      blocking: true,
+    })
+  }
+  if (longForm && formatSignalCount(article, articleFormat) < 2) {
+    issues.push({
+      code: "article_format_structure_missing",
+      message: `正文没有形成${format.title}需要的“${format.answerPattern.join("、")}”结构`,
       blocking: true,
     })
   }
@@ -210,7 +260,7 @@ export function buildArticleQualityRepairPrompt(args: {
 }): string {
   return [
     "请修复下面这篇文章中列出的质量问题，输出修复后的完整 Markdown 正文。",
-    "不得解释修改过程，不得删除原模板要求的章节，不得补造资料、数据、排名、案例或实测结论。",
+    "不得解释修改过程；保留与当前文章形态不冲突的必要章节，不得补造资料、数据、排名、案例或实测结论。",
     "",
     "【必须修复的问题】",
     ...args.issues.map((issue, index) => `${index + 1}. ${issue.message}`),
@@ -230,6 +280,7 @@ export function buildArticleQualityRepairPrompt(args: {
     `内容策略追踪：${args.methodologyTrace
       ? JSON.stringify({
           methodKey: args.methodologyTrace.methodKey,
+          articleFormat: args.methodologyTrace.articleFormat,
           targetPlatform: args.methodologyTrace.targetPlatform,
           brandLayout: args.methodologyTrace.brandLayout,
           titleStrategy: args.methodologyTrace.titleStrategy,

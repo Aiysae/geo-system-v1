@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea"
 import ArticleRewriteBrandMapper from "@/components/article/article-rewrite-brand-mapper"
 import ArticleComparisonBrandPanel from "@/components/article/article-comparison-brand-panel"
 import ArticleMethodologyPanel from "@/components/article/article-methodology-panel"
+import ArticleReadiness from "@/components/article/article-readiness"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import {
   fingerprintRewriteSource,
@@ -163,6 +164,8 @@ function articleStrategySourceFingerprint(
       subIntent: item.subIntent,
       queryStyle: item.queryStyle,
       methodologyCandidates: item.methodologyCandidates,
+      articleFormatCandidates: item.articleFormatCandidates,
+      titleStrategyCandidates: item.titleStrategyCandidates,
       platformCandidates: item.platformCandidates,
     })),
     advantages,
@@ -198,6 +201,7 @@ function createInitialArticle(client: Client): ArticleGenerationState {
     comparisonBrands: [],
     methodology: {
       mode: "auto",
+      articleFormat: "auto",
       targetPlatform: "auto",
       brandLayout: "auto",
       titleStrategy: "auto",
@@ -241,6 +245,12 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
         targetPlatform: article.methodology.targetPlatform === "auto"
           ? matchedQuestion.platformCandidates?.[0] || "auto"
           : article.methodology.targetPlatform,
+        articleFormat: article.methodology.articleFormat === "auto"
+          ? matchedQuestion.articleFormatCandidates?.[0] || "auto"
+          : article.methodology.articleFormat,
+        titleStrategy: article.methodology.titleStrategy === "auto"
+          ? matchedQuestion.titleStrategyCandidates?.[0] || "auto"
+          : article.methodology.titleStrategy,
       }
     : article.methodology
   const matchedAdvantage = article.advantages.trim()
@@ -406,6 +416,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const isBatch = workspaceMode === "batch" && !isRewrite
   const isStrategy = workspaceMode === "strategy" && !isRewrite
   const isBulkWorkspace = isBatch || isStrategy
+  const usesMultiSubjectFormat = [
+    "recommendationRoundup", "tieredEvaluation", "neutralComparisonReview",
+  ].includes(article.methodology?.articleFormat || "")
   const isGenerating = article.status === "generating"
   const isExtracting = article.extractStatus === "generating"
   const rewriteMappings = useMemo(
@@ -1368,7 +1381,18 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                   .filter(asset => asset.sourceUrls.length > 0).length}
                 onChange={value => updateField("methodology", value)}
               />
-              {(supportsArticleComparisonBrands(article.promptKey) || isStrategy) && (
+              <ArticleReadiness
+                promptKey={article.promptKey}
+                methodology={article.methodology}
+                coreQuestion={article.coreQuestion}
+                primarySubject={client.ourBrand || client.name}
+                region={article.region}
+                business={article.business}
+                advantages={article.advantages}
+                comparisonBrands={article.comparisonBrands || []}
+                knowledgeBase={client.knowledgeBase}
+              />
+              {(supportsArticleComparisonBrands(article.promptKey) || isStrategy || usesMultiSubjectFormat) && (
                 <ArticleComparisonBrandPanel
                   primaryBrand={client.ourBrand || client.name}
                   suggestedBrands={client.competitors || []}

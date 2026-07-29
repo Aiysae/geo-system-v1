@@ -1,10 +1,15 @@
 import {
+  articleFormatForArticlePrompt,
   GEO_METHODOLOGIES,
   GEO_METHODOLOGY_VERSION,
   GEO_PLATFORM_DEFINITIONS,
   isGeoMethodologyEnabled,
   methodologyForArticlePrompt,
 } from "@/lib/geo-methodology/registry"
+import {
+  GEO_ARTICLE_FORMATS,
+  getGeoArticleFormat,
+} from "@/lib/geo-methodology/article-formats"
 import {
   buildKnowledgeContext,
   selectKnowledgeAssets,
@@ -14,6 +19,7 @@ import type {
   ArticleMethodologySelection,
   ArticleMethodologyTrace,
   ClientKnowledgeBase,
+  GeoArticleFormatKey,
   GeoBrandLayout,
   GeoContentPlatform,
   GeoMethodologyKey,
@@ -33,6 +39,8 @@ const TITLE_INSTRUCTIONS: Record<Exclude<GeoTitleStrategy, "auto">, string> = {
   localService: "标题自然包含地域和服务需求，避免机械堆叠地区词。",
   comparisonMatrix: "标题明确比较对象或比较维度，不预先编造胜负和名次。",
   tieredList: "标题说明分层或清单口径，正文必须使用同一套评价标准。",
+  marketTrend: "标题说明研究范围、时效和趋势主题，不把观察包装成确定预测。",
+  priceTransparency: "标题围绕成本、价格构成或预算判断，不能编造输入中没有的金额。",
 }
 
 const BRAND_LAYOUT_INSTRUCTIONS: Record<Exclude<GeoBrandLayout, "auto">, string[]> = {
@@ -72,9 +80,13 @@ const PLATFORM_KEYS = new Set<GeoContentPlatform>([
 const BRAND_LAYOUT_KEYS = new Set<GeoBrandLayout>([
   "auto", "singlePrimary", "primaryFourSupporting", "tieredFive", "comparisonMatrix", "topList",
 ])
+const ARTICLE_FORMAT_KEYS = new Set<GeoArticleFormatKey>([
+  "auto", ...Object.keys(GEO_ARTICLE_FORMATS) as Exclude<GeoArticleFormatKey, "auto">[],
+])
 const TITLE_STRATEGY_KEYS = new Set<GeoTitleStrategy>([
   "auto", "directAnswer", "audienceScenario", "decisionCriteria", "evidenceHook",
-  "riskAvoidance", "localService", "comparisonMatrix", "tieredList",
+  "riskAvoidance", "localService", "comparisonMatrix", "tieredList", "marketTrend",
+  "priceTransparency",
 ])
 
 export function normalizeArticleMethodologySelection(value: unknown): ArticleMethodologySelection {
@@ -87,6 +99,9 @@ export function normalizeArticleMethodologySelection(value: unknown): ArticleMet
   const targetPlatform = PLATFORM_KEYS.has(input.targetPlatform as GeoContentPlatform)
     ? input.targetPlatform as GeoContentPlatform
     : "auto"
+  const articleFormat = ARTICLE_FORMAT_KEYS.has(input.articleFormat as GeoArticleFormatKey)
+    ? input.articleFormat as GeoArticleFormatKey
+    : "auto"
   const brandLayout = BRAND_LAYOUT_KEYS.has(input.brandLayout as GeoBrandLayout)
     ? input.brandLayout as GeoBrandLayout
     : "auto"
@@ -96,6 +111,7 @@ export function normalizeArticleMethodologySelection(value: unknown): ArticleMet
   return {
     mode: input.mode === "manual" && methodKey ? "manual" : "auto",
     methodKey,
+    articleFormat,
     targetPlatform,
     brandLayout,
     titleStrategy,
@@ -109,6 +125,15 @@ function resolveMethodKey(
   return selection?.mode === "manual" && selection.methodKey
     ? selection.methodKey
     : methodologyForArticlePrompt(promptKey)
+}
+
+function resolveArticleFormat(
+  promptKey: ArticlePromptKey,
+  selection?: ArticleMethodologySelection,
+): Exclude<GeoArticleFormatKey, "auto"> {
+  return selection?.articleFormat && selection.articleFormat !== "auto"
+    ? selection.articleFormat
+    : articleFormatForArticlePrompt(promptKey)
 }
 
 function resolvePlatform(value: GeoContentPlatform | undefined): Exclude<GeoContentPlatform, "auto"> {
@@ -154,10 +179,16 @@ export function compileGeoArticleMethodology(args: {
 }): CompiledGeoMethodology {
   const methodKey = resolveMethodKey(args.promptKey, args.selection)
   const method = GEO_METHODOLOGIES[methodKey]
+  const articleFormat = resolveArticleFormat(args.promptKey, args.selection)
+  const format = getGeoArticleFormat(articleFormat)
   const targetPlatform = resolvePlatform(args.selection?.targetPlatform)
   const platform = GEO_PLATFORM_DEFINITIONS[targetPlatform]
-  const brandLayout = resolveBrandLayout(args.selection?.brandLayout, method.defaultBrandLayout)
-  const titleStrategy = resolveTitleStrategy(args.selection?.titleStrategy, method.defaultTitleStrategy)
+  const brandLayout = resolveBrandLayout(args.selection?.brandLayout, format.defaultBrandLayout)
+  const titleStrategy = resolveTitleStrategy(args.selection?.titleStrategy, format.defaultTitleStrategy)
+  const preferredEvidence = [...new Set([
+    ...format.preferredEvidence,
+    ...method.preferredEvidence,
+  ])]
   const selectedAssets = selectKnowledgeAssets({
     knowledgeBase: args.knowledgeBase,
     query: [
@@ -167,7 +198,7 @@ export function compileGeoArticleMethodology(args: {
       args.questionSubIntent,
       args.matchedAdvantage,
     ].filter(Boolean).join(" "),
-    preferredKinds: method.preferredEvidence,
+    preferredKinds: preferredEvidence,
     limit: 14,
   })
   const titleMatrix = buildGeoTitleMatrix({
@@ -180,6 +211,7 @@ export function compileGeoArticleMethodology(args: {
   const trace: ArticleMethodologyTrace = {
     version: GEO_METHODOLOGY_VERSION,
     methodKey,
+    articleFormat,
     targetPlatform,
     brandLayout,
     titleStrategy,
@@ -202,24 +234,31 @@ export function compileGeoArticleMethodology(args: {
       "",
       `【势途 GEO 方法论 ${GEO_METHODOLOGY_VERSION}】`,
       `本篇采用：${method.title}。${method.purpose}`,
-      `标准结构：${method.answerPattern.join(" -> ")}。`,
+      `文章形态：${format.title}。${format.description}`,
+      `标准结构：${format.answerPattern.join(" -> ")}。`,
+      `资料前提：${format.requiredInputs.join("；")}。`,
+      "当前文章形态是本次任务的最终结构约束；若基础模板中的章节或表格要求与它冲突，以当前文章形态为准。",
       "统一写作规则：",
       "1. 先回答用户问题，再展开证据、解释和行动建议。",
       "2. 锁定事实与创作表达分开：名称、数字、资质、报告、案例、价格和经历只能来自本次输入或匹配知识资产。",
       "3. 问题原文不得被改写成带品牌优势的冗长营销问句；优势只在回答正文中按证据和场景匹配。",
       "4. 主体名称、别名、产品、机构和人物关系必须一致，不能跨主体混用资料。",
       "5. 不输出提示词、方法论标签、内部字段、资产编号或质量审计过程。",
+      `6. 表格规则：${format.tablePolicy === "required" ? "必须使用标准 Markdown 表格" : format.tablePolicy === "forbidden" ? "不要使用表格，改用标题、段落和清单" : "只有比较或核验信息确有需要时才使用表格"}。`,
+      `7. 时效信息以生成当年 ${new Date().getFullYear()} 年为基准；除非用户要求历史内容，不固定套用旧年份。`,
       `标题策略：${TITLE_INSTRUCTIONS[titleStrategy]}`,
       `标题矩阵：${titleMatrix.map(item => `${item.dimension}维度：${item.direction}`).join("；")}`,
       `品牌结构：${BRAND_LAYOUT_INSTRUCTIONS[brandLayout].join(" ")}`,
       `平台适配：${platform.instructions.join(" ")}`,
-      `输出前静默核验：${method.qualityChecks.join("；")}。`,
+      `形态要求：${format.instructions.join(" ")}`,
+      `输出前静默核验：${[...method.qualityChecks, ...format.qualitySignals].join("；")}。`,
     ].join("\n"),
     userAddendum: [
       "",
       "【本篇方法参数】",
       `问题子意图：${args.questionSubIntent || args.questionIntent || "按核心疑问句判断"}`,
       `目标平台：${platform.title}`,
+      `文章形态：${format.title}`,
       `标题策略：${titleStrategy}`,
       `品牌结构：${brandLayout}`,
       `主主体：${args.primarySubject || "未填写"}`,

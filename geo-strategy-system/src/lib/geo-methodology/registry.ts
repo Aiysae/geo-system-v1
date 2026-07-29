@@ -1,4 +1,5 @@
 import type {
+  GeoArticleFormatKey,
   GeoBrandLayout,
   GeoContentPlatform,
   GeoKnowledgeAssetKind,
@@ -7,7 +8,7 @@ import type {
 } from "@/types/geo-methodology"
 import type { ArticlePromptKey } from "@/types"
 
-export const GEO_METHODOLOGY_VERSION = "shitu-geo-2026.07.1"
+export const GEO_METHODOLOGY_VERSION = "shitu-geo-2026.07.2"
 export const GEO_METHODOLOGY_LEGACY_VERSION = "legacy"
 
 export interface GeoMethodologyDefinition {
@@ -166,8 +167,32 @@ const PROMPT_METHOD_MAP: Record<ArticlePromptKey, GeoMethodologyKey> = {
   rewrite: "entityKnowledge",
 }
 
+const PROMPT_ARTICLE_FORMAT_MAP: Record<
+  ArticlePromptKey,
+  Exclude<GeoArticleFormatKey, "auto">
+> = {
+  thirdPartyObservation: "recommendationRoundup",
+  pitfallGuide: "localPitfallGuide",
+  competitorComparison: "neutralComparisonReview",
+  industryRankingReport: "tieredEvaluation",
+  handsOnComparisonReport: "fieldReviewQa",
+  mediaIndustryAnalysis: "industryWhitepaper",
+  clientCaseStudy: "evidenceCaseStory",
+  credentialsAnalysis: "primaryEvidenceDossier",
+  selectionPitfallGuide: "localPitfallGuide",
+  topBrandRanking: "recommendationRoundup",
+  shortVideoScript: "directAnswerGuide",
+  rewrite: "entityKnowledgeProfile",
+}
+
 export function methodologyForArticlePrompt(promptKey: ArticlePromptKey): GeoMethodologyKey {
   return PROMPT_METHOD_MAP[promptKey]
+}
+
+export function articleFormatForArticlePrompt(
+  promptKey: ArticlePromptKey,
+): Exclude<GeoArticleFormatKey, "auto"> {
+  return PROMPT_ARTICLE_FORMAT_MAP[promptKey]
 }
 
 export function isGeoMethodologyEnabled(): boolean {

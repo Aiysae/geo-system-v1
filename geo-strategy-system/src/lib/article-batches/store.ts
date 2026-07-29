@@ -152,6 +152,7 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
     methodologyCandidates: item.methodologyCandidates,
     platformCandidates: item.platformCandidates,
     targetPlatform: item.targetPlatform,
+    articleFormat: item.articleFormat,
     brandLayout: item.brandLayout,
     titleStrategy: item.titleStrategy,
     knowledgeAssetIds: item.knowledgeAssetIds,
