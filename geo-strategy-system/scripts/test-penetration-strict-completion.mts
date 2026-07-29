@@ -2,10 +2,12 @@ import assert from "node:assert/strict"
 import type { PenetrationItem } from "../src/types"
 
 const {
+  PENETRATION_AUDIT_RETRY_DELAYS_MS,
   PENETRATION_SLOT_RETRY_DELAYS_MS,
   getPenetrationSlotValidationError,
   isCompletePenetrationItem,
   nextPenetrationRetryAt,
+  nextPenetrationRetryAtForError,
 } = await import("../src/lib/penetration/slot-policy")
 
 function validItem(overrides: Partial<PenetrationItem> = {}): PenetrationItem {
@@ -114,5 +116,21 @@ assert.equal(nextPenetrationRetryAt(7, base), null)
 const jittered = Date.parse(nextPenetrationRetryAt(1, base, "job:model:1") || "")
 assert.ok(jittered >= base + 3_300)
 assert.ok(jittered <= base + 3_900)
+
+assert.deepEqual(PENETRATION_AUDIT_RETRY_DELAYS_MS, [5_000, 30_000])
+const auditError = "通义千问 百炼联网未返回可审计来源（search_results=0）"
+assert.equal(
+  nextPenetrationRetryAtForError(auditError, 1, base),
+  "2026-07-16T00:00:05.000Z",
+)
+assert.equal(
+  nextPenetrationRetryAtForError(auditError, 2, base),
+  "2026-07-16T00:00:30.000Z",
+)
+assert.equal(nextPenetrationRetryAtForError(auditError, 3, base), null)
+assert.equal(
+  nextPenetrationRetryAtForError("普通网络失败", 1, base),
+  "2026-07-16T00:00:03.000Z",
+)
 
 console.log("Penetration strict completion policy passed.")

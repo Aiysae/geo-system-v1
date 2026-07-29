@@ -94,6 +94,13 @@ globalThis.fetch = async (input, init) => {
                 name: "search_web",
                 arguments: JSON.stringify({ query: question }),
               },
+            }, {
+              id: "deepseek-search-call-duplicate",
+              type: "function",
+              function: {
+                name: "search_web",
+                arguments: JSON.stringify({ query: `  ${question}  ` }),
+              },
             }],
           },
         }],
@@ -290,6 +297,11 @@ try {
     { role: "user", content: question },
   ])
   assert.equal(deepSeekRequests[0]?.body.tool_choice, "required")
+  assert.equal(
+    deepSeekRequests[1]?.body.tool_choice,
+    "none",
+    "取得有效信源后必须关闭工具调用并要求模型直接作答",
+  )
   assert.equal(deepSeekEvents.some(event => event.searchExecuted === true), true)
   assert.equal(deepSeekEvents.flatMap(event => event.sources).length, 1)
   assert.equal(
@@ -336,6 +348,7 @@ try {
   assert.equal(kimiRequests.length, 2)
   assert.deepEqual(kimiRequests[0]?.body.messages, [{ role: "user", content: question }])
   assert.equal(kimiRequests[0]?.body.tool_choice, "required")
+  assert.equal(kimiRequests[1]?.body.tool_choice, "none")
   assert.deepEqual(kimiRequests[0]?.body.thinking, { type: "disabled" })
   assert.equal(
     ((kimiRequests[0]?.body.tools as Array<{ function?: { name?: string } }>)[0])

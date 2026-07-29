@@ -21,7 +21,7 @@ import {
   getPenetrationSlotValidationError,
   isCompletePenetrationItem,
   nextPenetrationCapacityRetryAt,
-  nextPenetrationRetryAt,
+  nextPenetrationRetryAtForError,
 } from "@/lib/penetration/slot-policy"
 import {
   formatPenetrationProviderError,
@@ -71,6 +71,10 @@ export interface PenetrationJobRequest {
   competitors: string[]
   selectedModels?: ModelKey[]
   models: ModelKey[]
+  slotSelection?: Array<{
+    model: ModelKey
+    questionIndex: number
+  }>
 }
 
 type StoredPenetrationJob = PenetrationJobRecord & {
@@ -179,6 +183,15 @@ function nowIso(): string {
 }
 
 function toPublicJob(job: StoredPenetrationJob): PenetrationJobRecord {
+  const retryableSlots = Object.values(job.slotStates || {})
+    .filter(state => state.status === "provider_blocked")
+    .map(state => ({
+      model: state.model,
+      question: job.request.questions[state.questionIndex] || "",
+      questionIndex: state.questionIndex,
+      error: state.lastError || "联网回答未达到完整性标准",
+    }))
+    .filter(slot => slot.question)
   const publicJob: Partial<StoredPenetrationJob> = { ...job }
   delete publicJob.request
   delete publicJob.ownerUserId
@@ -210,7 +223,9 @@ function toPublicJob(job: StoredPenetrationJob): PenetrationJobRecord {
     delete publicJob.queueDepth
     delete publicJob.queueReason
   }
-  return publicJob as PenetrationJobRecord
+  const result = publicJob as PenetrationJobRecord
+  if (retryableSlots.length > 0) result.retryableSlots = retryableSlots
+  return result
 }
 
 function uniqueBaseUrls(values: Array<string | undefined>): string[] {
@@ -244,9 +259,13 @@ function expectedSampleId(job: StoredPenetrationJob, model: ModelKey, questionIn
 function initialSlotStates(job: StoredPenetrationJob): Record<string, StoredPenetrationSlotState> {
   const now = nowIso()
   const states: Record<string, StoredPenetrationSlotState> = {}
+  const selectedSlots = job.request.slotSelection?.length
+    ? new Set(job.request.slotSelection.map(slot => slotKey(slot.model, slot.questionIndex)))
+    : null
   for (const model of job.request.models) {
     const existing = job.result?.byModel[model] || []
     for (let questionIndex = 0; questionIndex < job.request.questions.length; questionIndex++) {
+      if (selectedSlots && !selectedSlots.has(slotKey(model, questionIndex))) continue
       const sampleId = expectedSampleId(job, model, questionIndex)
       const item = existing.find(candidate => candidate.sampleId === sampleId)
       states[slotKey(model, questionIndex)] = {
@@ -259,6 +278,11 @@ function initialSlotStates(job: StoredPenetrationJob): Record<string, StoredPene
     }
   }
   return states
+}
+
+function requestedSlotCount(request: PenetrationJobRequest): number {
+  return request.slotSelection?.length
+    || request.questions.length * request.models.length
 }
 
 function isRecoverableSlot(state: StoredPenetrationSlotState): boolean {
@@ -330,7 +354,11 @@ function summarizeSlotStates(
 
   let completedBatches = 0
   for (let questionIndex = 0; questionIndex < job.request.questions.length; questionIndex++) {
-    if (job.request.models.every(model => states[slotKey(model, questionIndex)]?.status === "success")) {
+    const questionStates = values.filter(state => state.questionIndex === questionIndex)
+    if (
+      questionStates.length > 0
+      && questionStates.every(state => state.status === "success")
+    ) {
       completedBatches++
     }
   }
@@ -837,6 +865,17 @@ async function fetchBatchJudge(
 
 type PenetrationAttemptItem = PenetrationItem & { error?: string; judgeError?: string }
 
+function penetrationSlotError(
+  item: PenetrationAttemptItem | undefined,
+  modelError: string | undefined,
+  batchError: string,
+): string {
+  // A model-level summary may describe a different question in the same batch.
+  // Once this slot has its own item, only that item's error belongs to the slot.
+  if (item) return item.error || ""
+  return modelError || batchError
+}
+
 function cloneSlotStates(
   states: Record<string, StoredPenetrationSlotState>,
 ): Record<string, StoredPenetrationSlotState> {
@@ -919,7 +958,7 @@ async function processDueBatch(
 
       const item = returnedItemFor(job, data, batch, model, offset)
       const attempts = state.attempts + 1
-      const itemError = item?.error || data?.modelErrors?.[model] || batchError
+      const itemError = penetrationSlotError(item, data?.modelErrors?.[model], batchError)
       const validationError = itemError || getPenetrationSlotValidationError(item)
 
       if (!validationError && item) {
@@ -961,7 +1000,8 @@ async function processDueBatch(
         continue
       }
 
-      const retryAt = nextPenetrationRetryAt(
+      const retryAt = nextPenetrationRetryAtForError(
+        message,
         attempts,
         Date.parse(completedAt),
         `${job.id}:${key}:${attempts}`,
@@ -1179,7 +1219,11 @@ async function processDueWave(
 
         const item = returnedItemFor(job, settled.data, settled.batch, model, offset)
         const attempts = state.attempts + 1
-        const itemError = item?.error || settled.data?.modelErrors?.[model] || batchError
+        const itemError = penetrationSlotError(
+          item,
+          settled.data?.modelErrors?.[model],
+          batchError,
+        )
         const validationError = itemError || getPenetrationSlotValidationError(item)
 
         if (!validationError && item) {
@@ -1225,7 +1269,8 @@ async function processDueWave(
           continue
         }
 
-        const retryAt = nextPenetrationRetryAt(
+        const retryAt = nextPenetrationRetryAtForError(
+          message,
           attempts,
           Date.parse(completedAt),
           `${job.id}:${key}:${attempts}`,
@@ -1400,7 +1445,8 @@ async function processDueWave(
         for (const failure of failures) {
           const state = states[failure.key]
           if (!state || state.status !== "provider_blocked") continue
-          const retryAt = nextPenetrationRetryAt(
+          const retryAt = nextPenetrationRetryAtForError(
+            failure.message,
             state.attempts,
             Date.parse(failure.completedAt),
             `${job.id}:${failure.key}:${state.attempts}:alternate-account`,
@@ -1843,7 +1889,7 @@ export async function createPenetrationJob(args: {
     clientId: args.request.clientId,
     status: "queued",
     operation: args.request.operation,
-    totalSlots: args.request.questions.length * args.request.models.length,
+    totalSlots: requestedSlotCount(args.request),
     completedSlots: 0,
     totalBatches: args.request.questions.length,
     completedBatches: 0,
@@ -1853,7 +1899,7 @@ export async function createPenetrationJob(args: {
     retryingSlots: 0,
     blockedSlots: 0,
     activeSlots: 0,
-    queuedSlots: args.request.questions.length * args.request.models.length,
+    queuedSlots: requestedSlotCount(args.request),
     waitingSlots: 0,
     schedulerVersion: PENETRATION_SCHEDULER_V3
       ? "v3"

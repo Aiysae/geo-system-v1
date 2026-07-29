@@ -117,17 +117,37 @@ export async function syncPenetrationJobTask(job: CommonJob & {
   completedSlots: number
   phase?: string
   queuePosition?: number
+  queueReason?: string
+  retryingSlots?: number
+  blockedSlots?: number
+  activeSlots?: number
+  waitingSlots?: number
+  nextRetryAt?: string
 }): Promise<void> {
   const retrying = job.phase === "retrying"
   const status = normalizeStatus(job.status, retrying)
   const queueStage = status === "queued" && job.queuePosition
     ? `等待处理，当前排队第 ${job.queuePosition} 位`
     : ""
+  const completedLabel = `已完成 ${job.completedSlots}/${job.totalSlots}`
+  const retryAtMs = job.nextRetryAt ? Date.parse(job.nextRetryAt) : 0
+  const retrySeconds = Number.isFinite(retryAtMs)
+    ? Math.max(0, Math.ceil((retryAtMs - Date.now()) / 1000))
+    : 0
+  const retryLabel = retrySeconds > 0
+    ? retrySeconds >= 60
+      ? `${Math.ceil(retrySeconds / 60)} 分钟内继续`
+      : `${retrySeconds} 秒内继续`
+    : "即将继续"
   const phaseStage = status === "retrying"
-    ? "部分请求正在自动重试"
+    ? `${completedLabel}，${job.retryingSlots || 0} 项等待补采，${retryLabel}`
     : status === "running"
-      ? "正在获取独立联网回答"
-      : ""
+      ? `${completedLabel}，${job.activeSlots || 0} 项正在并行联网${
+          (job.waitingSlots || 0) > 0 ? `，${job.waitingSlots} 项等待空闲通道` : ""
+        }`
+      : status === "blocked"
+        ? `${completedLabel}，${job.blockedSlots || 0} 项未达到完整性标准`
+        : ""
   await syncTaskCenterTask({
     source: "penetration",
     sourceJobId: job.id,
@@ -153,6 +173,10 @@ export async function syncPenetrationJobTask(job: CommonJob & {
     metadata: {
       totalSlots: job.totalSlots,
       completedSlots: job.completedSlots,
+      retryingSlots: job.retryingSlots || 0,
+      blockedSlots: job.blockedSlots || 0,
+      activeSlots: job.activeSlots || 0,
+      waitingSlots: job.waitingSlots || 0,
       teamId: job.teamId,
     },
   })

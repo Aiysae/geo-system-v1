@@ -61,6 +61,10 @@ function searchQuery(raw: unknown, fallback: string): string {
   return fallback
 }
 
+function searchQueryKey(query: string): string {
+  return query.trim().replace(/\s+/g, " ").toLocaleLowerCase()
+}
+
 export async function chatWithAuditableExternalSearch(
   input: AuditableExternalSearchArgs,
 ): Promise<string> {
@@ -79,8 +83,11 @@ export async function chatWithAuditableExternalSearch(
   })
 
   const auditableUrls = new Set<string>()
+  const searchPayloads = new Map<string, string>()
   let searchExecuted = false
-  const maxRounds = 4
+  let forceFinalAnswer = false
+  const maxRounds = 3
+  const maxUniqueSearches = 2
 
   for (let round = 0; round < maxRounds; round += 1) {
     const data = await openaiCompatRaw({
@@ -94,7 +101,7 @@ export async function chatWithAuditableExternalSearch(
       seed: args.seed,
       jsonMode: false,
       tools: [SEARCH_TOOL],
-      toolChoice: round === 0 ? "required" : undefined,
+      toolChoice: forceFinalAnswer ? "none" : "required",
       extraBody: input.extraBody,
       timeoutMs: Math.max(30, input.requestTimeoutSec) * 1000,
       signal: args.signal,
@@ -118,6 +125,9 @@ export async function chatWithAuditableExternalSearch(
       && Array.isArray(message.tool_calls)
       && message.tool_calls.length > 0
     ) {
+      if (forceFinalAnswer) {
+        throw new Error(`${input.label} 已取得联网证据但仍未返回最终回答。`)
+      }
       messages.push({
         role: "assistant",
         content: messageText(message.content),
@@ -135,27 +145,26 @@ export async function chatWithAuditableExternalSearch(
         }
 
         const query = searchQuery(toolCall.function.arguments, args.user)
-        const search = await searchBaiduWeb({
-          apiKey: input.searchApiKey,
-          query,
-          timeoutSec: input.searchTimeoutSec,
-          signal: args.signal,
-          topK: 20,
-        })
-        searchExecuted = true
-        for (const source of search.sources) auditableUrls.add(source.url)
-        args.onSearchSources?.({
-          query: search.query,
-          sources: search.sources,
-          mode: "external_tool_web",
-          searchExecuted: true,
-          providerRequestId: search.requestId,
-        })
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          name: toolCall.function.name,
-          content: JSON.stringify({
+        const queryKey = searchQueryKey(query)
+        let toolContent = searchPayloads.get(queryKey)
+        if (!toolContent && searchPayloads.size < maxUniqueSearches) {
+          const search = await searchBaiduWeb({
+            apiKey: input.searchApiKey,
+            query,
+            timeoutSec: input.searchTimeoutSec,
+            signal: args.signal,
+            topK: 20,
+          })
+          searchExecuted = true
+          for (const source of search.sources) auditableUrls.add(source.url)
+          args.onSearchSources?.({
+            query: search.query,
+            sources: search.sources,
+            mode: "external_tool_web",
+            searchExecuted: true,
+            providerRequestId: search.requestId,
+          })
+          toolContent = JSON.stringify({
             query: search.query,
             results: search.sources.map(source => ({
               title: source.title,
@@ -163,9 +172,23 @@ export async function chatWithAuditableExternalSearch(
               snippet: source.snippet,
               domain: source.domain,
             })),
-          }),
+          })
+          searchPayloads.set(queryKey, toolContent)
+        }
+        if (!toolContent) {
+          toolContent = JSON.stringify({
+            query,
+            error: `本次回答最多执行 ${maxUniqueSearches} 条唯一联网检索，请使用已有证据直接回答。`,
+          })
+        }
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: toolCall.function.name,
+          content: toolContent,
         })
       }
+      forceFinalAnswer = searchExecuted && auditableUrls.size > 0
       continue
     }
 
@@ -183,5 +206,8 @@ export async function chatWithAuditableExternalSearch(
     return content
   }
 
-  throw new Error(`${input.label} 严格联网工具调用超过 ${maxRounds} 轮仍未收敛。`)
+  if (!searchExecuted || auditableUrls.size === 0) {
+    throw new Error(`${input.label} 严格联网未取得可审计网址。`)
+  }
+  throw new Error(`${input.label} 已取得联网证据但仍未返回最终回答。`)
 }
