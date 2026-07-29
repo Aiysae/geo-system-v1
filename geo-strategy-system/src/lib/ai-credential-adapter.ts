@@ -68,7 +68,7 @@ async function resolveAdapterCredentialRoute(
   let fixedTargetModel = false
 
   if (strictWeb && model === "deepseek") {
-    targetModel = process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-v4-flash"
+    targetModel = process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-chat"
     selectionModel = undefined
     fixedTargetModel = true
   }
@@ -364,7 +364,9 @@ async function runAuditableExternalCredentialPoolChat(
         leaseSeconds,
       })
       if (!searchLease) {
-        lastError = new Error(`${label} 联网搜索账号池当前繁忙或暂无可用账号`)
+        if (!lastError || excludedSearchIds.length === 0) {
+          lastError = new Error(`${label} 联网搜索账号池当前繁忙或暂无可用账号`)
+        }
         break
       }
 
@@ -380,7 +382,9 @@ async function runAuditableExternalCredentialPoolChat(
         ...quotaEstimate,
       })
       if (!generationLease) {
-        lastError = new Error(`${label} 生成账号池当前繁忙或暂无可用账号`)
+        if (!lastError || excludedGenerationIds.length === 0) {
+          lastError = new Error(`${label} 生成账号池当前繁忙或暂无可用账号`)
+        }
         break
       }
 

@@ -56,7 +56,7 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
       args,
       endpoint: buildAiChatUrl(config),
       apiKey: config.apiKey,
-      model: process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-v4-flash",
+      model: process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-chat",
       label: LABEL,
       modelProvider: "deepseek",
       searchApiKey: searchConfig.apiKey,
