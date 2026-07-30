@@ -18,6 +18,7 @@ import { listPaymentOrdersForUser } from "@/lib/payment-orders"
 import { getFeaturePrice } from "@/lib/pricing"
 import { listRequestsForUser } from "@/lib/recharge"
 import { hasUnlimitedCreditAccess } from "@/lib/with-credits"
+import { listAdminPaymentRequestsForUser } from "@/lib/admin-payment-requests"
 import { listWorkspaceClientSummaries } from "@/lib/workspace-store"
 
 export const dynamic = "force-dynamic"
@@ -40,7 +41,7 @@ export default async function AccountPage({
     redirect(`/forgot-password?email=${encodeURIComponent(user.email)}&managed=1`)
   }
 
-  const [membership, credits, access, rechargeRequests, paymentOrders, ledger, managedServices] = await Promise.all([
+  const [membership, credits, access, rechargeRequests, paymentOrders, ledger, managedServices, adminPaymentRequests] = await Promise.all([
     getMembershipWithPaymentRepair(user.id),
     getCreditBalanceSnapshot(user.id),
     getWorkspaceAccountAccess(user.id),
@@ -48,6 +49,7 @@ export default async function AccountPage({
     listPaymentOrdersForUser(user.id, 80),
     listCreditLedgerForUser(user.id, 120),
     listManagedServiceOrdersForUser(user.id, 100),
+    listAdminPaymentRequestsForUser(user.id, 80),
   ])
 
   const link = access.mode === "client" ? await getClientAccountLink(user.id) : null
@@ -94,7 +96,7 @@ export default async function AccountPage({
       credits={credits}
       access={access}
       clients={clients}
-      rechargeRecords={mergeBillingRechargeRecords(rechargeRequests, paymentOrders, 80)}
+      rechargeRecords={mergeBillingRechargeRecords(rechargeRequests, paymentOrders, 80, adminPaymentRequests)}
       ledger={ledger}
       isAdmin={isAdminUser(user)}
       unlimitedCredits={hasUnlimitedCreditAccess(user)}

@@ -4,9 +4,11 @@ import { Download, Inbox, ReceiptText, ShieldCheck, Sparkles } from "lucide-reac
 import { isAdminUser } from "@/lib/admin"
 import { getCurrentUser } from "@/lib/auth"
 import { listAllRequests } from "@/lib/recharge"
+import { listAllAdminPaymentRequests } from "@/lib/admin-payment-requests"
 import SiteFooter from "@/components/site-footer"
 import { AdminHeader } from "@/components/admin/admin-header"
 import { RechargeRow } from "./recharge-row"
+import { AdminPaymentRequestPanel } from "./admin-payment-request-panel"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -30,7 +32,10 @@ export default async function AdminRechargePage() {
     )
   }
 
-  const requests = await listAllRequests(300)
+  const [requests, paymentRequests] = await Promise.all([
+    listAllRequests(300),
+    listAllAdminPaymentRequests(300),
+  ])
   const pending = requests.filter(item => item.status === "pending")
   const approved = requests.filter(item => item.status === "approved")
   const rejected = requests.filter(item => item.status === "rejected")
@@ -46,6 +51,22 @@ export default async function AdminRechargePage() {
       />
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-8">
+        <AdminPaymentRequestPanel initialRequests={paymentRequests.map(record => ({
+          id: record.id,
+          title: record.title,
+          status: record.status,
+          emailStatus: record.emailStatus,
+          username: record.username,
+          email: record.email,
+          priceCents: record.priceCents,
+          credits: record.credits,
+          selectedProvider: record.selectedProvider,
+          createdAt: record.createdAt,
+          expiresAt: record.expiresAt,
+          creditedAt: record.creditedAt,
+          transferSubmittedAt: record.transferSubmittedAt,
+        }))} />
+
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-[11px] text-slate-400 mb-1.5 tracking-[0.18em] uppercase font-medium">

@@ -26,10 +26,12 @@ import {
   membershipTierLabel,
   MEMBERSHIP_LEVELS,
 } from "@/lib/membership"
+import { listAdminPaymentRequestsForUser } from "@/lib/admin-payment-requests"
 import { InvoiceSupportButton } from "@/components/billing/invoice-support-button"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { ManagedServiceCard } from "@/components/managed-services/managed-service-card"
 import SiteFooter from "@/components/site-footer"
+import { UserNotificationCenter } from "@/components/notifications/user-notification-center"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -94,14 +96,15 @@ export default async function BillingPage() {
   const user = await getCurrentUser()
   if (!user) redirect("/sign-in?redirect_url=/billing")
 
-  const [credits, rechargeRequests, paymentOrders, ledger, membership] = await Promise.all([
+  const [credits, rechargeRequests, paymentOrders, ledger, membership, adminPaymentRequests] = await Promise.all([
     getCredits(user.id),
     listRequestsForUser(user.id, 80),
     listPaymentOrdersForUser(user.id, 80),
     listCreditLedgerForUser(user.id, 120),
     getMembershipWithPaymentRepair(user.id),
+    listAdminPaymentRequestsForUser(user.id, 80),
   ])
-  const recharges = mergeBillingRechargeRecords(rechargeRequests, paymentOrders, 80)
+  const recharges = mergeBillingRechargeRecords(rechargeRequests, paymentOrders, 80, adminPaymentRequests)
   const unlimited = hasUnlimitedCreditAccess(user)
   const introPackage = RECHARGE_PACKAGES.find(item => item.firstPurchaseOnly)
   const firstPurchaseBlockReason = membership.active
@@ -134,13 +137,16 @@ export default async function BillingPage() {
               <div className="geo-utility-header-subtitle mt-0.5 truncate text-[11px]">{user.email}</div>
             </div>
           </div>
-          <Link
-            href="/workspace"
-            className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            返回工作台
-          </Link>
+          <div className="flex items-center gap-2">
+            <UserNotificationCenter />
+            <Link
+              href="/workspace"
+              className="geo-utility-header-action inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              返回工作台
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -308,9 +314,15 @@ export default async function BillingPage() {
                   <article key={record.id} className="px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold text-slate-950">
-                          {record.packageName || "历史充值申请"}
-                        </h3>
+                        {record.actionUrl ? (
+                          <Link href={record.actionUrl} className="block truncate text-sm font-semibold text-[#0958D9] hover:underline">
+                            {record.packageName || "历史充值申请"}
+                          </Link>
+                        ) : (
+                          <h3 className="truncate text-sm font-semibold text-slate-950">
+                            {record.packageName || "历史充值申请"}
+                          </h3>
+                        )}
                         <p className="mt-1 break-all font-mono text-[10px] text-slate-400">
                           {record.paymentOutTradeNo || record.id}
                         </p>
@@ -351,15 +363,22 @@ export default async function BillingPage() {
                     </dl>
                     <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
                       <span className="text-[11px] text-slate-500">电子发票请联系微信客服办理</span>
-                      <InvoiceSupportButton
-                        status={record.status}
-                        orderNo={record.paymentOutTradeNo || record.id}
-                        packageName={record.packageName || "历史充值申请"}
-                        priceCents={record.priceCents}
-                        paymentMethod={paymentLabel(record.paymentMethod)}
-                        createdAt={record.createdAt}
-                        processedAt={record.processedAt}
-                      />
+                      <div className="flex items-center gap-2">
+                        {record.actionUrl && record.status !== "credited" ? (
+                          <Link href={record.actionUrl} className="inline-flex h-8 items-center rounded-lg bg-[#EAF5FF] px-2.5 text-[11px] font-semibold text-[#0958D9] ring-1 ring-[#B7D9FF]">
+                            查看订单
+                          </Link>
+                        ) : null}
+                        <InvoiceSupportButton
+                          status={record.status}
+                          orderNo={record.paymentOutTradeNo || record.id}
+                          packageName={record.packageName || "历史充值申请"}
+                          priceCents={record.priceCents}
+                          paymentMethod={paymentLabel(record.paymentMethod)}
+                          createdAt={record.createdAt}
+                          processedAt={record.processedAt}
+                        />
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -384,7 +403,9 @@ export default async function BillingPage() {
                 <tbody>
                   {recharges.map(record => (
                     <tr key={record.id} className="border-t border-slate-100 text-sm">
-                      <td className="px-5 py-3 font-medium text-slate-900">{record.packageName || "历史充值申请"}</td>
+                      <td className="px-5 py-3 font-medium text-slate-900">
+                        {record.actionUrl ? <Link href={record.actionUrl} className="text-[#0958D9] hover:underline">{record.packageName || "历史充值申请"}</Link> : record.packageName || "历史充值申请"}
+                      </td>
                       <td className="px-5 py-3 font-mono text-xs text-slate-500">
                         {record.paymentOutTradeNo || "-"}
                       </td>
@@ -414,15 +435,20 @@ export default async function BillingPage() {
                       <td className="px-5 py-3 text-xs text-slate-500">{formatTime(record.createdAt)}</td>
                       <td className="px-5 py-3 text-xs text-slate-500">{formatTime(record.processedAt)}</td>
                       <td className="px-5 py-3">
-                        <InvoiceSupportButton
-                          status={record.status}
-                          orderNo={record.paymentOutTradeNo || record.id}
-                          packageName={record.packageName || "历史充值申请"}
-                          priceCents={record.priceCents}
-                          paymentMethod={paymentLabel(record.paymentMethod)}
-                          createdAt={record.createdAt}
-                          processedAt={record.processedAt}
-                        />
+                        <div className="flex items-center gap-2">
+                          {record.actionUrl && record.status !== "credited" ? (
+                            <Link href={record.actionUrl} className="inline-flex h-8 items-center rounded-lg bg-[#EAF5FF] px-2.5 text-[11px] font-semibold text-[#0958D9] ring-1 ring-[#B7D9FF]">查看</Link>
+                          ) : null}
+                          <InvoiceSupportButton
+                            status={record.status}
+                            orderNo={record.paymentOutTradeNo || record.id}
+                            packageName={record.packageName || "历史充值申请"}
+                            priceCents={record.priceCents}
+                            paymentMethod={paymentLabel(record.paymentMethod)}
+                            createdAt={record.createdAt}
+                            processedAt={record.processedAt}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))}

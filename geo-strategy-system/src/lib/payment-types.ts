@@ -11,6 +11,7 @@ export type PaymentOrderStatus =
 
 export type PaymentProvider = "manual_transfer" | "wechat" | "alipay" | "other"
 export type PaymentProductType = "credits" | "managed_service"
+export type PaymentOrderOrigin = "self_checkout" | "admin_request"
 
 export type PaymentOrder = {
   id: string
@@ -19,6 +20,8 @@ export type PaymentOrder = {
   username: string
   email: string
   rechargeRequestId?: string
+  origin?: PaymentOrderOrigin
+  adminPaymentRequestId?: string
   productType?: PaymentProductType
   managedServiceOrderId?: string
   packageKey?: RechargePackageKey

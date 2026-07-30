@@ -49,6 +49,8 @@ export function createAlipayCheckoutUrl(
   const productCode = channel === "wap" ? "QUICK_WAP_WAY" : "FAST_INSTANT_TRADE_PAY"
   const returnUrl = order.productType === "managed_service"
     ? `${publicManagedServiceReturnUrl()}?service_order_id=${encodeURIComponent(order.managedServiceOrderId || "")}&payment_return=alipay&order_id=${encodeURIComponent(order.id)}`
+    : order.adminPaymentRequestId
+      ? `${publicAdminPaymentRequestReturnUrl(order.adminPaymentRequestId)}?payment_return=alipay&order_id=${encodeURIComponent(order.id)}`
     : `${config.returnUrl}&order_id=${encodeURIComponent(order.id)}`
   return sdk().pageExecute(method, "GET", {
     notifyUrl: config.notifyUrl,
@@ -64,6 +66,13 @@ export function createAlipayCheckoutUrl(
       timeoutExpress: "15m",
     },
   })
+}
+
+function publicAdminPaymentRequestReturnUrl(requestId: string): string {
+  const base = String(process.env.PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://shitugeo.top")
+    .trim()
+    .replace(/\/+$/, "")
+  return `${base}/account/payment-requests/${encodeURIComponent(requestId)}`
 }
 
 function publicManagedServiceReturnUrl(): string {
