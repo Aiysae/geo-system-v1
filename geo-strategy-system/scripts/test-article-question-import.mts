@@ -56,6 +56,23 @@ assert.equal(aliases.skipped.length, 2)
 assert.equal(aliases.skipped[0].reason, "duplicate_batch")
 assert.equal(aliases.skipped[1].reason, "invalid")
 
+const traditionalChinese = parseArticleQuestionMatrix([
+  ["疑問句（香港用語）", "配對優勢（來源：第二份文件）"],
+  [
+    "香港訂造傢俬邊間好？有冇真實用家推介？",
+    "• 【真實評價】案例及評價可以查證。\n• 【收費透明】隱藏收費為 HK$0。\n• 【交收穩定】完工驗收一次通過率約 96%。",
+  ],
+])
+assert.equal(traditionalChinese.rows.length, 1)
+assert.equal(
+  traditionalChinese.rows[0].question,
+  "香港訂造傢俬邊間好？有冇真實用家推介？",
+)
+assert.match(traditionalChinese.rows[0].matchedAdvantage || "", /真實評價/)
+assert.match(traditionalChinese.rows[0].matchedAdvantage || "", /收費透明/)
+assert.match(traditionalChinese.rows[0].matchedAdvantage || "", /交收穩定/)
+assert.equal(traditionalChinese.warningCount, 0)
+
 assert.equal(
   normalizeArticleQuestionKey(" 第一次装修，怎么选？ "),
   normalizeArticleQuestionKey("第一次装修怎么选"),
