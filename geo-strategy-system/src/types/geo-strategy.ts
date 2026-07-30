@@ -48,6 +48,9 @@ export interface KeywordStrategyState {
   questionModel: string
   questionCustomKeywords: string
   questionCustomPainScenarios: string
+  strategyLanguageStyle?: KeywordStrategyLanguageStyle
+  strategyCustomLanguageStyle?: string
+  strategyCustomKeywords?: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]
@@ -115,6 +118,64 @@ export interface KeywordItem {
   priority: string
   keyword: string
   logic: string
+}
+
+export type KeywordStrategyLanguageStyle =
+  | "auto"
+  | "mainland_simplified"
+  | "hong_kong_traditional_cantonese"
+  | "formal_traditional"
+  | "custom"
+
+export interface KeywordStrategyGenerationSettings {
+  target_region: string
+  language_style: KeywordStrategyLanguageStyle
+  custom_language_style?: string
+  custom_keywords: string[]
+}
+
+export interface KeywordStrategyResearchSource {
+  title: string
+  url: string
+  domain: string
+}
+
+export interface KeywordStrategyResearchAudit {
+  methodology_version: string
+  provider: "doubao"
+  model: string
+  target_region: string
+  language_style: KeywordStrategyLanguageStyle
+  searched_at: string
+  search_executed: boolean
+  provider_request_id?: string
+  query: string
+  brief: string
+  user_language_patterns: string[]
+  decision_signals: string[]
+  regional_expressions: string[]
+  sources: KeywordStrategyResearchSource[]
+}
+
+export interface KeywordStrategyQualityAudit {
+  checked_at: string
+  methodology_version: string
+  keyword_count: number
+  duplicate_keyword_count: number
+  missing_keyword_logic_count: number
+  custom_keyword_count: number
+  covered_custom_keyword_count: number
+  valid_source_count: number
+  seven_category_ready: boolean
+  passed: boolean
+  notes: string[]
+}
+
+export interface GeoQuestionOptimization {
+  keyword_placement: string
+  conclusion_first: string
+  structure_format: string
+  long_tail_terms: string[]
 }
 
 /** 官网策略条目 */
@@ -234,6 +295,8 @@ export interface QuestionItem {
   question: string
   intent: string
   content_angle: string
+  decisionDimension?: string
+  geo_optimization?: GeoQuestionOptimization
   matched_advantage?: string
   generationReason?: string
   userStage?: "认知期" | "探索期" | "比较期" | "决策期" | "风险确认期"
@@ -289,6 +352,10 @@ export interface GeoStrategyPlan {
   geo_monitoring_plan: GeoMonitoringItem[]
   execution_roadmap: ExecutionPhase[]
   question_strategy?: QuestionItem[]
+  strategy_engine_version?: string
+  generation_settings?: KeywordStrategyGenerationSettings
+  keyword_research?: KeywordStrategyResearchAudit
+  quality_audit?: KeywordStrategyQualityAudit
 }
 
 /** 上传文件信息 */
@@ -321,6 +388,7 @@ export interface QuestionJobRecord extends QuestionJobProgress {
   completedBatches: number
   questions: QuestionItem[]
   warnings: string[]
+  researchAudit?: KeywordStrategyResearchAudit
   error?: string
   createdAt: string
   updatedAt: string
@@ -417,7 +485,7 @@ export interface QuestionCategoryConfig {
   /** 是否生成痛点/场景问题 */
   painScenarioEnabled?: boolean
   /** 关键词数量模式 */
-  keywordCountMode?: "system" | "custom"
+  keywordCountMode?: "system" | "custom" | "per_keyword"
   /** 劣势数量模式 */
   weaknessCountMode?: "system" | "custom"
   /** 痛点/场景数量模式 */
@@ -428,6 +496,8 @@ export interface QuestionCategoryConfig {
   painScenarioSource?: "system" | "custom"
   /** 自定义关键词问题数 */
   keywordCount?: number
+  /** 按关键词生成时，每个关键词的问题数 */
+  keywordQuestionsPerKeyword?: number
   /** 自定义劣势转化问题数 */
   weaknessCount?: number
   /** 关键词分类分配模式：按比例或自定义精确数量 */
@@ -455,6 +525,7 @@ export const DEFAULT_CATEGORY_CONFIG: QuestionCategoryConfig = {
   keywordSource: "system",
   painScenarioSource: "system",
   keywordCount: 20,
+  keywordQuestionsPerKeyword: 10,
   weaknessCount: 10,
   painScenarioCount: 10,
   allocationMode: "ratio",

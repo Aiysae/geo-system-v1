@@ -33,6 +33,26 @@ const plan: GeoStrategyPlan = {
     weakness_conversion_keywords: [{ priority: "2", keyword: "GEO 案例验证", logic: "用证据降低决策顾虑" }],
     scenario_keywords: [{ priority: "2", keyword: "企业 GEO 月报", logic: "覆盖持续运营场景" }],
   },
+  keyword_research: {
+    methodology_version: "doubao-geo-keyword-strategy-v1",
+    provider: "doubao",
+    model: "doubao-seed-2-0-lite-260215",
+    target_region: "中国大陆",
+    language_style: "mainland_simplified",
+    searched_at: "2026-07-24T08:00:00.000Z",
+    search_executed: true,
+    provider_request_id: "resp_word_export_test",
+    query: "企业 GEO 服务关键词研究",
+    brief: "企业用户重点关注模型覆盖、联网证据和持续复测能力。",
+    user_language_patterns: ["GEO 服务商怎么选"],
+    decision_signals: ["模型覆盖", "信源可审计"],
+    regional_expressions: ["中国大陆企业用户"],
+    sources: [{
+      title: "GEO 服务公开资料",
+      url: "https://example.com/geo-service",
+      domain: "example.com",
+    }],
+  },
   official_site_strategy: [{ module: "问答中心", action: "建设可索引的 Q&A 页面", goal: "覆盖核心疑问句" }],
   third_party_site_strategy: [{
     priority: "1",
@@ -97,6 +117,13 @@ const questions: QuestionItem[] = [
     question: "企业选择 GEO 服务商时应该重点核验哪些能力？",
     intent: "比较筛选",
     content_angle: "服务能力与证据",
+    decisionDimension: "对比选型",
+    geo_optimization: {
+      keyword_placement: "标题和首段自然出现 GEO 服务商",
+      conclusion_first: "先给出核验能力清单",
+      structure_format: "H2 清单加对比表",
+      long_tail_terms: ["GEO 服务商怎么选"],
+    },
     matched_advantage: "提供多模型独立联网检测",
   },
   {
@@ -134,6 +161,13 @@ for (const variant of ["strategy", "questions"] as const) {
   assert.match(documentXml, /测试品牌全国 GEO 策略/)
   assert.match(documentXml, /疑问句池与优势匹配/)
   assert.match(documentXml, /提供多模型独立联网检测/)
+  if (variant === "strategy") {
+    assert.match(documentXml, /豆包联网研究依据/)
+    assert.match(documentXml, /GEO 服务公开资料/)
+  } else {
+    assert.match(documentXml, /对比选型/)
+    assert.match(documentXml, /先给出核验能力清单/)
+  }
   assert.match(headerXml || "", /势途 GEO/)
   assert.match(footerXml || "", /shitugeo\.top/)
   assert.ok(Object.keys(zip.files).some(name => /^word\/media\//.test(name)), "DOCX 应嵌入势途 Logo")

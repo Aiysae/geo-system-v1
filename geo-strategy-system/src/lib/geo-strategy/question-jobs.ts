@@ -17,30 +17,32 @@ import {
 } from "@/lib/task-cancellation"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "./question-advantages"
 import { classifyQuestionMethodology } from "./question-methodology"
+import {
+  QUESTION_BATCH_SIZE,
+  buildQuestionBatchPlan,
+  type QuestionAllocationOverride,
+  type QuestionBatchPlan,
+  type QuestionCategoryKey,
+} from "./question-batching"
+import {
+  areNearDuplicateQuestions,
+  normalizeGeoQuestionOptimization,
+  normalizeKeywordStrategySettings,
+} from "./keyword-strategy-methodology"
+import { researchKeywordStrategyContext } from "./keyword-strategy-research"
 import type {
   GeoStrategyPlan,
   QuestionCategoryConfig,
   QuestionItem,
   QuestionJobRecord,
   QuestionModelProvider,
+  KeywordStrategyResearchAudit,
 } from "@/types/geo-strategy"
 import {
   DEFAULT_QUESTION_MODEL_PROVIDER,
   normalizeQuestionModel,
   normalizeQuestionModelProvider,
 } from "@/types/geo-strategy"
-
-type QuestionCategoryKey = "weakness_spin" | "core_keywords" | "secondary_keywords" | "pain_scenario"
-
-interface QuestionAllocationOverride {
-  category: QuestionCategoryKey
-  count: number
-}
-
-interface QuestionBatchPlan {
-  totalCount: number
-  allocationOverrides: QuestionAllocationOverride[]
-}
 
 interface QuestionJobRequest {
   clientId?: string
@@ -75,12 +77,15 @@ type QuestionsResponse = {
 }
 
 const QUESTION_GENERATION_LIMIT = 600
-const QUESTION_JOB_SINGLE_REQUEST_LIMIT = 45
 const QUESTION_JOB_MAX_BATCH_ATTEMPTS = 3
 const QUESTION_JOB_BATCH_TIMEOUT_MS = 12 * 60 * 1000
 const QUESTION_JOB_TTL_SECONDS = 60 * 60 * 24
 const QUESTION_JOB_CANCELLED_MESSAGE = "用户已停止生成"
 const QUESTION_PENDING_SET_KEY = "geo:question-jobs:pending"
+const QUESTION_JOB_BATCH_CONCURRENCY = Math.max(
+  1,
+  Math.min(6, Math.floor(Number(process.env.QUESTION_JOB_BATCH_CONCURRENCY) || 3)),
+)
 
 const memoryJobs = new Map<string, StoredQuestionJobRecord>()
 const activeJobs = new Set<string>()
@@ -357,45 +362,17 @@ function sumAllocationOverrides(allocationOverrides?: Array<{ count?: unknown }>
   }, 0)
 }
 
-function buildQuestionBatchPlans(
+function questionBatchPlans(
+  request: QuestionJobRequest,
   counts: Record<QuestionCategoryKey, number>,
 ): QuestionBatchPlan[] {
-  const plans: QuestionBatchPlan[] = []
-  const remaining = { ...counts }
-  const order: QuestionCategoryKey[] = [
-    "weakness_spin",
-    "core_keywords",
-    "secondary_keywords",
-    "pain_scenario",
-  ]
-
-  let current: QuestionAllocationOverride[] = []
-  let currentTotal = 0
-
-  function flush() {
-    if (currentTotal <= 0) return
-    plans.push({ totalCount: currentTotal, allocationOverrides: current })
-    current = []
-    currentTotal = 0
-  }
-
-  for (const category of order) {
-    while (remaining[category] > 0) {
-      const capacity = QUESTION_JOB_SINGLE_REQUEST_LIMIT - currentTotal
-      if (capacity <= 0) {
-        flush()
-        continue
-      }
-      const take = Math.min(capacity, remaining[category])
-      current.push({ category, count: take })
-      currentTotal += take
-      remaining[category] -= take
-      if (currentTotal >= QUESTION_JOB_SINGLE_REQUEST_LIMIT) flush()
-    }
-  }
-  flush()
-
-  return plans
+  return buildQuestionBatchPlan({
+    counts,
+    keywordCountMode: request.categoryConfig.keywordCountMode,
+    customKeywords: request.customKeywords,
+    coreKeywords: request.coreKeywords,
+    questionsPerKeyword: request.categoryConfig.keywordQuestionsPerKeyword,
+  })
 }
 
 type FallbackQuestionType = {
@@ -565,6 +542,22 @@ function buildFallbackQuestionSeed(
     question,
     intent,
     content_angle: contentAngle,
+    decisionDimension: type.category === "榜单推荐型"
+      ? "品牌/方案推荐"
+      : type.category === "竞品对比型"
+        ? "对比选型"
+        : type.category === "采购决策型"
+          ? "流程服务"
+          : type.category === "场景人群型"
+            ? "场景细分"
+            : type.category === "风险疑虑型"
+              ? "避坑风险"
+              : "需求判断",
+    geo_optimization: normalizeGeoQuestionOptimization(
+      undefined,
+      question,
+      safeKeyword,
+    ),
     generationReason: `本地补齐时按${type.category}生成，模拟${type.userStage}用户围绕${safeKeyword}的真实决策问题`,
     userStage: type.userStage,
     metricPurpose: type.metricPurpose,
@@ -710,7 +703,13 @@ function appendQuestionItems(
 ): void {
   for (const question of items) {
     const key = questionKey(question.question)
-    if (!key || usedKeys.has(key)) continue
+    if (
+      !key
+      || usedKeys.has(key)
+      || target.some(existing =>
+        areNearDuplicateQuestions(existing.question, question.question)
+      )
+    ) continue
     usedKeys.add(key)
     target.push(question)
     if (target.length >= totalCount) break
@@ -726,6 +725,84 @@ function reindexQuestions(questions: QuestionItem[], totalCount: number, strateg
     ...question,
     id: String(index + 1),
   }))
+}
+
+function hasUsableKeywordResearch(
+  value: GeoStrategyPlan["keyword_research"],
+): value is KeywordStrategyResearchAudit {
+  const searchedAt = value?.searched_at ? Date.parse(value.searched_at) : Number.NaN
+  const fresh = Number.isFinite(searchedAt)
+    && Date.now() - searchedAt <= 24 * 60 * 60 * 1000
+  return Boolean(
+    fresh
+    && value?.search_executed
+    && value.provider_request_id
+    && Array.isArray(value.sources)
+    && value.sources.length > 0,
+  )
+}
+
+async function ensureQuestionJobResearch(
+  job: StoredQuestionJobRecord,
+): Promise<StoredQuestionJobRecord> {
+  const fallbackRegion = job.request.strategy.profile?.person_profile?.region
+    || job.request.strategy.profile?.terms?.join("、")
+    || "不限地域"
+  const baseSettings = job.request.strategy.generation_settings
+    || normalizeKeywordStrategySettings(undefined, fallbackRegion)
+  const requestedKeywords = (job.request.customKeywords || []).length > 0
+    ? job.request.customKeywords
+    : baseSettings.custom_keywords
+  const settings = {
+    ...baseSettings,
+    custom_keywords: requestedKeywords,
+  }
+  const researchCoversRequestedKeywords = requestedKeywords.every(keyword =>
+    baseSettings.custom_keywords.some(existing =>
+      questionKey(existing) === questionKey(keyword)
+    )
+  )
+
+  if (
+    hasUsableKeywordResearch(job.request.strategy.keyword_research)
+    && researchCoversRequestedKeywords
+  ) {
+    if (job.researchAudit) return job
+    return await patchQuestionJob(job.id, {
+      researchAudit: job.request.strategy.keyword_research,
+    }) || job
+  }
+
+  const controller = new AbortController()
+  const unregisterAbortController = registerAbortController(job.id, controller)
+  try {
+    const researchAudit = await researchKeywordStrategyContext({
+      profile: job.request.strategy.profile as unknown as Record<string, unknown>,
+      settings,
+      signal: controller.signal,
+    })
+    const strategy = {
+      ...job.request.strategy,
+      generation_settings: settings,
+      keyword_research: researchAudit,
+    }
+    return await patchQuestionJob(job.id, {
+      request: {
+        ...job.request,
+        strategy,
+      },
+      researchAudit,
+      warnings: mergeWarnings(job.warnings, [
+        `已完成豆包官方联网研究，核验 ${researchAudit.sources.length} 个有效网页来源。`,
+      ]),
+    }) || {
+      ...job,
+      request: { ...job.request, strategy },
+      researchAudit,
+    }
+  } finally {
+    unregisterAbortController()
+  }
 }
 
 async function settleQuestionJobCredits(id: string, used: number): Promise<void> {
@@ -774,6 +851,8 @@ async function runQuestionJob(jobId: string): Promise<void> {
       error: undefined,
     }) || job
     await assertQuestionJobNotCancelled(job.id)
+    job = await ensureQuestionJobResearch(job)
+    await assertQuestionJobNotCancelled(job.id)
 
     const allocationCounts = normalizeAllocationOverrideCounts(
       job.totalCount,
@@ -783,7 +862,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
       job.totalCount,
       job.request.categoryConfig,
     )
-    const batchPlans = buildQuestionBatchPlans(allocationCounts)
+    const batchPlans = questionBatchPlans(job.request, allocationCounts)
     const coreKeywords = job.request.customKeywords.length > 0
       ? job.request.customKeywords
       : job.request.coreKeywords.length > 0
@@ -799,19 +878,24 @@ async function runQuestionJob(jobId: string): Promise<void> {
     let warnings = mergeWarnings(
       job.warnings,
       batchPlans.length > 1
-        ? [`已转为后台长任务，自动拆分为 ${batchPlans.length} 批生成。`]
+        ? [
+            `已转为后台长任务，自动拆分为 ${batchPlans.length} 批生成。`,
+            `系统会使用最多 ${QUESTION_JOB_BATCH_CONCURRENCY} 条独立账号通道并行处理。`,
+          ]
         : []
     )
 
-    for (
-      let index = Math.max(0, job.completedBatches);
-      index < batchPlans.length && mergedQuestions.length < job.totalCount;
-      index++
-    ) {
+    let batchIndex = Math.max(0, job.completedBatches)
+    while (batchIndex < batchPlans.length && mergedQuestions.length < job.totalCount) {
       await assertQuestionJobNotCancelled(job.id)
-      const plan = batchPlans[index]
+      const wave = batchPlans
+        .slice(batchIndex, batchIndex + QUESTION_JOB_BATCH_CONCURRENCY)
+        .map((plan, waveIndex) => ({
+          plan,
+          index: batchIndex + waveIndex,
+        }))
       job = await patchQuestionJob(job.id, {
-        currentBatch: index + 1,
+        currentBatch: batchIndex + 1,
         totalBatches: batchPlans.length,
         completedCount: mergedQuestions.length,
         questions: reindexQuestions(mergedQuestions, job.totalCount, job.request.strategy),
@@ -819,34 +903,52 @@ async function runQuestionJob(jobId: string): Promise<void> {
       }) || job
       await assertQuestionJobNotCancelled(job.id)
 
-      try {
-        const data = await fetchQuestionBatch(
-          job,
-          plan,
-          mergedQuestions.map(item => item.question),
-        )
-        await assertQuestionJobNotCancelled(job.id)
-        appendQuestionItems(
-          mergedQuestions,
-          seen,
-          (data.question_strategy || []).map((question, i) => ({
-            ...question,
-            id: String(mergedQuestions.length + i + 1),
-          })),
-          job.totalCount,
-        )
-        if (Array.isArray(data.warnings)) warnings = mergeWarnings(warnings, data.warnings)
-      } catch (error) {
-        if (isQuestionJobCancelledError(error)) throw error
-        if (isPermanentQuestionError(error)) throw error
-        warnings = mergeWarnings(warnings, [`第 ${index + 1} 批模型生成失败，已用本地规则补齐该批次。`])
+      const avoidSnapshot = mergedQuestions.map(item => item.question)
+      const waveJob = job
+      const waveResults = await Promise.all(wave.map(async item => {
+        try {
+          return {
+            ...item,
+            data: await fetchQuestionBatch(waveJob, item.plan, avoidSnapshot),
+            error: undefined,
+          }
+        } catch (error) {
+          if (isQuestionJobCancelledError(error)) throw error
+          if (isPermanentQuestionError(error)) throw error
+          return { ...item, data: undefined, error }
+        }
+      }))
+      await assertQuestionJobNotCancelled(job.id)
+
+      for (const result of waveResults) {
+        if (result.data) {
+          appendQuestionItems(
+            mergedQuestions,
+            seen,
+            (result.data.question_strategy || []).map((question, questionIndex) => ({
+              ...question,
+              id: String(mergedQuestions.length + questionIndex + 1),
+            })),
+            job.totalCount,
+          )
+          if (Array.isArray(result.data.warnings)) {
+            warnings = mergeWarnings(warnings, result.data.warnings)
+          }
+          continue
+        }
+
+        const scopedKeywords = result.plan.allocationOverrides
+          .flatMap(item => item.keywords || [])
+        warnings = mergeWarnings(warnings, [
+          `第 ${result.index + 1} 批模型生成失败，已用本次联网语境和关键词规则补齐该批次。`,
+        ])
         appendQuestionItems(
           mergedQuestions,
           seen,
           buildFallbackQuestions(
-            plan.totalCount,
+            result.plan.totalCount,
             mergedQuestions.length + 1,
-            fallbackKeywords,
+            scopedKeywords.length > 0 ? scopedKeywords : fallbackKeywords,
             job.request.strategy,
             seen,
           ),
@@ -854,8 +956,10 @@ async function runQuestionJob(jobId: string): Promise<void> {
         )
       }
 
+      batchIndex += wave.length
       job = await patchQuestionJob(job.id, {
-        completedBatches: index + 1,
+        completedBatches: batchIndex,
+        currentBatch: batchIndex,
         completedCount: Math.min(mergedQuestions.length, job.totalCount),
         questions: reindexQuestions(mergedQuestions, job.totalCount, job.request.strategy),
         warnings,
@@ -865,7 +969,7 @@ async function runQuestionJob(jobId: string): Promise<void> {
 
     for (let topUp = 0; topUp < 3 && mergedQuestions.length < job.totalCount; topUp++) {
       await assertQuestionJobNotCancelled(job.id)
-      const need = Math.min(QUESTION_JOB_SINGLE_REQUEST_LIMIT, job.totalCount - mergedQuestions.length)
+      const need = Math.min(QUESTION_BATCH_SIZE, job.totalCount - mergedQuestions.length)
       const before = mergedQuestions.length
       try {
         const data = await fetchQuestionBatch(
@@ -924,6 +1028,25 @@ async function runQuestionJob(jobId: string): Promise<void> {
     const reindexed = reindexQuestions(mergedQuestions, job.totalCount, job.request.strategy)
     if (reindexed.length === 0) {
       throw new Error("疑问句生成没有返回有效问题，系统未保存空结果，请重新生成。")
+    }
+    const categoryCoverage = new Set(
+      reindexed.map(item => item.category).filter(Boolean),
+    ).size
+    const dimensionCoverage = new Set(
+      reindexed.map(item => item.decisionDimension).filter(Boolean),
+    ).size
+    const missingOptimizationCount = reindexed.filter(item =>
+      !item.content_angle?.trim()
+      || !item.geo_optimization
+      || item.geo_optimization.long_tail_terms.length === 0
+    ).length
+    warnings = mergeWarnings(warnings, [
+      `质量检查：七类主意图覆盖 ${categoryCoverage}/7，十个决策维度覆盖 ${dimensionCoverage}/10，内容方向与 GEO 要点完整 ${reindexed.length - missingOptimizationCount}/${reindexed.length} 条。`,
+    ])
+    if (missingOptimizationCount > 0) {
+      warnings = mergeWarnings(warnings, [
+        `${missingOptimizationCount} 条问题的内容方向或 GEO 要点不完整，建议在导出前重新生成对应批次。`,
+      ])
     }
 
     await settleQuestionJobCreditsQuietly(job.id, reindexed.length)
@@ -999,7 +1122,7 @@ export async function createQuestionJob(
     totalCount,
     input.categoryConfig,
   )
-  const batchPlans = buildQuestionBatchPlans(allocationCounts)
+  const batchPlans = questionBatchPlans(input, allocationCounts)
   const questionModelProvider = normalizeQuestionModelProvider(
     input.questionModelProvider || DEFAULT_QUESTION_MODEL_PROVIDER,
   )
@@ -1019,6 +1142,9 @@ export async function createQuestionJob(
       : [],
     createdAt: now,
     updatedAt: now,
+    researchAudit: hasUsableKeywordResearch(input.strategy.keyword_research)
+      ? input.strategy.keyword_research
+      : undefined,
     request: {
       ...input,
       totalCount,

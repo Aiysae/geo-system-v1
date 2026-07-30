@@ -441,15 +441,20 @@ function questionSection(plan: GeoStrategyPlan, questions: QuestionItem[]): Arra
       after: 180,
     }),
     dataTable(
-      ["#", "疑问句", "匹配优势", "生成类型", "关键词"],
+      ["#", "疑问句 / 关键词", "类型 / 维度", "内容方向与 GEO 要点", "匹配优势"],
       questions.map((question, index) => [
         index + 1,
-        question.question,
+        `${question.question}\n关键词：${question.keyword}`,
+        `${question.category}${question.decisionDimension ? `\n${question.decisionDimension}` : ""}`,
+        [
+          question.content_angle,
+          question.geo_optimization
+            ? `关键词位置：${question.geo_optimization.keyword_placement}\n结论前置：${question.geo_optimization.conclusion_first}\n内容结构：${question.geo_optimization.structure_format}\n长尾词：${question.geo_optimization.long_tail_terms.join("、")}`
+            : "",
+        ].filter(Boolean).join("\n"),
         resolveQuestionAdvantage(question, advantages) || "未匹配",
-        question.category,
-        question.keyword,
       ]),
-      [6, 39, 28, 14, 13],
+      [5, 27, 13, 37, 18],
     ),
   ]
 }
@@ -460,6 +465,30 @@ function strategyChildren(input: KeywordStrategyWordInput): Array<Paragraph | Ta
     heading("策略总览"),
     note(text(plan.summary) || "当前方案暂无策略摘要。"),
   ]
+
+  if (plan.keyword_research) {
+    children.push(
+      heading("豆包联网研究依据"),
+      note(plan.keyword_research.brief || "已完成联网研究。"),
+      labelValueTable([
+        ["目标地域", plan.keyword_research.target_region],
+        ["模型", `豆包 · ${plan.keyword_research.model}`],
+        ["研究时间", plan.keyword_research.searched_at],
+        ["有效来源", `${plan.keyword_research.sources.length} 个`],
+        ["真实表达模式", plan.keyword_research.user_language_patterns.join("；")],
+        ["决策信号", plan.keyword_research.decision_signals.join("；")],
+      ]),
+      dataTable(
+        ["来源标题", "域名", "网址"],
+        plan.keyword_research.sources.map(source => [
+          source.title,
+          source.domain,
+          source.url,
+        ]),
+        [36, 20, 44],
+      ),
+    )
+  }
 
   if (plan.profile) {
     const profile = plan.profile
