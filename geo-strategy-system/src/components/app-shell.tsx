@@ -34,6 +34,7 @@ import { useWorkspaceSync, type WorkspaceSyncState } from "@/hooks/use-workspace
 import type {
   Client,
   ReportExportPreset,
+  SystemOutputModule,
   WorkspaceAccountAccess,
 } from "@/types"
 import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
@@ -137,7 +138,17 @@ export default function Home({
       access.mode === "team"
       && hasTeamPermission(access.permissionKeys || [], "report", "view")
     )
-  const canOpenReportHistory = canViewPenetrationHistory || canViewPdfHistory
+  const systemOutputModules = ([
+    "research",
+    "diagnosis",
+    "difficulty",
+  ] as SystemOutputModule[]).filter(module => (
+    access.mode === "standard"
+    || hasTeamPermission(access.permissionKeys || [], module, "view")
+  ))
+  const canOpenReportHistory = canViewPenetrationHistory
+    || canViewPdfHistory
+    || systemOutputModules.length > 0
   const initialModule = restricted && canViewModule("feedback")
     ? "feedback"
     : DASHBOARD_MODULES.find(module => canViewModule(module.key))?.key || "penetration"
@@ -336,6 +347,7 @@ export default function Home({
           showPenetrationHistory={canViewPenetrationHistory}
           showRawAnswers={access.penetrationResultDetail !== "summary"}
           canManagePenetrationHistory={access.mode !== "client"}
+          systemOutputModules={systemOutputModules}
           showPdfHistory={canViewPdfHistory}
           onExportPenetration={access.canCreateReports
             ? historyClient => {

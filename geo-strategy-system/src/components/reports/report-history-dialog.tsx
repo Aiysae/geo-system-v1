@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock3,
+  Cloud,
   Download,
   Eye,
   FileText,
@@ -18,6 +19,7 @@ import {
   X,
 } from "lucide-react"
 import PenetrationHistoryPanel from "@/components/reports/penetration-history-panel"
+import SystemOutputHistoryPanel from "@/components/reports/system-output-history-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
@@ -25,6 +27,7 @@ import type {
   CommercialReportJobRecord,
   CommercialReportJobStatus,
   CommercialReportKind,
+  SystemOutputModule,
 } from "@/types"
 
 export type ReportHistoryClient = Pick<Client, "id" | "name">
@@ -36,6 +39,7 @@ type Props = {
   showPenetrationHistory?: boolean
   showRawAnswers?: boolean
   canManagePenetrationHistory?: boolean
+  systemOutputModules?: SystemOutputModule[]
   showPdfHistory?: boolean
   onExportPenetration?: (client: Client) => void
   onClose: () => void
@@ -100,6 +104,7 @@ export default function ReportHistoryDialog({
   showPenetrationHistory = true,
   showRawAnswers = true,
   canManagePenetrationHistory = true,
+  systemOutputModules = ["research", "diagnosis", "difficulty"],
   showPdfHistory = true,
   onExportPenetration,
   onClose,
@@ -109,14 +114,17 @@ export default function ReportHistoryDialog({
     clientMountedSnapshot,
     serverMountedSnapshot,
   )
-  const [activeTab, setActiveTab] = useState<"penetration" | "pdf">(
+  const [activeTab, setActiveTab] = useState<"penetration" | "outputs" | "pdf">(
     showPenetrationHistory ? "penetration" : "pdf",
   )
-  const visibleTab = !showPenetrationHistory && showPdfHistory
-    ? "pdf"
-    : !showPdfHistory && showPenetrationHistory
-      ? "penetration"
-      : activeTab
+  const availableTabs = [
+    ...(showPenetrationHistory ? ["penetration" as const] : []),
+    ...(systemOutputModules.some(module => module !== "penetration") ? ["outputs" as const] : []),
+    ...(showPdfHistory ? ["pdf" as const] : []),
+  ]
+  const visibleTab = availableTabs.includes(activeTab)
+    ? activeTab
+    : availableTabs[0] || "outputs"
   const [jobs, setJobs] = useState<CommercialReportJobRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -289,32 +297,35 @@ export default function ReportHistoryDialog({
           </div>
         </header>
 
-        {!selectedJob && showPenetrationHistory && showPdfHistory ? (
-          <div className="grid shrink-0 grid-cols-2 border-b border-slate-200 bg-white px-4 pt-2 sm:px-6">
-            <button
-              type="button"
-              onClick={() => setActiveTab("penetration")}
-              className={`inline-flex h-11 items-center justify-center gap-2 border-b-2 text-xs font-semibold transition ${
-                visibleTab === "penetration"
-                  ? "border-[#1677FF] text-[#0958D9]"
-                  : "border-transparent text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              <Radar className="h-4 w-4" />
-              检测记录
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("pdf")}
-              className={`inline-flex h-11 items-center justify-center gap-2 border-b-2 text-xs font-semibold transition ${
-                visibleTab === "pdf"
-                  ? "border-[#1677FF] text-[#0958D9]"
-                  : "border-transparent text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              <FileText className="h-4 w-4" />
-              专业 PDF
-            </button>
+        {!selectedJob && availableTabs.length > 1 ? (
+          <div
+            className="grid shrink-0 border-b border-slate-200 bg-white px-4 pt-2 sm:px-6"
+            style={{ gridTemplateColumns: `repeat(${availableTabs.length}, minmax(0, 1fr))` }}
+          >
+            {showPenetrationHistory ? (
+              <HistoryTabButton
+                active={visibleTab === "penetration"}
+                icon={Radar}
+                label="检测记录"
+                onClick={() => setActiveTab("penetration")}
+              />
+            ) : null}
+            {systemOutputModules.some(module => module !== "penetration") ? (
+              <HistoryTabButton
+                active={visibleTab === "outputs"}
+                icon={Cloud}
+                label="云端产出"
+                onClick={() => setActiveTab("outputs")}
+              />
+            ) : null}
+            {showPdfHistory ? (
+              <HistoryTabButton
+                active={visibleTab === "pdf"}
+                icon={FileText}
+                label="专业 PDF"
+                onClick={() => setActiveTab("pdf")}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -348,6 +359,13 @@ export default function ReportHistoryDialog({
             showRawAnswers={showRawAnswers}
             canManageHistory={canManagePenetrationHistory}
             onExportPenetration={onExportPenetration}
+          />
+        ) : visibleTab === "outputs" ? (
+          <SystemOutputHistoryPanel
+            clients={clients}
+            activeClientId={activeClientId}
+            teamId={teamId}
+            modules={systemOutputModules}
           />
         ) : (
           <>
@@ -520,4 +538,31 @@ export default function ReportHistoryDialog({
 
   if (!canUseDom) return null
   return createPortal(dialog, document.body)
+}
+
+function HistoryTabButton({
+  active,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  active: boolean
+  icon: typeof History
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-11 items-center justify-center gap-2 border-b-2 text-xs font-semibold transition ${
+        active
+          ? "border-[#1677FF] text-[#0958D9]"
+          : "border-transparent text-slate-500 hover:text-slate-800"
+      }`}
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </button>
+  )
 }

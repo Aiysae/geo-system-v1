@@ -30,6 +30,18 @@ export type {
   GeoTitleStrategy,
 } from "./geo-methodology"
 
+export type {
+  SystemOutputKind,
+  SystemOutputListItem,
+  SystemOutputListPage,
+  SystemOutputModule,
+  SystemOutputRecord,
+  SystemOutputResourceReference,
+  SystemOutputSource,
+  SystemOutputStatus,
+  SystemOutputSummary,
+} from "./system-output"
+
 export interface BrandInput {
   brandName: string
   brandSlogan: string
@@ -241,6 +253,9 @@ export interface BackgroundJobRecord<TResult = unknown> {
   startedAt?: string
   finishedAt?: string
   creditsRefunded?: boolean
+  outputRecordId?: string
+  outputSavedAt?: string
+  outputSavePending?: boolean
 }
 
 export interface ArticleGenerationState {
@@ -646,6 +661,9 @@ export interface DifficultyJobRecord {
   startedAt?: string
   finishedAt?: string
   creditsRefunded?: boolean
+  outputRecordId?: string
+  outputSavedAt?: string
+  outputSavePending?: boolean
 }
 
 export interface PenetrationSource {

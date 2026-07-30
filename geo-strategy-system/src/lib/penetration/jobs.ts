@@ -41,6 +41,8 @@ import {
   buildPenetrationHistoryRecord,
   savePenetrationHistoryRecord,
 } from "@/lib/penetration/history-store"
+import { buildPenetrationSystemOutputRecord } from "@/lib/system-output/builders"
+import { saveSystemOutputRecord } from "@/lib/system-output/store"
 import type {
   AnalysisSubjectType,
   ModelKey,
@@ -683,9 +685,11 @@ async function persistTerminalHistory(args: {
       createdAt: args.job.createdAt,
       completedAt: args.finishedAt,
     })
-    await savePenetrationHistoryRecord(
-      args.job.workspaceOwnerUserId || args.job.ownerUserId,
-      record,
+    const workspaceOwnerUserId = args.job.workspaceOwnerUserId || args.job.ownerUserId
+    await savePenetrationHistoryRecord(workspaceOwnerUserId, record)
+    await saveSystemOutputRecord(
+      workspaceOwnerUserId,
+      buildPenetrationSystemOutputRecord(workspaceOwnerUserId, record),
     )
     return {
       historyRecordId: record.id,
