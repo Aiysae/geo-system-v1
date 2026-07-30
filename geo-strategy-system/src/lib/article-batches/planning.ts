@@ -34,10 +34,14 @@ export interface PlannedArticleItem {
   topic: string
   brief: string
   questionId?: string
+  materialId?: string
+  questionSource?: ArticleBatchQuestionTask["questionSource"]
   intent?: string
   category?: string
   keyword?: string
+  decisionDimension?: string
   contentAngle?: string
+  geoOptimizationText?: string
   matchedAdvantage?: string
   subIntent?: ArticleBatchQuestionTask["subIntent"]
   queryStyle?: ArticleBatchQuestionTask["queryStyle"]
@@ -65,11 +69,15 @@ function normalizeQuestionTasks(value: ArticleBatchQuestionTask[] | undefined): 
   return value
     .map(task => ({
       questionId: clean(task.questionId, 200) || undefined,
+      materialId: clean(task.materialId, 200) || undefined,
+      questionSource: task.questionSource,
       question: clean(task.question, 500),
       intent: clean(task.intent, 300) || undefined,
       category: clean(task.category, 120) || undefined,
       keyword: clean(task.keyword, 200) || undefined,
+      decisionDimension: clean(task.decisionDimension, 200) || undefined,
       contentAngle: clean(task.contentAngle, 500) || undefined,
+      geoOptimizationText: clean(task.geoOptimizationText, 2_000) || undefined,
       matchedAdvantage: clean(task.matchedAdvantage, 3_000) || undefined,
       subIntent: clean(task.subIntent, 300) || undefined,
       queryStyle: task.queryStyle,
@@ -102,15 +110,21 @@ function plannedQuestionTask(task: ArticleBatchQuestionTask, position: number): 
       `独立主题：${task.question}`,
       task.intent ? `用户意图：${task.intent}` : "",
       task.category ? `问题类型：${task.category}` : "",
+      task.decisionDimension ? `决策维度：${task.decisionDimension}` : "",
       task.contentAngle ? `内容切入：${task.contentAngle}` : "",
+      task.geoOptimizationText ? `GEO 收录要点：${task.geoOptimizationText}` : "",
       task.matchedAdvantage ? `本篇唯一匹配优势：${task.matchedAdvantage}` : "本篇未匹配到优势，不得挪用其他问题的优势。",
       "严格执行本篇分配的文章模板；不得读取、引用或假设存在其他批次文章。",
     ].filter(Boolean).join("\n"),
     questionId: task.questionId,
+    materialId: task.materialId,
+    questionSource: task.questionSource,
     intent: task.intent,
     category: task.category,
     keyword: task.keyword,
+    decisionDimension: task.decisionDimension,
     contentAngle: task.contentAngle,
+    geoOptimizationText: task.geoOptimizationText,
     matchedAdvantage: task.matchedAdvantage,
     subIntent: task.subIntent,
     queryStyle: task.queryStyle,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getArticlePromptOption } from "@/lib/article-prompt-meta"
 import { createArticleBatch, listArticleBatches } from "@/lib/article-batches/manager"
+import { getArticleQuestionMaterialsByIds } from "@/lib/article-question-materials"
 import { requireOperationAccess } from "@/lib/team-access"
 import { isTeamAccessError } from "@/lib/article-batches/access"
 import { hasUnlimitedCreditAccess, requireUserId } from "@/lib/with-credits"
@@ -19,6 +20,7 @@ import {
   isRoutableArticlePrompt,
 } from "@/lib/article-strategy-routing"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
+import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
 import { getMembershipWithPaymentRepair, hasMembershipTier } from "@/lib/membership"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import {
@@ -61,11 +63,19 @@ function questionTasks(value: unknown): ArticleBatchQuestionTask[] {
     const promptKey = text(item.promptKey, 80) as ArticlePromptKey
     return {
       questionId: text(item.questionId, 200) || undefined,
+      materialId: text(item.materialId, 200) || undefined,
+      questionSource: item.questionSource === "excel"
+        ? "excel"
+        : item.questionSource === "keyword_strategy"
+          ? "keyword_strategy"
+          : undefined as ArticleBatchQuestionTask["questionSource"],
       question: text(item.question, 500),
       intent: text(item.intent, 300) || undefined,
       category: text(item.category, 120) || undefined,
       keyword: text(item.keyword, 200) || undefined,
+      decisionDimension: text(item.decisionDimension, 200) || undefined,
       contentAngle: text(item.contentAngle, 500) || undefined,
+      geoOptimizationText: text(item.geoOptimizationText, 2_000) || undefined,
       matchedAdvantage: text(item.matchedAdvantage, 3_000) || undefined,
       subIntent: text(item.subIntent, 300) || undefined,
       queryStyle: item.queryStyle as ArticleBatchQuestionTask["queryStyle"],
@@ -163,10 +173,18 @@ export async function POST(req: NextRequest) {
       teamId,
     })
     if (topicMode === "strategy") {
-      const [billingUser, membership, records] = await Promise.all([
+      const materialIds = parsedQuestionTasks
+        .map(task => task.materialId)
+        .filter((id): id is string => Boolean(id))
+      const [billingUser, membership, records, importedMaterials] = await Promise.all([
         getUserById(access.billingUserId),
         getMembershipWithPaymentRepair(access.billingUserId),
         listWorkspaceClients(access.dataOwnerUserId),
+        getArticleQuestionMaterialsByIds({
+          ownerUserId: access.dataOwnerUserId,
+          clientId: access.clientId,
+          ids: materialIds,
+        }),
       ])
       if (
         !isAdminUser(billingUser)
@@ -181,42 +199,71 @@ export async function POST(req: NextRequest) {
       const client = records.find(item => item.client.id === clientId)?.client
       const canonicalQuestions = client?.keywordStrategy?.questions || []
       const byId = new Map(canonicalQuestions.map(question => [question.id, question]))
+      const materialById = new Map(importedMaterials.map(material => [material.id, material]))
       const advantages = extractQuestionAdvantages(client?.keywordStrategy?.strategyPlan)
       parsedQuestionTasks = parsedQuestionTasks.flatMap(task => {
+        if (!isRoutableArticlePrompt(task.promptKey)) return []
         const question = task.questionId ? byId.get(task.questionId) : undefined
-        if (!question || !isRoutableArticlePrompt(task.promptKey)) return []
-        const matchedAdvantage = resolveQuestionAdvantage(question, advantages)
+        const material = task.materialId ? materialById.get(task.materialId) : undefined
+        if (!question && !material) return []
+        const sourceQuestion = question?.question || material?.question || ""
+        const sourceIntent = question?.intent || material?.intent
+        const sourceCategory = question?.category || material?.category
+        const sourceKeyword = question?.keyword || material?.keyword
+        const sourceContentAngle = question?.content_angle || material?.contentAngle
+        const matchedAdvantage = question
+          ? resolveQuestionAdvantage(question, advantages)
+          : material?.matchedAdvantage
+        const sourceMethodology = question
+          ? {
+              subIntent: question.subIntent,
+              queryStyle: question.queryStyle,
+              methodologyCandidates: question.methodologyCandidates,
+              platformCandidates: question.platformCandidates,
+              articleFormatCandidates: question.articleFormatCandidates,
+              titleStrategyCandidates: question.titleStrategyCandidates,
+            }
+          : classifyQuestionMethodology({
+              category: material?.category || "痛点解决型",
+              question: sourceQuestion,
+              intent: material?.intent,
+            })
         const candidates = articleStrategyPromptCandidates({
-          question: question.question,
-          intent: question.intent,
-          category: question.category,
+          question: sourceQuestion,
+          intent: sourceIntent,
+          category: sourceCategory,
           matchedAdvantage,
           methodologyCandidates: task.methodologyCandidates?.length
             ? task.methodologyCandidates
-            : question.methodologyCandidates,
+            : sourceMethodology.methodologyCandidates,
           comparisonBrandCount: parsedComparisonBrands.length,
         })
         if (!candidates.includes(task.promptKey)) return []
         return [{
           ...task,
-          question: question.question,
-          intent: question.intent,
-          category: question.category,
-          keyword: question.keyword,
-          contentAngle: question.content_angle,
+          questionId: question?.id,
+          materialId: material?.id,
+          questionSource: material ? "excel" as const : "keyword_strategy" as const,
+          question: sourceQuestion,
+          intent: sourceIntent,
+          category: sourceCategory,
+          keyword: sourceKeyword,
+          decisionDimension: question?.decisionDimension || material?.decisionDimension,
+          contentAngle: sourceContentAngle,
+          geoOptimizationText: material?.geoOptimizationText,
           matchedAdvantage,
-          subIntent: question.subIntent,
-          queryStyle: question.queryStyle,
+          subIntent: sourceMethodology.subIntent,
+          queryStyle: sourceMethodology.queryStyle,
           methodologyCandidates: task.methodologyCandidates?.length
             ? task.methodologyCandidates
-            : question.methodologyCandidates,
-          platformCandidates: question.platformCandidates,
+            : sourceMethodology.methodologyCandidates,
+          platformCandidates: sourceMethodology.platformCandidates,
           articleFormat: task.articleFormat && task.articleFormat !== "auto"
             ? task.articleFormat
-            : question.articleFormatCandidates?.[0] || "auto",
+            : sourceMethodology.articleFormatCandidates?.[0] || "auto",
           titleStrategy: task.titleStrategy && task.titleStrategy !== "auto"
             ? task.titleStrategy
-            : question.titleStrategyCandidates?.[0] || "auto",
+            : sourceMethodology.titleStrategyCandidates?.[0] || "auto",
           promptTitle: getArticlePromptOption(task.promptKey)?.title,
         }]
       })
