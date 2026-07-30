@@ -48,6 +48,7 @@ import { InvoiceSupportButton } from "@/components/billing/invoice-support-butto
 import { ClientAccountDialog } from "@/components/accounts/client-account-dialog"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { ManagedServiceCard } from "@/components/managed-services/managed-service-card"
+import { UserNotificationCenter } from "@/components/notifications/user-notification-center"
 import ReportHistoryDialog from "@/components/reports/report-history-dialog"
 import SiteFooter from "@/components/site-footer"
 import { TeamCenter } from "@/components/team/team-center"
@@ -212,6 +213,7 @@ export function AccountCenter(props: Props) {
             <span className="hidden text-sm font-semibold text-slate-700 sm:block">我的主页</span>
           </div>
           <div className="flex items-center gap-2">
+            <UserNotificationCenter />
             {props.isAdmin ? (
               <Link href="/admin" className="hidden h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-[#69B1FF] hover:text-[#0958D9] sm:inline-flex">
                 <ShieldCheck className="h-4 w-4" />
@@ -656,7 +658,10 @@ function BillingTab(props: Props) {
               <tbody className="divide-y divide-slate-100">
                 {props.rechargeRecords.map(record => (
                   <tr key={record.id} className="transition hover:bg-[#F7FBFF]">
-                    <td className="px-5 py-3"><div className="font-semibold text-slate-800">{record.packageName || "历史充值申请"}</div><div className="mt-1 max-w-60 truncate font-mono text-[10px] text-slate-400">{record.paymentOutTradeNo || record.id}</div></td>
+                    <td className="px-5 py-3">
+                      {record.actionUrl ? <Link href={record.actionUrl} className="font-semibold text-[#0958D9] hover:underline">{record.packageName || "历史充值申请"}</Link> : <div className="font-semibold text-slate-800">{record.packageName || "历史充值申请"}</div>}
+                      <div className="mt-1 max-w-60 truncate font-mono text-[10px] text-slate-400">{record.paymentOutTradeNo || record.id}</div>
+                    </td>
                     <td className="px-4 py-3 font-mono text-slate-700">{record.priceCents ? `¥${(record.priceCents / 100).toFixed(2)}` : "-"}</td>
                     <td className="px-4 py-3 font-mono font-semibold text-[#0958D9]">+{record.credits}</td>
                     <td className="px-4 py-3 text-slate-600">{paymentLabel(record.paymentMethod)}</td>

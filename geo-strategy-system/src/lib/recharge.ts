@@ -12,6 +12,7 @@ import {
   type RechargePackageKey,
 } from "@/lib/pricing"
 import { queueRechargeAdminEmail } from "@/lib/recharge-notification-email"
+import type { AdminPaymentRequest } from "@/lib/admin-payment-request-types"
 
 export type RechargeStatus = "pending" | "approved" | "rejected"
 export type RechargePaymentMethod = "manual_transfer" | "wechat" | "alipay" | "other"
@@ -154,6 +155,47 @@ export async function listAllRequests(limit = 300): Promise<RechargeRequest[]> {
     .filter((record): record is RechargeRequest => Boolean(record))
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, Math.max(1, Math.floor(limit)))
+}
+
+export async function createOrUpdatePaymentRequestRechargeReview(
+  paymentRequest: AdminPaymentRequest,
+  paymentOrderId: string,
+): Promise<RechargeRequest> {
+  if (paymentRequest.selectedProvider !== "manual_transfer") {
+    throw new Error("仅银行转账订单需要人工审核")
+  }
+  const id = `req_payreq_${paymentRequest.id}`
+  const existing = await kv.get<RechargeRequest>(KEY_REQ(id))
+  if (existing?.status === "approved") return existing
+  if (existing?.status === "rejected") {
+    throw new Error("该转账凭证已被拒绝，请联系管理员重新发送付款订单")
+  }
+  const record: RechargeRequest = {
+    id,
+    userId: paymentRequest.userId,
+    username: paymentRequest.username,
+    email: paymentRequest.email,
+    packageName: paymentRequest.title,
+    priceCents: paymentRequest.priceCents,
+    credits: paymentRequest.credits,
+    amount: paymentRequest.credits,
+    paymentOrderId,
+    paymentMethod: "manual_transfer",
+    payerName: paymentRequest.payerName,
+    paymentReference: paymentRequest.paymentReference,
+    contact: paymentRequest.contact,
+    note: paymentRequest.note,
+    status: "pending",
+    createdAt: existing?.createdAt || paymentRequest.transferSubmittedAt || Date.now(),
+  }
+  await kv.set(KEY_REQ(id), record)
+  await kv.sadd(KEY_PENDING_SET, id)
+  await kv.sadd(KEY_USER_INDEX(record.userId), id)
+  await kv.sadd(KEY_ALL, id)
+  await queueRechargeAdminEmail(id).catch(error => {
+    console.error(`[recharge-notification] Failed to queue email for ${id}`, error)
+  })
+  return record
 }
 
 function normalizePaymentMethod(value: unknown): RechargePaymentMethod {

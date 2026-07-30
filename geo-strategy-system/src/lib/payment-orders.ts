@@ -1,6 +1,10 @@
 import "server-only"
 
 import { randomUUID } from "crypto"
+import {
+  claimAdminPaymentRequestSettlement,
+  completeAdminPaymentRequestSettlement,
+} from "@/lib/admin-payment-request-settlement"
 import { getCredits, settlePaymentCreditsOnce } from "@/lib/credits"
 import { fulfillManagedServicePaymentOrder } from "@/lib/managed-services"
 import { grantVip1FromPaymentOrder } from "@/lib/membership"
@@ -12,7 +16,12 @@ import {
   savePaymentOrderRecord,
 } from "@/lib/payment-store"
 import type { RechargePackageKey } from "@/lib/pricing"
-import type { PaymentOrder, PaymentProductType, PaymentProvider } from "@/lib/payment-types"
+import type {
+  PaymentOrder,
+  PaymentOrderOrigin,
+  PaymentProductType,
+  PaymentProvider,
+} from "@/lib/payment-types"
 
 export type { PaymentOrder, PaymentOrderStatus, PaymentProvider } from "@/lib/payment-types"
 
@@ -44,6 +53,8 @@ export async function createPaymentOrder(input: {
   username: string
   email: string
   rechargeRequestId?: string
+  origin?: PaymentOrderOrigin
+  adminPaymentRequestId?: string
   productType?: PaymentProductType
   managedServiceOrderId?: string
   packageKey?: RechargePackageKey
@@ -64,6 +75,8 @@ export async function createPaymentOrder(input: {
     username: input.username,
     email: input.email,
     rechargeRequestId: input.rechargeRequestId,
+    origin: input.origin || "self_checkout",
+    adminPaymentRequestId: input.adminPaymentRequestId,
     productType: input.productType || "credits",
     managedServiceOrderId: input.managedServiceOrderId,
     packageKey: input.packageKey,
@@ -140,6 +153,30 @@ export async function failPaymentOrder(
   return updated
 }
 
+export async function updatePaymentOrderPayerDetails(
+  orderId: string,
+  input: {
+    payerName?: string
+    paymentReference?: string
+    contact?: string
+  },
+): Promise<PaymentOrder> {
+  const order = await getPaymentOrder(orderId)
+  if (!order) throw new Error("支付订单不存在")
+  if (["credited", "refunding", "refunded", "canceled"].includes(order.status)) {
+    throw new Error("当前支付订单不能再更新付款信息")
+  }
+  const updated: PaymentOrder = {
+    ...order,
+    payerName: cleanOptionalText(input.payerName, 80),
+    paymentReference: cleanOptionalText(input.paymentReference, 120),
+    contact: cleanOptionalText(input.contact, 120),
+    updatedAt: now(),
+  }
+  await savePaymentOrderRecord(updated)
+  return updated
+}
+
 export async function creditPaymentOrder(input: {
   orderId: string
   operatorUserId?: string
@@ -152,7 +189,10 @@ export async function creditPaymentOrder(input: {
   if (!order) return { ok: false, reason: "支付订单不存在" }
   if (order.status === "credited" && order.creditedAt) {
     if (order.productType === "managed_service") await fulfillManagedServicePaymentOrder(order)
-    else await grantVip1FromPaymentOrder(order)
+    else {
+      await grantVip1FromPaymentOrder(order)
+      await completeAdminPaymentRequestSettlement(order)
+    }
     return { ok: true, credited: false, order, reason: "already_credited" }
   }
   if (order.status === "canceled") return { ok: false, reason: "支付订单已取消，不能到账" }
@@ -177,7 +217,10 @@ export async function creditPaymentOrder(input: {
   if (!latest) return { ok: false, reason: "支付订单不存在" }
   if (latest.status === "credited" && latest.creditedAt) {
     if (latest.productType === "managed_service") await fulfillManagedServicePaymentOrder(latest)
-    else await grantVip1FromPaymentOrder(latest)
+    else {
+      await grantVip1FromPaymentOrder(latest)
+      await completeAdminPaymentRequestSettlement(latest)
+    }
     return { ok: true, credited: false, order: latest, reason: "already_credited" }
   }
 
@@ -191,6 +234,8 @@ export async function creditPaymentOrder(input: {
     failureReason: undefined,
     updatedAt: settledAt,
   }
+  const requestClaim = await claimAdminPaymentRequestSettlement(paidOrder)
+  if (!requestClaim.ok) return { ok: false, reason: requestClaim.reason }
   await savePaymentOrderRecord(paidOrder)
 
   if (paidOrder.productType === "managed_service") {
@@ -242,6 +287,7 @@ export async function creditPaymentOrder(input: {
   }
   await savePaymentOrderRecord(updated)
   await grantVip1FromPaymentOrder(updated)
+  await completeAdminPaymentRequestSettlement(updated)
   return settlement.alreadySettled
     ? { ok: true, credited: false, order: updated, reason: "already_credited" }
     : { ok: true, credited: true, order: updated, balance: settlement.balance }

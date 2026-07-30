@@ -319,6 +319,8 @@ export async function createWechatH5Order(input: {
   if (!/^https:\/\//i.test(h5Url)) throw new Error("微信 H5 支付未返回有效链接")
   const returnUrl = input.order.productType === "managed_service"
     ? `${publicAppUrl()}/account/services?service_order_id=${encodeURIComponent(input.order.managedServiceOrderId || "")}&payment_return=wechat&order_id=${encodeURIComponent(input.order.id)}`
+    : input.order.adminPaymentRequestId
+      ? `${publicAppUrl()}/account/payment-requests/${encodeURIComponent(input.order.adminPaymentRequestId)}?payment_return=wechat&order_id=${encodeURIComponent(input.order.id)}`
     : `${publicAppUrl()}/workspace?payment_return=wechat&order_id=${encodeURIComponent(input.order.id)}`
   return {
     h5Url: `${h5Url}${h5Url.includes("?") ? "&" : "?"}redirect_url=${encodeURIComponent(returnUrl)}`,

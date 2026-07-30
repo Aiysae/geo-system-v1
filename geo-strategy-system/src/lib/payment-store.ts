@@ -22,6 +22,10 @@ function backend(): "postgres" | "kv" {
   return process.env.DATABASE_URL ? "postgres" : "kv"
 }
 
+export function paymentStoreBackend(): "postgres" | "kv" {
+  return backend()
+}
+
 function pool(): Pool {
   if (paymentGlobal.__geoPaymentPool) return paymentGlobal.__geoPaymentPool
   const connectionString = String(process.env.DATABASE_URL || "").trim()
@@ -41,6 +45,10 @@ function pool(): Pool {
     console.error(`[payment-db] ${error.message}`)
   })
   return paymentGlobal.__geoPaymentPool
+}
+
+export function paymentStorePool(): Pool {
+  return pool()
 }
 
 export async function ensurePaymentSchema(): Promise<void> {
@@ -169,13 +177,14 @@ async function savePostgresOrder(order: PaymentOrder): Promise<void> {
   await pool().query(
     `INSERT INTO geo_payment_orders (
        id, out_trade_no, user_id, username, email, recharge_request_id,
-       product_type, managed_service_order_id, package_key, package_name,
+       origin, admin_payment_request_id, product_type, managed_service_order_id,
+       package_key, package_name,
        price_cents, credits, provider, status,
        payer_name, payment_reference, contact, note, provider_trade_id,
        paid_cents, failure_reason, created_at, updated_at, paid_at,
        credited_at, canceled_at, refunded_at, credited_by
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30
      )
      ON CONFLICT (id) DO UPDATE SET
        out_trade_no = EXCLUDED.out_trade_no,
@@ -183,6 +192,8 @@ async function savePostgresOrder(order: PaymentOrder): Promise<void> {
        username = EXCLUDED.username,
        email = EXCLUDED.email,
        recharge_request_id = EXCLUDED.recharge_request_id,
+       origin = EXCLUDED.origin,
+       admin_payment_request_id = EXCLUDED.admin_payment_request_id,
        product_type = EXCLUDED.product_type,
        managed_service_order_id = EXCLUDED.managed_service_order_id,
        package_key = EXCLUDED.package_key,
@@ -215,6 +226,8 @@ type PaymentOrderRow = {
   username: string
   email: string
   recharge_request_id: string | null
+  origin: PaymentOrder["origin"] | null
+  admin_payment_request_id: string | null
   product_type: PaymentOrder["productType"] | null
   managed_service_order_id: string | null
   package_key: PaymentOrder["packageKey"] | null
@@ -280,6 +293,8 @@ function orderParams(order: PaymentOrder): unknown[] {
     order.username,
     order.email,
     order.rechargeRequestId,
+    order.origin || "self_checkout",
+    order.adminPaymentRequestId,
     order.productType || "credits",
     order.managedServiceOrderId,
     order.packageKey,
@@ -313,6 +328,8 @@ function orderFromRow(row: PaymentOrderRow): PaymentOrder {
     username: row.username,
     email: row.email,
     rechargeRequestId: row.recharge_request_id || undefined,
+    origin: row.origin || "self_checkout",
+    adminPaymentRequestId: row.admin_payment_request_id || undefined,
     productType: row.product_type || "credits",
     managedServiceOrderId: row.managed_service_order_id || undefined,
     packageKey: row.package_key || undefined,

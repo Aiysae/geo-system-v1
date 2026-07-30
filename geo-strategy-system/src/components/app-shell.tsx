@@ -111,11 +111,13 @@ export default function Home({
   access,
   adminNotifier,
   taskNotifier,
+  userNotifier,
 }: {
   userId: string
   access: WorkspaceAccountAccess
   adminNotifier?: React.ReactNode
   taskNotifier?: React.ReactNode
+  userNotifier?: React.ReactNode
 }) {
   const restricted = access.mode === "client"
   const canViewModule = useCallback((module: DashboardModuleKey) => {
@@ -269,6 +271,7 @@ export default function Home({
           access={access}
           adminNotifier={adminNotifier}
           taskNotifier={taskNotifier}
+          userNotifier={userNotifier}
         />
         {conflict ? (
           <WorkspaceConflictNotice
@@ -366,6 +369,7 @@ function StickyHeader({
   access,
   adminNotifier,
   taskNotifier,
+  userNotifier,
 }: {
   client: Client | null
   onOpenSidebar: () => void
@@ -377,6 +381,7 @@ function StickyHeader({
   access: WorkspaceAccountAccess
   adminNotifier?: React.ReactNode
   taskNotifier?: React.ReactNode
+  userNotifier?: React.ReactNode
 }) {
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false)
 
@@ -459,6 +464,7 @@ function StickyHeader({
           </div>
           <CreditsPill />
           <RechargeButton />
+          {userNotifier}
           {adminNotifier}
           {taskNotifier}
           <div className="relative lg:hidden">
