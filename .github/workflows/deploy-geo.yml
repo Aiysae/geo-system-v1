@@ -161,6 +161,10 @@ jobs:
               npm install
             fi
 
+            if [ -n "${DATABASE_URL:-}" ]; then
+              npm run db:migrate:system-outputs
+            fi
+
             npm run build
 
             pm2 startOrReload ecosystem.config.cjs --update-env

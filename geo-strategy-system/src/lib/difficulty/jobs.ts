@@ -27,7 +27,9 @@ import {
   settleReservedCredits,
   type CreditReservation,
 } from "@/lib/with-credits"
-import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
+import { buildDifficultySystemOutputRecord } from "@/lib/system-output/builders"
+import { saveSystemOutputRecord } from "@/lib/system-output/store"
+import { listWorkspaceClients, mutateWorkspaceClientLatest } from "@/lib/workspace-store"
 import type {
   DifficultyAssessmentEntry,
   DifficultyJobRecord,
@@ -64,6 +66,7 @@ const activeJobs = new Set<string>()
 const scheduledJobs = new Set<string>()
 const pendingJobs: string[] = []
 const settlingJobs = new Set<string>()
+const outputSavingJobs = new Set<string>()
 
 const jobKey = (id: string) => `geo:difficulty-jobs:${id}`
 
@@ -256,6 +259,73 @@ async function persistJobResultToWorkspace(job: StoredDifficultyJob): Promise<vo
   }
 }
 
+type DifficultyOutputPatch = Pick<
+  DifficultyJobRecord,
+  "outputRecordId" | "outputSavedAt" | "outputSavePending"
+>
+
+async function persistSuccessfulOutput(
+  job: StoredDifficultyJob,
+): Promise<DifficultyOutputPatch> {
+  if (!job.result) return {}
+  if (job.outputSavedAt) {
+    return {
+      outputRecordId: job.outputRecordId,
+      outputSavedAt: job.outputSavedAt,
+      outputSavePending: false,
+    }
+  }
+  if (outputSavingJobs.has(job.id)) {
+    return {
+      outputRecordId: job.outputRecordId,
+      outputSavePending: true,
+    }
+  }
+
+  outputSavingJobs.add(job.id)
+  try {
+    const workspaceOwnerUserId = job.workspaceOwnerUserId || job.ownerUserId
+    const client = (await listWorkspaceClients(workspaceOwnerUserId))
+      .find(item => item.client.id === job.clientId)?.client
+    const completedAt = job.finishedAt || nowIso()
+    const saved = await saveSystemOutputRecord(
+      workspaceOwnerUserId,
+      buildDifficultySystemOutputRecord({
+        ownerUserId: workspaceOwnerUserId,
+        actorUserId: job.ownerUserId,
+        taskId: job.id,
+        clientId: job.clientId,
+        clientName: client?.name?.trim() || job.targetBrand?.trim() || job.clientId,
+        request: job.request,
+        result: job.result,
+        createdAt: job.createdAt,
+        completedAt,
+      }),
+    )
+    return {
+      outputRecordId: saved.record.id,
+      outputSavedAt: nowIso(),
+      outputSavePending: false,
+    }
+  } catch (error) {
+    console.error("[difficulty-jobs] system output persistence failed", job.id, safeError(error))
+    return {
+      outputRecordId: job.outputRecordId,
+      outputSavePending: true,
+    }
+  } finally {
+    outputSavingJobs.delete(job.id)
+  }
+}
+
+async function persistSuccessfulOutputToJob(
+  job: StoredDifficultyJob,
+): Promise<StoredDifficultyJob> {
+  const outputPatch = await persistSuccessfulOutput(job)
+  if (Object.keys(outputPatch).length === 0) return job
+  return await patchJob(job.id, outputPatch) || { ...job, ...outputPatch }
+}
+
 async function runStageWithFallback(
   jobId: string,
   stageKey: DifficultyStageKey,
@@ -379,10 +449,11 @@ async function runJob(jobId: string): Promise<void> {
     job = await getStoredJob(job.id) || { ...job, result }
     await persistJobResultToWorkspace(job)
     await settleSuccessfulJob(job.id)
-    await patchJob(job.id, {
+    const succeeded = await patchJob(job.id, {
       status: "succeeded",
       finishedAt: nowIso(),
     })
+    if (succeeded) await persistSuccessfulOutputToJob(succeeded)
   } catch (error) {
     const current = await getStoredJob(jobId)
     if (isCancelledError(error) || current?.status === "cancelled") {
@@ -488,13 +559,16 @@ export async function getDifficultyJob(
   id: string,
   ownerUserId: string,
 ): Promise<DifficultyJobRecord | null> {
-  const job = await getStoredJob(id)
+  let job = await getStoredJob(id)
   if (!job || job.ownerUserId !== ownerUserId) return null
   if ((job.status === "queued" || job.status === "running") && !activeJobs.has(id)) {
     void dispatchDifficultyJob(id)
   }
   if ((job.status === "failed" || job.status === "cancelled") && !job.creditsSettledAt) {
     await refundJob(id)
+  }
+  if (job.status === "succeeded" && job.result && !job.outputSavedAt) {
+    job = await persistSuccessfulOutputToJob(job)
   }
   return toPublicJob(await getStoredJob(id) || job)
 }
@@ -554,11 +628,12 @@ export async function cancelDifficultyJob(
   // 最终报告已经持久化时，任务实质完成；避免完成与取消在结算窗口内相互覆盖。
   if (job.result) {
     await settleSuccessfulJob(id)
-    const succeeded = await patchJob(id, {
+    let succeeded = await patchJob(id, {
       status: "succeeded",
       progressPercent: 100,
       finishedAt: job.finishedAt || nowIso(),
     }) || job
+    succeeded = await persistSuccessfulOutputToJob(succeeded)
     return toPublicJob(await getStoredJob(id) || succeeded)
   }
 

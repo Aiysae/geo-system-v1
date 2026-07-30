@@ -25,6 +25,7 @@ Initialize or update the PostgreSQL tables before starting a production release:
 ```bash
 npm run db:migrate:workspace
 npm run db:migrate:penetration-history
+npm run db:migrate:system-outputs
 ```
 
 The browser cache is namespaced by user and legacy `geo:clients` data is only imported after the signed-in user confirms ownership.
@@ -34,6 +35,21 @@ Every terminal penetration run is stored as an immutable history snapshot. The l
 ```bash
 npm run penetration-history:backfill
 MIGRATION_CONFIRM=PENETRATION_HISTORY_BACKFILL npm run penetration-history:backfill -- --apply
+```
+
+Submitted system outputs are append-only cloud records. Penetration records
+reference the existing full history snapshot, while research, diagnosis, and
+difficulty jobs retain their frozen request and result snapshots. Repeated
+worker callbacks use the task id as an idempotency key and cannot overwrite an
+earlier output. List APIs return metadata only; full payloads are loaded on
+demand after module permission checks.
+
+Preview and then register existing workspace results in the unified cloud
+history without changing the original records:
+
+```bash
+npm run system-outputs:backfill
+MIGRATION_CONFIRM=SYSTEM_OUTPUT_BACKFILL npm run system-outputs:backfill -- --apply
 ```
 
 Long-running operations use isolated BullMQ lanes in production: penetration,
