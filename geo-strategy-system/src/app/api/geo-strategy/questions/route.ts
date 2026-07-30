@@ -4,6 +4,14 @@ import { hasAiCredentialCandidate } from "@/lib/ai-credential-router"
 import { runCredentialPoolChat } from "@/lib/ai-credential-chat"
 import { attachQuestionAdvantages, extractQuestionAdvantages } from "@/lib/geo-strategy/question-advantages"
 import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
+import {
+  KEYWORD_DECISION_DIMENSIONS,
+  KEYWORD_DIMENSION_CATEGORY_MAP,
+  areNearDuplicateQuestions,
+  buildKeywordMethodologyInstruction,
+  normalizeGeoQuestionOptimization,
+  type KeywordDecisionDimension,
+} from "@/lib/geo-strategy/keyword-strategy-methodology"
 import { isInternalApiRequest } from "@/lib/internal-api"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
@@ -114,7 +122,9 @@ const SYSTEM_TEMPLATE = `你是一个资深 GEO 疑问句生成专家。你的�
 10. 当 profile.subject_type 为 person 时，“品牌认知型”是兼容字段，实际含义为“人物认知型”；目标名称是人物姓名，competitors 是同行人物，机构不得当成人物。
 
 每条问题必须包含：
-id、category、difficulty、keyword、question、intent、content_angle、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible、subIntent、queryStyle、methodologyCandidates、articleFormatCandidates、titleStrategyCandidates、platformCandidates。`
+id、category、difficulty、keyword、question、intent、content_angle、decisionDimension、geo_optimization、generationReason、userStage、metricPurpose、top10Eligible、brandMentionEligible、subIntent、queryStyle、methodologyCandidates、articleFormatCandidates、titleStrategyCandidates、platformCandidates。
+
+${buildKeywordMethodologyInstruction()}`
 
 // ==================== Prompt Builders ====================
 
@@ -227,6 +237,15 @@ function buildReasonedQuestionPrompt(
     ? listBlock(allocation.weaknesses || profile.weaknesses, "（暂无明确劣势，请结合业务背景和风险疑虑生成）")
     : listBlock(allocation.keywords, "（暂无指定关键词，请结合业务背景、痛点和场景推理生成）")
   const typeMix = allocateTypeMix(count, allocation.category)
+  const research = strategy.keyword_research && typeof strategy.keyword_research === "object"
+    ? strategy.keyword_research as Record<string, unknown>
+    : null
+  const settings = strategy.generation_settings && typeof strategy.generation_settings === "object"
+    ? strategy.generation_settings as Record<string, unknown>
+    : null
+  const researchSources = research && Array.isArray(research.sources)
+    ? research.sources.slice(0, 12)
+    : []
 
   return `请基于下面的业务背景和用户选择的素材，按“问题类型 + 推理规则”生成 GEO 疑问句。
 
@@ -241,6 +260,15 @@ function buildReasonedQuestionPrompt(
 - 客户痛点: ${listBlock(profile.pain_points, "（暂无）")}
 - 使用场景: ${listBlock(profile.scenes, "（暂无）")}
 - 已识别劣势: ${listBlock(profile.weaknesses, "（暂无）")}
+
+【豆包联网研究语境】
+- 目标地域: ${String(settings?.target_region || research?.target_region || "不限地域")}
+- 语言风格: ${String(settings?.language_style || research?.language_style || "auto")}
+- 联网研究摘要: ${String(research?.brief || "当前批次沿用项目已确认资料")}
+- 真实表达模式: ${listBlock(research?.user_language_patterns, "（暂无）")}
+- 决策信号: ${listBlock(research?.decision_signals, "（暂无）")}
+- 地域表达: ${listBlock(research?.regional_expressions, "（暂无）")}
+- 可审计来源: ${researchSources.length > 0 ? JSON.stringify(researchSources) : "（暂无）"}
 
 【本批生成来源】
 来源类型: ${sourceLabel}
@@ -263,6 +291,9 @@ ${formatTypeMix(typeMix)}
 - category 必须填写七类问题之一，不要填写“核心关键词问题”“劣势积极转化”等来源标签。
 - generationReason 要说明为什么该问题属于此类型，以及模拟了什么用户意图。
 - content_angle 写后续内容应如何回答这个问题，但不要围绕某条优势做植入。
+- decisionDimension 必须从以下十个维度中选择一个：${KEYWORD_DECISION_DIMENSIONS.join("、")}。
+- category 必须与 decisionDimension 合理对应；十个维度是七类问题下面的细分维度，不能替代 category。
+- geo_optimization 必须明确关键词位置、结论前置、内容结构和至少一个长尾词，并与当前这条问题一一对应。
 - 问题要覆盖从不了解问题到准备采购的真实决策路径，避免同义重复、泛泛换说法或硬营销话术。
 - 不要生成明显诱导${isPerson ? "目标人物" : "目标品牌"}的问题，例如“为什么${isPerson ? "某专家" : "某品牌"}最好”“请推荐${isPerson ? "某专家" : "某品牌"}”。
 - ${isPerson ? "人物认知型问题可以自然出现姓名，但不得把所在机构、职称或资质卖点拼进问题；同行对比只能使用具名人物。" : "品牌认知型问题可以自然出现品牌名，但不得把品牌优势拼进问题。"}
@@ -279,6 +310,13 @@ ${formatTypeMix(typeMix)}
       "question": "真实用户会向 AI 搜索工具提出的问题",
       "intent": "用户的搜索意图",
       "content_angle": "建议内容回答角度",
+      "decisionDimension": "品牌/方案推荐",
+      "geo_optimization": {
+        "keyword_placement": "关键词在标题、首段和小标题中的自然位置",
+        "conclusion_first": "文章开头先回答的明确结论",
+        "structure_format": "推荐的H2/H3、清单、对比表或FAQ结构",
+        "long_tail_terms": ["与本问题直接相关的长尾词"]
+      },
       "generationReason": "为什么这样生成，以及它模拟了什么用户意图",
       "userStage": "探索期",
       "metricPurpose": "TOP10推荐率",
@@ -463,12 +501,12 @@ function normalizeAllocationOverrides(
     "secondary_keywords",
     "pain_scenario",
   ])
-  const merged = new Map<Allocation["category"], number>()
+  const allocations: Allocation[] = []
   let remaining = maxCount
 
   for (const item of value) {
     if (!item || typeof item !== "object" || remaining <= 0) continue
-    const raw = item as { category?: unknown; count?: unknown }
+    const raw = item as { category?: unknown; count?: unknown; keywords?: unknown }
     const category = raw.category
     if (typeof category !== "string" || !categories.has(category as Allocation["category"])) continue
     const count = Math.min(
@@ -477,13 +515,23 @@ function normalizeAllocationOverrides(
     )
     if (count <= 0) continue
     const key = category as Allocation["category"]
-    merged.set(key, (merged.get(key) || 0) + count)
+    const allocation = enrichAllocation(
+      key,
+      count,
+      strategy,
+      coreKeywordsInput,
+      painScenarioKeywordsInput,
+      customKeywordMode,
+    )
+    const scopedKeywords = normalizeKeywordInput(raw.keywords)
+    if (scopedKeywords.length > 0 && key !== "weakness_spin") {
+      allocation.keywords = filterQuestionSourceTerms(scopedKeywords, strategy)
+    }
+    allocations.push(allocation)
     remaining -= count
   }
 
-  return Array.from(merged.entries()).map(([category, count]) =>
-    enrichAllocation(category, count, strategy, coreKeywordsInput, painScenarioKeywordsInput, customKeywordMode)
-  )
+  return allocations
 }
 
 function calculateAllocations(
@@ -711,6 +759,29 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return fallback
 }
 
+function normalizeDecisionDimension(
+  value: unknown,
+  category: QuestionTypeName,
+  question: string,
+): KeywordDecisionDimension {
+  const supplied = text(value)
+  const exact = KEYWORD_DECISION_DIMENSIONS.find(item => item === supplied)
+  if (exact) return exact
+  if (/价格|费用|预算|成本|报价/.test(question)) return "价格费用"
+  if (/对比|区别|哪个好|怎么选|选型/.test(question)) return "对比选型"
+  if (/避坑|风险|靠谱|真假|注意|会不会/.test(question)) return "避坑风险"
+  if (/口碑|评价|体验|值得/.test(question)) return "口碑评价"
+  if (/流程|步骤|周期|交付|验收/.test(question)) return "流程服务"
+  if (/品质|工艺|材料|质量|标准/.test(question)) return "品质工艺"
+  if (/多久|本地|附近|地区|城市|全国/.test(question)) return "时效/地域"
+  if (category === "榜单推荐型") return "品牌/方案推荐"
+  if (category === "竞品对比型") return "对比选型"
+  if (category === "采购决策型") return "流程服务"
+  if (category === "场景人群型") return "场景细分"
+  if (category === "风险疑虑型") return "避坑风险"
+  return "需求判断"
+}
+
 function buildAvoidQuestionsInstruction(questions: string[]): string {
   const list = questions
     .map(item => item.trim())
@@ -737,6 +808,12 @@ function normalizeQuestion(value: unknown, category: string, strategy: Record<st
   const normalizedCategory = normalizeQuestionCategory(data.category || category)
   const defaults = questionTypeDefaults(normalizedCategory)
   const userStage = normalizeUserStage(data.userStage, defaults.defaultStage as UserStage)
+  const decisionDimension = normalizeDecisionDimension(
+    data.decisionDimension,
+    normalizedCategory,
+    question,
+  )
+  const preferredCategory = KEYWORD_DIMENSION_CATEGORY_MAP[decisionDimension]
   const methodology = classifyQuestionMethodology({
     category: normalizedCategory,
     question,
@@ -756,8 +833,17 @@ function normalizeQuestion(value: unknown, category: string, strategy: Record<st
     question,
     intent: text(data.intent, "了解并解决相关决策问题"),
     content_angle: text(data.content_angle, text(data.generationReason, "围绕用户问题提供事实、对比与行动建议")),
+    decisionDimension,
+    geo_optimization: normalizeGeoQuestionOptimization(
+      data.geo_optimization,
+      question,
+      text(data.keyword),
+    ),
     matched_advantage: "",
-    generationReason: text(data.generationReason, `模拟${userStage}用户围绕${normalizedCategory}提出的真实决策问题`),
+    generationReason: text(
+      data.generationReason,
+      `模拟${userStage}用户围绕${decisionDimension}提出的真实决策问题；建议主类为${preferredCategory}`,
+    ),
     userStage,
     metricPurpose: text(data.metricPurpose, defaults.metricPurpose),
     top10Eligible: normalizeBoolean(data.top10Eligible, defaults.top10Eligible),
@@ -926,7 +1012,13 @@ async function generateCategoryQuestions(
   for (const batchQuestions of batchResults) {
     for (const question of batchQuestions) {
       const key = questionKey(question.question)
-      if (!key || seen.has(key)) continue
+      if (
+        !key
+        || seen.has(key)
+        || allQuestions.some(existing =>
+          areNearDuplicateQuestions(existing.question, question.question)
+        )
+      ) continue
       seen.add(key)
       allQuestions.push(question)
     }
@@ -1069,10 +1161,15 @@ async function handler(req: NextRequest) {
     }
 
     const seenQuestions = new Set<string>()
+    const uniqueQuestionsSoFar: Array<Omit<QuestionItem, "id">> = []
     const uniqueQuestions = allQuestions.filter(question => {
       const key = questionKey(question.question)
       if (!key || seenQuestions.has(key)) return false
+      if (uniqueQuestionsSoFar.some(existing =>
+        areNearDuplicateQuestions(existing.question, question.question)
+      )) return false
       seenQuestions.add(key)
+      uniqueQuestionsSoFar.push(question)
       return true
     })
     if (uniqueQuestions.length < allQuestions.length) {

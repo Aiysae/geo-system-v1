@@ -14,13 +14,14 @@ export async function GET() {
 
   const settings = await listAiProviderPublicSettings()
   const keywordStrategy = settings.find(item => item.key === "keywordStrategy")
+  const strategyProvider = settings.find(item => item.key === "doubao")
   const questionProviders = {
     qwen: settings.find(item => item.key === "qwen"),
     doubao: settings.find(item => item.key === "doubao"),
   }
 
   return NextResponse.json(
-    { keywordStrategy, questionProviders },
+    { keywordStrategy, strategyProvider, questionProviders },
     {
       headers: {
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",

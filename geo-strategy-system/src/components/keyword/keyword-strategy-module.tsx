@@ -24,9 +24,10 @@ import {
   type MediaPlanItem,
   type SourcePlatformCategory,
   type SourcePlatformSnapshot,
+  type KeywordStrategyLanguageStyle,
 } from "@/types/geo-strategy"
 import type { BackgroundJobKind, BackgroundJobRef, Client } from "@/types"
-import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
+import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, ExternalLink, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
@@ -41,6 +42,10 @@ import {
 import { SourcePlatformAdoptionChart } from "@/components/keyword/source-platform-adoption-chart"
 import { getClientSubjectType } from "@/lib/analysis-subject"
 import { mergeExtractedProfileIntoKnowledgeBase } from "@/lib/client-knowledge-base"
+import {
+  KEYWORD_STRATEGY_LANGUAGE_LABELS,
+  normalizeKeywordStrategyLanguageStyle,
+} from "@/lib/geo-strategy/keyword-strategy-methodology"
 
 // ==================== Brand Data ====================
 
@@ -86,6 +91,9 @@ interface BrandData {
   questionModel: string
   questionCustomKeywords: string
   questionCustomPainScenarios: string
+  strategyLanguageStyle: KeywordStrategyLanguageStyle
+  strategyCustomLanguageStyle: string
+  strategyCustomKeywords: string
   layer2Ratio: number
   categoryConfig: QuestionCategoryConfig
   questions: QuestionItem[]
@@ -142,6 +150,9 @@ function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandDat
     questionModel: getDefaultQuestionModel(DEFAULT_QUESTION_MODEL_PROVIDER),
     questionCustomKeywords: "",
     questionCustomPainScenarios: "",
+    strategyLanguageStyle: "auto",
+    strategyCustomLanguageStyle: "",
+    strategyCustomKeywords: "",
     layer2Ratio: 0.35,
     categoryConfig: DEFAULT_CATEGORY_CONFIG,
     questions: [],
@@ -177,6 +188,13 @@ function createBrandFromClient(client: Client): BrandData {
     questionModel: normalizeQuestionModel(questionModelProvider, saved.questionModel),
     questionCustomKeywords: typeof saved.questionCustomKeywords === "string" ? saved.questionCustomKeywords : "",
     questionCustomPainScenarios: typeof saved.questionCustomPainScenarios === "string" ? saved.questionCustomPainScenarios : "",
+    strategyLanguageStyle: normalizeKeywordStrategyLanguageStyle(saved.strategyLanguageStyle),
+    strategyCustomLanguageStyle: typeof saved.strategyCustomLanguageStyle === "string"
+      ? saved.strategyCustomLanguageStyle
+      : "",
+    strategyCustomKeywords: typeof saved.strategyCustomKeywords === "string"
+      ? saved.strategyCustomKeywords
+      : "",
     questionJobId: typeof saved.questionJobId === "string" ? saved.questionJobId : undefined,
     questionJobProgress: saved.questionJobProgress,
     uploadedFiles: Array.isArray(saved.uploadedFiles) ? saved.uploadedFiles : [],
@@ -325,6 +343,7 @@ function calculateQuestionSectionPlan(
   plan: GeoStrategyPlan,
   categoryConfig: QuestionCategoryConfig,
   baseCount: number,
+  keywordPoolSize = 0,
 ): QuestionSectionPlan {
   const weaknesses = plan.profile?.weaknesses || []
   const enabled: Record<QuestionSectionKey, boolean> = {
@@ -332,13 +351,21 @@ function calculateQuestionSectionPlan(
     weakness: categoryConfig.weaknessEnabled !== false && weaknesses.length > 0,
     painScenario: categoryConfig.painScenarioEnabled !== false,
   }
-  const countModes: Record<QuestionSectionKey, "system" | "custom"> = {
+  const countModes: Record<QuestionSectionKey, "system" | "custom" | "per_keyword"> = {
     keyword: categoryConfig.keywordCountMode || "system",
     weakness: categoryConfig.weaknessCountMode || "system",
     painScenario: categoryConfig.painScenarioCountMode || "system",
   }
   const customCounts: Record<QuestionSectionKey, number> = {
-    keyword: clampQuestionSectionCount(categoryConfig.keywordCount, 20),
+    keyword: categoryConfig.keywordCountMode === "per_keyword"
+      ? clampQuestionSectionCount(
+          keywordPoolSize * Math.max(
+            1,
+            Math.min(30, Math.round(categoryConfig.keywordQuestionsPerKeyword || 10)),
+          ),
+          0,
+        )
+      : clampQuestionSectionCount(categoryConfig.keywordCount, 20),
     weakness: clampQuestionSectionCount(categoryConfig.weaknessCount, Math.max(10, weaknesses.length * categoryConfig.weaknessesPerWeakness)),
     painScenario: clampQuestionSectionCount(categoryConfig.painScenarioCount, 10),
   }
@@ -351,7 +378,7 @@ function calculateQuestionSectionPlan(
   const systemSections: QuestionSectionKey[] = []
   for (const section of Object.keys(enabled) as QuestionSectionKey[]) {
     if (!enabled[section]) continue
-    if (countModes[section] === "custom") {
+    if (countModes[section] === "custom" || countModes[section] === "per_keyword") {
       counts[section] = customCounts[section]
     } else {
       systemSections.push(section)
@@ -408,6 +435,14 @@ function isStoppedQuestionMessage(message: string): boolean {
 
 function isNonBlockingQuestionMessage(message: string): boolean {
   return isStoppedQuestionMessage(message) || message.startsWith("后台任务仍在生成")
+}
+
+function actionableQuestionWarnings(warnings: string[]): string {
+  return warnings
+    .filter(message =>
+      /失败|不足|异常|跳过|超时|本地.*补齐|不完整/.test(message)
+    )
+    .join("；")
 }
 
 function isFatalQuestionPollError(error: unknown): boolean {
@@ -641,6 +676,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
   }
 
   const [keywordModelSetting, setKeywordModelSetting] = useState<AiProviderPublicSetting | null>(null)
+  const [strategyModelSetting, setStrategyModelSetting] = useState<AiProviderPublicSetting | null>(null)
   const [questionProviderSettings, setQuestionProviderSettings] = useState<Partial<Record<QuestionModelProvider, AiProviderPublicSetting>>>({})
 
   useEffect(() => {
@@ -651,6 +687,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         if (cancelled) return
         const setting = data?.keywordStrategy
         if (setting) setKeywordModelSetting(setting as AiProviderPublicSetting)
+        const strategySetting = data?.strategyProvider
+        if (strategySetting) setStrategyModelSetting(strategySetting as AiProviderPublicSetting)
         const providers = data?.questionProviders || {}
         setQuestionProviderSettings({
           qwen: providers.qwen as AiProviderPublicSetting | undefined,
@@ -660,6 +698,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       .catch(() => {
         if (!cancelled) {
           setKeywordModelSetting(null)
+          setStrategyModelSetting(null)
           setQuestionProviderSettings({})
         }
       })
@@ -714,6 +753,12 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         }
       : null,
     sourcePlatformContext: compactSourcePlatformSnapshot(sourcePlatformSnapshot),
+    strategySettings: {
+      target_region: activeBrand.locationTerms || client.personProfile?.region || "不限地域",
+      language_style: activeBrand.strategyLanguageStyle,
+      custom_language_style: activeBrand.strategyCustomLanguageStyle,
+      custom_keywords: parseQuestionKeywords(activeBrand.strategyCustomKeywords),
+    },
   }
 
   const extractJobState = useResumableBackgroundJob<ExtractedProfile>({
@@ -963,8 +1008,23 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       return
     }
 
+    const customQuestionKeywords = parseQuestionKeywords(activeBrand.questionCustomKeywords)
+    const keywordSource = activeBrand.categoryConfig.keywordSource || "system"
+    const coreKeywords = keywordSource === "custom"
+      ? customQuestionKeywords
+      : deriveCoreKeywords(strategyPlan)
+    const customPainScenarios = parseQuestionKeywords(activeBrand.questionCustomPainScenarios)
+    const painScenarioSource = activeBrand.categoryConfig.painScenarioSource || "system"
+    const painScenarioKeywords = painScenarioSource === "custom"
+      ? customPainScenarios
+      : derivePainScenarioTerms(strategyPlan)
     const baseCount = effectiveQuestionBaseCount(activeBrand.questionCount, activeBrand.customQuestionCount)
-    const sectionPlan = calculateQuestionSectionPlan(strategyPlan, activeBrand.categoryConfig, baseCount)
+    const sectionPlan = calculateQuestionSectionPlan(
+      strategyPlan,
+      activeBrand.categoryConfig,
+      baseCount,
+      coreKeywords.length,
+    )
     const effectiveCount = sectionPlan.totalCount
 
     if (effectiveCount <= 0) {
@@ -982,17 +1042,6 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       })
       return
     }
-
-    const customQuestionKeywords = parseQuestionKeywords(activeBrand.questionCustomKeywords)
-    const keywordSource = activeBrand.categoryConfig.keywordSource || "system"
-    const coreKeywords = keywordSource === "custom"
-      ? customQuestionKeywords
-      : deriveCoreKeywords(strategyPlan)
-    const customPainScenarios = parseQuestionKeywords(activeBrand.questionCustomPainScenarios)
-    const painScenarioSource = activeBrand.categoryConfig.painScenarioSource || "system"
-    const painScenarioKeywords = painScenarioSource === "custom"
-      ? customPainScenarios
-      : derivePainScenarioTerms(strategyPlan)
     const allocationOverrides = [
       { category: "core_keywords" as const, count: sectionPlan.counts.keyword },
       { category: "weakness_spin" as const, count: sectionPlan.counts.weakness },
@@ -1202,8 +1251,14 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
 
           if (job.status === "succeeded") {
             updateBrand({
+              strategyPlan: job.researchAudit && activeBrand.strategyPlan
+                ? {
+                    ...activeBrand.strategyPlan,
+                    keyword_research: job.researchAudit,
+                  }
+                : activeBrand.strategyPlan,
               questions: job.questions,
-              questionError: job.warnings.length > 0 ? job.warnings.join("；") : "",
+              questionError: actionableQuestionWarnings(job.warnings),
               questionStatus: "done",
               questionJobId: undefined,
               questionJobProgress: progress,
@@ -1287,7 +1342,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         questionAbortRef.current = null
       }
     }
-  }, [activeBrand.completedSteps, activeBrand.questionJobId, activeBrand.questionStatus, questionPollRetryKey, updateBrand])
+  }, [activeBrand.completedSteps, activeBrand.questionJobId, activeBrand.questionStatus, activeBrand.strategyPlan, questionPollRetryKey, updateBrand])
 
   // Export
   const handleExportJson = useCallback(() => {
@@ -1467,6 +1522,15 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               reExtracting={Boolean(extractJobRef)}
               onReExtract={handleReExtract}
               sourcePlatformSnapshot={sourcePlatformSnapshot}
+              targetRegion={ab.locationTerms}
+              onTargetRegionChange={v => setBrandField("locationTerms", v)}
+              languageStyle={ab.strategyLanguageStyle}
+              onLanguageStyleChange={v => setBrandField("strategyLanguageStyle", v)}
+              customLanguageStyle={ab.strategyCustomLanguageStyle}
+              onCustomLanguageStyleChange={v => setBrandField("strategyCustomLanguageStyle", v)}
+              customKeywords={ab.strategyCustomKeywords}
+              onCustomKeywordsChange={v => setBrandField("strategyCustomKeywords", v)}
+              strategyModelName={strategyModelSetting?.model || "豆包官方联网模型"}
             />
           )}
 
@@ -1839,6 +1903,11 @@ function ExtractionStep({
   profile, onProfileChange, onBack, onGenerate, generating, strategyError,
   advantageStatus, advantageError, onGenerateAdvantages,
   reExtracting, onReExtract, sourcePlatformSnapshot,
+  targetRegion, onTargetRegionChange,
+  languageStyle, onLanguageStyleChange,
+  customLanguageStyle, onCustomLanguageStyleChange,
+  customKeywords, onCustomKeywordsChange,
+  strategyModelName,
 }: {
   subjectType: "brand" | "person"
   profile: ExtractedProfile
@@ -1853,6 +1922,15 @@ function ExtractionStep({
   reExtracting: boolean
   onReExtract: () => void
   sourcePlatformSnapshot: SourcePlatformSnapshot
+  targetRegion: string
+  onTargetRegionChange: (value: string) => void
+  languageStyle: KeywordStrategyLanguageStyle
+  onLanguageStyleChange: (value: KeywordStrategyLanguageStyle) => void
+  customLanguageStyle: string
+  onCustomLanguageStyleChange: (value: string) => void
+  customKeywords: string
+  onCustomKeywordsChange: (value: string) => void
+  strategyModelName: string
 }) {
   const isPerson = subjectType === "person"
   const updateItem = useCallback((field: keyof ExtractedProfile, index: number, patch: Partial<ExtractedItem>) => {
@@ -1938,6 +2016,73 @@ function ExtractionStep({
           </label>
           <textarea value={profile.product_description} onChange={e => updateField("product_description", e.target.value)}
             className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white/60 outline-none focus:border-blue-400 transition resize-none" rows={2} />
+        </div>
+      </div>
+
+      <div className="geo-panel p-4 sm:p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <Search className="h-4 w-4 text-[#1677FF]" />
+              联网关键词策略设置
+            </h2>
+            <p className="mt-1 text-[11px] leading-5 text-slate-500">
+              系统会先联网研究当地用户表达与决策因素，再生成关键词、内容方向和后续疑问句语境。
+            </p>
+          </div>
+          <span className="shrink-0 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-[#0958D9]">
+            豆包 · {strategyModelName}
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="text-[11px] font-medium text-slate-500">目标地域</label>
+            <input
+              value={targetRegion}
+              onChange={event => onTargetRegionChange(event.target.value)}
+              placeholder="例如：中国大陆、深圳、香港、全国"
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-slate-500">语言风格</label>
+            <select
+              value={languageStyle}
+              onChange={event => onLanguageStyleChange(
+                normalizeKeywordStrategyLanguageStyle(event.target.value),
+              )}
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            >
+              {Object.entries(KEYWORD_STRATEGY_LANGUAGE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          {languageStyle === "custom" && (
+            <div className="md:col-span-2">
+              <label className="text-[11px] font-medium text-slate-500">自定义语言要求</label>
+              <input
+                value={customLanguageStyle}
+                onChange={event => onCustomLanguageStyleChange(event.target.value)}
+                placeholder="例如：深圳本地生活化表达，专业但不要书面腔"
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+          )}
+          <div className="md:col-span-2">
+            <label className="text-[11px] font-medium text-slate-500">
+              指定核心关键词
+              <span className="ml-1 font-normal text-slate-400">选填，每行一个或用逗号分隔</span>
+            </label>
+            <textarea
+              value={customKeywords}
+              onChange={event => onCustomKeywordsChange(event.target.value)}
+              rows={3}
+              placeholder={"例如：\n深圳全屋定制\n香港小户型全屋定制\n全屋定制避坑"}
+              className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
         </div>
       </div>
 
@@ -2332,6 +2477,59 @@ function StrategyStep({
         <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{plan.summary || "（待生成）"}</p>
       </Card>
 
+      {plan.keyword_research && (
+        <Card title="联网研究依据" icon={<Search className="h-4 w-4 text-cyan-500" />}>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <ProfileField label="模型" value={`豆包 · ${plan.keyword_research.model}`} />
+            <ProfileField label="目标地域" value={plan.keyword_research.target_region} />
+            <ProfileField label="有效来源" value={`${plan.keyword_research.sources.length} 个`} />
+            <ProfileField
+              label="研究时间"
+              value={new Date(plan.keyword_research.searched_at).toLocaleString("zh-CN")}
+            />
+          </div>
+          <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+            {plan.keyword_research.brief}
+          </p>
+          <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50/70">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-700">
+              查看全部联网来源
+            </summary>
+            <div className="space-y-2 border-t border-slate-200 p-3">
+              {plan.keyword_research.sources.map((source, index) => (
+                <a
+                  key={`${source.url}-${index}`}
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 transition hover:border-blue-300 hover:text-[#0958D9]"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">{source.title || source.domain}</span>
+                    <span className="mt-0.5 block truncate text-[10px] text-slate-400">{source.url}</span>
+                  </span>
+                  <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                </a>
+              ))}
+            </div>
+          </details>
+          {plan.quality_audit && (
+            <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+              plan.quality_audit.passed
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-amber-200 bg-amber-50 text-amber-700"
+            }`}>
+              质量检查：{plan.quality_audit.keyword_count} 个关键词 ·
+              {plan.quality_audit.duplicate_keyword_count} 个重复 ·
+              {plan.quality_audit.valid_source_count} 个有效来源
+              {plan.quality_audit.custom_keyword_count > 0
+                ? ` · 指定词覆盖 ${plan.quality_audit.covered_custom_keyword_count}/${plan.quality_audit.custom_keyword_count}`
+                : ""}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* Profile */}
       {plan.profile && (
         <Card title="客户画像" icon={<Search className="h-4 w-4 text-purple-500" />}>
@@ -2609,7 +2807,11 @@ function StrategyStep({
             {/* Show question summary */}
             <div className="mb-4 flex flex-col gap-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-xs text-slate-500">
-                共 {questions.length} 条疑问句
+                共 {questions.length} 条疑问句 · 七类主意图 {
+                  new Set(questions.map(item => item.category).filter(Boolean)).size
+                }/7 · 决策维度 {
+                  new Set(questions.map(item => item.decisionDimension).filter(Boolean)).size
+                }/10
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -2677,9 +2879,31 @@ function StrategyStep({
                       <span className="text-slate-400">
                         {isPerson && q.category === "品牌认知型" ? "人物认知型" : q.category}
                       </span>
+                      {q.decisionDimension && (
+                        <>
+                          <span className="text-slate-400">·</span>
+                          <span className="font-medium text-[#1677FF]">{q.decisionDimension}</span>
+                        </>
+                      )}
                       <span className="text-slate-400">·</span>
                       <span className="text-slate-400">{q.keyword}</span>
                     </div>
+                    {(q.content_angle || q.geo_optimization) && (
+                      <details className="mt-1.5 rounded-lg border border-blue-100 bg-blue-50/50 px-2 py-1.5 text-[11px] leading-5 text-slate-600">
+                        <summary className="cursor-pointer font-semibold text-[#0958D9]">
+                          内容方向与 GEO 收录要点
+                        </summary>
+                        {q.content_angle && <div className="mt-1">{q.content_angle}</div>}
+                        {q.geo_optimization && (
+                          <div className="mt-1 space-y-0.5 text-slate-500">
+                            <div>关键词位置：{q.geo_optimization.keyword_placement}</div>
+                            <div>结论前置：{q.geo_optimization.conclusion_first}</div>
+                            <div>内容结构：{q.geo_optimization.structure_format}</div>
+                            <div>长尾词：{q.geo_optimization.long_tail_terms.join("、")}</div>
+                          </div>
+                        )}
+                      </details>
+                    )}
                     {questionAdvantages.length > 0 && (
                       <div className="mt-1.5 rounded-lg border border-emerald-100 bg-emerald-50/70 px-2 py-1 text-[11px] leading-4 text-emerald-700">
                         <span className="font-semibold">匹配优势：</span>
@@ -2763,12 +2987,17 @@ function QuestionSettingsPanel({
   onStopQuestions: () => void
 }) {
   const baseCount = effectiveQuestionBaseCount(questionCount, customQuestionCount)
-  const sectionPlan = calculateQuestionSectionPlan(plan, categoryConfig, baseCount)
   const weaknesses = plan.profile?.weaknesses || []
   const systemKeywords = deriveCoreKeywords(plan)
   const customKeywords = parseQuestionKeywords(questionCustomKeywords)
   const keywordSource = categoryConfig.keywordSource || "system"
   const previewKeywords = keywordSource === "custom" ? customKeywords : systemKeywords
+  const sectionPlan = calculateQuestionSectionPlan(
+    plan,
+    categoryConfig,
+    baseCount,
+    previewKeywords.length,
+  )
   const systemPainScenarios = derivePainScenarioTerms(plan)
   const customPainScenarios = parseQuestionKeywords(questionCustomPainScenarios)
   const painScenarioSource = categoryConfig.painScenarioSource || "system"
@@ -2797,6 +3026,10 @@ function QuestionSettingsPanel({
     const next = { ...categoryConfig, ...patch }
     next.weaknessesPerWeakness = Math.min(30, Math.max(1, Math.round(Number(next.weaknessesPerWeakness ?? 10) || 10)))
     next.keywordCount = clampQuestionSectionCount(next.keywordCount, 20)
+    next.keywordQuestionsPerKeyword = Math.max(
+      1,
+      Math.min(30, Math.round(Number(next.keywordQuestionsPerKeyword ?? 10) || 10)),
+    )
     next.weaknessCount = clampQuestionSectionCount(next.weaknessCount, Math.max(10, weaknesses.length * next.weaknessesPerWeakness))
     next.painScenarioCount = clampQuestionSectionCount(next.painScenarioCount, 10)
     next.coreRatio = Math.min(0.70, Math.max(0.30, Number(next.coreRatio ?? 0.30)))
@@ -2807,13 +3040,30 @@ function QuestionSettingsPanel({
     onCategoryConfigChange(next)
   }
 
-  const setCountMode = (section: QuestionSectionKey, mode: "system" | "custom") => {
+  const setCountMode = (
+    section: QuestionSectionKey,
+    mode: "system" | "custom" | "per_keyword",
+  ) => {
     if (section === "keyword") updateConfig({ keywordCountMode: mode, keywordCount: sectionPlan.counts.keyword || 20 })
-    if (section === "weakness") updateConfig({ weaknessCountMode: mode, weaknessCount: sectionPlan.counts.weakness || Math.max(1, weaknesses.length * categoryConfig.weaknessesPerWeakness) })
-    if (section === "painScenario") updateConfig({ painScenarioCountMode: mode, painScenarioCount: sectionPlan.counts.painScenario || 10 })
+    if (section === "weakness" && mode !== "per_keyword") {
+      updateConfig({
+        weaknessCountMode: mode,
+        weaknessCount: sectionPlan.counts.weakness || Math.max(1, weaknesses.length * categoryConfig.weaknessesPerWeakness),
+      })
+    }
+    if (section === "painScenario" && mode !== "per_keyword") {
+      updateConfig({
+        painScenarioCountMode: mode,
+        painScenarioCount: sectionPlan.counts.painScenario || 10,
+      })
+    }
   }
 
-  const countModeButton = (section: QuestionSectionKey, mode: "system" | "custom", label: string) => {
+  const countModeButton = (
+    section: QuestionSectionKey,
+    mode: "system" | "custom" | "per_keyword",
+    label: string,
+  ) => {
     const currentMode = section === "keyword"
       ? categoryConfig.keywordCountMode || "system"
       : section === "weakness"
@@ -2919,7 +3169,7 @@ function QuestionSettingsPanel({
           )}
         </div>
         <div className="text-[10px] text-slate-400">
-          选择“系统建议数量”的部分会按上面的基准自动分配；选择“自定义数量”的部分直接按填写数量生成。
+          系统建议按总量分配；自定义按填写数量生成；按关键词会为每个关键词建立独立批次。
         </div>
       </div>
 
@@ -2949,6 +3199,7 @@ function QuestionSettingsPanel({
               <div className="mb-2 inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
                 {countModeButton("keyword", "system", "系统建议")}
                 {countModeButton("keyword", "custom", "自定义")}
+                {countModeButton("keyword", "per_keyword", "按关键词")}
               </div>
               {(categoryConfig.keywordCountMode || "system") === "custom" && (
                 <input
@@ -2959,6 +3210,22 @@ function QuestionSettingsPanel({
                   onChange={e => updateConfig({ keywordCount: Number(e.target.value) })}
                   className="block w-28 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none"
                 />
+              )}
+              {categoryConfig.keywordCountMode === "per_keyword" && (
+                <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                  每个关键词
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={categoryConfig.keywordQuestionsPerKeyword ?? 10}
+                    onChange={event => updateConfig({
+                      keywordQuestionsPerKeyword: Number(event.target.value),
+                    })}
+                    className="w-20 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none"
+                  />
+                  条
+                </div>
               )}
             </div>
             <div>
@@ -3399,13 +3666,32 @@ function escapeCsvCell(value: unknown): string {
 
 function generateQuestionCsv(questions: QuestionItem[], plan?: GeoStrategyPlan): string {
   const advantages = extractQuestionAdvantages(plan)
-  const headers = ["序号", "疑问句", "匹配优势", "生成类型", "关键词"]
+  const headers = [
+    "序号",
+    "对应核心关键词",
+    "七类主意图",
+    "决策维度",
+    "用户高频问题",
+    "内容方向建议",
+    "GEO收录优化要点",
+    "匹配优势",
+  ]
   const rows = questions.map(question => [
     question.id,
-    question.question,
-    resolveQuestionAdvantage(question, advantages),
-    question.category,
     question.keyword,
+    question.category,
+    question.decisionDimension || "",
+    question.question,
+    question.content_angle,
+    question.geo_optimization
+      ? [
+          `关键词位置：${question.geo_optimization.keyword_placement}`,
+          `结论前置：${question.geo_optimization.conclusion_first}`,
+          `内容结构：${question.geo_optimization.structure_format}`,
+          `长尾词：${question.geo_optimization.long_tail_terms.join("、")}`,
+        ].join("\n")
+      : "",
+    resolveQuestionAdvantage(question, advantages),
   ])
   return [headers, ...rows].map(row => row.map(escapeCsvCell).join(",")).join("\n")
 }
@@ -3420,6 +3706,23 @@ function generateMarkdown(
   lines.push(`# ${plan.project_name || "GEO 优化策略方案"}`)
   lines.push(``)
   if (plan.summary) lines.push(...buildSection("策略总览", plan.summary))
+  if (plan.keyword_research) {
+    lines.push(`## 豆包联网研究依据`)
+    lines.push(``)
+    lines.push(`- **目标地域**：${plan.keyword_research.target_region}`)
+    lines.push(`- **模型**：豆包 · ${plan.keyword_research.model}`)
+    lines.push(`- **研究时间**：${plan.keyword_research.searched_at}`)
+    lines.push(`- **有效来源**：${plan.keyword_research.sources.length} 个`)
+    lines.push(``)
+    lines.push(plan.keyword_research.brief)
+    lines.push(``)
+    lines.push(`### 联网来源`)
+    lines.push(``)
+    plan.keyword_research.sources.forEach((source, index) => {
+      lines.push(`${index + 1}. [${source.title || source.domain}](${source.url})`)
+    })
+    lines.push(``)
+  }
   if (plan.profile) {
     lines.push(`## 客户画像`)
     lines.push(``)
@@ -3500,7 +3803,16 @@ function generateMarkdown(
   if (questions.length) {
     lines.push(`## 疑问句池`)
     lines.push(``)
-    questions.forEach(q => lines.push(`- [#${q.id}] ${q.question}（${q.category} · ${q.keyword}）`))
+    lines.push(`| # | 关键词 | 七类主意图 | 决策维度 | 疑问句 | 内容方向 | GEO 收录要点 | 匹配优势 |`)
+    lines.push(`|---|--------|------------|----------|--------|----------|---------------|----------|`)
+    const advantages = extractQuestionAdvantages(plan)
+    questions.forEach(q => lines.push(
+      `| ${q.id} | ${q.keyword} | ${q.category} | ${q.decisionDimension || "-"} | ${q.question} | ${q.content_angle || "-"} | ${
+        q.geo_optimization
+          ? `关键词位置：${q.geo_optimization.keyword_placement}；结论前置：${q.geo_optimization.conclusion_first}；内容结构：${q.geo_optimization.structure_format}；长尾词：${q.geo_optimization.long_tail_terms.join("、")}`
+          : "-"
+      } | ${resolveQuestionAdvantage(q, advantages) || "-"} |`
+    ))
     lines.push(``)
   }
   return lines.join("\n")

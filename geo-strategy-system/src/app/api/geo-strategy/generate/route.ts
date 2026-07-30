@@ -1,19 +1,34 @@
 import { NextRequest, NextResponse } from "next/server"
-import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
-import { hasAiCredentialCandidate } from "@/lib/ai-credential-router"
-import { runCredentialPoolChat } from "@/lib/ai-credential-chat"
+import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { runAdapterCredentialPoolChat } from "@/lib/ai-credential-adapter"
 import { parseJsonLoose } from "@/lib/score-utils"
 import {
   authAndReserveCreditsForRequest,
   refundReservedCreditsQuietly,
   type CreditReservation,
 } from "@/lib/with-credits"
-import type { GeoStrategyPlan, SourcePlatformSnapshot } from "@/types/geo-strategy"
+import type {
+  GeoStrategyPlan,
+  KeywordStrategyGenerationSettings,
+  KeywordStrategyResearchAudit,
+  SourcePlatformSnapshot,
+} from "@/types/geo-strategy"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import {
   linkStrategyToSourcePlatforms,
   sourcePlatformPromptContext,
 } from "@/lib/source-platform-intelligence"
+import {
+  KEYWORD_STRATEGY_METHODOLOGY_VERSION,
+  auditKeywordStrategyPlan,
+  buildKeywordMethodologyInstruction,
+  keywordLanguageInstruction,
+  normalizeKeywordStrategySettings,
+} from "@/lib/geo-strategy/keyword-strategy-methodology"
+import {
+  isKeywordStrategyWebReady,
+  researchKeywordStrategyContext,
+} from "@/lib/geo-strategy/keyword-strategy-research"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -35,10 +50,15 @@ const SYSTEM_PROMPT = `你是一个资深 GEO（生成式引擎优化）策略�
 6. 第三方网站策略不是普通媒体发布计划，而是“搭建第三方网站”的策略，例如测评类网站、交流论坛、问答知识库、案例口碑站、对比榜单站等。
 7. 每个第三方网站都必须说明它针对哪类劣势，以及如何把这个劣势转化为优势叙事。
 8. 疑问句检测已经命中的自媒体和行业垂直平台必须进入自媒体发文策略；官媒、政府和协会信源必须单独进入权威媒体策略，不能混写。
-9. 输出必须是严格 JSON，不要输出 Markdown，不要解释 JSON 外的任何文字。`
+9. 关键词必须结合本次豆包官方联网研究，不得脱离目标地域和真实用户表达凭空罗列。
+10. 输出必须是严格 JSON，不要输出 Markdown，不要解释 JSON 外的任何文字。
+
+${buildKeywordMethodologyInstruction()}`
 
 function buildUserPrompt(
   profile: Record<string, unknown>,
+  settings: KeywordStrategyGenerationSettings,
+  research: KeywordStrategyResearchAudit,
   sourcePlatformSnapshot?: SourcePlatformSnapshot,
 ): string {
   const isPerson = profile.subject_type === "person"
@@ -75,6 +95,24 @@ function buildUserPrompt(
     }
   }
 
+  sections.push(
+    "",
+    "【本次关键词策略设置】",
+    `目标地域：${settings.target_region}`,
+    `语言风格：${keywordLanguageInstruction(settings)}`,
+    `用户指定核心关键词：${settings.custom_keywords.length > 0 ? settings.custom_keywords.join("、") : "未指定，由系统结合联网研究提炼"}`,
+    "",
+    "【豆包官方联网研究】",
+    `研究时间：${research.searched_at}`,
+    `联网请求编号：${research.provider_request_id || "无"}`,
+    `联网研究摘要：${research.brief}`,
+    `真实表达模式：${research.user_language_patterns.join("、") || "暂无"}`,
+    `决策信号：${research.decision_signals.join("、") || "暂无"}`,
+    `地域表达：${research.regional_expressions.join("、") || "暂无"}`,
+    "可审计网页来源：",
+    JSON.stringify(research.sources, null, 2),
+  )
+
   if (sourcePlatforms.length > 0) {
     sections.push(
       "",
@@ -101,6 +139,12 @@ function buildUserPrompt(
     "- 将优势内容转化为 GEO 可信事实资产：围绕优势中的具体数字，规划官网/第三方/自媒体的引用布局。",
     "- official_site_strategy 必须是“官网建设策略”，并且排在第三方网站策略之前。至少包含：首页信任首屏、产品/服务详情页、优势数据页、案例/口碑页、FAQ/对比页、结构化数据与 About/品牌事实页。",
     "- keyword_strategy 必须包含 core_keywords、pain_advantage_keywords、weakness_conversion_keywords、scenario_keywords。",
+    "- keyword_strategy 每个分组都必须输出至少 3 个语义不同、可直接用于内容规划的关键词；每个关键词都必须填写具体 logic。",
+    settings.custom_keywords.length > 0
+      ? `- 用户指定的核心关键词必须全部进入 core_keywords 或在 logic 中明确说明其长尾拆解，不得遗漏：${settings.custom_keywords.join("、")}。`
+      : "- core_keywords 要优先使用联网研究发现的真实用户表达和行业决策词。",
+    `- 所有关键词与后续问题方向必须适配目标地域“${settings.target_region}”及语言风格“${keywordLanguageInstruction(settings)}”。`,
+    "- 不要在关键词里堆叠未经核实的排名、销量、认证、客户数量或效果承诺。",
     "- third_party_site_strategy 必须是“搭建第三方网站”的策略，不要写成知乎、小红书、公众号、百家号、头条号、B站这些自媒体平台。",
     "- third_party_site_strategy 至少 5 个站点类型，优先包含：测评类网站、交流论坛、问答知识库、案例/口碑站、对比/榜单站、行业资料库。",
     "- 每个 third_party_site_strategy 条目必须填写 weakness_conversion：说明这个站点迎合哪个劣势，并如何把劣势打造为优势。",
@@ -153,35 +197,23 @@ function buildUserPrompt(
 }
 
 async function callLlm(args: {
-  url: string
-  apiKey: string
-  model: string
   system: string
   user: string
   attempt: number
   timeoutSec: number
 }): Promise<string> {
-  return runCredentialPoolChat({
-    vendor: "qwen",
-    module: "keywordStrategy",
-    model: args.model,
-    legacy: {
-      url: args.url,
-      apiKey: args.apiKey,
-      label: `GEO策略-尝试${args.attempt + 1}`,
-    },
-    chat: {
-      system: args.attempt === 0
-        ? args.system
-        : `${args.system}\n\n注意：上次输出无法解析或字段不完整。请严格输出一个完整合法 JSON 对象，不要包含任何额外文字、代码块标记或注释。`,
-      user: args.attempt === 0
-        ? args.user
-        : `${args.user}\n\n请确保本次只输出完整 JSON 对象，并包含 project_name、summary、profile、keyword_strategy、official_site_strategy、third_party_site_strategy、media_plan、authority_media_plan、geo_monitoring_plan、execution_roadmap。`,
-      temperature: args.attempt === 0 ? 0.35 : 0.2,
-      maxTokens: 16384,
-      jsonMode: true,
-      timeoutSec: args.timeoutSec,
-    },
+  return runAdapterCredentialPoolChat("doubao", "keywordStrategy", {
+    system: args.attempt === 0
+      ? args.system
+      : `${args.system}\n\n注意：上次输出无法解析、字段不完整或关键词质量校验失败。请严格输出完整合法 JSON，不要包含额外文字、代码块标记或注释。`,
+    user: args.attempt === 0
+      ? args.user
+      : `${args.user}\n\n请确保本次只输出完整 JSON 对象，并包含 project_name、summary、profile、keyword_strategy、official_site_strategy、third_party_site_strategy、media_plan、authority_media_plan、geo_monitoring_plan、execution_roadmap。四个关键词分组都至少 3 条，keyword 和 logic 均不可为空，跨分组不得重复。`,
+    temperature: args.attempt === 0 ? 0.3 : 0.15,
+    maxTokens: 16384,
+    jsonMode: true,
+    allowWebSearch: false,
+    timeoutSec: args.timeoutSec,
   })
 }
 
@@ -193,11 +225,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
-function hasRequiredStrategyShape(value: unknown): value is GeoStrategyPlan {
+function hasRequiredStrategyShape(
+  value: unknown,
+  customKeywords: string[] = [],
+): value is GeoStrategyPlan {
   if (!isRecord(value)) return false
   if (!value.project_name || !value.summary) return false
   if (!isRecord(value.profile)) return false
   if (!isRecord(value.keyword_strategy)) return false
+  const keywordGroups = [
+    value.keyword_strategy.core_keywords,
+    value.keyword_strategy.pain_advantage_keywords,
+    value.keyword_strategy.weakness_conversion_keywords,
+    value.keyword_strategy.scenario_keywords,
+  ]
+  if (keywordGroups.some(group => !Array.isArray(group) || group.length < 3)) return false
+  const seenKeywords = new Set<string>()
+  const keywordTexts: string[] = []
+  for (const group of keywordGroups) {
+    for (const item of group as unknown[]) {
+      if (!isRecord(item)) return false
+      const keyword = String(item.keyword || "").trim()
+      const logic = String(item.logic || "").trim()
+      const key = keyword.replace(/\s+/g, "").toLowerCase()
+      if (!keyword || !logic || seenKeywords.has(key)) return false
+      seenKeywords.add(key)
+      keywordTexts.push(`${keyword}${logic}`.replace(/\s+/g, "").toLowerCase())
+    }
+  }
+  if (customKeywords.some(keyword => {
+    const key = keyword.replace(/\s+/g, "").toLowerCase()
+    return key && !keywordTexts.some(item => item.includes(key))
+  })) return false
   if (!Array.isArray(value.official_site_strategy)) return false
   if (!Array.isArray(value.third_party_site_strategy)) return false
   if (!Array.isArray(value.media_plan)) return false
@@ -207,11 +266,9 @@ function hasRequiredStrategyShape(value: unknown): value is GeoStrategyPlan {
 }
 
 async function generateStrategyWithRetries(args: {
-  url: string
-  apiKey: string
-  model: string
   userPrompt: string
   timeoutSec: number
+  customKeywords?: string[]
 }): Promise<GeoStrategyPlan> {
   let lastRaw = ""
   let lastError = ""
@@ -219,16 +276,13 @@ async function generateStrategyWithRetries(args: {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       lastRaw = await callLlm({
-        url: args.url,
-        apiKey: args.apiKey,
-        model: args.model,
         system: SYSTEM_PROMPT,
         user: args.userPrompt,
         attempt,
         timeoutSec: args.timeoutSec,
       })
       const parsed = parseJsonResult(lastRaw)
-      if (hasRequiredStrategyShape(parsed)) return parsed
+      if (hasRequiredStrategyShape(parsed, args.customKeywords)) return parsed
       lastError = parsed
         ? "AI 返回 JSON 但缺少必要策略字段"
         : "AI 返回内容无法解析为 JSON"
@@ -248,27 +302,29 @@ async function handler(req: NextRequest) {
   try {
     const body = await req.json()
     const { profile } = body
+    if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+      return NextResponse.json({ error: "请提供客户资料" }, { status: 400 })
+    }
     const sourcePlatformSnapshot = isRecord(body.sourcePlatformContext)
       && Array.isArray(body.sourcePlatformContext.platforms)
       ? body.sourcePlatformContext as unknown as SourcePlatformSnapshot
       : undefined
+    const settings = normalizeKeywordStrategySettings(
+      body.strategySettings,
+      String(
+        body.strategySettings?.target_region
+        || profile.person_profile?.region
+        || (Array.isArray(profile.terms) ? profile.terms.join("、") : "")
+        || "不限地域",
+      ),
+    )
 
-    if (!profile) {
-      return NextResponse.json({ error: "请提供客户资料" }, { status: 400 })
-    }
-
-    const aiConfig = await getAiProviderRuntimeSetting("keywordStrategy")
-    const url = buildAiChatUrl(aiConfig)
+    const aiConfig = await getAiProviderRuntimeSetting("doubao")
     const timeoutSec = Math.min(aiConfig.timeout || 300, 240)
-    const hasPoolCredential = await hasAiCredentialCandidate({
-      vendor: "qwen",
-      module: "keywordStrategy",
-      model: aiConfig.model,
-      requiredCapabilities: ["json"],
-    })
-
-    if (!aiConfig.apiKey && !hasPoolCredential) {
-      return NextResponse.json({ error: "后台未配置关键词策略模型 API Key，请联系管理员在后台管理页配置" }, { status: 400 })
+    if (!await isKeywordStrategyWebReady()) {
+      return NextResponse.json({
+        error: "后台尚未配置可用于关键词策略的豆包官方联网模型，请管理员补全豆包 API Key、模型和联网能力后重试",
+      }, { status: 400 })
     }
 
     const creditGuard = await authAndReserveCreditsForRequest(req, CREDIT_COST, {
@@ -279,13 +335,15 @@ async function handler(req: NextRequest) {
     if (!creditGuard.ok) return creditGuard.response
     reservation = creditGuard.reservation
 
-    const userPrompt = buildUserPrompt(profile, sourcePlatformSnapshot)
+    const research = await researchKeywordStrategyContext({
+      profile,
+      settings,
+    })
+    const userPrompt = buildUserPrompt(profile, settings, research, sourcePlatformSnapshot)
     const generatedStrategy = await generateStrategyWithRetries({
-      url,
-      apiKey: aiConfig.apiKey,
-      model: aiConfig.model,
       userPrompt,
       timeoutSec,
+      customKeywords: settings.custom_keywords,
     })
     generatedStrategy.profile.subject_type = profile.subject_type === "person" ? "person" : "brand"
     if (generatedStrategy.profile.subject_type === "person") {
@@ -297,6 +355,10 @@ async function handler(req: NextRequest) {
         ? profile.person_profile as GeoStrategyPlan["profile"]["person_profile"]
         : undefined
     }
+    generatedStrategy.strategy_engine_version = KEYWORD_STRATEGY_METHODOLOGY_VERSION
+    generatedStrategy.generation_settings = settings
+    generatedStrategy.keyword_research = research
+    generatedStrategy.quality_audit = auditKeywordStrategyPlan(generatedStrategy, research)
     const strategy = linkStrategyToSourcePlatforms(generatedStrategy, sourcePlatformSnapshot)
 
     reservation = null

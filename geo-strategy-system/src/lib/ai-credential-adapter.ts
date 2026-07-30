@@ -41,6 +41,16 @@ function isStrictWebCall(module: AiCredentialModule, args: Partial<ChatArgs>): b
     && args.mode === "consumer"
 }
 
+function requiresNativeWebCredential(
+  model: ModelKey,
+  args: Partial<ChatArgs>,
+): boolean {
+  return model === "doubao"
+    && args.forceWebSearch === true
+    && args.requireWebEvidence === true
+    && args.officialWebOnly === true
+}
+
 function usesAuditableExternalSearch(
   model: ModelKey,
   module: AiCredentialModule,
@@ -60,6 +70,7 @@ async function resolveAdapterCredentialRoute(
   args: Partial<ChatArgs>,
 ): Promise<AdapterCredentialRoute> {
   const strictWeb = isStrictWebCall(module, args)
+  const nativeWeb = strictWeb || requiresNativeWebCredential(model, args)
   const vendor = strictWeb ? strictCredentialVendor(model) : model
   const config = await getAiProviderRuntimeSetting(vendor)
   let targetModel = config.model
@@ -74,7 +85,7 @@ async function resolveAdapterCredentialRoute(
     vendor,
     targetModel,
     selectionModel,
-    requiredCapabilities: strictWeb
+    requiredCapabilities: nativeWeb
       ? model === "kimi" || model === "deepseek"
         ? ["chat"]
         : ["native_web", "auditable_sources"]

@@ -73,10 +73,15 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
 
   const timeoutMs = Math.max(30, timeoutSec) * 1000
   const controller = new AbortController()
+  const abortFromParent = () => controller.abort()
+  args.signal?.addEventListener("abort", abortFromParent, { once: true })
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const tools = [{ type: "web_search" }]
   const payload = {
     model,
+    ...(!args.rawQuestionOnly && args.system.trim()
+      ? { instructions: args.system }
+      : {}),
     input: args.user,
     tools,
     tool_choice: "required",
@@ -141,6 +146,7 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
     throw error
   } finally {
     clearTimeout(timer)
+    args.signal?.removeEventListener("abort", abortFromParent)
   }
 }
 
