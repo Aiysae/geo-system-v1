@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import {
   Check,
@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea"
 import ArticleRewriteBrandMapper from "@/components/article/article-rewrite-brand-mapper"
 import ArticleComparisonBrandPanel from "@/components/article/article-comparison-brand-panel"
 import ArticleMethodologyPanel from "@/components/article/article-methodology-panel"
+import ArticleQuestionMaterialPanel from "@/components/article/article-question-material-panel"
 import ArticleReadiness from "@/components/article/article-readiness"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import {
@@ -32,6 +33,7 @@ import {
 import { ARTICLE_PROMPT_OPTIONS, type ArticlePromptOption } from "@/lib/article-prompt-meta"
 import { supportsArticleComparisonBrands } from "@/lib/article-comparison-brands"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
+import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { useCredits } from "@/components/credits/credits-provider"
 import { ARTICLE_PROMPT_PRICE_KEYS, estimateFeatureCredits } from "@/lib/pricing"
@@ -53,6 +55,7 @@ import type {
   ArticleGenerationConnectivity,
   ArticleGenerationState,
   ArticleGenerationLineage,
+  ArticleBatchQuestionTask,
   ArticleMethodologyTrace,
   ArticlePublishingSettings,
   ArticleModelProviderKey,
@@ -60,6 +63,7 @@ import type {
   ArticleRewriteAnalysis,
   ArticleRewriteAudit,
   ArticleRewriteBrandMapping,
+  ArticleQuestionMaterial,
   BackgroundJobRef,
   Client,
   ModelKey,
@@ -109,6 +113,11 @@ interface ArticleBrandAnalysisResponse {
   error?: string
 }
 
+interface ArticleQuestionMaterialsResponse {
+  materials?: ArticleQuestionMaterial[]
+  error?: string
+}
+
 const ArticleMarkdownWorkspace = dynamic(
   () => import("@/components/article/article-markdown-workspace"),
   {
@@ -151,6 +160,7 @@ const EMPTY_QUESTION_ITEMS: QuestionItem[] = []
 function articleStrategySourceFingerprint(
   questions: QuestionItem[],
   advantages: string[],
+  materials: ArticleQuestionMaterial[],
 ): string {
   const source = JSON.stringify({
     questions: questions.map(item => ({
@@ -169,6 +179,15 @@ function articleStrategySourceFingerprint(
       platformCandidates: item.platformCandidates,
     })),
     advantages,
+    materials: materials.map(item => ({
+      id: item.id,
+      question: item.question,
+      matchedAdvantage: item.matchedAdvantage,
+      keyword: item.keyword,
+      category: item.category,
+      intent: item.intent,
+      contentAngle: item.contentAngle,
+    })),
   })
   let hash = 2166136261
   for (let index = 0; index < source.length; index++) {
@@ -176,6 +195,57 @@ function articleStrategySourceFingerprint(
     hash = Math.imul(hash, 16777619)
   }
   return (hash >>> 0).toString(36)
+}
+
+function keywordQuestionToArticleTask(
+  question: QuestionItem,
+  advantages: string[],
+): ArticleBatchQuestionTask {
+  return {
+    questionId: question.id,
+    questionSource: "keyword_strategy",
+    question: question.question,
+    intent: question.intent,
+    category: question.category,
+    keyword: question.keyword,
+    decisionDimension: question.decisionDimension,
+    contentAngle: question.content_angle,
+    matchedAdvantage: resolveQuestionAdvantage(question, advantages),
+    subIntent: question.subIntent,
+    queryStyle: question.queryStyle,
+    methodologyCandidates: question.methodologyCandidates,
+    platformCandidates: question.platformCandidates,
+    articleFormat: question.articleFormatCandidates?.[0],
+    titleStrategy: question.titleStrategyCandidates?.[0],
+  }
+}
+
+function articleQuestionMaterialToTask(
+  material: ArticleQuestionMaterial,
+): ArticleBatchQuestionTask {
+  const methodology = classifyQuestionMethodology({
+    category: material.category || "痛点解决型",
+    question: material.question,
+    intent: material.intent,
+  })
+  return {
+    materialId: material.id,
+    questionSource: "excel",
+    question: material.question,
+    matchedAdvantage: material.matchedAdvantage,
+    keyword: material.keyword,
+    category: material.category,
+    intent: material.intent,
+    decisionDimension: material.decisionDimension,
+    contentAngle: material.contentAngle,
+    geoOptimizationText: material.geoOptimizationText,
+    subIntent: methodology.subIntent,
+    queryStyle: methodology.queryStyle,
+    methodologyCandidates: methodology.methodologyCandidates,
+    platformCandidates: methodology.platformCandidates,
+    articleFormat: methodology.articleFormatCandidates[0],
+    titleStrategy: methodology.titleStrategyCandidates[0],
+  }
 }
 
 function createInitialArticle(client: Client): ArticleGenerationState {
@@ -235,25 +305,37 @@ function createInitialArticle(client: Client): ArticleGenerationState {
 
 function buildArticleJobPayload(client: Client, article: ArticleGenerationState) {
   const subjectType = getClientSubjectType(client)
+  const selectedQuestionTask = article.selectedQuestionTask?.question.trim() === article.coreQuestion.trim()
+    ? article.selectedQuestionTask
+    : undefined
   const matchedQuestion = (client.keywordStrategy?.questions || [])
     .find(item => item.question.trim() === article.coreQuestion.trim())
-  const methodology = article.methodology?.mode === "auto" && matchedQuestion?.methodologyCandidates?.[0]
+  const methodologyCandidate = selectedQuestionTask?.methodologyCandidates?.[0]
+    || matchedQuestion?.methodologyCandidates?.[0]
+  const methodology = article.methodology?.mode === "auto" && methodologyCandidate
     ? {
         ...article.methodology,
         mode: "manual" as const,
-        methodKey: matchedQuestion.methodologyCandidates[0],
+        methodKey: methodologyCandidate,
         targetPlatform: article.methodology.targetPlatform === "auto"
-          ? matchedQuestion.platformCandidates?.[0] || "auto"
+          ? selectedQuestionTask?.platformCandidates?.[0]
+            || matchedQuestion?.platformCandidates?.[0]
+            || "auto"
           : article.methodology.targetPlatform,
         articleFormat: article.methodology.articleFormat === "auto"
-          ? matchedQuestion.articleFormatCandidates?.[0] || "auto"
+          ? selectedQuestionTask?.articleFormat
+            || matchedQuestion?.articleFormatCandidates?.[0]
+            || "auto"
           : article.methodology.articleFormat,
         titleStrategy: article.methodology.titleStrategy === "auto"
-          ? matchedQuestion.titleStrategyCandidates?.[0] || "auto"
+          ? selectedQuestionTask?.titleStrategy
+            || matchedQuestion?.titleStrategyCandidates?.[0]
+            || "auto"
           : article.methodology.titleStrategy,
       }
     : article.methodology
   const matchedAdvantage = article.advantages.trim()
+    || selectedQuestionTask?.matchedAdvantage
     || matchedQuestion?.matched_advantage
     || ""
   return {
@@ -284,12 +366,12 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
     comparisonBrands: article.comparisonBrands,
     methodology,
     knowledgeBase: client.knowledgeBase,
-    questionIntent: matchedQuestion?.intent,
-    questionId: matchedQuestion?.id,
-    questionSubIntent: matchedQuestion?.subIntent,
-    questionCategory: matchedQuestion?.category,
-    questionKeyword: matchedQuestion?.keyword,
-    questionContentAngle: matchedQuestion?.content_angle,
+    questionIntent: selectedQuestionTask?.intent || matchedQuestion?.intent,
+    questionId: selectedQuestionTask?.questionId || selectedQuestionTask?.materialId || matchedQuestion?.id,
+    questionSubIntent: selectedQuestionTask?.subIntent || matchedQuestion?.subIntent,
+    questionCategory: selectedQuestionTask?.category || matchedQuestion?.category,
+    questionKeyword: selectedQuestionTask?.keyword || matchedQuestion?.keyword,
+    questionContentAngle: selectedQuestionTask?.contentAngle || matchedQuestion?.content_angle,
     audience: article.audience,
     extraRequirements: article.extraRequirements,
   }
@@ -315,10 +397,43 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const [stoppingJob, setStoppingJob] = useState(false)
   const [analyzingBrands, setAnalyzingBrands] = useState(false)
   const [brandAnalysisError, setBrandAnalysisError] = useState<string | null>(null)
+  const [questionMaterials, setQuestionMaterials] = useState<ArticleQuestionMaterial[]>([])
+  const [questionMaterialsLoading, setQuestionMaterialsLoading] = useState(true)
+  const [questionMaterialsError, setQuestionMaterialsError] = useState("")
+
+  const loadQuestionMaterials = useCallback(async () => {
+    setQuestionMaterials(current => current.filter(item => item.clientId === client.id))
+    setQuestionMaterialsLoading(true)
+    try {
+      const response = await apiFetch(
+        `/api/article-generation/question-materials?clientId=${encodeURIComponent(client.id)}`,
+        { cache: "no-store" },
+      )
+      const data = await readApiJson<ArticleQuestionMaterialsResponse>(
+        response,
+        "文章疑问句素材",
+      )
+      if (!response.ok) throw new Error(data.error || "文章疑问句素材读取失败")
+      setQuestionMaterials(data.materials || [])
+      setQuestionMaterialsError("")
+    } catch (loadError) {
+      setQuestionMaterialsError(toUserFacingError(loadError, {
+        fallback: "文章疑问句素材读取失败，请稍后重试。",
+        subject: "文章素材",
+      }))
+    } finally {
+      setQuestionMaterialsLoading(false)
+    }
+  }, [client.id])
 
   useEffect(() => {
     articleRef.current = article
   }, [article])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadQuestionMaterials(), 0)
+    return () => window.clearTimeout(timer)
+  }, [loadQuestionMaterials])
 
   useEffect(() => {
     let cancelled = false
@@ -398,8 +513,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const keywordQuestions = client.keywordStrategy?.questions || EMPTY_QUESTION_ITEMS
   const keywordAdvantages = useMemo(() => collectKeywordAdvantages(client), [client])
   const strategyWorkspaceKey = useMemo(
-    () => `${client.id}:strategy:${articleStrategySourceFingerprint(keywordQuestions, keywordAdvantages)}`,
-    [client.id, keywordAdvantages, keywordQuestions],
+    () => `${client.id}:strategy:${articleStrategySourceFingerprint(keywordQuestions, keywordAdvantages, questionMaterials)}`,
+    [client.id, keywordAdvantages, keywordQuestions, questionMaterials],
   )
   const penetrationSourceGroups = useMemo(
     () => buildArticleSourceModelGroups(client.penetration),
@@ -552,6 +667,11 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     persist({
       ...article,
       [key]: value,
+      ...(key === "coreQuestion"
+        && article.selectedQuestionTask
+        && String(value || "").trim() !== article.selectedQuestionTask.question.trim()
+        ? { selectedQuestionTask: undefined }
+        : {}),
       error: key === "output" ? article.error : undefined,
       status: key === "output" ? article.status : article.status === "error" ? "idle" : article.status,
     })
@@ -636,9 +756,15 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
   function fillKeywordQuestions() {
     if (keywordQuestions.length === 0) return
+    const firstQuestion = keywordQuestions[0]
     persist({
       ...article,
-      coreQuestion: article.coreQuestion || keywordQuestions[0]?.question || "",
+      coreQuestion: article.coreQuestion || firstQuestion?.question || "",
+      selectedQuestionTask: article.coreQuestion
+        ? article.selectedQuestionTask
+        : firstQuestion
+          ? keywordQuestionToArticleTask(firstQuestion, keywordAdvantages)
+          : undefined,
       keywords: keywordQuestions.map(question => question.question).join("\n"),
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
@@ -657,22 +783,43 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
 
   function fillKeywordQuestionsAndAdvantages() {
     const nextQuestions = keywordQuestions.map(question => question.question).filter(Boolean)
+    const firstQuestion = keywordQuestions[0]
+    const firstTask = firstQuestion
+      ? keywordQuestionToArticleTask(firstQuestion, keywordAdvantages)
+      : undefined
     persist({
       ...article,
       coreQuestion: article.coreQuestion || nextQuestions[0] || "",
+      selectedQuestionTask: article.coreQuestion
+        ? article.selectedQuestionTask
+        : firstTask,
       keywords: nextQuestions.length > 0 ? nextQuestions.join("\n") : article.keywords,
-      advantages: keywordAdvantages.length > 0 ? keywordAdvantages.join("\n") : article.advantages,
+      advantages: firstTask?.matchedAdvantage || article.advantages,
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
     })
   }
 
   function handleQuestionAsTopic(question: QuestionItem) {
-    const matchedAdvantage = resolveQuestionAdvantage(question, keywordAdvantages)
+    const task = keywordQuestionToArticleTask(question, keywordAdvantages)
     persist({
       ...article,
       coreQuestion: question.question,
-      advantages: appendUniqueLines(article.advantages, matchedAdvantage ? [matchedAdvantage] : []),
+      advantages: task.matchedAdvantage || "",
+      selectedQuestionTask: task,
+      status: article.status === "error" ? "idle" : article.status,
+      error: undefined,
+    })
+  }
+
+  function handleMaterialAsTopic(material: ArticleQuestionMaterial) {
+    const task = articleQuestionMaterialToTask(material)
+    persist({
+      ...article,
+      coreQuestion: material.question,
+      keywords: material.keyword || article.keywords,
+      advantages: material.matchedAdvantage || "",
+      selectedQuestionTask: task,
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
     })
@@ -1323,6 +1470,15 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 </div>
               )}
 
+              <ArticleQuestionMaterialPanel
+                clientId={client.id}
+                materials={questionMaterials}
+                loading={questionMaterialsLoading}
+                loadError={questionMaterialsError}
+                onRefresh={loadQuestionMaterials}
+                onUseMaterial={handleMaterialAsTopic}
+              />
+
               <Label className="text-xs">
                 <span className="mb-1.5 block font-medium text-slate-500">核心搜索问题 / 内容主题</span>
                 <Input
@@ -1483,6 +1639,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             key={strategyWorkspaceKey}
             clientId={client.id}
             questions={keywordQuestions}
+            importedMaterials={questionMaterials}
             hasAccess={unlimited || ["vip3", "vip4", "vip5", "vip6"].includes(membership.tier)}
             membershipTier={membership.tier}
             basePayload={{
@@ -1497,7 +1654,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 : "",
               industry: client.industry,
               website: client.website,
-              coreQuestion: keywordQuestions[0]?.question || article.coreQuestion,
+              coreQuestion: keywordQuestions[0]?.question
+                || questionMaterials[0]?.question
+                || article.coreQuestion,
               keywords: article.keywords,
               region: article.region,
               business: article.business,
@@ -1540,6 +1699,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             }}
             keywordQuestions={keywordQuestions}
             keywordAdvantages={keywordAdvantages}
+            importedMaterials={questionMaterials}
             perArticleCredits={estimateFeatureCredits(articleFeatureKey)}
           />
         ) : (

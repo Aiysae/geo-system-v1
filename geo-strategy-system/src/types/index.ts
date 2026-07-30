@@ -194,13 +194,56 @@ export interface ArticleComparisonBrand {
   role?: "supporting" | "peer" | "benchmark" | "alternative"
 }
 
+export type ArticleQuestionSource = "keyword_strategy" | "excel"
+
+export interface ArticleQuestionMaterialInput {
+  rowNumber: number
+  question: string
+  matchedAdvantage?: string
+  keyword?: string
+  category?: string
+  intent?: string
+  decisionDimension?: string
+  contentAngle?: string
+  geoOptimizationText?: string
+}
+
+export interface ArticleQuestionMaterial extends ArticleQuestionMaterialInput {
+  id: string
+  clientId: string
+  source: "excel"
+  importBatchId: string
+  sourceFileName: string
+  createdAt: string
+}
+
+export interface ArticleQuestionMaterialSkippedRow {
+  rowNumber: number
+  question: string
+  reason: "invalid" | "duplicate_batch" | "duplicate_existing" | "capacity"
+  message: string
+}
+
+export interface ArticleQuestionMaterialImportResult {
+  importBatchId: string
+  created: ArticleQuestionMaterial[]
+  skipped: ArticleQuestionMaterialSkippedRow[]
+  createdCount: number
+  skippedCount: number
+  warningCount: number
+}
+
 export interface ArticleBatchQuestionTask {
   questionId?: string
+  materialId?: string
+  questionSource?: ArticleQuestionSource
   question: string
   intent?: string
   category?: string
   keyword?: string
+  decisionDimension?: string
   contentAngle?: string
+  geoOptimizationText?: string
   matchedAdvantage?: string
   subIntent?: string
   queryStyle?: GeoQueryStyle
@@ -285,6 +328,7 @@ export interface ArticleGenerationState {
   advantages: string
   audience: string
   extraRequirements: string
+  selectedQuestionTask?: ArticleBatchQuestionTask
   output: string
   publishing?: ArticlePublishingSettings
   status: GenerationStatus
@@ -357,10 +401,14 @@ export interface ArticleBatchItemRecord {
   topic: string
   brief: string
   questionId?: string
+  materialId?: string
+  questionSource?: ArticleQuestionSource
   intent?: string
   category?: string
   keyword?: string
+  decisionDimension?: string
   contentAngle?: string
+  geoOptimizationText?: string
   matchedAdvantage?: string
   subIntent?: string
   queryStyle?: GeoQueryStyle

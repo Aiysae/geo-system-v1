@@ -23,12 +23,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
+import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   ArticleBatchItemRecord,
   ArticleBatchQuestionTask,
   ArticleBatchRecord,
   ArticleBatchTopicMode,
+  ArticleQuestionMaterial,
 } from "@/types"
 import type { QuestionItem } from "@/types/geo-strategy"
 
@@ -38,6 +40,7 @@ interface Props {
   basePayload: Record<string, unknown>
   keywordQuestions: QuestionItem[]
   keywordAdvantages?: string[]
+  importedMaterials?: ArticleQuestionMaterial[]
   perArticleCredits: number
 }
 
@@ -69,6 +72,10 @@ function topicLines(value: string): number {
   return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).length
 }
 
+function normalizedQuestion(value: string): string {
+  return value.trim().replace(/\s+/g, "").toLocaleLowerCase("zh-CN")
+}
+
 function startBlockReason(args: {
   count: number
   coreQuestion: string
@@ -89,6 +96,7 @@ export default function ArticleBatchWorkspace({
   basePayload,
   keywordQuestions,
   keywordAdvantages = [],
+  importedMaterials = [],
   perArticleCredits,
 }: Props) {
   const [count, setCount] = useState(10)
@@ -171,8 +179,59 @@ export default function ArticleBatchWorkspace({
     return Math.round(total / selectedBatch.requestedCount)
   }, [selectedBatch])
 
-  function useKeywordQuestions() {
-    const selected = keywordQuestions.slice(0, count)
+  const keywordQuestionTasks = useMemo<ArticleBatchQuestionTask[]>(() => (
+    keywordQuestions.map(question => ({
+      questionId: question.id,
+      questionSource: "keyword_strategy" as const,
+      question: question.question,
+      intent: question.intent,
+      category: question.category,
+      keyword: question.keyword,
+      decisionDimension: question.decisionDimension,
+      contentAngle: question.content_angle,
+      subIntent: question.subIntent,
+      queryStyle: question.queryStyle,
+      methodologyCandidates: question.methodologyCandidates,
+      platformCandidates: question.platformCandidates,
+      articleFormat: question.articleFormatCandidates?.[0],
+      titleStrategy: question.titleStrategyCandidates?.[0],
+      matchedAdvantage: resolveQuestionAdvantage(question, keywordAdvantages),
+    }))
+  ), [keywordAdvantages, keywordQuestions])
+  const importedQuestionTasks = useMemo<ArticleBatchQuestionTask[]>(() => (
+    importedMaterials.map(material => {
+      const methodology = classifyQuestionMethodology({
+        category: material.category || "痛点解决型",
+        question: material.question,
+        intent: material.intent,
+      })
+      return {
+        materialId: material.id,
+        questionSource: "excel" as const,
+        question: material.question,
+        intent: material.intent,
+        category: material.category,
+        keyword: material.keyword,
+        decisionDimension: material.decisionDimension,
+        contentAngle: material.contentAngle,
+        geoOptimizationText: material.geoOptimizationText,
+        matchedAdvantage: material.matchedAdvantage,
+        subIntent: methodology.subIntent,
+        queryStyle: methodology.queryStyle,
+        methodologyCandidates: methodology.methodologyCandidates,
+        platformCandidates: methodology.platformCandidates,
+        articleFormat: methodology.articleFormatCandidates[0],
+        titleStrategy: methodology.titleStrategyCandidates[0],
+      }
+    })
+  ), [importedMaterials])
+  const availableQuestionTasks = useMemo(
+    () => [...keywordQuestionTasks, ...importedQuestionTasks],
+    [importedQuestionTasks, keywordQuestionTasks],
+  )
+
+  function fillQuestionTasks(tasks: ArticleBatchQuestionTask[]) {
+    const selected = tasks.slice(0, count)
     setCustomTopics(selected.map(item => item.question).join("\n"))
     setTopicMode("questions")
   }
@@ -180,9 +239,9 @@ export default function ArticleBatchWorkspace({
   function questionTasksForRequest(): ArticleBatchQuestionTask[] | undefined {
     if (topicMode !== "questions") return undefined
     const byQuestion = new Map(
-      keywordQuestions.map(question => [
-        question.question.trim().replace(/\s+/g, "").toLocaleLowerCase("zh-CN"),
-        question,
+      availableQuestionTasks.map(task => [
+        normalizedQuestion(task.question),
+        task,
       ]),
     )
     return customTopics
@@ -191,25 +250,10 @@ export default function ArticleBatchWorkspace({
       .filter(Boolean)
       .slice(0, count)
       .map(questionText => {
-        const known = byQuestion.get(
-          questionText.replace(/\s+/g, "").toLocaleLowerCase("zh-CN"),
-        )
+        const known = byQuestion.get(normalizedQuestion(questionText))
         return {
-          questionId: known?.id,
+          ...known,
           question: questionText,
-          intent: known?.intent,
-          category: known?.category,
-          keyword: known?.keyword,
-          contentAngle: known?.content_angle,
-          subIntent: known?.subIntent,
-          queryStyle: known?.queryStyle,
-          methodologyCandidates: known?.methodologyCandidates,
-          platformCandidates: known?.platformCandidates,
-          articleFormat: known?.articleFormatCandidates?.[0],
-          titleStrategy: known?.titleStrategyCandidates?.[0],
-          matchedAdvantage: known
-            ? resolveQuestionAdvantage(known, keywordAdvantages)
-            : undefined,
         }
       })
   }
@@ -368,14 +412,27 @@ export default function ArticleBatchWorkspace({
               placeholder="每行填写一篇文章的主题或疑问句"
               className="min-h-28 bg-white text-xs leading-5"
             />
-            {keywordQuestions.length > 0 && (
-              <button
-                type="button"
-                onClick={useKeywordQuestions}
-                className="mt-2 text-[11px] font-medium text-[#0958D9] hover:text-[#1677FF]"
-              >
-                填入当前客户前 {Math.min(count, keywordQuestions.length)} 条疑问句并保留匹配优势
-              </button>
+            {availableQuestionTasks.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                {keywordQuestionTasks.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => fillQuestionTasks(keywordQuestionTasks)}
+                    className="text-[11px] font-medium text-[#0958D9] hover:text-[#1677FF]"
+                  >
+                    填入关键词策略前 {Math.min(count, keywordQuestionTasks.length)} 条
+                  </button>
+                )}
+                {importedQuestionTasks.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => fillQuestionTasks(importedQuestionTasks)}
+                    className="text-[11px] font-medium text-cyan-700 hover:text-cyan-600"
+                  >
+                    填入 Excel 前 {Math.min(count, importedQuestionTasks.length)} 条并保留逐条优势
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

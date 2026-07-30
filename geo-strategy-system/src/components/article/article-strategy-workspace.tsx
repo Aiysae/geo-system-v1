@@ -20,17 +20,32 @@ import type {
   ArticleBatchQuestionTask,
   ArticleBatchRecord,
   ArticleComparisonBrand,
+  ArticleQuestionMaterial,
 } from "@/types"
 import type { QuestionItem } from "@/types/geo-strategy"
 
 interface Props {
   clientId: string
   questions: QuestionItem[]
+  importedMaterials?: ArticleQuestionMaterial[]
   basePayload: Record<string, unknown>
   hasAccess: boolean
   membershipTier: string
   onStarted: () => void
 }
+
+type StrategyQuestionOption = {
+  selectionKey: string
+  source: "keyword_strategy" | "excel"
+  sourceId: string
+  question: string
+  category?: string
+  intent?: string
+  keyword?: string
+  matchedAdvantage?: string
+}
+
+const MAX_STRATEGY_SELECTION = 300
 
 interface PlanResponse {
   tasks?: ArticleBatchQuestionTask[]
@@ -45,13 +60,38 @@ function itemCost(task: ArticleBatchQuestionTask): number {
 export default function ArticleStrategyWorkspace({
   clientId,
   questions,
+  importedMaterials = [],
   basePayload,
   hasAccess,
   membershipTier,
   onStarted,
 }: Props) {
+  const availableQuestions = useMemo<StrategyQuestionOption[]>(() => [
+    ...questions.map(question => ({
+      selectionKey: `keyword:${question.id}`,
+      source: "keyword_strategy" as const,
+      sourceId: question.id,
+      question: question.question,
+      category: question.category,
+      intent: question.intent,
+      keyword: question.keyword,
+      matchedAdvantage: question.matched_advantage,
+    })),
+    ...importedMaterials.map(material => ({
+      selectionKey: `excel:${material.id}`,
+      source: "excel" as const,
+      sourceId: material.id,
+      question: material.question,
+      category: material.category,
+      intent: material.intent,
+      keyword: material.keyword,
+      matchedAdvantage: material.matchedAdvantage,
+    })),
+  ], [importedMaterials, questions])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set(questions.map(item => item.id)),
+    () => new Set(availableQuestions
+      .slice(0, MAX_STRATEGY_SELECTION)
+      .map(item => item.selectionKey)),
   )
   const [plan, setPlan] = useState<ArticleBatchQuestionTask[]>([])
   const [plannedSignature, setPlannedSignature] = useState("")
@@ -62,13 +102,14 @@ export default function ArticleStrategyWorkspace({
   const [notice, setNotice] = useState("")
 
   const groups = useMemo(() => {
-    const grouped = new Map<string, QuestionItem[]>()
-    for (const question of questions) {
-      const key = question.category || question.intent || "其他问题"
+    const grouped = new Map<string, StrategyQuestionOption[]>()
+    for (const question of availableQuestions) {
+      const sourceLabel = question.source === "excel" ? "Excel 导入" : "关键词策略"
+      const key = `${sourceLabel} · ${question.category || question.intent || "其他问题"}`
       grouped.set(key, [...(grouped.get(key) || []), question])
     }
     return [...grouped.entries()]
-  }, [questions])
+  }, [availableQuestions])
   const selectedCount = selectedIds.size
   const comparisonBrandCount = Array.isArray(basePayload.comparisonBrands)
     ? (basePayload.comparisonBrands as ArticleComparisonBrand[]).filter(item => item.name).length
@@ -92,17 +133,23 @@ export default function ArticleStrategyWorkspace({
   }
 
   function toggleAll() {
-    updateSelection(selectedCount === questions.length
+    const selectableCount = Math.min(availableQuestions.length, MAX_STRATEGY_SELECTION)
+    updateSelection(selectedCount === selectableCount
       ? new Set()
-      : new Set(questions.map(item => item.id)))
+      : new Set(availableQuestions
+        .slice(0, MAX_STRATEGY_SELECTION)
+        .map(item => item.selectionKey)))
   }
 
-  function toggleGroup(items: QuestionItem[]) {
+  function toggleGroup(items: StrategyQuestionOption[]) {
     const next = new Set(selectedIds)
-    const allSelected = items.every(item => next.has(item.id))
+    const allSelected = items.every(item => next.has(item.selectionKey))
     for (const item of items) {
-      if (allSelected) next.delete(item.id)
-      else next.add(item.id)
+      if (allSelected) {
+        next.delete(item.selectionKey)
+      } else if (next.size < MAX_STRATEGY_SELECTION) {
+        next.add(item.selectionKey)
+      }
     }
     updateSelection(next)
   }
@@ -110,7 +157,11 @@ export default function ArticleStrategyWorkspace({
   function toggleOne(id: string) {
     const next = new Set(selectedIds)
     if (next.has(id)) next.delete(id)
-    else next.add(id)
+    else if (next.size < MAX_STRATEGY_SELECTION) next.add(id)
+    else {
+      setError(`单次最多选择 ${MAX_STRATEGY_SELECTION} 条疑问句，请分批生成。`)
+      return
+    }
     updateSelection(next)
   }
 
@@ -120,12 +171,18 @@ export default function ArticleStrategyWorkspace({
     setError("")
     setNotice("")
     try {
+      const selected = availableQuestions.filter(item => selectedIds.has(item.selectionKey))
       const response = await apiFetch("/api/article-generation/strategy-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId,
-          questionIds: [...selectedIds],
+          questionIds: selected
+            .filter(item => item.source === "keyword_strategy")
+            .map(item => item.sourceId),
+          materialIds: selected
+            .filter(item => item.source === "excel")
+            .map(item => item.sourceId),
           modelProvider: basePayload.modelProvider,
           model: basePayload.model,
           comparisonBrandCount,
@@ -236,12 +293,12 @@ export default function ArticleStrategyWorkspace({
       </header>
 
       <div className="p-4">
-        {questions.length === 0 ? (
+        {availableQuestions.length === 0 ? (
           <div className="flex min-h-[500px] items-center justify-center border border-dashed border-slate-200 bg-slate-50/60 text-center">
             <div className="px-6">
               <Sparkles className="mx-auto h-8 w-8 text-blue-300" />
               <div className="mt-3 text-sm font-semibold text-slate-600">还没有可用疑问句</div>
-              <div className="mt-1 text-xs leading-5 text-slate-400">请先在关键词策略中生成疑问句并完成优势匹配。</div>
+              <div className="mt-1 text-xs leading-5 text-slate-400">请先在关键词策略中生成疑问句，或上传疑问句与优势 Excel。</div>
             </div>
           </div>
         ) : (
@@ -249,16 +306,21 @@ export default function ArticleStrategyWorkspace({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-semibold text-slate-700">选择要生成的问题</div>
-                <div className="mt-1 text-[11px] text-slate-500">已选 {selectedCount}/{questions.length}</div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  已选 {selectedCount}/{availableQuestions.length}
+                  {availableQuestions.length > MAX_STRATEGY_SELECTION ? ` · 单次最多 ${MAX_STRATEGY_SELECTION} 条` : ""}
+                </div>
               </div>
               <Button type="button" size="sm" variant="outline" onClick={toggleAll}>
-                {selectedCount === questions.length ? "取消全选" : "全选全部问题"}
+                {selectedCount === Math.min(availableQuestions.length, MAX_STRATEGY_SELECTION)
+                  ? "取消全选"
+                  : "选择本次可生成问题"}
               </Button>
             </div>
 
             <div className="mt-3 max-h-[360px] space-y-3 overflow-y-auto pr-1">
               {groups.map(([category, items]) => {
-                const checkedCount = items.filter(item => selectedIds.has(item.id)).length
+                const checkedCount = items.filter(item => selectedIds.has(item.selectionKey)).length
                 return (
                   <div key={category} className="rounded-lg border border-slate-200">
                     <button
@@ -271,11 +333,11 @@ export default function ArticleStrategyWorkspace({
                     </button>
                     <div className="divide-y divide-slate-100">
                       {items.map(question => (
-                        <label key={question.id} className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 hover:bg-blue-50/40">
+                        <label key={question.selectionKey} className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 hover:bg-blue-50/40">
                           <input
                             type="checkbox"
-                            checked={selectedIds.has(question.id)}
-                            onChange={() => toggleOne(question.id)}
+                            checked={selectedIds.has(question.selectionKey)}
+                            onChange={() => toggleOne(question.selectionKey)}
                             className="mt-0.5 h-4 w-4 accent-[#1677FF]"
                           />
                           <span className="min-w-0">
