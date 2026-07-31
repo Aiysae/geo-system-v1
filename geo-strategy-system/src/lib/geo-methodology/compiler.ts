@@ -12,8 +12,14 @@ import {
 } from "@/lib/geo-methodology/article-formats"
 import {
   buildKnowledgeContext,
+  knowledgeReferencesForAssets,
   selectKnowledgeAssets,
 } from "@/lib/client-knowledge-base"
+import {
+  GEO_CONTENT_RECIPE_VERSION,
+  getGeoContentRecipe,
+  resolveGeoRecipeFormat,
+} from "@/lib/geo-methodology/content-recipes"
 import { buildGeoTitleMatrix } from "@/lib/geo-methodology/title-matrix"
 import type {
   ArticleMethodologySelection,
@@ -128,12 +134,15 @@ function resolveMethodKey(
 }
 
 function resolveArticleFormat(
+  methodKey: GeoMethodologyKey,
   promptKey: ArticlePromptKey,
   selection?: ArticleMethodologySelection,
-): Exclude<GeoArticleFormatKey, "auto"> {
-  return selection?.articleFormat && selection.articleFormat !== "auto"
-    ? selection.articleFormat
-    : articleFormatForArticlePrompt(promptKey)
+): { articleFormat: Exclude<GeoArticleFormatKey, "auto">; resolutionNotes: string[] } {
+  return resolveGeoRecipeFormat({
+    methodKey,
+    requestedFormat: selection?.articleFormat,
+    promptFormat: articleFormatForArticlePrompt(promptKey),
+  })
 }
 
 function resolvePlatform(value: GeoContentPlatform | undefined): Exclude<GeoContentPlatform, "auto"> {
@@ -176,10 +185,12 @@ export function compileGeoArticleMethodology(args: {
   matchedAdvantage?: string
   primarySubject: string
   comparisonBrands?: ArticleComparisonBrand[]
+  knowledgeAssetIds?: string[]
 }): CompiledGeoMethodology {
   const methodKey = resolveMethodKey(args.promptKey, args.selection)
   const method = GEO_METHODOLOGIES[methodKey]
-  const articleFormat = resolveArticleFormat(args.promptKey, args.selection)
+  const recipe = getGeoContentRecipe(methodKey)
+  const { articleFormat, resolutionNotes } = resolveArticleFormat(methodKey, args.promptKey, args.selection)
   const format = getGeoArticleFormat(articleFormat)
   const targetPlatform = resolvePlatform(args.selection?.targetPlatform)
   const platform = GEO_PLATFORM_DEFINITIONS[targetPlatform]
@@ -199,6 +210,7 @@ export function compileGeoArticleMethodology(args: {
       args.matchedAdvantage,
     ].filter(Boolean).join(" "),
     preferredKinds: preferredEvidence,
+    assetIds: args.knowledgeAssetIds,
     limit: 14,
   })
   const titleMatrix = buildGeoTitleMatrix({
@@ -208,14 +220,20 @@ export function compileGeoArticleMethodology(args: {
     targetPlatform,
     titleStrategy,
   })
+  const knowledgeReferences = knowledgeReferencesForAssets(args.knowledgeBase, selectedAssets)
   const trace: ArticleMethodologyTrace = {
     version: GEO_METHODOLOGY_VERSION,
+    recipeVersion: GEO_CONTENT_RECIPE_VERSION,
     methodKey,
     articleFormat,
     targetPlatform,
     brandLayout,
     titleStrategy,
     knowledgeAssetIds: selectedAssets.map(asset => asset.id),
+    knowledgeClaimIds: knowledgeReferences.claimIds,
+    knowledgeSourceIds: knowledgeReferences.sourceIds,
+    knowledgeBaseRevision: args.knowledgeBase?.revision,
+    resolutionNotes,
     compiledAt: new Date().toISOString(),
   }
 
@@ -234,10 +252,12 @@ export function compileGeoArticleMethodology(args: {
       "",
       `【势途 GEO 方法论 ${GEO_METHODOLOGY_VERSION}】`,
       `本篇采用：${method.title}。${method.purpose}`,
+      `统一内容配方：${recipe.title}。${recipe.objective}`,
       `文章形态：${format.title}。${format.description}`,
       `标准结构：${format.answerPattern.join(" -> ")}。`,
       `资料前提：${format.requiredInputs.join("；")}。`,
-      "当前文章形态是本次任务的最终结构约束；若基础模板中的章节或表格要求与它冲突，以当前文章形态为准。",
+      "当前统一内容配方是本次任务唯一的结构依据；基础模板只提供任务意图，不得另行增加冲突的章节、品牌结构或表格规则。",
+      `生成前检查：${recipe.preflight.join("；")}。`,
       "统一写作规则：",
       "1. 先回答用户问题，再展开证据、解释和行动建议。",
       "2. 锁定事实与创作表达分开：名称、数字、资质、报告、案例、价格和经历只能来自本次输入或匹配知识资产。",
@@ -251,7 +271,9 @@ export function compileGeoArticleMethodology(args: {
       `品牌结构：${BRAND_LAYOUT_INSTRUCTIONS[brandLayout].join(" ")}`,
       `平台适配：${platform.instructions.join(" ")}`,
       `形态要求：${format.instructions.join(" ")}`,
-      `输出前静默核验：${[...method.qualityChecks, ...format.qualitySignals].join("；")}。`,
+      `品牌使用规则：${recipe.brandRules.join("；")}。`,
+      `批量差异维度：${recipe.diversityAxes.join("；")}。同批文章只改变表达角度，不改变锁定事实。`,
+      `输出前静默核验：${[...method.qualityChecks, ...format.qualitySignals, ...recipe.qualityGates].join("；")}。`,
     ].join("\n"),
     userAddendum: [
       "",
@@ -267,7 +289,7 @@ export function compileGeoArticleMethodology(args: {
         : "未提供"}`,
       "",
       "【本篇可用知识资产】",
-      buildKnowledgeContext(selectedAssets),
+      buildKnowledgeContext(selectedAssets, args.knowledgeBase),
       "",
       "只能使用上述资产中明确给出的事实。资产之间如有冲突，以带来源、证据等级更高且更新时间更近的内容为准；仍无法判断时应保守表达。",
     ].join("\n"),

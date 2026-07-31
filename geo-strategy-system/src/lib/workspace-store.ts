@@ -72,9 +72,10 @@ export class WorkspaceConflictError extends Error {
   }
 }
 
-const DEFAULT_FILE_PATH = process.env.NODE_ENV === "production"
-  ? "/var/lib/geo-system/workspaces.json"
-  : path.join(/* turbopackIgnore: true */ process.cwd(), ".data", "workspaces.json")
+const DEFAULT_FILE_PATH = String(process.env.WORKSPACE_FILE_PATH || "").trim()
+  || (process.env.NODE_ENV === "production"
+    ? "/var/lib/geo-system/workspaces.json"
+    : path.join(/* turbopackIgnore: true */ process.cwd(), ".data", "workspaces.json"))
 
 const workspaceGlobal = globalThis as typeof globalThis & {
   __geoWorkspacePool?: Pool

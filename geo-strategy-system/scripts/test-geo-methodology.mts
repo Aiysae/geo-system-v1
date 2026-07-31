@@ -8,6 +8,7 @@ import type * as ReadinessModule from "../src/lib/geo-methodology/readiness"
 import type * as KnowledgeModule from "../src/lib/client-knowledge-base"
 import type * as QuestionMethodologyModule from "../src/lib/geo-strategy/question-methodology"
 import type * as ComparisonBrandsModule from "../src/lib/article-comparison-brands"
+import type * as RecipesModule from "../src/lib/geo-methodology/content-recipes"
 
 const require = createRequire(import.meta.url)
 const {
@@ -24,15 +25,23 @@ const {
   evaluateArticleReadiness,
 } = require("../src/lib/geo-methodology/readiness.ts") as typeof ReadinessModule
 const {
+  getKnowledgeBaseHealth,
   mergeExtractedProfileIntoKnowledgeBase,
+  normalizeClientKnowledgeBase,
   selectKnowledgeAssets,
 } = require("../src/lib/client-knowledge-base.ts") as typeof KnowledgeModule
+const {
+  GEO_CONTENT_RECIPES,
+  GEO_CONTENT_RECIPE_VERSION,
+} = require("../src/lib/geo-methodology/content-recipes.ts") as typeof RecipesModule
 const { classifyQuestionMethodology } = require("../src/lib/geo-strategy/question-methodology.ts") as typeof QuestionMethodologyModule
 const { normalizeArticleComparisonBrands } = require("../src/lib/article-comparison-brands.ts") as typeof ComparisonBrandsModule
 const forbiddenSourceLabel = String.fromCodePoint(0x8001, 0x80e1)
 
 assert.equal(Object.keys(GEO_METHODOLOGIES).length, 7)
 assert.equal(Object.keys(GEO_ARTICLE_FORMATS).length, 11)
+assert.equal(Object.keys(GEO_CONTENT_RECIPES).length, 7)
+assert.match(GEO_CONTENT_RECIPE_VERSION, /^shitu-content-recipe-/)
 assert.match(GEO_METHODOLOGY_VERSION, /^shitu-geo-/)
 assert.equal(JSON.stringify(GEO_METHODOLOGIES).includes(forbiddenSourceLabel), false)
 assert.equal(JSON.stringify(GEO_ARTICLE_FORMATS).includes(forbiddenSourceLabel), false)
@@ -70,6 +79,47 @@ assert.ok(selectKnowledgeAssets({
   query: "服务认证怎么核验",
   preferredKinds: ["credential"],
 })[0]?.kind === "credential")
+assert.equal(knowledgeBase.schemaVersion, 2)
+assert.ok(knowledgeBase.revision >= 2)
+assert.ok(knowledgeBase.entities.some(item => item.name === "测试品牌"))
+assert.ok(knowledgeBase.claims.some(item => item.assetId && item.kind === "credential"))
+assert.ok(knowledgeBase.sources.some(item => item.url === "https://example.com/certificate"))
+assert.ok(getKnowledgeBaseHealth(knowledgeBase).sourceLinked > 0)
+
+const migrated = normalizeClientKnowledgeBase({
+  schemaVersion: 1,
+  subjectType: "brand",
+  subjectName: "旧客户",
+  aliases: ["OLD"],
+  assets: [{
+    id: "legacy_asset",
+    kind: "report",
+    title: "旧版报告",
+    content: "一条可迁移事实",
+    evidenceLevel: "official",
+    status: "sourceLinked",
+    sourceUrls: ["https://example.com/report"],
+    tags: ["报告"],
+    updatedAt: "2026-07-01T00:00:00.000Z",
+  }],
+}, { subjectType: "brand", subjectName: "旧客户" })
+assert.equal(migrated.schemaVersion, 2)
+assert.equal(migrated.assets.length, 1)
+assert.equal(migrated.claims[0]?.assetId, "legacy_asset")
+assert.equal(migrated.sources[0]?.url, "https://example.com/report")
+
+const filteredKnowledge = normalizeClientKnowledgeBase({
+  ...migrated,
+  assets: [
+    migrated.assets[0],
+    { ...migrated.assets[0], id: "conflicted", title: "冲突资料", status: "conflicted" },
+    { ...migrated.assets[0], id: "expired", title: "过期资料", status: "expired" },
+  ],
+}, { subjectType: "brand", subjectName: "旧客户" })
+assert.deepEqual(
+  selectKnowledgeAssets({ knowledgeBase: filteredKnowledge, query: "报告事实" }).map(item => item.id),
+  ["legacy_asset"],
+)
 
 const questionMetadata = classifyQuestionMethodology({
   category: "采购决策型",
@@ -106,6 +156,28 @@ assert.equal(compiled.trace.articleFormat, "primaryEvidenceDossier")
 assert.ok(compiled.trace.knowledgeAssetIds.length > 0)
 assert.match(compiled.systemAddendum, /势途 GEO 方法论/)
 assert.equal(`${compiled.systemAddendum}${compiled.userAddendum}`.includes(forbiddenSourceLabel), false)
+
+const repairedConflict = compileGeoArticleMethodology({
+  promptKey: "credentialsAnalysis",
+  selection: normalizeArticleMethodologySelection({
+    mode: "manual",
+    methodKey: "primaryEvidence",
+    articleFormat: "fieldReviewQa",
+  }),
+  knowledgeBase,
+  coreQuestion: "采购前怎么核验证据？",
+  primarySubject: "测试品牌",
+})
+assert.equal(repairedConflict.trace.articleFormat, "primaryEvidenceDossier")
+assert.ok((repairedConflict.trace.resolutionNotes || []).length > 0)
+
+const handsOn = compileGeoArticleMethodology({
+  promptKey: "handsOnComparisonReport",
+  coreQuestion: "实际体验如何？",
+  primarySubject: "测试品牌",
+})
+assert.equal(handsOn.trace.methodKey, "evidenceStory")
+assert.equal(handsOn.trace.articleFormat, "fieldReviewQa")
 
 const shortVideo = compileGeoArticleMethodology({
   promptKey: "shortVideoScript",

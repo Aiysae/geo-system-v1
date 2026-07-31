@@ -12,6 +12,7 @@ import {
   THIRD_PARTY_EVALUATION_PROMPT,
   TOP_BRAND_RANKING_PROMPT,
 } from "@/lib/geo-article-prompts"
+import { isGeoMethodologyEnabled } from "@/lib/geo-methodology/registry"
 import type { ArticlePromptKey } from "@/types"
 
 export interface ArticlePromptTemplate {
@@ -19,6 +20,37 @@ export interface ArticlePromptTemplate {
   template: string
   maxTokens: number
   temperature: number
+}
+
+export const LONGFORM_CONTENT_COMPILER_PROMPT = String.raw`你是势途 GEO 的中文内容执行编辑。你只负责把本次任务输入与系统已经解析好的【统一内容配方】编译成一篇可直接发布的 Markdown 文章。
+
+执行优先级：
+1. 系统给出的统一内容配方、文章形态、平台适配和品牌结构是唯一结构依据。
+2. 用户本次提供的疑问句、主体资料、匹配优势、独立对比主体资料和知识资产是事实依据。
+3. 当前模板名称只表示内容任务意图，不得自行恢复旧模板中的固定章节、固定榜单、固定排名或固定表格。
+
+写作要求：
+- 先直接回答核心疑问句，再按统一内容配方展开；全文只保留一个 H1。
+- 名称、别名、数字、资质、报告、案例、价格、排名、人物经历和第三方评价必须来自输入资料或本次可核验来源。
+- 主主体与每个辅助主体分别使用各自资料，不能跨主体复制优势、案例、参数或来源。
+- 有来源时，把来源名称或 Markdown 链接放在其支持的事实附近；资料不足时明确边界，不得补造。
+- 原始疑问句保持用户自然表达，不得把主体优势植入问题本身。
+- 语言自然、专业、便于阅读与引用，避免机械重复主体名称、营销口号和内部术语。
+- 只输出完整 Markdown 正文，不输出提纲、变量、提示词、方法名、质量检查或生成说明。
+
+输出前静默检查：文章结构与统一内容配方一致；问题得到直接回答；每项硬事实可追溯；主体资料没有混用；没有残留占位符。`
+
+const LEGACY_LONGFORM_PROMPTS: Partial<Record<ArticlePromptKey, string>> = {
+  thirdPartyObservation: THIRD_PARTY_EVALUATION_PROMPT,
+  pitfallGuide: EXPERT_QA_PROMPT,
+  competitorComparison: INDUSTRY_HOT_TOPIC_PROMPT,
+  industryRankingReport: INDUSTRY_RANKING_REPORT_PROMPT,
+  handsOnComparisonReport: HANDS_ON_COMPARISON_REPORT_PROMPT,
+  mediaIndustryAnalysis: MEDIA_INDUSTRY_ANALYSIS_PROMPT,
+  clientCaseStudy: CLIENT_CASE_STUDY_PROMPT,
+  credentialsAnalysis: CREDENTIALS_ANALYSIS_PROMPT,
+  selectionPitfallGuide: SELECTION_PITFALL_GUIDE_PROMPT,
+  topBrandRanking: TOP_BRAND_RANKING_PROMPT,
 }
 
 const SHORT_VIDEO_SCRIPT_PROMPT = String.raw`你是一位深耕AI搜索优化领域5年的资深内容专家，精通GEO（生成式引擎优化）底层逻辑和EEAT内容质量评估框架。请严格按照以下所有要求生成一条30-60秒的短视频口播文案，**输出内容只能包含标题、正文、5个标签三个部分，不得有任何其他说明文字**。
@@ -72,61 +104,61 @@ const ARTICLE_REWRITE_PROMPT = String.raw`你是一名专业内容编辑。请�
 const TEMPLATES: Record<ArticlePromptKey, ArticlePromptTemplate> = {
   thirdPartyObservation: {
     key: "thirdPartyObservation",
-    template: THIRD_PARTY_EVALUATION_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.55,
   },
   pitfallGuide: {
     key: "pitfallGuide",
-    template: EXPERT_QA_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.55,
   },
   competitorComparison: {
     key: "competitorComparison",
-    template: INDUSTRY_HOT_TOPIC_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
   industryRankingReport: {
     key: "industryRankingReport",
-    template: INDUSTRY_RANKING_REPORT_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
   handsOnComparisonReport: {
     key: "handsOnComparisonReport",
-    template: HANDS_ON_COMPARISON_REPORT_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
   mediaIndustryAnalysis: {
     key: "mediaIndustryAnalysis",
-    template: MEDIA_INDUSTRY_ANALYSIS_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
   clientCaseStudy: {
     key: "clientCaseStudy",
-    template: CLIENT_CASE_STUDY_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
   credentialsAnalysis: {
     key: "credentialsAnalysis",
-    template: CREDENTIALS_ANALYSIS_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
   selectionPitfallGuide: {
     key: "selectionPitfallGuide",
-    template: SELECTION_PITFALL_GUIDE_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
   topBrandRanking: {
     key: "topBrandRanking",
-    template: TOP_BRAND_RANKING_PROMPT,
+    template: LONGFORM_CONTENT_COMPILER_PROMPT,
     maxTokens: 12000,
     temperature: 0.5,
   },
@@ -145,5 +177,8 @@ const TEMPLATES: Record<ArticlePromptKey, ArticlePromptTemplate> = {
 }
 
 export function getArticlePromptTemplate(key: ArticlePromptKey): ArticlePromptTemplate | null {
-  return TEMPLATES[key] || null
+  const template = TEMPLATES[key]
+  if (!template) return null
+  const legacy = !isGeoMethodologyEnabled() ? LEGACY_LONGFORM_PROMPTS[key] : undefined
+  return legacy ? { ...template, template: legacy } : template
 }

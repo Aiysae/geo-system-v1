@@ -8,7 +8,7 @@ import type {
 } from "@/types/geo-methodology"
 import type { ArticlePromptKey } from "@/types"
 
-export const GEO_METHODOLOGY_VERSION = "shitu-geo-2026.07.2"
+export const GEO_METHODOLOGY_VERSION = "shitu-geo-2026.07.3"
 export const GEO_METHODOLOGY_LEGACY_VERSION = "legacy"
 
 export interface GeoMethodologyDefinition {
@@ -157,7 +157,7 @@ const PROMPT_METHOD_MAP: Record<ArticlePromptKey, GeoMethodologyKey> = {
   pitfallGuide: "problemSolution",
   competitorComparison: "industryWhitepaper",
   industryRankingReport: "industryWhitepaper",
-  handsOnComparisonReport: "recommendationComparison",
+  handsOnComparisonReport: "evidenceStory",
   mediaIndustryAnalysis: "industryWhitepaper",
   clientCaseStudy: "evidenceStory",
   credentialsAnalysis: "primaryEvidence",

@@ -38,6 +38,8 @@ export interface ArticleQualityIssue {
     | "methodology_structure_missing"
     | "article_format_structure_missing"
     | "unsupported_superlative"
+    | "invalid_h1_count"
+    | "internal_instruction_leak"
   message: string
   blocking: boolean
 }
@@ -178,6 +180,14 @@ export function validateGeneratedArticle(args: {
       blocking: true,
     })
   }
+  const h1Count = (article.match(/^#\s+\S+/gm) || []).length
+  if (longForm && h1Count !== 1) {
+    issues.push({
+      code: "invalid_h1_count",
+      message: h1Count === 0 ? "正文缺少唯一的 H1 主标题" : "正文包含多个 H1 主标题，请只保留一个",
+      blocking: true,
+    })
+  }
   if (longForm && format.tablePolicy === "required" && !hasMarkdownTable) {
     issues.push({
       code: "missing_table",
@@ -196,6 +206,13 @@ export function validateGeneratedArticle(args: {
     issues.push({
       code: "unresolved_placeholder",
       message: "正文仍有未替换的模板占位符",
+      blocking: true,
+    })
+  }
+  if (/(?:【本篇方法参数】|【本篇可用知识资产】|shitu-content-recipe|\bmethodKey\b|\barticleFormat\b|asset_[a-z0-9_]+)/i.test(article)) {
+    issues.push({
+      code: "internal_instruction_leak",
+      message: "正文泄露了内部内容参数或资料编号",
       blocking: true,
     })
   }

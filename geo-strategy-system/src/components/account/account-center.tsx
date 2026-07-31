@@ -46,6 +46,7 @@ import {
 } from "lucide-react"
 import { InvoiceSupportButton } from "@/components/billing/invoice-support-button"
 import { ClientAccountDialog } from "@/components/accounts/client-account-dialog"
+import { ClientKnowledgeBaseDialog } from "@/components/knowledge/client-knowledge-base-dialog"
 import { RechargeButton } from "@/components/credits/recharge-button"
 import { ManagedServiceCard } from "@/components/managed-services/managed-service-card"
 import { UserNotificationCenter } from "@/components/notifications/user-notification-center"
@@ -434,6 +435,7 @@ function ClientsTab({ userId, access, clients, setClients }: {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [message, setMessage] = useState("")
   const [accountClient, setAccountClient] = useState<ClientSummary | null>(null)
+  const [knowledgeClient, setKnowledgeClient] = useState<ClientSummary | null>(null)
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -509,6 +511,7 @@ function ClientsTab({ userId, access, clients, setClients }: {
   }
 
   return (
+    <>
     <section className="overflow-hidden rounded-lg border border-[#D8E7F7] bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div>
@@ -589,6 +592,10 @@ function ClientsTab({ userId, access, clients, setClients }: {
                   <span className="hidden lg:inline">更新 {formatDate(client.updatedAt)}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => setKnowledgeClient(client)} className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[11px] font-semibold text-[#0958D9] transition hover:bg-blue-100">
+                    <BookOpenCheck className="h-3.5 w-3.5" />
+                    资料库
+                  </button>
                   {client.canManageClientAccount ? (
                     <button type="button" onClick={() => setAccountClient(client)} className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 text-[11px] font-semibold text-cyan-700 transition hover:bg-cyan-100">
                       <UsersRound className="h-3.5 w-3.5" />
@@ -610,6 +617,7 @@ function ClientsTab({ userId, access, clients, setClients }: {
           ))}
         </div>
       )}
+    </section>
       {accountClient ? (
         <ClientAccountDialog
           clientRef={accountClient.accessRef}
@@ -618,7 +626,18 @@ function ClientsTab({ userId, access, clients, setClients }: {
           onChanged={refreshCatalog}
         />
       ) : null}
-    </section>
+      {knowledgeClient ? (
+        <ClientKnowledgeBaseDialog
+          clientId={knowledgeClient.id}
+          clientName={knowledgeClient.name}
+          subjectType={knowledgeClient.subjectType}
+          subjectName={knowledgeClient.ourBrand || knowledgeClient.name}
+          teamId={knowledgeClient.teamId}
+          canEdit={knowledgeClient.canEdit}
+          onClose={() => setKnowledgeClient(null)}
+        />
+      ) : null}
+    </>
   )
 }
 

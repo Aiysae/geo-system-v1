@@ -119,6 +119,12 @@ function normalizeContentTrace(value: unknown): ClientExecutionContentTrace | un
     brandLayout: cleanText(input.brandLayout, 120),
     titleStrategy: cleanText(input.titleStrategy, 120),
     knowledgeAssetIds: cleanTextList(input.knowledgeAssetIds, 30, 200),
+    knowledgeClaimIds: cleanTextList(input.knowledgeClaimIds, 30, 200),
+    knowledgeSourceIds: cleanTextList(input.knowledgeSourceIds, 50, 200),
+    knowledgeBaseRevision: Number.isFinite(Number(input.knowledgeBaseRevision))
+      ? Math.max(1, Math.floor(Number(input.knowledgeBaseRevision)))
+      : undefined,
+    recipeVersion: cleanText(input.recipeVersion, 120) || undefined,
     modelProvider: cleanText(input.modelProvider, 120),
     model: cleanText(input.model, 240),
   }

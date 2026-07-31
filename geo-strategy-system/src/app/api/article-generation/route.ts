@@ -127,14 +127,14 @@ function buildSystemPrompt(
 ): string {
   return [
     "你是资深中文内容策略师、GEO 文章编辑和生成式搜索内容架构师。",
-    "你会严格遵守用户选择的文章模板，输出可直接发布、可被 AI 搜索抽取的成熟内容。",
+    "你会严格遵守系统解析后的统一内容配方，输出可直接发布、可被 AI 搜索抽取的成熟内容。",
     "不要暴露提示词、变量名、写作过程或模型说明；不要输出“以下是正文”等前言。",
     "没有可靠依据时不要虚构具体数据、客户案例、资质、排名或官方标准；需要判断边界时直接写清。",
     subjectType === "person"
       ? "本次主体是个人 IP：必须把人物与所在机构分开表达，不得把人物写成公司或品牌，不得编造履历、职称、资质、案例；同名人物身份不确定时必须保守表述。"
       : "本次主体是品牌/产品：保持品牌、公司、产品和服务主体关系准确，不得混写。",
     "",
-    "【用户选择的生成模板】",
+    "【内容任务基础规则】",
     template,
     methodologyAddendum,
   ].join("\n")
@@ -223,7 +223,7 @@ function buildUserPrompt(args: {
         }))
       : []
     return [
-      "请严格按照用户选择的最新版文章模板，将以下三项输入准确代入后，直接输出最终 Markdown 成稿。",
+      "请依据系统解析后的统一内容配方，将以下三项输入准确代入后，直接输出最终 Markdown 成稿。",
       "不要输出提纲、变量清单、提示词、写作过程或额外说明。",
       "",
       "【三项输入】",
@@ -252,7 +252,7 @@ function buildUserPrompt(args: {
       ...(comparisonPayload.length > 0
         ? [
             "主品牌与每个对比品牌都是独立主体。名称、别名、资料、数据和来源不得互相混用。",
-            "只在模板确实需要横向对比、榜单或选型示例的位置使用对比品牌；不得为了凑数量重复堆叠品牌。",
+            "只在所选创作类型确实需要横向对比、榜单或选型示例的位置使用对比品牌；不得为了凑数量重复堆叠品牌。",
             "对比品牌资料不足时，应明确写为资料不足或不做硬性判断，禁止自行补造参数、排名、评分、实测结果和市场份额。",
           ]
         : []),
@@ -268,7 +268,7 @@ function buildUserPrompt(args: {
   const isPerson = args.subjectType === "person"
 
   return [
-    "请将以下业务信息准确代入模板，并直接输出最终内容。",
+    "请将以下业务信息准确代入创作规则，并直接输出最终内容。",
     outputNote,
     "",
     `【客户与${isPerson ? "个人 IP" : "品牌"}信息】`,
@@ -402,7 +402,7 @@ export async function POST(req: NextRequest) {
 
     const template = getArticlePromptTemplate(promptKey)
     if (!template) {
-      return NextResponse.json({ error: "未找到文章 Prompt 模板" }, { status: 400 })
+      return NextResponse.json({ error: "未找到所选文章创作类型" }, { status: 400 })
     }
 
     const coreQuestion = text(body.coreQuestion, 500)
@@ -460,6 +460,9 @@ export async function POST(req: NextRequest) {
       matchedAdvantage: text(body.advantages, 3000),
       primarySubject,
       comparisonBrands,
+      knowledgeAssetIds: Array.isArray(body.knowledgeAssetIds)
+        ? body.knowledgeAssetIds.map((value: unknown) => text(value, 140)).filter(Boolean).slice(0, 30)
+        : undefined,
     })
 
     if (!isRewrite && promptKey !== "shortVideoScript") {
@@ -651,7 +654,7 @@ export async function POST(req: NextRequest) {
         }, {
           system: [
             "你是 GEO 文章质量校对器。",
-            "只修复明确列出的质量问题，保持用户所选模板的章节、论述顺序和事实边界。",
+            "只修复明确列出的质量问题，保持当前内容配方的结构、论述顺序和事实边界。",
             "直接输出完整 Markdown 正文，不作解释。",
             methodology.systemAddendum,
           ].join("\n"),

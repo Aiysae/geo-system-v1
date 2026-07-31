@@ -146,6 +146,7 @@ function itemJobPayload(batch: StoredArticleBatch, item: StoredArticleBatchItem,
     questionCategory: item.category || "",
     questionKeyword: item.keyword || "",
     questionContentAngle: item.contentAngle || "",
+    knowledgeAssetIds: item.knowledgeAssetIds || [],
     methodology: {
       ...record(batch.basePayload.methodology),
       mode: item.methodologyCandidates?.length

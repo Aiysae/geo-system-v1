@@ -42,7 +42,7 @@ export async function GET(
     const zip = new JSZip()
     for (const file of files) zip.file(file.fileName, file.buffer)
     zip.file("生成清单.txt", [
-      `模板：${batch.promptTitle}`,
+      `创作类型：${batch.promptTitle}`,
       `模型：${batch.model || batch.modelProvider}`,
       `创建时间：${batch.createdAt}`,
       `已完成：${batch.completedCount}/${batch.requestedCount}`,
