@@ -1,5 +1,9 @@
 import { getGeoArticleFormat } from "@/lib/geo-methodology/article-formats"
-import { articleFormatForArticlePrompt } from "@/lib/geo-methodology/registry"
+import { resolveGeoRecipeFormat } from "@/lib/geo-methodology/content-recipes"
+import {
+  articleFormatForArticlePrompt,
+  methodologyForArticlePrompt,
+} from "@/lib/geo-methodology/registry"
 import type {
   ArticleComparisonBrand,
   ArticleMethodologySelection,
@@ -31,7 +35,9 @@ function evidenceText(args: {
 }): string {
   return [
     args.advantages,
-    ...(args.knowledgeBase?.assets || []).flatMap(asset => [
+    ...(args.knowledgeBase?.assets || [])
+      .filter(asset => !["archived", "expired", "conflicted", "pendingReview"].includes(asset.status))
+      .flatMap(asset => [
       asset.title,
       asset.content,
       asset.kind,
@@ -41,16 +47,24 @@ function evidenceText(args: {
 }
 
 function hasSourceLinkedAsset(knowledgeBase?: ClientKnowledgeBase): boolean {
-  return (knowledgeBase?.assets || []).some(asset => asset.sourceUrls.length > 0)
+  return (knowledgeBase?.assets || []).some(asset => (
+    !["archived", "expired", "conflicted", "pendingReview"].includes(asset.status)
+    && asset.sourceUrls.length > 0
+  ))
 }
 
 export function resolveArticleFormatKey(args: {
   promptKey: ArticlePromptKey
   selection?: ArticleMethodologySelection
 }): Exclude<GeoArticleFormatKey, "auto"> {
-  return args.selection?.articleFormat && args.selection.articleFormat !== "auto"
-    ? args.selection.articleFormat
-    : articleFormatForArticlePrompt(args.promptKey)
+  const methodKey = args.selection?.mode === "manual" && args.selection.methodKey
+    ? args.selection.methodKey
+    : methodologyForArticlePrompt(args.promptKey)
+  return resolveGeoRecipeFormat({
+    methodKey,
+    requestedFormat: args.selection?.articleFormat,
+    promptFormat: articleFormatForArticlePrompt(args.promptKey),
+  }).articleFormat
 }
 
 export function evaluateArticleReadiness(args: {

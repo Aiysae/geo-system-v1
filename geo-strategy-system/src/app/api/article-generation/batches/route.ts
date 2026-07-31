@@ -30,6 +30,11 @@ import {
 import { normalizeArticleComparisonBrands } from "@/lib/article-comparison-brands"
 import { normalizeArticleMethodologySelection } from "@/lib/geo-methodology/compiler"
 import { normalizeClientKnowledgeBase } from "@/lib/client-knowledge-base"
+import { resolveGeoRecipeFormat } from "@/lib/geo-methodology/content-recipes"
+import {
+  articleFormatForArticlePrompt,
+  methodologyForArticlePrompt,
+} from "@/lib/geo-methodology/registry"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -159,7 +164,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请选择有效的批量选题方式" }, { status: 400 })
     }
     if (!prompt || promptKey === "rewrite") {
-      return NextResponse.json({ error: "批量生成暂不支持文章改写模板" }, { status: 400 })
+      return NextResponse.json({ error: "批量生成暂不支持文章改写" }, { status: 400 })
     }
     if (!isRecognizedArticleModelProviderKey(modelProvider)) {
       return NextResponse.json({ error: "文章模型来源无效" }, { status: 400 })
@@ -239,6 +244,14 @@ export async function POST(req: NextRequest) {
           comparisonBrandCount: parsedComparisonBrands.length,
         })
         if (!candidates.includes(task.promptKey)) return []
+        const methodKey = methodologyForArticlePrompt(task.promptKey)
+        const articleFormat = resolveGeoRecipeFormat({
+          methodKey,
+          requestedFormat: task.articleFormat && task.articleFormat !== "auto"
+            ? task.articleFormat
+            : sourceMethodology.articleFormatCandidates?.[0] || "auto",
+          promptFormat: articleFormatForArticlePrompt(task.promptKey),
+        }).articleFormat
         return [{
           ...task,
           questionId: question?.id,
@@ -254,13 +267,15 @@ export async function POST(req: NextRequest) {
           matchedAdvantage,
           subIntent: sourceMethodology.subIntent,
           queryStyle: sourceMethodology.queryStyle,
-          methodologyCandidates: task.methodologyCandidates?.length
-            ? task.methodologyCandidates
-            : sourceMethodology.methodologyCandidates,
+          methodologyCandidates: [
+            methodKey,
+            ...(task.methodologyCandidates?.length
+              ? task.methodologyCandidates
+              : sourceMethodology.methodologyCandidates
+            || []).filter(candidate => candidate !== methodKey),
+          ],
           platformCandidates: sourceMethodology.platformCandidates,
-          articleFormat: task.articleFormat && task.articleFormat !== "auto"
-            ? task.articleFormat
-            : sourceMethodology.articleFormatCandidates?.[0] || "auto",
+          articleFormat,
           titleStrategy: task.titleStrategy && task.titleStrategy !== "auto"
             ? task.titleStrategy
             : sourceMethodology.titleStrategyCandidates?.[0] || "auto",
@@ -269,7 +284,7 @@ export async function POST(req: NextRequest) {
       })
       if (parsedQuestionTasks.length !== count) {
         return NextResponse.json({
-          error: "策略任务已更新或模板分配无效，请重新执行 AI 裁判分配",
+          error: "策略任务已更新或创作类型分配无效，请重新执行 AI 裁判分配",
         }, { status: 409 })
       }
     }

@@ -310,28 +310,19 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
     : undefined
   const matchedQuestion = (client.keywordStrategy?.questions || [])
     .find(item => item.question.trim() === article.coreQuestion.trim())
-  const methodologyCandidate = selectedQuestionTask?.methodologyCandidates?.[0]
-    || matchedQuestion?.methodologyCandidates?.[0]
-  const methodology = article.methodology?.mode === "auto" && methodologyCandidate
+  const methodology = article.methodology?.mode === "auto"
     ? {
         ...article.methodology,
-        mode: "manual" as const,
-        methodKey: methodologyCandidate,
+        mode: "auto" as const,
+        methodKey: undefined,
+        articleFormat: "auto" as const,
+        brandLayout: "auto" as const,
+        titleStrategy: "auto" as const,
         targetPlatform: article.methodology.targetPlatform === "auto"
           ? selectedQuestionTask?.platformCandidates?.[0]
             || matchedQuestion?.platformCandidates?.[0]
             || "auto"
           : article.methodology.targetPlatform,
-        articleFormat: article.methodology.articleFormat === "auto"
-          ? selectedQuestionTask?.articleFormat
-            || matchedQuestion?.articleFormatCandidates?.[0]
-            || "auto"
-          : article.methodology.articleFormat,
-        titleStrategy: article.methodology.titleStrategy === "auto"
-          ? selectedQuestionTask?.titleStrategy
-            || matchedQuestion?.titleStrategyCandidates?.[0]
-            || "auto"
-          : article.methodology.titleStrategy,
       }
     : article.methodology
   const matchedAdvantage = article.advantages.trim()
@@ -366,6 +357,7 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
     comparisonBrands: article.comparisonBrands,
     methodology,
     knowledgeBase: client.knowledgeBase,
+    knowledgeAssetIds: selectedQuestionTask?.knowledgeAssetIds,
     questionIntent: selectedQuestionTask?.intent || matchedQuestion?.intent,
     questionId: selectedQuestionTask?.questionId || selectedQuestionTask?.materialId || matchedQuestion?.id,
     questionSubIntent: selectedQuestionTask?.subIntent || matchedQuestion?.subIntent,
@@ -1175,9 +1167,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           {!isStrategy && <section className="geo-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="text-xs font-semibold text-slate-700">
-                {isRewrite ? "改写模板" : "创作模板"}
+                {isRewrite ? "改写方式" : "创作类型"}
               </div>
-              <span className="text-[10px] text-slate-400">{visiblePrompts.length} 个模板</span>
+              <span className="text-[10px] text-slate-400">{visiblePrompts.length} 种类型</span>
             </div>
             <div className="grid max-h-[312px] gap-1.5 overflow-y-auto pr-1">
               {visiblePrompts.map(prompt => {

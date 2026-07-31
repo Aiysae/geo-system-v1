@@ -71,6 +71,10 @@ export interface ClientExecutionContentTrace {
   brandLayout: string
   titleStrategy: string
   knowledgeAssetIds: string[]
+  knowledgeClaimIds?: string[]
+  knowledgeSourceIds?: string[]
+  knowledgeBaseRevision?: number
+  recipeVersion?: string
   modelProvider: string
   model: string
 }

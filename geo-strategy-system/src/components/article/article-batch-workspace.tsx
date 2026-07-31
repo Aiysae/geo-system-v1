@@ -459,7 +459,7 @@ export default function ArticleBatchWorkspace({
 
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-[11px] text-slate-500">
-            当前模板：<span className="font-medium text-slate-700">{promptTitle}</span>
+            当前创作类型：<span className="font-medium text-slate-700">{promptTitle}</span>
             <span className="mx-1.5 text-slate-300">·</span>
             预计 <span className="font-semibold text-[#0958D9]">{totalCredits} 积分</span>
           </div>

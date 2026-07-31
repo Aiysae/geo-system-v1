@@ -98,19 +98,33 @@ limits even when the elastic job ceiling is higher.
 
 ## GEO content methodology
 
-Long-form article generation uses the versioned Shitu GEO methodology compiler.
-It maps question intent to one of seven content structures, selects relevant
-client knowledge assets, applies a five-dimension title matrix, and preserves
-the resulting lineage in single and batch article records. Completed articles
-are also available to weekly and monthly execution feedback as attributable
-content actions.
+Long-form article generation uses a versioned Shitu GEO content compiler. Ten
+user-facing creation types now resolve into one of seven authoritative content
+recipes. A recipe owns the compatible article formats, evidence requirements,
+brand layout, title direction, platform adapter, preflight checks, and quality
+gates, so independently saved controls cannot produce contradictory structures.
+Single and batch jobs use the same compiler and preserve the resolved recipe in
+their lineage. Completed articles remain available to weekly and monthly
+execution feedback as attributable content actions.
 
-Existing clients require no data migration. Missing knowledge-base fields are
-normalized when a workspace is read, while old reports keep their original
-snapshot schema. Set `GEO_METHODOLOGY_VERSION=legacy` and restart the web and
-worker processes to disable the long-form compiler during an emergency
-rollback. The short-video script template and article rewrite flow remain
-outside this compiler.
+The customer knowledge base uses schema v2 with a revision, entities, claims,
+sources, review states, and the compatible legacy asset list. Schema v1 data is
+migrated in memory whenever a workspace is read and written back on the next
+normal save; no destructive database migration is required. Retrieval combines
+question overlap, subject aliases, evidence level, review state, source links,
+freshness, requested asset ids, and evidence-type diversity. Conflicted,
+expired, pending-review, and archived assets are excluded from generation.
+Every generated article records the exact knowledge-base revision plus asset,
+claim, and source ids used.
+
+Users can manage the structured knowledge base from **My Account > My Clients**.
+Team-shared records use the existing module permissions and optimistic workspace
+versions, preventing a stale device from silently overwriting a newer edit.
+
+Set `GEO_METHODOLOGY_VERSION=legacy` and restart the web and worker processes to
+restore the previous long-form prompts during an emergency rollback. The
+short-video script template and article rewrite flow remain outside this
+compiler and are unchanged.
 
 
 Production PostgreSQL backups are defined in `deploy/postgres/` and retain 14 days of compressed custom-format dumps.

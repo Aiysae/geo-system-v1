@@ -9,7 +9,10 @@ import type { ArticlePromptKey } from "../src/types"
 
 const require = createRequire(import.meta.url)
 const { ARTICLE_PROMPT_OPTIONS } = require("../src/lib/article-prompt-meta.ts") as typeof ArticlePromptMetaModule
-const { getArticlePromptTemplate } = require("../src/lib/article-prompts.ts") as typeof ArticlePromptsModule
+const {
+  getArticlePromptTemplate,
+  LONGFORM_CONTENT_COMPILER_PROMPT,
+} = require("../src/lib/article-prompts.ts") as typeof ArticlePromptsModule
 const {
   CLIENT_CASE_STUDY_PROMPT,
   CREDENTIALS_ANALYSIS_PROMPT,
@@ -33,21 +36,21 @@ const fixtures: Array<{
 }> = [
   {
     key: "thirdPartyObservation",
-    title: "第三方测评（含表格）",
+    title: "第三方测评 / 推荐观察",
     prompt: THIRD_PARTY_EVALUATION_PROMPT,
     sha256: "5e4867dce2865950280f333a670dcdc349472a8ecaa9572e2400cd119ce1c008",
     credits: 8,
   },
   {
     key: "pitfallGuide",
-    title: "专家问答文章",
+    title: "问题解决 / 专家答疑",
     prompt: EXPERT_QA_PROMPT,
     sha256: "30594f695a98f365ff25bda23801e865cf8222421b15c21ee3a88ddcdb3910b5",
     credits: 5,
   },
   {
     key: "competitorComparison",
-    title: "行业热点文章",
+    title: "竞品对比 / 行业观察",
     prompt: INDUSTRY_HOT_TOPIC_PROMPT,
     sha256: "f29dcf890ec591d6de9b1073b86144bdc627bdb6daf4c62780f37de3afb4297d",
     credits: 8,
@@ -104,6 +107,7 @@ const fixtures: Array<{
 ]
 
 assert.equal(new Set(fixtures.map(item => item.key)).size, 10)
+const previousMethodologyVersion = process.env.GEO_METHODOLOGY_VERSION
 
 for (const fixture of fixtures) {
   assert.equal(
@@ -116,9 +120,13 @@ for (const fixture of fixtures) {
   assert.ok(fixture.prompt.includes("{{品牌名或个人IP的名字}}"))
   assert.doesNotMatch(fixture.prompt, /\{\{(?:行业|品牌名称|品牌资料包|具体优势|人物资料包|人物姓名)\}\}/u)
 
+  delete process.env.GEO_METHODOLOGY_VERSION
   const template = getArticlePromptTemplate(fixture.key)
-  assert.equal(template?.template, fixture.prompt)
+  assert.equal(template?.template, LONGFORM_CONTENT_COMPILER_PROMPT)
   assert.equal(template?.maxTokens, 12000)
+
+  process.env.GEO_METHODOLOGY_VERSION = "legacy"
+  assert.equal(getArticlePromptTemplate(fixture.key)?.template, fixture.prompt)
 
   const option = ARTICLE_PROMPT_OPTIONS.find(item => item.key === fixture.key)
   assert.equal(option?.title, fixture.title)
@@ -127,6 +135,8 @@ for (const fixture of fixtures) {
   assert.ok(featureKey)
   assert.equal(getFeaturePrice(featureKey).credits, fixture.credits)
 }
+if (previousMethodologyVersion === undefined) delete process.env.GEO_METHODOLOGY_VERSION
+else process.env.GEO_METHODOLOGY_VERSION = previousMethodologyVersion
 
 const generationPrompts = ARTICLE_PROMPT_OPTIONS.filter(option => option.key !== "rewrite")
 assert.equal(generationPrompts.length, 11)
@@ -137,4 +147,4 @@ assert.equal(
   "short-video prompt must remain unchanged",
 )
 
-console.log("All 10 latest GEO article prompts are registered; short-video prompt is unchanged")
+console.log("All 10 long-form prompts use the unified compiler with legacy rollback; short-video prompt is unchanged")

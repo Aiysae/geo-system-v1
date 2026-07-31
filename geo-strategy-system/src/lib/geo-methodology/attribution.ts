@@ -63,6 +63,10 @@ function contentTrace(lineage: ArticleGenerationLineage): ClientExecutionContent
     brandLayout: lineage.methodologyTrace.brandLayout,
     titleStrategy: lineage.methodologyTrace.titleStrategy,
     knowledgeAssetIds: lineage.methodologyTrace.knowledgeAssetIds,
+    knowledgeClaimIds: lineage.methodologyTrace.knowledgeClaimIds,
+    knowledgeSourceIds: lineage.methodologyTrace.knowledgeSourceIds,
+    knowledgeBaseRevision: lineage.methodologyTrace.knowledgeBaseRevision,
+    recipeVersion: lineage.methodologyTrace.recipeVersion,
     modelProvider: lineage.modelProvider,
     model: lineage.model,
   }

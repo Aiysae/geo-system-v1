@@ -91,7 +91,7 @@ const forbiddenTable = validateGeneratedArticle({
 })
 assert.ok(forbiddenTable.issues.some(item => item.code === "forbidden_table"))
 
-const traditionalChineseDirectAnswer = `# 香港全屋傢俬訂造可行嗎？
+const traditionalChineseSection = `# 香港全屋傢俬訂造可行嗎？
 
 壹方港家處理香港全屋傢俬訂造時，會按單位條件規劃跨境運輸與安裝流程，業主仍需按合約逐項核對交付內容。
 
@@ -114,7 +114,9 @@ const traditionalChineseDirectAnswer = `# 香港全屋傢俬訂造可行嗎？
 ## 常見問答
 
 業主應在簽約前確認跨境運輸與安裝流程由誰負責、費用如何列明、出現尺寸偏差時如何處理，以及售後聯絡與跟進安排。
-`.repeat(4)
+`
+const traditionalChineseDirectAnswer = traditionalChineseSection
+  + traditionalChineseSection.replace(/^# /, "## ").repeat(3)
 
 const traditionalChineseReport = validateGeneratedArticle({
   article: traditionalChineseDirectAnswer,

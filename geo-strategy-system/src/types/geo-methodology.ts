@@ -92,7 +92,73 @@ export type GeoKnowledgeAssetStatus =
   | "provided"
   | "sourceLinked"
   | "reviewed"
+  | "pendingReview"
+  | "verified"
+  | "conflicted"
+  | "expired"
   | "archived"
+
+export type GeoKnowledgeSourceKind =
+  | "userFile"
+  | "officialWebsite"
+  | "officialRegistry"
+  | "media"
+  | "platform"
+  | "internal"
+  | "other"
+
+export type GeoKnowledgeEntityType =
+  | "brand"
+  | "person"
+  | "company"
+  | "product"
+  | "service"
+  | "organization"
+  | "location"
+  | "other"
+
+export interface GeoKnowledgeSource {
+  id: string
+  title: string
+  kind: GeoKnowledgeSourceKind
+  url?: string
+  fileName?: string
+  contentHash?: string
+  publisher?: string
+  publishedAt?: string
+  retrievedAt?: string
+  updatedAt: string
+}
+
+export interface GeoKnowledgeClaim {
+  id: string
+  assetId?: string
+  subjectName: string
+  kind: GeoKnowledgeAssetKind
+  statement: string
+  normalizedKey: string
+  evidenceLevel: GeoEvidenceLevel
+  status: GeoKnowledgeAssetStatus
+  sourceIds: string[]
+  tags: string[]
+  validFrom?: string
+  validUntil?: string
+  updatedAt: string
+}
+
+export interface GeoKnowledgeEntityRelationship {
+  predicate: string
+  targetEntityId: string
+}
+
+export interface GeoKnowledgeEntity {
+  id: string
+  type: GeoKnowledgeEntityType
+  name: string
+  aliases: string[]
+  relationships: GeoKnowledgeEntityRelationship[]
+  updatedAt: string
+}
 
 export interface GeoKnowledgeAsset {
   id: string
@@ -110,7 +176,8 @@ export interface GeoKnowledgeAsset {
 }
 
 export interface ClientKnowledgeBase {
-  schemaVersion: 1
+  schemaVersion: 2
+  revision: number
   subjectType: "brand" | "person"
   subjectName: string
   aliases: string[]
@@ -120,6 +187,9 @@ export interface ClientKnowledgeBase {
   audiences: string[]
   regions: string[]
   boundaries: string[]
+  entities: GeoKnowledgeEntity[]
+  claims: GeoKnowledgeClaim[]
+  sources: GeoKnowledgeSource[]
   assets: GeoKnowledgeAsset[]
   updatedAt: string
 }
@@ -135,11 +205,16 @@ export interface ArticleMethodologySelection {
 
 export interface ArticleMethodologyTrace {
   version: string
+  recipeVersion?: string
   methodKey: GeoMethodologyKey
   articleFormat: Exclude<GeoArticleFormatKey, "auto">
   targetPlatform: GeoContentPlatform
   brandLayout: GeoBrandLayout
   titleStrategy: GeoTitleStrategy
   knowledgeAssetIds: string[]
+  knowledgeClaimIds?: string[]
+  knowledgeSourceIds?: string[]
+  knowledgeBaseRevision?: number
+  resolutionNotes?: string[]
   compiledAt: string
 }

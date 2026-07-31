@@ -193,12 +193,12 @@ export default function ArticleStrategyWorkspace({
       if (!response.ok) throw new Error(data.error || "AI 裁判未能完成任务分配")
       const routedTasks = data.tasks || []
       if (routedTasks.length !== selectedCount) {
-        throw new Error("部分疑问句未完成模板分配，请重新选择后再试。")
+        throw new Error("部分疑问句未完成创作类型分配，请重新选择后再试。")
       }
       setPlan(routedTasks)
       setPlannedSignature(routeSignature)
       setLaunchRequestId(createBackgroundRequestId("article_strategy"))
-      setNotice(`已为 ${routedTasks.length} 条疑问句完成模板分配。`)
+      setNotice(`已为 ${routedTasks.length} 条疑问句完成创作类型分配。`)
     } catch (planError) {
       setError(toUserFacingError(planError, {
         fallback: "AI 裁判未能完成任务分配，请稍后重试。",
@@ -269,7 +269,7 @@ export default function ArticleStrategyWorkspace({
           </span>
           <h3 className="mt-4 text-base font-bold text-slate-900">关键词策略自动成文</h3>
           <p className="mt-2 text-xs leading-6 text-slate-500">
-            VIP3 可将疑问句与匹配优势自动组成文章任务，由 AI 裁判分配模板后在后台独立生成。
+            VIP3 可将疑问句与匹配优势自动组成文章任务，由 AI 裁判分配创作类型后在后台独立生成。
           </p>
           <div className="mt-3 text-[11px] text-slate-400">当前等级：{membershipTier.toUpperCase()}</div>
           <BillingLink className="mt-5 inline-flex h-10 items-center justify-center rounded-lg bg-[#1677FF] px-5 text-sm font-semibold text-white hover:bg-[#0958D9]">
@@ -356,7 +356,7 @@ export default function ArticleStrategyWorkspace({
               <div className="text-[11px] leading-5 text-slate-500">
                 {plan.length > 0
                   ? <>已分配 {plan.length} 篇 · 预计 <strong className="text-[#0958D9]">{totalCredits} 积分</strong></>
-                  : "先由 AI 裁判为所选问题分配最合适的文章模板"}
+                  : "先由 AI 裁判为所选问题分配最合适的创作类型"}
               </div>
               <div className="flex gap-2">
                 <Button
@@ -367,7 +367,7 @@ export default function ArticleStrategyWorkspace({
                   className="gap-1.5"
                 >
                   {planning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {plan.length > 0 ? "重新分配" : "AI 裁判分配模板"}
+                  {plan.length > 0 ? "重新分配" : "AI 裁判分配类型"}
                 </Button>
                 <Button
                   type="button"
