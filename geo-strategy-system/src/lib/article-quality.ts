@@ -83,17 +83,61 @@ const ARTICLE_FORMAT_SIGNALS: Record<
   Exclude<GeoArticleFormatKey, "auto">,
   RegExp[]
 > = {
-  directAnswerGuide: [/结论|答案|可以|建议/, /步骤|方法|清单|怎么做/, /适用|边界|注意/],
-  primaryEvidenceDossier: [/证据|依据|资料/, /来源|核验|查询/, /边界|待核验|主体自述/],
-  evidenceCaseStory: [/场景|背景|当时/, /过程|执行|步骤/, /结果|证据|复盘|经验/],
-  professionalExplainer: [/定义|是指|本质/, /原理|原因|为什么/, /误区|判断|清单/],
-  industryWhitepaper: [/摘要|研究|行业/, /范围|口径|样本|来源/, /趋势|建议|维度/],
-  entityKnowledgeProfile: [/主体|名称|别名/, /业务|产品|服务/, /对象|地域|边界|问答/],
-  recommendationRoundup: [/范围|入选|推荐/, /标准|维度|依据/, /适用|场景|怎么选/],
-  fieldReviewQa: [/体验|观察|核验|资料/, /条件|方法|样本/, /限制|边界|适用/],
-  tieredEvaluation: [/分层|层级|梯队/, /规则|标准|维度/, /差异|适用|选择/],
-  neutralComparisonReview: [/比较|对比|横评/, /维度|标准|口径/, /适用|场景|结论/],
-  localPitfallGuide: [/地域|本地|区域|服务范围/, /风险|误区|避坑/, /核验|步骤|清单/],
+  directAnswerGuide: [
+    /结论|結論|答案|可以|建议|建議/,
+    /步骤|步驟|方法|清单|清單|怎么做|怎麼做/,
+    /适用|適用|边界|邊界|注意/,
+  ],
+  primaryEvidenceDossier: [
+    /证据|證據|依据|依據|资料|資料/,
+    /来源|來源|核验|核驗|查询|查詢/,
+    /边界|邊界|待核验|待核驗|主体自述|主體自述/,
+  ],
+  evidenceCaseStory: [
+    /场景|場景|背景|当时|當時/,
+    /过程|過程|执行|執行|步骤|步驟/,
+    /结果|結果|证据|證據|复盘|復盤|经验|經驗/,
+  ],
+  professionalExplainer: [
+    /定义|定義|是指|本质|本質/,
+    /原理|原因|为什么|為什麼/,
+    /误区|誤區|判断|判斷|清单|清單/,
+  ],
+  industryWhitepaper: [
+    /摘要|研究|行业|行業/,
+    /范围|範圍|口径|口徑|样本|樣本|来源|來源/,
+    /趋势|趨勢|建议|建議|维度|維度/,
+  ],
+  entityKnowledgeProfile: [
+    /主体|主體|名称|名稱|别名|別名/,
+    /业务|業務|产品|產品|服务|服務/,
+    /对象|對象|地域|边界|邊界|问答|問答/,
+  ],
+  recommendationRoundup: [
+    /范围|範圍|入选|入選|推荐|推薦/,
+    /标准|標準|维度|維度|依据|依據/,
+    /适用|適用|场景|場景|怎么选|怎麼選/,
+  ],
+  fieldReviewQa: [
+    /体验|體驗|观察|觀察|核验|核驗|资料|資料/,
+    /条件|條件|方法|样本|樣本/,
+    /限制|边界|邊界|适用|適用/,
+  ],
+  tieredEvaluation: [
+    /分层|分層|层级|層級|梯队|梯隊/,
+    /规则|規則|标准|標準|维度|維度/,
+    /差异|差異|适用|適用|选择|選擇/,
+  ],
+  neutralComparisonReview: [
+    /比较|比較|对比|對比|横评|橫評/,
+    /维度|維度|标准|標準|口径|口徑/,
+    /适用|適用|场景|場景|结论|結論/,
+  ],
+  localPitfallGuide: [
+    /地域|本地|区域|區域|服务范围|服務範圍/,
+    /风险|風險|误区|誤區|避坑/,
+    /核验|核驗|步骤|步驟|清单|清單/,
+  ],
 }
 
 function formatSignalCount(
@@ -200,13 +244,13 @@ export function validateGeneratedArticle(args: {
   }
 
   const methodologySignals: Partial<Record<ArticleMethodologyTrace["methodKey"], RegExp>> = {
-    problemSolution: /结论|怎么做|步骤|方法|验证|适用|边界/,
-    primaryEvidence: /证据|依据|来源|核验|报告|资质/,
-    evidenceStory: /场景|过程|执行|结果|复盘|经验/,
-    explainer: /定义|原理|误区|判断|为什么/,
-    industryWhitepaper: /口径|样本|维度|趋势|研究|行业/,
-    entityKnowledge: /主体|业务|服务|适用|边界|问答/,
-    recommendationComparison: /比较|对比|维度|怎么选|适用|推荐/,
+    problemSolution: /结论|結論|怎么做|怎麼做|步骤|步驟|方法|验证|驗證|适用|適用|边界|邊界/,
+    primaryEvidence: /证据|證據|依据|依據|来源|來源|核验|核驗|报告|報告|资质|資質/,
+    evidenceStory: /场景|場景|过程|過程|执行|執行|结果|結果|复盘|復盤|经验|經驗/,
+    explainer: /定义|定義|原理|误区|誤區|判断|判斷|为什么|為什麼/,
+    industryWhitepaper: /口径|口徑|样本|樣本|维度|維度|趋势|趨勢|研究|行业|行業/,
+    entityKnowledge: /主体|主體|业务|業務|服务|服務|适用|適用|边界|邊界|问答|問答/,
+    recommendationComparison: /比较|比較|对比|對比|维度|維度|怎么选|怎麼選|适用|適用|推荐|推薦/,
   }
   const methodologySignal = args.methodologyTrace
     ? methodologySignals[args.methodologyTrace.methodKey]
@@ -230,7 +274,9 @@ export function validateGeneratedArticle(args: {
     args.advantage,
     ...(args.comparisonBrands || []).map(brand => brand.materials),
   ].filter(Boolean).join(" "))
-  const superlatives = article.match(/(?:全国|行业|市场)?(?:第一|唯一|最强|最佳|绝对领先|百分之百|100%|零风险|保证有效)/g) || []
+  const superlatives = article.match(
+    /(?:全国|全國|行业|行業|市场|市場)?(?:第一|唯一|最强|最強|最佳|绝对领先|絕對領先|百分之百|100%|零风险|零風險|保证有效|保證有效)/g,
+  ) || []
   if (superlatives.some(claim => !factualInput.includes(normalized(claim)))) {
     issues.push({
       code: "unsupported_superlative",
