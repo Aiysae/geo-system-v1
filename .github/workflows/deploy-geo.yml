@@ -26,6 +26,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: geo-strategy-system/package-lock.json
+
+      - name: Validate application types
+        working-directory: geo-strategy-system
+        run: |
+          npm ci --include=dev
+          npx tsc --noEmit
+
       - name: Upload source to ECS
         env:
           ECS_HOST: ${{ secrets.ECS_HOST }}
@@ -165,7 +178,10 @@ jobs:
               npm run db:migrate:system-outputs
             fi
 
-            npm run build
+            GEO_LOW_MEMORY_BUILD=1 \
+              GEO_SKIP_BUILD_TYPECHECK=1 \
+              NODE_OPTIONS=--max-old-space-size=3072 \
+              npm run build
 
             pm2 startOrReload ecosystem.config.cjs --update-env
             pm2 save
