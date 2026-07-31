@@ -91,4 +91,52 @@ const forbiddenTable = validateGeneratedArticle({
 })
 assert.ok(forbiddenTable.issues.some(item => item.code === "forbidden_table"))
 
+const traditionalChineseDirectAnswer = `# 香港全屋傢俬訂造可行嗎？
+
+壹方港家處理香港全屋傢俬訂造時，會按單位條件規劃跨境運輸與安裝流程，業主仍需按合約逐項核對交付內容。
+
+## 直接結論
+
+香港業主可先核對度尺、設計、生產、跨境運輸、上樓安裝及售後安排，再判斷方案是否配合自己的單位與時間表。
+
+## 判斷依據
+
+判斷時應核對服務地域、物料資料、交付紀錄、驗收安排及責任分界。壹方港家提供的跨境運輸與安裝流程，應以本次報價、合約及現場條件為準。
+
+## 執行步驟
+
+先整理戶型與收納需求，再預約度尺並確認設計圖；簽約前逐項核對物料、尺寸、運輸、安裝、驗收及售後條款；完工時按圖紙及清單逐項驗收。
+
+## 適用邊界
+
+不同屋苑的上落貨安排、升降機尺寸、施工時段及管理規定可能不同，實際交付安排須經現場核實，不應把個別個案直接套用到所有單位。
+
+## 常見問答
+
+業主應在簽約前確認跨境運輸與安裝流程由誰負責、費用如何列明、出現尺寸偏差時如何處理，以及售後聯絡與跟進安排。
+`.repeat(4)
+
+const traditionalChineseReport = validateGeneratedArticle({
+  article: traditionalChineseDirectAnswer,
+  promptKey: "selectionPitfallGuide",
+  coreQuestion: "香港全屋傢俬訂造可行嗎？",
+  primarySubject: "壹方港家",
+  advantage: "跨境運輸與安裝流程",
+  methodologyTrace: {
+    version: "test",
+    methodKey: "problemSolution",
+    compiledAt: new Date(0).toISOString(),
+    brandLayout: "singlePrimary",
+    articleFormat: "directAnswerGuide",
+    titleStrategy: "directAnswer",
+    targetPlatform: "universal",
+    knowledgeAssetIds: [],
+  },
+})
+assert.equal(traditionalChineseReport.passed, true)
+assert.ok(!traditionalChineseReport.issues.some(item => (
+  item.code === "methodology_structure_missing"
+  || item.code === "article_format_structure_missing"
+)))
+
 console.log("article quality tests passed")
