@@ -356,6 +356,22 @@ export async function readAgentJson(
   request: Request,
   maxBytes = 22 * 1024 * 1024,
 ): Promise<Record<string, unknown>> {
+  const bytes = await readBoundedAgentBody(request, maxBytes)
+  const value = JSON.parse(new TextDecoder().decode(bytes))
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AgentApiError({
+      code: "INVALID_ARGUMENT",
+      message: "请求正文必须是 JSON 对象",
+      status: 400,
+    })
+  }
+  return value as Record<string, unknown>
+}
+
+export async function readBoundedAgentBody(
+  request: Request,
+  maxBytes = 22 * 1024 * 1024,
+): Promise<Uint8Array<ArrayBuffer>> {
   const contentLength = Number(request.headers.get("content-length") || 0)
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new AgentApiError({
@@ -364,20 +380,35 @@ export async function readAgentJson(
       status: 413,
     })
   }
-  const value = await request.json()
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new AgentApiError({
-      code: "INVALID_ARGUMENT",
-      message: "请求正文必须是 JSON 对象",
-      status: 400,
-    })
+  if (!request.body) return new Uint8Array()
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array<ArrayBufferLike>[] = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel("payload too large").catch(() => undefined)
+        throw new AgentApiError({
+          code: "PAYLOAD_TOO_LARGE",
+          message: "Agent 请求数据超过允许大小",
+          status: 413,
+        })
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
   }
-  if (Buffer.byteLength(JSON.stringify(value), "utf8") > maxBytes) {
-    throw new AgentApiError({
-      code: "PAYLOAD_TOO_LARGE",
-      message: "Agent 请求数据超过允许大小",
-      status: 413,
-    })
+
+  const result = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    result.set(chunk, offset)
+    offset += chunk.byteLength
   }
-  return value as Record<string, unknown>
+  return result
 }

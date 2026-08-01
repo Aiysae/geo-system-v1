@@ -31,7 +31,7 @@ try {
     revokeAgentToken,
   } = await import("../src/lib/agent/store")
   const { AGENT_SCOPE_PRESETS } = await import("../src/lib/agent/scopes")
-  const { reserveAgentCreditBudget } = await import("../src/lib/agent/api")
+  const { readAgentJson, reserveAgentCreditBudget } = await import("../src/lib/agent/api")
   const { dispatchAgentAction } = await import("../src/lib/agent/action-dispatch")
 
   const user = await createUser({
@@ -68,6 +68,23 @@ try {
   assert.equal(await authenticateAgentToken(`${created.token}broken`), null)
   assert.equal(agentTokenAllowsClient(created.record, "client-agent-test"), true)
   assert.equal(agentTokenAllowsClient(created.record, "client-agent-test", "team-x"), false)
+
+  const chunkedOversizedRequest = new Request("http://localhost/api/agent/v1/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"value":"12345'))
+        controller.enqueue(new TextEncoder().encode('67890"}'))
+        controller.close()
+      },
+    }),
+    duplex: "half",
+  } as RequestInit)
+  await assert.rejects(
+    readAgentJson(chunkedOversizedRequest, 16),
+    error => Boolean(error && typeof error === "object" && "code" in error && error.code === "PAYLOAD_TOO_LARGE"),
+  )
 
   const budgetAuth = {
     token: created.record,
