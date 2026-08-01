@@ -2,17 +2,23 @@
   "name": "geo-strategy-system",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "shitu-geo": "./cli/shitu-geo.mjs"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "worker": "NODE_OPTIONS=--conditions=react-server tsx src/worker/task-worker.ts",
+    "geo": "node cli/shitu-geo.mjs",
+    "mcp:stdio": "NODE_OPTIONS=--conditions=react-server tsx src/agent/mcp-stdio.ts",
     "lint": "eslint",
     "db:migrate:payments": "tsx scripts/migrate-payment-db.mts",
     "db:migrate:workspace": "tsx scripts/migrate-workspace-db.mts",
     "db:migrate:penetration-history": "tsx scripts/migrate-penetration-history-db.mts",
     "db:migrate:system-outputs": "tsx scripts/migrate-system-output-db.mts",
     "db:migrate:teams": "tsx scripts/migrate-team-db.mts",
+    "db:migrate:agents": "tsx scripts/migrate-agent-db.mts",
     "test:article-rewrite": "tsx scripts/test-article-rewrite.mts",
     "test:article-default-model": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-default-model.mts",
     "test:article-web-generation": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-web-generation.mts",
@@ -75,6 +81,9 @@
     "system-outputs:backfill": "NODE_OPTIONS=--conditions=react-server tsx scripts/backfill-system-outputs.mts",
     "test:email-verification": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-email-verification.mts",
     "test:account-security": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-account-security.mts",
+    "test:agent-api": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-agent-api.mts",
+    "test:agent-mcp": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-agent-mcp.mts",
+    "test:agent-cli": "tsx scripts/test-agent-cli.mts",
     "test:membership-catalog": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-membership-catalog.mts",
     "test:workspace-summaries": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-workspace-client-summaries.mts",
     "test:penetration-web": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-web-adapters.mts",
@@ -100,6 +109,7 @@
     "kv:migrate:file-to-redis": "node scripts/migrate-file-kv-to-redis.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@mozilla/readability": "^0.6.0",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-slot": "^1.2.4",
@@ -115,7 +125,7 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.14.0",
     "mammoth": "^1.12.0",
-    "next": "16.2.10",
+    "next": "16.2.12",
     "nodemailer": "^9.0.3",
     "papaparse": "^5.5.4",
     "pdfjs-dist": "^6.0.227",
@@ -135,7 +145,8 @@
     "tsx": "^4.20.6",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
-    "word-extractor": "^1.0.4"
+    "word-extractor": "^1.0.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -150,7 +161,7 @@
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.6",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.2.12",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

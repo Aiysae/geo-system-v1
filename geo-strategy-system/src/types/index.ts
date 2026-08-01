@@ -19,6 +19,25 @@ import type { TeamPermissionKey, TeamRole } from "@/lib/team-permissions"
 import type { ClientPenetrationResultDetail } from "@/lib/client-account-policy"
 
 export type {
+  AgentActionName,
+  AgentApiErrorBody,
+  AgentApiSuccess,
+  AgentAuditRecord,
+  AgentAuditStatus,
+  AgentAuthContext,
+  AgentClientGrant,
+  AgentClientMode,
+  AgentModuleAction,
+  AgentModuleKey,
+  AgentModuleScope,
+  AgentScope,
+  AgentSpecialScope,
+  AgentTokenRecord,
+  AgentTokenSecret,
+  AgentTokenStatus,
+} from "./agent"
+
+export type {
   ArticleMethodologySelection,
   ArticleMethodologyTrace,
   ClientKnowledgeBase,

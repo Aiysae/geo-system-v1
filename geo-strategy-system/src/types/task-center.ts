@@ -35,6 +35,7 @@ export interface TaskCenterTask {
   module: TaskCenterModule
   clientId: string
   clientName?: string
+  teamId?: string
   title: string
   status: TaskCenterStatus
   progressPercent: number

@@ -46,9 +46,9 @@ export async function POST(req: NextRequest) {
     if (!userGuard.ok) return userGuard.response
 
     const body = await req.json()
-    const requestedModels = stringList(body.models).filter(
+    const requestedModels = Array.from(new Set(stringList(body.models).filter(
       (model): model is ModelKey => model in ADAPTERS,
-    )
+    )))
     const questions = stringList(body.questions)
     const hasSlotSelection = Array.isArray(body.slotSelection)
     const parsedSlotSelection = hasSlotSelection

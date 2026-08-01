@@ -64,6 +64,10 @@ type TaskDefinition = {
   label: string
 }
 
+export type BackgroundJobEstimate = TaskDefinition & {
+  credits: number
+}
+
 export type CreateBackgroundJobResult =
   | { ok: true; job: BackgroundJobRecord; reused: boolean }
   | { ok: false; response: Response }
@@ -227,6 +231,17 @@ function resolveTask(kind: BackgroundJobKind, payload: unknown): TaskDefinition 
         units: 1,
         label: getFeaturePrice("keywordWebsitePrompt").label,
       }
+  }
+}
+
+export function estimateBackgroundJob(
+  kind: BackgroundJobKind,
+  payload: unknown,
+): BackgroundJobEstimate {
+  const definition = resolveTask(kind, payload)
+  return {
+    ...definition,
+    credits: estimateFeatureCredits(definition.featureKey, definition.units),
   }
 }
 
