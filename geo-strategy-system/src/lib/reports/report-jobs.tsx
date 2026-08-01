@@ -99,7 +99,8 @@ function reportKindLabel(kind: CommercialReportInput["kind"]): string {
   if (kind === "research") return "独立调研"
   if (kind === "diagnosis") return "AI诊断"
   if (kind === "difficulty") return "难度测评"
-  return "四模块综合报告"
+  if (kind === "keyword") return "关键词策略"
+  return "GEO全链路综合报告"
 }
 
 function safeDownloadName(input: CommercialReportInput): string {
