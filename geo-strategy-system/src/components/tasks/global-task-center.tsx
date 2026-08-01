@@ -20,6 +20,7 @@ import {
   type TaskCenterStatus,
   type TaskCenterTask,
 } from "@/types/task-center"
+import { WORKSPACE_NAVIGATION_EVENT } from "@/lib/workspace-navigation"
 
 const EMPTY_RESPONSE: TaskCenterListResponse = {
   tasks: [],
@@ -89,6 +90,45 @@ function statusTone(status: TaskCenterStatus): string {
   if (status === "cancelled") return "text-slate-500 bg-slate-100 ring-slate-200"
   if (status === "partial") return "text-amber-700 bg-amber-50 ring-amber-200"
   return "text-[#0958D9] bg-[#EAF5FF] ring-[#B7D9FF]"
+}
+
+function openWorkspaceResult(event: React.MouseEvent<HTMLAnchorElement>, resultUrl: string): void {
+  const current = new URL(window.location.href)
+  const target = new URL(resultUrl, window.location.origin)
+  const sameWorkspaceScope = current.pathname === "/workspace"
+    && target.pathname === "/workspace"
+    && String(current.searchParams.get("teamId") || "") === String(target.searchParams.get("teamId") || "")
+  if (!sameWorkspaceScope) return
+  event.preventDefault()
+  window.dispatchEvent(new CustomEvent(WORKSPACE_NAVIGATION_EVENT, {
+    detail: { url: `${target.pathname}${target.search}${target.hash}` },
+  }))
+}
+
+async function restoreWorkspaceResult(task: TaskCenterTask): Promise<void> {
+  if (!task.resultUrl || !isTaskCenterTerminalStatus(task.status)) return
+  const current = new URL(window.location.href)
+  const target = new URL(task.resultUrl, window.location.origin)
+  const sameWorkspaceScope = current.pathname === "/workspace"
+    && target.pathname === "/workspace"
+    && String(current.searchParams.get("teamId") || "") === String(target.searchParams.get("teamId") || "")
+  if (!sameWorkspaceScope) return
+  try {
+    const response = await fetch(
+      `/api/task-center/${encodeURIComponent(task.id)}/restore`,
+      { method: "POST", credentials: "same-origin", cache: "no-store", keepalive: true },
+    )
+    if (!response.ok) return
+    window.dispatchEvent(new CustomEvent(WORKSPACE_NAVIGATION_EVENT, {
+      detail: {
+        url: `${target.pathname}${target.search}${target.hash}`,
+        forceRefresh: true,
+        updateHistory: false,
+      },
+    }))
+  } catch {
+    // The durable result remains available; a later click can retry restoration.
+  }
 }
 
 function TerminalStatusIcon({
@@ -520,8 +560,10 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
                     {task.resultUrl ? (
                       <a
                         href={task.resultUrl}
-                        onClick={() => {
+                        onClick={event => {
+                          openWorkspaceResult(event, task.resultUrl as string)
                           void markRead(task.id)
+                          void restoreWorkspaceResult(task)
                           setToasts(current => current.filter(item => item.id !== task.id))
                         }}
                         className="inline-flex items-center gap-1 text-xs font-semibold text-[#0958D9]"
@@ -656,7 +698,11 @@ function TaskRow({
               {task.resultUrl ? (
                 <a
                   href={task.resultUrl}
-                  onClick={() => void onRead(task.id)}
+                  onClick={event => {
+                    openWorkspaceResult(event, task.resultUrl as string)
+                    void onRead(task.id)
+                    void restoreWorkspaceResult(task)
+                  }}
                   className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-semibold text-[#0958D9]"
                 >
                   查看

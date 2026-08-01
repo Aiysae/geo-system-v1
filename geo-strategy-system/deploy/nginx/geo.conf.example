@@ -33,7 +33,8 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
 
-    client_max_body_size 10m;
+    # Workspace and keyword-source uploads allow request bodies up to 25 MB.
+    client_max_body_size 32m;
 
     location / {
         proxy_pass http://127.0.0.1:3000;

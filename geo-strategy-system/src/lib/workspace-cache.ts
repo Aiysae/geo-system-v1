@@ -6,6 +6,11 @@ import {
   type WorkspaceSectionSnapshot,
   type WorkspaceVersions,
 } from "@/lib/workspace-sync"
+import type { Client } from "@/types"
+import {
+  mergeWorkspaceDraftPatches,
+  removeAcknowledgedWorkspaceDraftFields,
+} from "@/lib/workspace-draft"
 
 type CachedSectionRecord = {
   key: string
@@ -17,9 +22,18 @@ type CachedSectionRecord = {
   cachedAt: number
 }
 
+type CachedDraftRecord = {
+  key: string
+  scope: string
+  clientId: string
+  patch: Partial<Client>
+  updatedAt: number
+}
+
 const DATABASE_NAME = "geo-workspace-cache"
 const STORE_NAME = "sections"
-const DATABASE_VERSION = 1
+const DRAFT_STORE_NAME = "drafts"
+const DATABASE_VERSION = 2
 
 function cacheKey(scope: string, clientId: string, section: WorkspaceSection): string {
   return [scope, clientId, section].map(encodeURIComponent).join(":")
@@ -34,10 +48,102 @@ function openDatabase(): Promise<IDBDatabase | null> {
       if (!database.objectStoreNames.contains(STORE_NAME)) {
         database.createObjectStore(STORE_NAME, { keyPath: "key" })
       }
+      if (!database.objectStoreNames.contains(DRAFT_STORE_NAME)) {
+        database.createObjectStore(DRAFT_STORE_NAME, { keyPath: "key" })
+      }
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error || new Error("本机缓存打开失败"))
   })
+}
+
+function draftKey(scope: string, clientId: string): string {
+  return [scope, clientId, "draft"].map(encodeURIComponent).join(":")
+}
+
+export async function readCachedWorkspaceDraft(
+  scope: string,
+  clientId: string,
+): Promise<Partial<Client>> {
+  try {
+    const database = await openDatabase()
+    if (!database) return {}
+    const transaction = database.transaction(DRAFT_STORE_NAME, "readonly")
+    const record = await requestValue(
+      transaction.objectStore(DRAFT_STORE_NAME).get(draftKey(scope, clientId)) as IDBRequest<CachedDraftRecord | undefined>,
+    )
+    database.close()
+    return record?.patch || {}
+  } catch (error) {
+    console.warn("[workspace-cache] draft read skipped", error)
+    return {}
+  }
+}
+
+export async function writeCachedWorkspaceDraftPatch(
+  scope: string,
+  clientId: string,
+  patch: Partial<Client>,
+): Promise<void> {
+  try {
+    const database = await openDatabase()
+    if (!database) return
+    const transaction = database.transaction(DRAFT_STORE_NAME, "readwrite")
+    const store = transaction.objectStore(DRAFT_STORE_NAME)
+    const key = draftKey(scope, clientId)
+    const current = await requestValue(store.get(key) as IDBRequest<CachedDraftRecord | undefined>)
+    store.put({
+      key,
+      scope,
+      clientId,
+      patch: mergeWorkspaceDraftPatches(current?.patch, patch),
+      updatedAt: Date.now(),
+    } satisfies CachedDraftRecord)
+    await transactionDone(transaction)
+    database.close()
+  } catch (error) {
+    console.warn("[workspace-cache] draft write skipped", error)
+  }
+}
+
+export async function acknowledgeCachedWorkspaceDraftPatch(
+  scope: string,
+  clientId: string,
+  acknowledged: Partial<Client>,
+): Promise<void> {
+  try {
+    const database = await openDatabase()
+    if (!database) return
+    const transaction = database.transaction(DRAFT_STORE_NAME, "readwrite")
+    const store = transaction.objectStore(DRAFT_STORE_NAME)
+    const key = draftKey(scope, clientId)
+    const current = await requestValue(store.get(key) as IDBRequest<CachedDraftRecord | undefined>)
+    if (current) {
+      const patch = removeAcknowledgedWorkspaceDraftFields(current.patch, acknowledged)
+      if (Object.keys(patch).length === 0) store.delete(key)
+      else store.put({ ...current, patch, updatedAt: Date.now() } satisfies CachedDraftRecord)
+    }
+    await transactionDone(transaction)
+    database.close()
+  } catch (error) {
+    console.warn("[workspace-cache] draft acknowledgement skipped", error)
+  }
+}
+
+export async function clearCachedWorkspaceDraft(
+  scope: string,
+  clientId: string,
+): Promise<void> {
+  try {
+    const database = await openDatabase()
+    if (!database) return
+    const transaction = database.transaction(DRAFT_STORE_NAME, "readwrite")
+    transaction.objectStore(DRAFT_STORE_NAME).delete(draftKey(scope, clientId))
+    await transactionDone(transaction)
+    database.close()
+  } catch (error) {
+    console.warn("[workspace-cache] draft clear skipped", error)
+  }
 }
 
 function requestValue<T>(request: IDBRequest<T>): Promise<T> {
@@ -129,11 +235,12 @@ export async function deleteCachedWorkspaceClient(
   try {
     const database = await openDatabase()
     if (!database) return
-    const transaction = database.transaction(STORE_NAME, "readwrite")
+    const transaction = database.transaction([STORE_NAME, DRAFT_STORE_NAME], "readwrite")
     const store = transaction.objectStore(STORE_NAME)
     for (const section of Object.keys(emptyWorkspaceVersions()) as WorkspaceSection[]) {
       store.delete(cacheKey(scope, clientId, section))
     }
+    transaction.objectStore(DRAFT_STORE_NAME).delete(draftKey(scope, clientId))
     await transactionDone(transaction)
     database.close()
   } catch (error) {

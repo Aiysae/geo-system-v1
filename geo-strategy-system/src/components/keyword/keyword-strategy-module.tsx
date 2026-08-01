@@ -46,6 +46,11 @@ import {
   KEYWORD_STRATEGY_LANGUAGE_LABELS,
   normalizeKeywordStrategyLanguageStyle,
 } from "@/lib/geo-strategy/keyword-strategy-methodology"
+import { normalizeExtractedProfileForJob } from "@/lib/geo-strategy/extracted-profile-normalizer"
+import {
+  WORKSPACE_NAVIGATION_EVENT,
+  parseWorkspaceNavigation,
+} from "@/lib/workspace-navigation"
 
 // ==================== Brand Data ====================
 
@@ -85,6 +90,8 @@ interface BrandData {
   questionError: string
   questionJobId?: string
   questionJobProgress?: QuestionJobProgress
+  questionResultJobId?: string
+  questionGeneratedAt?: string
   questionCount: number
   customQuestionCount: number
   questionModelProvider: QuestionModelProvider
@@ -144,6 +151,8 @@ function createBrand(name: string, overrides: Partial<BrandData> = {}): BrandDat
     questionError: "",
     questionJobId: undefined,
     questionJobProgress: undefined,
+    questionResultJobId: undefined,
+    questionGeneratedAt: undefined,
     questionCount: 40,
     customQuestionCount: 120,
     questionModelProvider: DEFAULT_QUESTION_MODEL_PROVIDER,
@@ -213,40 +222,35 @@ function createBrandFromClient(client: Client): BrandData {
   }
 }
 
+function applyRequestedKeywordView(brand: BrandData, urlValue: string): BrandData {
+  const target = parseWorkspaceNavigation(urlValue)
+  if (target.clientId && target.clientId !== brand.id) return brand
+  if ((target.view === "questions" || target.view === "strategy") && brand.strategyPlan) {
+    const next = brand.step === "strategy" ? brand : { ...brand, step: "strategy" as const }
+    if (
+      target.view === "questions"
+      && target.jobId?.startsWith("qjob_")
+      && brand.questionResultJobId !== target.jobId
+    ) {
+      return {
+        ...next,
+        questionJobId: target.jobId,
+        questionStatus: "generating",
+        questionError: "",
+      }
+    }
+    return next
+  }
+  if (target.view === "extraction" && brand.extractedProfile) {
+    return brand.step === "extraction" ? brand : { ...brand, step: "extraction" }
+  }
+  return brand
+}
+
 // ==================== Helpers ====================
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10)
-}
-
-function normalizeExtractedItem(item: unknown): ExtractedItem {
-  if (typeof item === "string") {
-    return { id: genId(), text: item, enabled: true, confidence: "medium" }
-  }
-
-  if (item && typeof item === "object") {
-    const obj = item as Partial<ExtractedItem>
-    const confidence = obj.confidence === "high" || obj.confidence === "low" ? obj.confidence : "medium"
-    return {
-      id: obj.id || genId(),
-      text: String(obj.text || ""),
-      enabled: obj.enabled !== false,
-      confidence,
-    }
-  }
-
-  return { id: genId(), text: String(item || ""), enabled: true, confidence: "medium" }
-}
-
-function normalizeExtractedProfile(profile: ExtractedProfile): ExtractedProfile {
-  return {
-    ...profile,
-    pain_points: (profile.pain_points || []).map(normalizeExtractedItem),
-    advantages: (profile.advantages || []).map(normalizeExtractedItem),
-    weaknesses: (profile.weaknesses || []).map(normalizeExtractedItem),
-    competitors: (profile.competitors || []).map(normalizeExtractedItem),
-    scenes: (profile.scenes || []).map(normalizeExtractedItem),
-  }
 }
 
 /** check if a model name suggests it's text-only (no vision support) */
@@ -637,7 +641,12 @@ interface Props {
 
 export default function KeywordStrategyModule({ client, onChangeClient }: Props) {
   const subjectType = getClientSubjectType(client)
-  const [activeBrand, setActiveBrand] = useState<BrandData>(() => createBrandFromClient(client))
+  const [activeBrand, setActiveBrand] = useState<BrandData>(() => {
+    const initial = createBrandFromClient(client)
+    return typeof window === "undefined"
+      ? initial
+      : applyRequestedKeywordView(initial, window.location.href)
+  })
   const [wordExporting, setWordExporting] = useState<"strategy" | "questions" | null>(null)
   const [wordExportError, setWordExportError] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -660,6 +669,18 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       questionAbortRef.current = null
       questionJobCreatingRef.current = false
     }
+  }, [])
+
+  useEffect(() => {
+    const applyView = (url: string) => {
+      setActiveBrand(current => applyRequestedKeywordView(current, url))
+    }
+    const onWorkspaceNavigation = (event: Event) => {
+      const detail = (event as CustomEvent<{ url?: string }>).detail
+      if (detail?.url) applyView(detail.url)
+    }
+    window.addEventListener(WORKSPACE_NAVIGATION_EVENT, onWorkspaceNavigation)
+    return () => window.removeEventListener(WORKSPACE_NAVIGATION_EVENT, onWorkspaceNavigation)
   }, [])
 
   // Generic brand updater – merges a partial update into the active client's keyword state.
@@ -780,7 +801,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
         onChangeClient({ backgroundJobs: backgroundJobsWith("keywordExtract") })
         return
       }
-      const profile = normalizeExtractedProfile(job.result)
+      const profile = normalizeExtractedProfileForJob(job.result, job.id)
       updateBrand({
         extracting: false,
         extractionError: "",
@@ -795,6 +816,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           subjectType,
           subjectName: client.ourBrand || activeBrand.projectName || client.name,
           aliases: client.brandAliases,
+          updatedAt: job.finishedAt || job.updatedAt,
         }),
         backgroundJobs: backgroundJobsWith("keywordExtract"),
       })
@@ -826,8 +848,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
       }
 
       const generated = (job.result?.advantages || [])
-        .map(item => ({
-          id: genId(),
+        .map((item, index) => ({
+          id: `adv_${job.id}_${index + 1}`,
           text: String(item.text || "").trim(),
           enabled: item.enabled !== false,
           confidence: item.confidence === "high" || item.confidence === "low"
@@ -1262,6 +1284,8 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               questionStatus: "done",
               questionJobId: undefined,
               questionJobProgress: progress,
+              questionResultJobId: job.id,
+              questionGeneratedAt: job.finishedAt || job.updatedAt,
               completedSteps: [...new Set([...activeBrand.completedSteps, "questions" as ToolStep])],
             })
             return
@@ -1537,10 +1561,12 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
           {/* Step 3: Strategy Result */}
           {(ab.step === "strategy") && ab.strategyPlan && (
             <StrategyStep
+              key={`${ab.id}:${ab.strategyPlan.website_prompts?.updated_at || "base"}`}
               subjectType={subjectType}
               plan={ab.strategyPlan}
               sourcePlatformSnapshot={sourcePlatformSnapshot}
               clientId={client.id}
+              onPlanChange={nextPlan => updateBrand({ strategyPlan: nextPlan })}
               websitePromptJobRef={client.backgroundJobs?.keywordWebsitePrompt}
               onChangeWebsitePromptJob={ref => {
                 onChangeClient({
@@ -2229,7 +2255,7 @@ function ExtractionStep({
 
 function StrategyStep({
   subjectType,
-  plan, sourcePlatformSnapshot, clientId, websitePromptJobRef, onChangeWebsitePromptJob,
+  plan, sourcePlatformSnapshot, clientId, onPlanChange, websitePromptJobRef, onChangeWebsitePromptJob,
   questions, questionStatus, questionError,
   questionJobProgress,
   questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios,
@@ -2243,6 +2269,7 @@ function StrategyStep({
   plan: GeoStrategyPlan
   sourcePlatformSnapshot: SourcePlatformSnapshot
   clientId: string
+  onPlanChange: (plan: GeoStrategyPlan) => void
   websitePromptJobRef?: BackgroundJobRef
   onChangeWebsitePromptJob: (ref?: BackgroundJobRef) => void
   questions: QuestionItem[]
@@ -2281,9 +2308,14 @@ function StrategyStep({
   const [showQuestionSettings, setShowQuestionSettings] = useState(false)
   const [activePromptKey, setActivePromptKey] = useState<string | null>(null)
   const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null)
-  const [officialPrompt, setOfficialPrompt] = useState("")
+  const [officialPrompt, setOfficialPrompt] = useState(() => plan.website_prompts?.official || "")
   const [officialPromptError, setOfficialPromptError] = useState("")
-  const [thirdPartyPrompts, setThirdPartyPrompts] = useState<Record<string, string>>({})
+  const [thirdPartyPrompts, setThirdPartyPrompts] = useState<Record<string, string>>(() => (
+    Object.fromEntries(
+      Object.entries(plan.website_prompts?.third_party || {})
+        .map(([index, prompt]) => [`third-${index}`, prompt]),
+    )
+  ))
   const [thirdPartyPromptErrors, setThirdPartyPromptErrors] = useState<Record<string, string>>({})
   const questionPoolRef = useRef<HTMLDivElement>(null)
   const questionAdvantages = extractQuestionAdvantages(plan)
@@ -2351,9 +2383,29 @@ function StrategyStep({
       if (key === "official") {
         setOfficialPrompt(prompt)
         setOfficialPromptError("")
+        onPlanChange({
+          ...plan,
+          website_prompts: {
+            ...(plan.website_prompts || {}),
+            official: prompt,
+            updated_at: job.finishedAt || job.updatedAt,
+          },
+        })
       } else {
         setActivePromptKey(key)
         setThirdPartyPrompts(current => ({ ...current, [key]: prompt }))
+        const siteIndex = key.replace(/^third-/, "")
+        onPlanChange({
+          ...plan,
+          website_prompts: {
+            ...(plan.website_prompts || {}),
+            third_party: {
+              ...(plan.website_prompts?.third_party || {}),
+              [siteIndex]: prompt,
+            },
+            updated_at: job.finishedAt || job.updatedAt,
+          },
+        })
         setThirdPartyPromptErrors(current => {
           const next = { ...current }
           delete next[key]

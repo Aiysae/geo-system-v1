@@ -19,9 +19,13 @@ import {
   workspaceImportId,
 } from "@/lib/storage"
 import {
+  acknowledgeCachedWorkspaceDraftPatch,
+  clearCachedWorkspaceDraft,
   deleteCachedWorkspaceClient,
   mergeWorkspaceVersions,
+  readCachedWorkspaceDraft,
   readCachedWorkspaceSections,
+  writeCachedWorkspaceDraftPatch,
   writeCachedWorkspaceSections,
 } from "@/lib/workspace-cache"
 import {
@@ -88,15 +92,33 @@ function sameVersions(
   return sections.every(section => left[section] === right[section])
 }
 
+function shouldSaveWorkspacePatchImmediately(patch: Partial<Client>): boolean {
+  if (
+    Object.prototype.hasOwnProperty.call(patch, "backgroundJobs")
+    || Object.prototype.hasOwnProperty.call(patch, "penetrationJobId")
+    || Object.prototype.hasOwnProperty.call(patch, "difficultyJobId")
+  ) return true
+  const keyword = patch.keywordStrategy
+  if (keyword && (
+    keyword.extracting
+    || keyword.advantageStatus === "generating"
+    || keyword.strategyStatus === "generating"
+    || keyword.questionStatus === "generating"
+  )) return true
+  return patch.articleGeneration?.status === "generating"
+}
+
 export function useWorkspaceSync(
   userId: string,
   options: {
     restrictedClientId?: string
     teamId?: string
+    initialClientId?: string
     sections?: readonly WorkspaceSection[]
   } = {},
 ) {
   const restrictedClientId = options.restrictedClientId
+  const initialClientId = String(options.initialClientId || "").trim()
   const teamId = String(options.teamId || "").trim()
   const storageUserId = teamId ? `${userId}:team:${teamId}` : userId
   const requestedSectionKey = (options.sections || ["core", "jobs"]).join(",")
@@ -108,7 +130,7 @@ export function useWorkspaceSync(
   const [clients, setClients] = useState<Client[]>([])
   const [clientDirectory, setClientDirectory] = useState<Array<Pick<Client, "id" | "name">>>([])
   const [activeId, setActiveIdState] = useState<string | null>(() => (
-    restrictedClientId || requestedClientId() || getActiveId(storageUserId)
+    restrictedClientId || initialClientId || requestedClientId() || getActiveId(storageUserId)
   ))
   const [hydrated, setHydrated] = useState(false)
   const [syncState, setSyncState] = useState<WorkspaceSyncState>({
@@ -118,6 +140,7 @@ export function useWorkspaceSync(
   const [legacyClients, setLegacyClients] = useState<Client[]>([])
   const [showMigration, setShowMigration] = useState(false)
   const [conflict, setConflict] = useState<WorkspaceConflict | null>(null)
+  const [loadedSectionsByClient, setLoadedSectionsByClient] = useState<Record<string, WorkspaceSection[]>>({})
 
   const clientsRef = useRef<Client[]>([])
   const activeIdRef = useRef<string | null>(activeId)
@@ -129,6 +152,7 @@ export function useWorkspaceSync(
   const loadedSectionsRef = useRef<Record<string, Set<WorkspaceSection>>>({})
   const versionsRef = useRef<Record<string, WorkspaceVersions>>({})
   const sectionFetchesRef = useRef<Record<string, Promise<WorkspaceSectionSnapshot>>>({})
+  const loadedDraftsRef = useRef(new Set<string>())
   const pendingPatchesRef = useRef<Record<string, Partial<Client>>>({})
   const pendingCreatesRef = useRef<Record<string, Client>>({})
   const creatingClientsRef = useRef(new Set<string>())
@@ -155,6 +179,22 @@ export function useWorkspaceSync(
     return client
   }, [])
 
+  const loadClientDraft = useCallback(async (clientId: string): Promise<Partial<Client>> => {
+    if (loadedDraftsRef.current.has(clientId)) {
+      return pendingPatchesRef.current[clientId] || {}
+    }
+    loadedDraftsRef.current.add(clientId)
+    const draft = await readCachedWorkspaceDraft(storageUserId, clientId)
+    if (Object.keys(draft).length === 0) return {}
+    pendingPatchesRef.current[clientId] = {
+      ...draft,
+      ...(pendingPatchesRef.current[clientId] || {}),
+    }
+    const current = clientsRef.current.find(client => client.id === clientId)
+    if (current) commitClient({ ...current, ...pendingPatchesRef.current[clientId] })
+    return draft
+  }, [commitClient, storageUserId])
+
   const applySnapshot = useCallback((
     snapshot: WorkspaceSectionSnapshot,
     cache = true,
@@ -169,6 +209,10 @@ export function useWorkspaceSync(
     const loaded = loadedSectionsRef.current[snapshot.clientId] || new Set<WorkspaceSection>()
     for (const section of snapshot.loadedSections) loaded.add(section)
     loadedSectionsRef.current[snapshot.clientId] = loaded
+    setLoadedSectionsByClient(current => ({
+      ...current,
+      [snapshot.clientId]: Array.from(loaded),
+    }))
     versionsRef.current[snapshot.clientId] = mergeWorkspaceVersions(
       versionsRef.current[snapshot.clientId] || emptyWorkspaceVersions(),
       snapshot.versions,
@@ -246,13 +290,15 @@ export function useWorkspaceSync(
   const ensureSections = useCallback(async (
     sections: readonly WorkspaceSection[] = desiredSectionsRef.current,
     clientId = activeIdRef.current || "",
+    force = false,
   ): Promise<Client | null> => {
     if (!clientId) return null
+    await loadClientDraft(clientId)
     const normalized = normalizeWorkspaceSections(sections)
     const loaded = loadedSectionsRef.current[clientId] || new Set<WorkspaceSection>()
     const manifestVersions = manifestsRef.current[clientId]?.versions
     const localVersions = versionsRef.current[clientId]
-    const needed = normalized.filter(section => (
+    const needed = force ? normalized : normalized.filter(section => (
       !loaded.has(section)
       || !manifestVersions
       || !localVersions
@@ -276,7 +322,7 @@ export function useWorkspaceSync(
         delete sectionFetchesRef.current[requestKey]
       }
     }
-  }, [applySnapshot, fetchSections])
+  }, [applySnapshot, fetchSections, loadClientDraft])
 
   useEffect(() => {
     let cancelled = false
@@ -287,6 +333,7 @@ export function useWorkspaceSync(
         const manifests = await fetchManifests()
         if (cancelled) return
         const preferred = restrictedClientId
+          || initialClientId
           || requestedClientId()
           || getActiveId(storageUserId)
         const targetId = preferred && manifests.some(client => client.id === preferred)
@@ -295,6 +342,7 @@ export function useWorkspaceSync(
         setActiveIdState(targetId)
         persistActiveId(storageUserId, targetId)
         if (targetId) {
+          const restoredDraft = await loadClientDraft(targetId)
           const cached = await readCachedWorkspaceSections(
             storageUserId,
             targetId,
@@ -306,6 +354,9 @@ export function useWorkspaceSync(
             if (cacheApplied) setHydrated(true)
           }
           await ensureSections(initialSections, targetId)
+          if (Object.keys(restoredDraft).length > 0) {
+            window.setTimeout(() => flushClientRef.current(targetId), 0)
+          }
         } else {
           setSyncState({ phase: "idle", message: "暂无客户资料" })
         }
@@ -341,6 +392,8 @@ export function useWorkspaceSync(
     applySnapshot,
     ensureSections,
     fetchManifests,
+    initialClientId,
+    loadClientDraft,
     restrictedClientId,
     storageUserId,
     teamId,
@@ -453,6 +506,7 @@ export function useWorkspaceSync(
       } else {
         throw new Error("云端保存响应不完整")
       }
+      await acknowledgeCachedWorkspaceDraftPatch(storageUserId, clientId, patch)
       setSyncState({ phase: "saved", message: "已保存到云端", savedAt: new Date().toISOString() })
     } catch (error) {
       pendingPatchesRef.current[clientId] = {
@@ -472,7 +526,7 @@ export function useWorkspaceSync(
         )
       }
     }
-  }, [applySnapshot, applySyncedClient, teamId])
+  }, [applySnapshot, applySyncedClient, storageUserId, teamId])
 
   useEffect(() => {
     flushClientRef.current = (clientId, force) => {
@@ -534,6 +588,11 @@ export function useWorkspaceSync(
         delete versionsRef.current[id]
         delete sectionDataRef.current[id]
         delete loadedSectionsRef.current[id]
+        setLoadedSectionsByClient(current => {
+          const next = { ...current }
+          delete next[id]
+          return next
+        })
         delete pendingPatchesRef.current[id]
         await deleteCachedWorkspaceClient(storageUserId, id)
         setClientDirectory(current => current.filter(client => client.id !== id))
@@ -583,8 +642,14 @@ export function useWorkspaceSync(
       ...(pendingPatchesRef.current[clientId] || {}),
       ...scopedPatch,
     }
-    scheduleSave(clientId)
-  }, [activeId, commitClient, restrictedClientId, scheduleSave])
+    void writeCachedWorkspaceDraftPatch(storageUserId, clientId, scopedPatch)
+    if (shouldSaveWorkspacePatchImmediately(scopedPatch)) {
+      if (saveTimersRef.current[clientId]) clearTimeout(saveTimersRef.current[clientId])
+      saveTimersRef.current[clientId] = setTimeout(() => void flushClient(clientId), 0)
+    } else {
+      scheduleSave(clientId)
+    }
+  }, [activeId, commitClient, flushClient, restrictedClientId, scheduleSave, storageUserId])
 
   const refresh = useCallback(async () => {
     if (
@@ -701,11 +766,12 @@ export function useWorkspaceSync(
   const loadCloudConflictVersion = useCallback(() => {
     if (!conflict) return
     delete pendingPatchesRef.current[conflict.clientId]
+    void clearCachedWorkspaceDraft(storageUserId, conflict.clientId)
     applySyncedClient(conflict.current)
     conflictRef.current = null
     setConflict(null)
     setSyncState({ phase: "idle", message: "已加载云端最新版本" })
-  }, [applySyncedClient, conflict])
+  }, [applySyncedClient, conflict, storageUserId])
 
   const overwriteCloudConflictVersion = useCallback(() => {
     if (!conflict) return
@@ -724,6 +790,7 @@ export function useWorkspaceSync(
     clients,
     clientDirectory,
     activeId,
+    loadedSections: activeId ? loadedSectionsByClient[activeId] || [] : [],
     hydrated,
     syncState,
     conflict,

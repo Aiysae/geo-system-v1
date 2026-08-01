@@ -76,6 +76,7 @@ const SECTION_FIELDS = {
   penetration: ["penetration"],
   research: [
     "research",
+    "researchDraft",
     "competitorCompare",
     "researchSourceMode",
     "researchManualInput",
@@ -84,11 +85,11 @@ const SECTION_FIELDS = {
     "competitorCompareSelectedCompetitors",
   ],
   diagnosis: ["diagnosis"],
-  difficulty: ["difficultyAssessments"],
+  difficulty: ["difficultyAssessments", "difficultyDraft"],
   knowledgeBase: ["knowledgeBase"],
   keywordStrategy: ["keywordStrategy"],
   articleGeneration: ["articleGeneration"],
-  jobs: ["penetrationJobId", "difficultyJobId", "backgroundJobs"],
+  jobs: ["penetrationJobId", "difficultyJobId", "backgroundJobs", "backgroundResultJobs"],
 } as const satisfies Record<WorkspaceSection, readonly (keyof Client)[]>
 
 const MUTABLE_FIELDS = new Set<keyof Client>(

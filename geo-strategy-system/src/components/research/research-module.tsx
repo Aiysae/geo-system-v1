@@ -68,7 +68,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
   const subjectType = getClientSubjectType(client)
   const subjectCopy = getSubjectCopy(subjectType)
   const isPerson = subjectType === "person"
-  const [mode, setMode] = useState<ResearchMode>("ai")
+  const [mode, setMode] = useState<ResearchMode>(() => client.researchDraft?.mode ?? "ai")
   const [researchSourceMode, setResearchSourceMode] = useState<ResearchSourceMode>(() => client.researchSourceMode ?? "module")
   const [manualInput, setManualInput] = useState<ResearchManualInput>(() => ({
     ...EMPTY_MANUAL_INPUT,
@@ -77,7 +77,9 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
   const [compareSourceMode, setCompareSourceMode] = useState<CompetitorCompareSourceMode>(() => client.competitorCompareSourceMode ?? "module")
   const [customCompetitorsText, setCustomCompetitorsText] = useState(() => (client.competitorCompareCustomCompetitors ?? []).join("\n"))
   const [selectedCompetitors, setSelectedCompetitors] = useState<string[]>(() => client.competitorCompareSelectedCompetitors ?? client.competitorCompare?.selectedCompetitors ?? [])
-  const [hypothesis, setHypothesis] = useState(() => client.research?.hypothesis ?? "")
+  const [hypothesis, setHypothesis] = useState(() => (
+    client.researchDraft?.hypothesis ?? client.research?.hypothesis ?? ""
+  ))
   const [researchError, setResearchError] = useState<string | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
 
@@ -208,6 +210,22 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
     },
   })
 
+  function updateResearchDraft(patch: Partial<NonNullable<Client["researchDraft"]>>) {
+    onChangeClient({
+      researchDraft: {
+        ...(client.researchDraft || {}),
+        mode,
+        hypothesis,
+        ...patch,
+      },
+    })
+  }
+
+  function updateResearchMode(nextMode: ResearchMode) {
+    setMode(nextMode)
+    updateResearchDraft({ mode: nextMode })
+  }
+
   function updateResearchSourceMode(value: ResearchSourceMode) {
     setResearchSourceMode(value)
     onChangeClient({ researchSourceMode: value })
@@ -303,14 +321,14 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
               <div className="geo-segmented inline-grid grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => setMode("ai")}
+                  onClick={() => updateResearchMode("ai")}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${mode === "ai" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-600 hover:text-[#1677FF]"}`}
                 >
                   全面调研
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMode("hypothesis")}
+                  onClick={() => updateResearchMode("hypothesis")}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${mode === "hypothesis" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-600 hover:text-[#1677FF]"}`}
                 >
                   验证判断
@@ -338,7 +356,10 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
                 <Label className="text-xs text-slate-600 mb-1.5 block">要验证的假设</Label>
                 <Textarea
                   value={hypothesis}
-                  onChange={event => setHypothesis(event.target.value)}
+                  onChange={event => {
+                    setHypothesis(event.target.value)
+                    updateResearchDraft({ hypothesis: event.target.value })
+                  }}
                   rows={4}
                   placeholder={isPerson
                     ? "例如：这位专家很少被提及，是因为缺少权威资料页和专业案例来源。"
