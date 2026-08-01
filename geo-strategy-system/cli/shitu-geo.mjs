@@ -136,7 +136,7 @@ function help() {
   clients get <clientId> [--team-id id] [--sections core,penetration]
   tasks list [--client-id id] [--team-id id] [--status running]
   tasks get <taskId>
-  tasks watch <taskId> [--interval 2000] [--timeout 1800000]
+  tasks watch <taskId> [--interval 2000] [--timeout 1800000]  # 无进度时自动降低轮询频率
   tasks cancel <taskId>
 
 产出与报告
@@ -200,16 +200,21 @@ async function main() {
     const timeout = Math.max(interval, Number(flags.timeout) || 30 * 60 * 1_000)
     const started = Date.now()
     let previous = ""
+    let waitMs = interval
     while (Date.now() - started < timeout) {
       const result = await apiRequest(`/tasks/${encodeURIComponent(id)}`, { flags })
       const task = result.data
       const fingerprint = `${task.status}:${task.progressPercent}:${task.stage}`
-      if (fingerprint !== previous && !flags.json) {
-        console.log(`[${task.status}] ${task.progressPercent}% ${task.stage || ""}`.trim())
+      if (fingerprint !== previous) {
+        if (!flags.json) console.log(`[${task.status}] ${task.progressPercent}% ${task.stage || ""}`.trim())
         previous = fingerprint
+        waitMs = interval
+      } else {
+        waitMs = Math.min(10_000, Math.ceil(waitMs * 1.35))
       }
       if (TERMINAL.has(task.status)) return print(task, flags)
-      await new Promise(resolve => setTimeout(resolve, interval))
+      const jitter = Math.floor(Math.random() * Math.min(250, Math.max(1, Math.floor(waitMs / 10))))
+      await new Promise(resolve => setTimeout(resolve, waitMs + jitter))
     }
     throw new Error("等待任务完成超时；任务仍在后台运行，可稍后再次 watch")
   }

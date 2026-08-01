@@ -14,7 +14,15 @@ const PUBLIC_PATHS = [
   "/sitemap.xml",
   "/llms.txt",
   "/llma.txt",
+  "/agent",
+  "/downloads",
 ]
+
+function isPublicPathname(pathname: string): boolean {
+  return pathname === "/" || PUBLIC_PATHS.some(path => (
+    pathname === path || pathname.startsWith(`${path}/`)
+  ))
+}
 
 function noStore(response: NextResponse): NextResponse {
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -24,7 +32,7 @@ function noStore(response: NextResponse): NextResponse {
 
 export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl
-  const isPublicPath = pathname === "/" || PUBLIC_PATHS.some(path => pathname.startsWith(path))
+  const isPublicPath = isPublicPathname(pathname)
   const sessionId = verifySessionCookieValue(req.cookies.get(AUTH_COOKIE_NAME)?.value)
 
   if (!isPublicPath && !pathname.startsWith("/api") && !sessionId) {
@@ -36,6 +44,10 @@ export function proxy(req: NextRequest) {
   }
 
   const response = NextResponse.next()
+  if (pathname === "/agent" || pathname.startsWith("/downloads/")) {
+    response.headers.set("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400")
+    return response
+  }
   if (!pathname.startsWith("/api")) {
     return noStore(response)
   }

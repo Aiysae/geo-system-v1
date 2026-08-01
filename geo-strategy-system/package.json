@@ -7,11 +7,13 @@
   },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm run sync:agent-assets",
     "build": "next build",
     "start": "next start",
     "worker": "NODE_OPTIONS=--conditions=react-server tsx src/worker/task-worker.ts",
     "geo": "node cli/shitu-geo.mjs",
     "mcp:stdio": "NODE_OPTIONS=--conditions=react-server tsx src/agent/mcp-stdio.ts",
+    "sync:agent-assets": "node scripts/sync-agent-assets.mjs",
     "lint": "eslint",
     "db:migrate:payments": "tsx scripts/migrate-payment-db.mts",
     "db:migrate:workspace": "tsx scripts/migrate-workspace-db.mts",

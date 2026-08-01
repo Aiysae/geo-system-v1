@@ -1,11 +1,11 @@
 import { isIP } from "node:net"
 import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
-import { agentTokenManagementEnabled } from "@/lib/agent/api"
+import { AgentApiError, agentTokenManagementEnabled, readAgentJson } from "@/lib/agent/api"
 import { getAgentAccessEligibility } from "@/lib/agent/eligibility"
+import { listAgentClientCatalog } from "@/lib/agent/client-catalog"
 import { AGENT_SCOPE_PRESETS, ALL_AGENT_SCOPES, normalizeAgentScopes } from "@/lib/agent/scopes"
 import { appendAgentAudit, createAgentToken, listAgentAudits, listAgentTokens } from "@/lib/agent/store"
-import { listClientCatalog } from "@/lib/client-access-catalog"
 import { requireUserId } from "@/lib/with-credits"
 import type { AgentClientGrant, AgentClientMode } from "@/types/agent"
 
@@ -37,10 +37,17 @@ function allowedIps(value: unknown): string[] {
   return ips
 }
 
-async function access(userId: string) {
-  if (!agentTokenManagementEnabled()) throw new Error("Agent 密钥管理当前未开放")
+async function access(userId: string, requireCreate = false) {
+  if (!agentTokenManagementEnabled()) {
+    throw new AgentApiError({ code: "AGENT_MANAGEMENT_DISABLED", message: "Agent 密钥管理当前未开放", status: 503 })
+  }
   const eligibility = await getAgentAccessEligibility(userId)
-  if (!eligibility.eligible) throw new Error(eligibility.reason || "当前账号不能创建 Agent 密钥")
+  if (!eligibility.eligible) {
+    throw new AgentApiError({ code: "AGENT_ACCESS_DENIED", message: eligibility.reason || "当前账号不能创建 Agent 密钥", status: 403 })
+  }
+  if (requireCreate && !eligibility.canCreateTokens) {
+    throw new AgentApiError({ code: "AGENT_SELF_SERVICE_DISABLED", message: eligibility.reason || "Agent 自助接入当前未开放", status: 403 })
+  }
   return eligibility
 }
 
@@ -48,11 +55,27 @@ export async function GET() {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
-    const eligibility = await access(auth.userId)
+    const resolvedEligibility = await getAgentAccessEligibility(auth.userId)
+    const managementEnabled = agentTokenManagementEnabled()
+    const eligibility = managementEnabled
+      ? resolvedEligibility
+      : { ...resolvedEligibility, canCreateTokens: false, reason: "Agent 密钥管理当前未开放" }
+    if (!managementEnabled || !eligibility.eligible) {
+      return NextResponse.json({
+        eligibility,
+        tokens: [],
+        audits: [],
+        clients: [],
+        scopes: ALL_AGENT_SCOPES,
+        presets: Object.fromEntries(
+          eligibility.allowedPresets.map(preset => [preset, AGENT_SCOPE_PRESETS[preset]]),
+        ),
+      }, { headers: NO_STORE })
+    }
     const [tokens, audits, clients] = await Promise.all([
       listAgentTokens(auth.userId),
       listAgentAudits(auth.userId, 100),
-      listClientCatalog(auth.userId),
+      listAgentClientCatalog(auth.userId),
     ])
     return NextResponse.json({
       eligibility,
@@ -67,7 +90,9 @@ export async function GET() {
         sourceType: client.sourceType,
       })),
       scopes: ALL_AGENT_SCOPES,
-      presets: AGENT_SCOPE_PRESETS,
+      presets: Object.fromEntries(
+        eligibility.allowedPresets.map(preset => [preset, AGENT_SCOPE_PRESETS[preset]]),
+      ),
     }, { headers: NO_STORE })
   } catch (error) {
     return NextResponse.json(
@@ -81,31 +106,43 @@ export async function POST(request: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
-    await access(auth.userId)
-    const body = record(await request.json())
+    const eligibility = await access(auth.userId, true)
+    const body = record(await readAgentJson(request, 64 * 1024))
     const existingTokens = await listAgentTokens(auth.userId)
-    if (existingTokens.filter(token => token.status === "active").length >= 50) {
+    if (existingTokens.filter(token => token.status === "active").length >= eligibility.maxActiveTokens) {
       return NextResponse.json(
-        { error: "当前账号最多保留 50 枚有效 Agent 密钥，请先撤销不再使用的密钥" },
+        { error: `当前账号最多保留 ${eligibility.maxActiveTokens} 枚有效 Agent 密钥，请先撤销不再使用的密钥` },
         { status: 409, headers: NO_STORE },
       )
     }
     const clientMode: AgentClientMode = body.clientMode === "all" ? "all" : "selected"
     const clientGrants = grants(body.clientGrants)
-    const catalog = await listClientCatalog(auth.userId)
+    const catalog = await listAgentClientCatalog(auth.userId)
     const allowed = new Set(catalog.map(client => `${client.teamId || "personal"}:${client.id}`))
     if (clientMode === "selected" && clientGrants.some(grant => (
       !allowed.has(`${grant.teamId || "personal"}:${grant.clientId}`)
     ))) {
       return NextResponse.json({ error: "客户授权中包含当前账号无权访问的客户" }, { status: 403, headers: NO_STORE })
     }
+    const requestedScopes = normalizeAgentScopes(body.scopes)
+    const allowedScopes = new Set(eligibility.allowedPresets.flatMap(preset => AGENT_SCOPE_PRESETS[preset]))
+    if (requestedScopes.length === 0 || requestedScopes.some(scope => !allowedScopes.has(scope))) {
+      return NextResponse.json({ error: "Agent 权限超出当前账号可授权范围" }, { status: 403, headers: NO_STORE })
+    }
+    const rateLimitPerMinute = Math.floor(Number(body.rateLimitPerMinute))
+    if (!Number.isFinite(rateLimitPerMinute) || rateLimitPerMinute < 1 || rateLimitPerMinute > eligibility.maxRateLimitPerMinute) {
+      return NextResponse.json(
+        { error: `当前账号每枚密钥最多支持 ${eligibility.maxRateLimitPerMinute} 次/分钟` },
+        { status: 400, headers: NO_STORE },
+      )
+    }
     const secret = await createAgentToken({
       ownerUserId: auth.userId,
       name: String(body.name || "").trim(),
-      scopes: normalizeAgentScopes(body.scopes),
+      scopes: requestedScopes,
       clientMode,
       clientGrants,
-      rateLimitPerMinute: Number(body.rateLimitPerMinute),
+      rateLimitPerMinute,
       dailyCreditLimit: Number(body.dailyCreditLimit),
       maxTaskCredits: Number(body.maxTaskCredits),
       allowedIps: allowedIps(body.allowedIps),
@@ -128,6 +165,8 @@ export async function POST(request: NextRequest) {
         clientGrantCount: secret.record.clientGrants.length,
         dailyCreditLimit: secret.record.dailyCreditLimit,
         maxTaskCredits: secret.record.maxTaskCredits,
+        tier: eligibility.tier,
+        accountMode: eligibility.accountMode,
       },
     }).catch(error => {
       console.error("[agent-audit] token creation audit failed", error instanceof Error ? error.message : error)
@@ -136,7 +175,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Agent 密钥创建失败" },
-      { status: 400, headers: NO_STORE },
+      { status: error instanceof AgentApiError ? error.status : 400, headers: NO_STORE },
     )
   }
 }

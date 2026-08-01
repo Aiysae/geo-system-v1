@@ -1,8 +1,10 @@
+import { agentPublicOrigin } from "@/lib/agent/public-origin"
+
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
-  const origin = new URL(request.url).origin
+  const origin = agentPublicOrigin(request)
   return Response.json({
     name: "势途 GEO Agent API",
     version: "v1",
