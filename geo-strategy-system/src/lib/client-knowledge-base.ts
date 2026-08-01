@@ -394,13 +394,16 @@ export function mergeExtractedProfileIntoKnowledgeBase(args: {
   subjectType: AnalysisSubjectType
   subjectName: string
   aliases?: string[]
+  updatedAt?: string
 }): ClientKnowledgeBase {
   const current = normalizeClientKnowledgeBase(args.current, {
     subjectType: args.subjectType,
     subjectName: args.subjectName,
     aliases: args.aliases,
   })
-  const now = new Date().toISOString()
+  const now = args.updatedAt && Number.isFinite(Date.parse(args.updatedAt))
+    ? new Date(args.updatedAt).toISOString()
+    : new Date().toISOString()
   const generated: GeoKnowledgeAsset[] = []
   const append = (
     kind: GeoKnowledgeAssetKind,

@@ -32,7 +32,12 @@ import {
 } from "@/lib/with-credits"
 import { buildBackgroundSystemOutputRecord } from "@/lib/system-output/builders"
 import { saveSystemOutputRecord } from "@/lib/system-output/store"
-import { listWorkspaceClients } from "@/lib/workspace-store"
+import { listWorkspaceClients, mutateWorkspaceClientLatest } from "@/lib/workspace-store"
+import {
+  applyBackgroundJobToClient,
+  supportsBackgroundWorkspacePersistence,
+  type BackgroundWorkspacePhase,
+} from "@/lib/background-job-workspace-state"
 import type {
   ArticlePromptKey,
   BackgroundJobKind,
@@ -298,6 +303,30 @@ async function patchJob(
   return next
 }
 
+async function persistBackgroundJobInWorkspace(
+  job: StoredBackgroundJob,
+  phase: BackgroundWorkspacePhase,
+): Promise<boolean> {
+  if (!supportsBackgroundWorkspacePersistence(job.kind)) return false
+  const userId = String(job.workspaceOwnerUserId || job.ownerUserId || "").trim()
+  if (!userId || !job.clientId) return false
+  try {
+    const payload = decodePayload(job.payloadGzip)
+    const saved = await mutateWorkspaceClientLatest({
+      userId,
+      clientId: job.clientId,
+      mutate: current => {
+        const patch = applyBackgroundJobToClient(current, toPublicJob(job), phase, payload)
+        return patch ? { patch } : null
+      },
+    })
+    return Boolean(saved)
+  } catch (error) {
+    console.error("[background-jobs] workspace result persistence failed", job.id, safeError(error))
+    return false
+  }
+}
+
 function createsDurableModuleOutput(kind: BackgroundJobKind): kind is "research" | "competitorCompare" | "diagnosis" {
   return kind === "research" || kind === "competitorCompare" || kind === "diagnosis"
 }
@@ -517,36 +546,66 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
     const current = await getStoredJob(jobId)
     if (!current || current.status === "cancelled") throw new Error("用户已停止任务")
 
-    await patchJob(jobId, {
+    const resultJob = await patchJob(jobId, {
       result,
       progressPercent: 100,
       stage: "结果已保存",
-    })
-    await settleJobCredits(jobId, true)
-    const succeeded = await patchJob(jobId, {
+    }) || job
+    const finishedAt = nowIso()
+    const succeededForPersistence: StoredBackgroundJob = {
+      ...resultJob,
       status: "succeeded",
-      finishedAt: nowIso(),
+      finishedAt,
+      updatedAt: finishedAt,
+    }
+    await persistBackgroundJobInWorkspace(succeededForPersistence, "succeeded")
+    const outputPatch = await persistSuccessfulOutput(succeededForPersistence)
+    if (Object.keys(outputPatch).length > 0) await patchJob(jobId, outputPatch)
+    await settleJobCredits(jobId, true)
+    await patchJob(jobId, {
+      status: "succeeded",
+      finishedAt,
     })
-    if (succeeded) await persistSuccessfulOutputToJob(succeeded)
   } catch (error) {
     const current = await getStoredJob(jobId)
     const cancelled = current?.status === "cancelled" || /用户已停止任务/.test(safeError(error))
     if (cancelled) {
+      const cancelledAt = current?.finishedAt || nowIso()
+      if (current) {
+        await persistBackgroundJobInWorkspace({
+          ...current,
+          status: "cancelled",
+          error: "用户已停止任务",
+          finishedAt: cancelledAt,
+          updatedAt: cancelledAt,
+        }, "cancelled")
+      }
       await patchJob(jobId, {
         status: "cancelled",
         error: "用户已停止任务",
-        finishedAt: current?.finishedAt || nowIso(),
+        finishedAt: cancelledAt,
       })
       await settleJobCredits(jobId, false)
       return
     }
 
     console.error("[background-jobs] job failed", jobId, safeError(error))
+    const failedAt = nowIso()
+    if (current) {
+      await persistBackgroundJobInWorkspace({
+        ...current,
+        status: "failed",
+        stage: "任务失败",
+        error: safeError(error),
+        finishedAt: failedAt,
+        updatedAt: failedAt,
+      }, "failed")
+    }
     await patchJob(jobId, {
       status: "failed",
       stage: "任务失败",
       error: safeError(error),
-      finishedAt: nowIso(),
+      finishedAt: failedAt,
     })
     await settleJobCredits(jobId, false)
   } finally {
@@ -663,7 +722,9 @@ export async function createBackgroundJob(args: {
   const claimed = await kv.set(key, claim, { nx: true, ex: IDEMPOTENCY_CLAIM_SECONDS })
   if (!claimed) {
     const existing = await waitForClaimedJob(args.ownerUserId, args.kind, args.requestId)
-    if (existing) return { ok: true, job: toPublicJob(existing), reused: true }
+    if (existing) {
+      return { ok: true, job: toPublicJob(existing), reused: true }
+    }
     return {
       ok: false,
       response: Response.json({ error: "任务正在创建，系统会自动重试" }, { status: 409 }),
@@ -936,6 +997,9 @@ export async function getBackgroundJob(
   if ((job.status === "queued" || runningIsStale) && !activeJobs.has(id)) {
     void dispatchBackgroundJob(id, job.kind)
   }
+  if (job.status === "succeeded") await persistBackgroundJobInWorkspace(job, "succeeded")
+  else if (job.status === "failed") await persistBackgroundJobInWorkspace(job, "failed")
+  else if (job.status === "cancelled") await persistBackgroundJobInWorkspace(job, "cancelled")
   if (
     job.status === "succeeded"
     && createsDurableModuleOutput(job.kind)
@@ -1001,14 +1065,25 @@ export async function cancelBackgroundJob(
   if (!job || job.ownerUserId !== ownerUserId) return null
   if (["succeeded", "failed", "cancelled"].includes(job.status)) return toPublicJob(job)
   if (job.result !== undefined) {
-    await settleJobCredits(id, true)
-    let succeeded = await patchJob(id, {
+    const finishedAt = job.finishedAt || nowIso()
+    const succeededForPersistence: StoredBackgroundJob = {
+      ...job,
       status: "succeeded",
       progressPercent: 100,
       stage: "结果已保存",
-      finishedAt: job.finishedAt || nowIso(),
+      finishedAt,
+      updatedAt: finishedAt,
+    }
+    await persistBackgroundJobInWorkspace(succeededForPersistence, "succeeded")
+    const outputPatch = await persistSuccessfulOutput(succeededForPersistence)
+    if (Object.keys(outputPatch).length > 0) await patchJob(id, outputPatch)
+    await settleJobCredits(id, true)
+    const succeeded = await patchJob(id, {
+      status: "succeeded",
+      progressPercent: 100,
+      stage: "结果已保存",
+      finishedAt,
     }) || job
-    succeeded = await persistSuccessfulOutputToJob(succeeded)
     return toPublicJob(succeeded)
   }
 
@@ -1023,6 +1098,7 @@ export async function cancelBackgroundJob(
     return toPublicJob(cancelled)
   }
   await signalTaskCancellation("background", id, ownerUserId)
+  await persistBackgroundJobInWorkspace(cancelled, "cancelled")
   removePendingJob(id, job.kind)
   activeControllers.get(id)?.abort()
   await settleJobCredits(id, false)

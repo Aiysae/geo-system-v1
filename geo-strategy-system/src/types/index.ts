@@ -307,6 +307,14 @@ export interface BackgroundJobRecord<TResult = unknown> {
   outputSavePending?: boolean
 }
 
+export interface BackgroundJobResultMarker {
+  jobId: string
+  requestId: string
+  status: BackgroundJobStatus
+  createdAt: string
+  completedAt: string
+}
+
 export interface ArticleGenerationState {
   promptKey: ArticlePromptKey
   modelProvider: ArticleModelProviderKey
@@ -684,6 +692,20 @@ export interface DifficultyAssessmentEntry {
 }
 
 export type DifficultyModelSelection = "auto" | ModelKey
+
+export interface DifficultyAssessmentDraft {
+  mode: DifficultyAssessmentMode
+  industry: string
+  scope: DifficultyGeographicScope
+  city: string
+  averageOrderValue: string
+  grossMarginRate: string
+  annualRepeatPurchases: string
+  industryRiskLevel: DifficultyIndustryRiskLevel
+  targetBrand: string
+  website: string
+  selectedModel: DifficultyModelSelection
+}
 
 export type DifficultyJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
 
@@ -1312,6 +1334,11 @@ export interface Diagnosis {
 
 export type ResearchMode = "hypothesis" | "ai"
 
+export interface ResearchDraft {
+  mode: ResearchMode
+  hypothesis: string
+}
+
 export type ResearchSourceMode = "module" | "manual"
 
 export interface ResearchManualInput {
@@ -1408,7 +1435,10 @@ export interface Client {
   diagnosis?: Diagnosis
   keywordStrategy?: KeywordStrategyState
   articleGeneration?: ArticleGenerationState
+  researchDraft?: ResearchDraft
+  difficultyDraft?: DifficultyAssessmentDraft
   difficultyAssessments?: DifficultyAssessmentEntry[]
   difficultyJobId?: string
   backgroundJobs?: Partial<Record<BackgroundJobKind, BackgroundJobRef>>
+  backgroundResultJobs?: Partial<Record<BackgroundJobKind, BackgroundJobResultMarker>>
 }

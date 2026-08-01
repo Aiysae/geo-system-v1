@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import {
   AlertTriangle,
@@ -39,6 +39,7 @@ import {
 import type {
   Client,
   DifficultyAssessmentEntry,
+  DifficultyAssessmentDraft,
   DifficultyAssessmentMode,
   DifficultyAssessmentResult,
   DifficultyContentCostEstimate,
@@ -622,17 +623,31 @@ function createEntry(args: {
 export default function DifficultyAssessmentModule({ client, onChangeClient, onExportReport }: Props) {
   const subjectType = getClientSubjectType(client)
   const isPerson = subjectType === "person"
-  const [mode, setMode] = useState<DifficultyAssessmentMode>(() => isPerson ? "brand" : "industry")
-  const [industry, setIndustry] = useState(() => client.industry || "")
-  const [scope, setScope] = useState<DifficultyGeographicScope>("national")
-  const [city, setCity] = useState("全国")
-  const [averageOrderValue, setAverageOrderValue] = useState("")
-  const [grossMarginRate, setGrossMarginRate] = useState("")
-  const [annualRepeatPurchases, setAnnualRepeatPurchases] = useState("")
-  const [industryRiskLevel, setIndustryRiskLevel] = useState<DifficultyIndustryRiskLevel>("auto")
-  const [targetBrand, setTargetBrand] = useState(() => client.ourBrand || "")
-  const [website, setWebsite] = useState(() => client.website || "")
-  const [selectedModel, setSelectedModel] = useState<DifficultyModelSelection>("auto")
+  const initialDraft: DifficultyAssessmentDraft = client.difficultyDraft || {
+    mode: isPerson ? "brand" : "industry",
+    industry: client.industry || "",
+    scope: "national",
+    city: "全国",
+    averageOrderValue: "",
+    grossMarginRate: "",
+    annualRepeatPurchases: "",
+    industryRiskLevel: "auto",
+    targetBrand: client.ourBrand || "",
+    website: client.website || "",
+    selectedModel: "auto",
+  }
+  const draftRef = useRef(initialDraft)
+  const [mode, setMode] = useState<DifficultyAssessmentMode>(() => initialDraft.mode)
+  const [industry, setIndustry] = useState(() => initialDraft.industry)
+  const [scope, setScope] = useState<DifficultyGeographicScope>(() => initialDraft.scope)
+  const [city, setCity] = useState(() => initialDraft.city)
+  const [averageOrderValue, setAverageOrderValue] = useState(() => initialDraft.averageOrderValue)
+  const [grossMarginRate, setGrossMarginRate] = useState(() => initialDraft.grossMarginRate)
+  const [annualRepeatPurchases, setAnnualRepeatPurchases] = useState(() => initialDraft.annualRepeatPurchases)
+  const [industryRiskLevel, setIndustryRiskLevel] = useState<DifficultyIndustryRiskLevel>(() => initialDraft.industryRiskLevel)
+  const [targetBrand, setTargetBrand] = useState(() => initialDraft.targetBrand)
+  const [website, setWebsite] = useState(() => initialDraft.website)
+  const [selectedModel, setSelectedModel] = useState<DifficultyModelSelection>(() => initialDraft.selectedModel)
   const [modelOptions, setModelOptions] = useState<DifficultyModelOption[]>(
     () => DIFFICULTY_MODELS.map(key => ({ key, label: MODEL_LABELS[key], configured: true })),
   )
@@ -656,6 +671,12 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
   const totalStandards = totalStandardsForMode(reportMode, reportSubjectType)
   const dimensions = useMemo(() => Object.values(result.dimensions), [result.dimensions])
   const costEstimate = result.costEstimate
+
+  function persistDifficultyDraft(patch: Partial<DifficultyAssessmentDraft>) {
+    const next = { ...draftRef.current, ...patch }
+    draftRef.current = next
+    onChangeClient({ difficultyDraft: next })
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -906,6 +927,7 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 
   function switchMode(nextMode: DifficultyAssessmentMode) {
     setMode(nextMode)
+    persistDifficultyDraft({ mode: nextMode })
     setActiveEntry(null)
     setShowSample(false)
     setError(null)
@@ -913,8 +935,9 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 
   function changeScope(nextScope: DifficultyGeographicScope) {
     setScope(nextScope)
-    if (nextScope === "national") setCity("全国")
-    else if (city === "全国") setCity("")
+    const nextCity = nextScope === "national" ? "全国" : city === "全国" ? "" : city
+    setCity(nextCity)
+    persistDifficultyDraft({ scope: nextScope, city: nextCity })
   }
 
   return (
@@ -964,7 +987,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               <Input
                 id="difficulty-industry"
                 value={industry}
-                onChange={event => setIndustry(event.target.value)}
+                onChange={event => {
+                  setIndustry(event.target.value)
+                  persistDifficultyDraft({ industry: event.target.value })
+                }}
                 placeholder="除甲醛、医美、律师服务"
               />
             </div>
@@ -977,7 +1003,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                   <Input
                     id="difficulty-brand"
                     value={targetBrand}
-                    onChange={event => setTargetBrand(event.target.value)}
+                    onChange={event => {
+                      setTargetBrand(event.target.value)
+                      persistDifficultyDraft({ targetBrand: event.target.value })
+                    }}
                     placeholder={isPerson ? "输入要评估的人物姓名" : "输入要评估的品牌名"}
                   />
                 </div>
@@ -988,7 +1017,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                   <Input
                     id="difficulty-website"
                     value={website}
-                    onChange={event => setWebsite(event.target.value)}
+                    onChange={event => {
+                      setWebsite(event.target.value)
+                      persistDifficultyDraft({ website: event.target.value })
+                    }}
                     placeholder={isPerson ? "个人主页、机构资料页或案例链接，可选" : "官网、案例页或资料链接，可选"}
                   />
                 </div>
@@ -1014,7 +1046,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               <Input
                 id="difficulty-city"
                 value={city}
-                onChange={event => setCity(event.target.value)}
+                onChange={event => {
+                  setCity(event.target.value)
+                  persistDifficultyDraft({ city: event.target.value })
+                }}
                 disabled={scope === "national" || loading}
                 placeholder={scope === "city" ? "如：杭州" : scope === "province" ? "如：浙江省" : scope === "region" ? "如：长三角" : "全国"}
               />
@@ -1024,7 +1059,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               <Select
                 id="difficulty-model"
                 value={selectedModel}
-                onChange={event => setSelectedModel(event.target.value as DifficultyModelSelection)}
+                onChange={event => {
+                  const value = event.target.value as DifficultyModelSelection
+                  setSelectedModel(value)
+                  persistDifficultyDraft({ selectedModel: value })
+                }}
                 disabled={loading}
               >
                 <option value="auto">自动推荐（失败自动切换）</option>
@@ -1051,7 +1090,11 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
               <Select
                 id="difficulty-risk-level"
                 value={industryRiskLevel}
-                onChange={event => setIndustryRiskLevel(event.target.value as DifficultyIndustryRiskLevel)}
+                onChange={event => {
+                  const value = event.target.value as DifficultyIndustryRiskLevel
+                  setIndustryRiskLevel(value)
+                  persistDifficultyDraft({ industryRiskLevel: value })
+                }}
                 disabled={loading}
               >
                 <option value="auto">系统自动判断（推荐）</option>
@@ -1068,7 +1111,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 type="number"
                 min="0"
                 value={averageOrderValue}
-                onChange={event => setAverageOrderValue(event.target.value)}
+                onChange={event => {
+                  setAverageOrderValue(event.target.value)
+                  persistDifficultyDraft({ averageOrderValue: event.target.value })
+                }}
                 placeholder="如：5000"
                 disabled={loading}
               />
@@ -1082,7 +1128,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 max="100"
                 step="0.1"
                 value={grossMarginRate}
-                onChange={event => setGrossMarginRate(event.target.value)}
+                onChange={event => {
+                  setGrossMarginRate(event.target.value)
+                  persistDifficultyDraft({ grossMarginRate: event.target.value })
+                }}
                 placeholder="如：45"
                 disabled={loading}
               />
@@ -1095,7 +1144,10 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
                 min="0"
                 step="0.1"
                 value={annualRepeatPurchases}
-                onChange={event => setAnnualRepeatPurchases(event.target.value)}
+                onChange={event => {
+                  setAnnualRepeatPurchases(event.target.value)
+                  persistDifficultyDraft({ annualRepeatPurchases: event.target.value })
+                }}
                 placeholder="如：2"
                 disabled={loading}
               />

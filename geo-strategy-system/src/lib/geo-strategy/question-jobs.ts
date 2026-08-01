@@ -10,6 +10,7 @@ import { createInternalApiHeaders } from "@/lib/internal-api"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import { syncQuestionJobTask } from "@/lib/task-center/adapters"
+import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
 import {
   clearTaskCancellation,
   registerTaskAbortController,
@@ -30,6 +31,10 @@ import {
   normalizeKeywordStrategySettings,
 } from "./keyword-strategy-methodology"
 import { researchKeywordStrategyContext } from "./keyword-strategy-research"
+import {
+  applyQuestionJobToKeywordStrategy,
+  type QuestionWorkspacePhase,
+} from "./question-workspace-state"
 import type {
   GeoStrategyPlan,
   QuestionCategoryConfig,
@@ -180,6 +185,36 @@ async function patchQuestionJob(
   const next = { ...current, ...patch, updatedAt: nowIso() }
   await saveStoredQuestionJob(next)
   return next
+}
+
+async function persistQuestionJobToWorkspace(
+  job: StoredQuestionJobRecord,
+  phase: QuestionWorkspacePhase,
+): Promise<boolean> {
+  const userId = String(job.workspaceOwnerUserId || job.ownerUserId || "").trim()
+  const clientId = String(job.clientId || "").trim()
+  if (!userId || !clientId) return false
+
+  try {
+    const saved = await mutateWorkspaceClientLatest({
+      userId,
+      clientId,
+      mutate: current => {
+        if (!current.keywordStrategy) return null
+        const next = applyQuestionJobToKeywordStrategy(
+          current.keywordStrategy,
+          toPublicJob(job),
+          phase,
+        )
+        if (!next) return null
+        return { patch: { keywordStrategy: next } }
+      },
+    })
+    return Boolean(saved)
+  } catch (error) {
+    console.error(`[question-jobs] workspace ${phase} persistence failed for ${job.id}:`, error)
+    return false
+  }
 }
 
 class QuestionJobCancelledError extends Error {
@@ -1049,8 +1084,9 @@ async function runQuestionJob(jobId: string): Promise<void> {
       ])
     }
 
-    await settleQuestionJobCreditsQuietly(job.id, reindexed.length)
-    await patchQuestionJob(job.id, {
+    const finishedAt = nowIso()
+    const succeededJob: StoredQuestionJobRecord = {
+      ...job,
       status: "succeeded",
       completedBatches: batchPlans.length,
       currentBatch: batchPlans.length,
@@ -1058,26 +1094,41 @@ async function runQuestionJob(jobId: string): Promise<void> {
       completedCount: reindexed.length,
       questions: reindexed,
       warnings,
-      finishedAt: nowIso(),
+      finishedAt,
+      updatedAt: finishedAt,
+    }
+    await persistQuestionJobToWorkspace(succeededJob, "succeeded")
+    await settleQuestionJobCreditsQuietly(job.id, reindexed.length)
+    await patchQuestionJob(job.id, {
+      status: succeededJob.status,
+      completedBatches: succeededJob.completedBatches,
+      currentBatch: succeededJob.currentBatch,
+      totalBatches: succeededJob.totalBatches,
+      completedCount: succeededJob.completedCount,
+      questions: succeededJob.questions,
+      warnings: succeededJob.warnings,
+      finishedAt,
     })
   } catch (error) {
     if (isQuestionJobCancelledError(error)) {
       await settleQuestionJobCreditsQuietly(jobId, 0)
-      await patchQuestionJob(jobId, {
+      const cancelled = await patchQuestionJob(jobId, {
         status: "cancelled",
         error: QUESTION_JOB_CANCELLED_MESSAGE,
         finishedAt: nowIso(),
       })
+      if (cancelled) await persistQuestionJobToWorkspace(cancelled, "cancelled")
       return
     }
     console.error("[question-jobs] job failed:", error)
     const message = error instanceof Error ? error.message : "疑问句后台任务失败"
     await settleQuestionJobCreditsQuietly(jobId, 0)
-    await patchQuestionJob(jobId, {
+    const failed = await patchQuestionJob(jobId, {
       status: "failed",
       error: message,
       finishedAt: nowIso(),
     })
+    if (failed) await persistQuestionJobToWorkspace(failed, "failed")
   } finally {
     activeJobs.delete(jobId)
     activeAbortControllers.delete(jobId)
@@ -1174,6 +1225,10 @@ export async function getQuestionJob(id: string, ownerUserId: string): Promise<Q
   if (!job) return null
   if (job.ownerUserId !== ownerUserId) return null
 
+  if (job.status === "succeeded") await persistQuestionJobToWorkspace(job, "succeeded")
+  else if (job.status === "failed") await persistQuestionJobToWorkspace(job, "failed")
+  else if (job.status === "cancelled") await persistQuestionJobToWorkspace(job, "cancelled")
+
   if ((job.status === "queued" || job.status === "running") && !activeJobs.has(job.id)) {
     void dispatchQuestionJob(job.id)
   }
@@ -1238,6 +1293,7 @@ export async function cancelQuestionJob(id: string, ownerUserId: string): Promis
   }
   await signalTaskCancellation("question", id, ownerUserId)
   await settleQuestionJobCreditsQuietly(id, 0)
+  await persistQuestionJobToWorkspace(cancelled, "cancelled")
 
   const controllers = activeAbortControllers.get(id)
   if (controllers) {

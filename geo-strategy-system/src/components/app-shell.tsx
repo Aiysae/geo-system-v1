@@ -43,6 +43,12 @@ import {
   WORKSPACE_SECTIONS,
   type WorkspaceSection,
 } from "@/lib/workspace-sync"
+import {
+  WORKSPACE_NAVIGATION_EVENT,
+  parseWorkspaceNavigation,
+  resolveInitialWorkspaceModule,
+  type WorkspaceNavigationTarget,
+} from "@/lib/workspace-navigation"
 
 const PenetrationModule = dynamic(
   () => import("@/components/penetration/penetration-module"),
@@ -113,12 +119,14 @@ export default function Home({
   adminNotifier,
   taskNotifier,
   userNotifier,
+  initialNavigation,
 }: {
   userId: string
   access: WorkspaceAccountAccess
   adminNotifier?: React.ReactNode
   taskNotifier?: React.ReactNode
   userNotifier?: React.ReactNode
+  initialNavigation?: WorkspaceNavigationTarget
 }) {
   const restricted = access.mode === "client"
   const canViewModule = useCallback((module: DashboardModuleKey) => {
@@ -152,9 +160,9 @@ export default function Home({
   const initialModule = restricted && canViewModule("feedback")
     ? "feedback"
     : DASHBOARD_MODULES.find(module => canViewModule(module.key))?.key || "penetration"
-  const [activeModule, setActiveModule] = useState<DashboardModuleKey>(
-    initialModule,
-  )
+  const [activeModule, setActiveModule] = useState<DashboardModuleKey>(() => (
+    resolveInitialWorkspaceModule(initialNavigation?.module, canViewModule, initialModule)
+  ))
   const {
     monthlyBalance,
     monthlyAllowance,
@@ -163,6 +171,7 @@ export default function Home({
     clients,
     clientDirectory,
     activeId,
+    loadedSections,
     hydrated,
     syncState,
     conflict,
@@ -179,6 +188,7 @@ export default function Home({
   } = useWorkspaceSync(userId, {
     restrictedClientId: restricted ? access.clientId : undefined,
     teamId: access.mode === "team" ? access.teamId : undefined,
+    initialClientId: initialNavigation?.clientId,
     sections: sectionsForDashboardModule(activeModule),
   })
   // 移动端抽屉开关。桌面端 (md+) Sidebar 永远可见，该状态被忽略。
@@ -187,37 +197,73 @@ export default function Home({
   const [reportExportClient, setReportExportClient] = useState<Client | null>(null)
   const [reportHistoryOpen, setReportHistoryOpen] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
+  const [resultRefreshKey, setResultRefreshKey] = useState(0)
   const mainScrollRef = useRef<HTMLElement>(null)
-  const urlInitializedRef = useRef(false)
 
   const active = clients.find(c => c.id === activeId) ?? null
+  const activeDirectoryEntry = clientDirectory.find(client => client.id === activeId)
+  const requiredSections = sectionsForDashboardModule(activeModule)
+  const activeSectionsReady = requiredSections.every(section => loadedSections.includes(section))
+
+  const clearResultTarget = useCallback(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete("view")
+    url.searchParams.delete("jobId")
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  }, [])
 
   const handleModuleChange = useCallback((module: DashboardModuleKey) => {
     if (!canViewModule(module)) return
+    clearResultTarget()
     setActiveModule(module)
     setSidebarOpen(false)
     setReportExportPreset(null)
     setReportExportClient(null)
     setReportHistoryOpen(false)
-  }, [canViewModule])
+  }, [canViewModule, clearResultTarget])
 
   useEffect(() => {
-    if (!hydrated || urlInitializedRef.current) return
-    const timer = window.setTimeout(() => {
-      const url = new URL(window.location.href)
-      const requestedModule = url.searchParams.get("module")
-      if (isDashboardModuleKey(requestedModule) && canViewModule(requestedModule)) setActiveModule(requestedModule)
-      const requestedClientId = url.searchParams.get("clientId")
-      if (requestedClientId && clients.some(client => client.id === requestedClientId)) {
-        selectClient(requestedClientId)
+    const navigate = (urlValue: string, updateHistory: boolean, forceRefresh = false) => {
+      const targetUrl = new URL(urlValue, window.location.origin)
+      const target = parseWorkspaceNavigation(targetUrl)
+      const nextModule = target.module && isDashboardModuleKey(target.module) && canViewModule(target.module)
+        ? target.module
+        : activeModule
+      if (nextModule !== activeModule) setActiveModule(nextModule)
+      if (target.clientId && clientDirectory.some(client => client.id === target.clientId)) {
+        selectClient(target.clientId)
+        void ensureSections(sectionsForDashboardModule(nextModule), target.clientId, forceRefresh)
+          .then(() => {
+            if (forceRefresh) setResultRefreshKey(current => current + 1)
+          })
       }
-      urlInitializedRef.current = true
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [canViewModule, clients, hydrated, selectClient])
+      if (updateHistory) {
+        window.history.pushState({}, "", `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`)
+      }
+    }
+    const onWorkspaceNavigation = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        url?: string
+        forceRefresh?: boolean
+        updateHistory?: boolean
+      }>).detail
+      if (detail?.url) navigate(
+        detail.url,
+        detail.updateHistory !== false,
+        Boolean(detail.forceRefresh),
+      )
+    }
+    const onPopState = () => navigate(window.location.href, false)
+    window.addEventListener(WORKSPACE_NAVIGATION_EVENT, onWorkspaceNavigation)
+    window.addEventListener("popstate", onPopState)
+    return () => {
+      window.removeEventListener(WORKSPACE_NAVIGATION_EVENT, onWorkspaceNavigation)
+      window.removeEventListener("popstate", onPopState)
+    }
+  }, [activeModule, canViewModule, clientDirectory, ensureSections, selectClient])
 
   useEffect(() => {
-    if (!hydrated || !urlInitializedRef.current) return
+    if (!hydrated) return
     const url = new URL(window.location.href)
     if (activeId) url.searchParams.set("clientId", activeId)
     else url.searchParams.delete("clientId")
@@ -294,13 +340,17 @@ export default function Home({
           <div className="h-screen flex items-center justify-center text-slate-400 text-sm">
             加载中...
           </div>
+        ) : !active && activeDirectoryEntry ? (
+          <ModuleLoading />
         ) : !active ? (
           <EmptyState access={access} />
+        ) : !activeSectionsReady ? (
+          <ModuleLoading />
         ) : (
           // key={active.id}：切换客户时强制 Dashboard 整子树重挂载，
           // 彻底清空各 Module 内的 isDetecting/loading/progress 等运行时状态，根治状态泄露。
           <Dashboard
-            key={active.id}
+            key={`${active.id}:${resultRefreshKey}`}
             client={active}
             onChangeClient={handleChangeClient}
             access={access}

@@ -13,10 +13,15 @@ import type { PublicUser } from "@/lib/auth"
 import type { WorkspaceAccountAccess } from "@/types"
 import type { OnboardingSummary } from "@/types/onboarding"
 import { toUserFacingError } from "@/lib/user-facing-errors"
+import type { WorkspaceNavigationTarget } from "@/lib/workspace-navigation"
 
 type AuthState = "checking" | "authenticated" | "error"
 
-export function AuthenticatedAppShell() {
+export function AuthenticatedAppShell({
+  initialNavigation,
+}: {
+  initialNavigation?: WorkspaceNavigationTarget
+}) {
   const [state, setState] = useState<AuthState>("checking")
   const [message, setMessage] = useState("")
   const [user, setUser] = useState<PublicUser | null>(null)
@@ -54,8 +59,8 @@ export function AuthenticatedAppShell() {
             canManageFeedbackReports: true,
           }
           const currentUrl = new URL(window.location.href)
-          const teamId = String(currentUrl.searchParams.get("teamId") || "").trim()
-          const clientId = String(currentUrl.searchParams.get("clientId") || "").trim()
+          const teamId = String(initialNavigation?.teamId || currentUrl.searchParams.get("teamId") || "").trim()
+          const clientId = String(initialNavigation?.clientId || currentUrl.searchParams.get("clientId") || "").trim()
           if (teamId && clientId) {
             const teamResponse = await fetch(
               `/api/teams/access?teamId=${encodeURIComponent(teamId)}&clientId=${encodeURIComponent(clientId)}`,
@@ -112,7 +117,7 @@ export function AuthenticatedAppShell() {
     return () => {
       cancelled = true
     }
-  }, [refresh])
+  }, [initialNavigation, refresh])
 
   if (state === "authenticated" && user && access) {
     if (user.mustChangePassword) {
@@ -164,6 +169,7 @@ export function AuthenticatedAppShell() {
       <AppShell
         userId={user.id}
         access={access}
+        initialNavigation={initialNavigation}
         taskNotifier={<GlobalTaskCenter userId={user.id} />}
         userNotifier={<UserNotificationCenter variant="workspace" />}
         adminNotifier={isAdmin

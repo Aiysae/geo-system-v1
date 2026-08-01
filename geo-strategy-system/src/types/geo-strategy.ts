@@ -42,6 +42,8 @@ export interface KeywordStrategyState {
   questionError: string
   questionJobId?: string
   questionJobProgress?: QuestionJobProgress
+  questionResultJobId?: string
+  questionGeneratedAt?: string
   questionCount: number
   customQuestionCount: number
   questionModelProvider: QuestionModelProvider
@@ -356,6 +358,11 @@ export interface GeoStrategyPlan {
   generation_settings?: KeywordStrategyGenerationSettings
   keyword_research?: KeywordStrategyResearchAudit
   quality_audit?: KeywordStrategyQualityAudit
+  website_prompts?: {
+    official?: string
+    third_party?: Record<string, string>
+    updated_at?: string
+  }
 }
 
 /** 上传文件信息 */

@@ -5,6 +5,7 @@ import type {
   TaskCenterModule,
   TaskCenterStatus,
 } from "@/types/task-center"
+import { buildWorkspaceResultUrl, type WorkspaceModule } from "@/lib/workspace-navigation"
 
 type CommonJob = {
   id: string
@@ -53,12 +54,27 @@ function ratioProgress(done: unknown, total: unknown): number {
   return progress(Number(done) / safeTotal * 100)
 }
 
-function workspaceUrl(clientId: string, module: TaskCenterModule, teamId?: string): string {
-  const query = new URLSearchParams()
-  if (clientId) query.set("clientId", clientId)
-  if (teamId) query.set("teamId", teamId)
-  query.set("module", module === "report" ? "penetration" : module)
-  return `/workspace?${query.toString()}`
+function workspaceUrl(
+  clientId: string,
+  module: TaskCenterModule,
+  teamId?: string,
+  result?: { view?: string; jobId?: string },
+): string {
+  return buildWorkspaceResultUrl({
+    clientId,
+    teamId,
+    module: (module === "report" ? "penetration" : module) as WorkspaceModule,
+    view: result?.view,
+    jobId: result?.jobId,
+  })
+}
+
+function backgroundResultView(kind: string): string {
+  if (kind === "keywordExtract" || kind === "keywordAdvantages") return "extraction"
+  if (kind === "keywordStrategy" || kind === "keywordWebsitePrompt") return "strategy"
+  if (kind === "queryGeneration") return "questions"
+  if (kind === "competitorCompare") return "comparison"
+  return "result"
 }
 
 function active(status: TaskCenterStatus): boolean {
@@ -92,7 +108,10 @@ export async function syncBackgroundJobTask(job: CommonJob & {
     progressPercent: progress(job.progressPercent),
     stage: job.stage,
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, config.module, job.teamId),
+    resultUrl: workspaceUrl(job.clientId, config.module, job.teamId, {
+      view: backgroundResultView(job.kind),
+      jobId: job.id,
+    }),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -164,7 +183,10 @@ export async function syncPenetrationJobTask(job: CommonJob & {
       status === "succeeded" ? "检测结果已保存" : job.error || "检测任务已创建"
     ),
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, "penetration", job.teamId),
+    resultUrl: workspaceUrl(job.clientId, "penetration", job.teamId, {
+      view: "report",
+      jobId: job.id,
+    }),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -210,7 +232,10 @@ export async function syncDifficultyJobTask(job: CommonJob & {
         ? "正在进行多维评估"
         : job.error || "测评任务已创建",
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, "difficulty", job.teamId),
+    resultUrl: workspaceUrl(job.clientId, "difficulty", job.teamId, {
+      view: "report",
+      jobId: job.id,
+    }),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -255,7 +280,10 @@ export async function syncQuestionJobTask(job: CommonJob & {
         ? `正在生成第 ${Math.max(1, job.currentBatch)} / ${Math.max(1, job.totalBatches)} 批`
         : job.error || "疑问句任务已创建",
     error: job.error,
-    resultUrl: workspaceUrl(clientId, "keyword", job.teamId),
+    resultUrl: workspaceUrl(clientId, "keyword", job.teamId, {
+      view: "questions",
+      jobId: job.id,
+    }),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -294,7 +322,10 @@ export async function syncArticleBatchTask(job: CommonJob & {
     progressPercent: ratioProgress(finished, job.requestedCount),
     stage: job.stage || (status === "succeeded" ? "批量文章已全部生成" : "批量任务处理中"),
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, "article", job.teamId),
+    resultUrl: workspaceUrl(job.clientId, "article", job.teamId, {
+      view: "batch",
+      jobId: job.id,
+    }),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -337,7 +368,10 @@ export async function syncReportJobTask(job: CommonJob & {
     error: job.error,
     resultUrl: status === "succeeded"
       ? `/api/reports/jobs/${encodeURIComponent(job.id)}/view`
-      : workspaceUrl(job.clientId, "report", job.teamId),
+      : workspaceUrl(job.clientId, "report", job.teamId, {
+          view: "report",
+          jobId: job.id,
+        }),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
