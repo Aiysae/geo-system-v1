@@ -1,10 +1,11 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import { createShituGeoMcpServer } from "@/agent/mcp-server"
-import { agentError, requireAgentAuth } from "@/lib/agent/api"
+import { agentError, readBoundedAgentBody, requireAgentAuth } from "@/lib/agent/api"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
+const MAX_MCP_BODY_BYTES = 24 * 1024 * 1024
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -39,12 +40,18 @@ export async function POST(request: Request) {
       token,
       forwardedIp: auth.ip,
     })
+    const body = await readBoundedAgentBody(request, MAX_MCP_BODY_BYTES)
+    const boundedRequest = new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: body.buffer,
+    })
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
     })
     await server.connect(transport)
-    const response = await transport.handleRequest(request)
+    const response = await transport.handleRequest(boundedRequest)
     const headers = new Headers(response.headers)
     for (const [key, value] of Object.entries(CORS)) headers.set(key, value)
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
