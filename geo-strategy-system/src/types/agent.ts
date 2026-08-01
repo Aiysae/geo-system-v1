@@ -17,6 +17,7 @@ export type AgentSpecialScope =
   | "tasks.view"
   | "tasks.cancel"
   | "outputs.view"
+  | "knowledge.view"
 
 export type AgentScope = AgentModuleScope | AgentSpecialScope
 
@@ -79,6 +80,23 @@ export type AgentActionName =
   | "background.run"
   | "article.batch.run"
   | "report.create"
+
+export type AgentAccessMode = "admin" | "vip4" | "all"
+
+export type AgentScopePreset = "observer" | "operator" | "full"
+
+export type AgentAccessEligibility = {
+  eligible: boolean
+  canCreateTokens: boolean
+  guideEnabled: boolean
+  reason?: string
+  mode: AgentAccessMode
+  tier: "admin" | "free" | "vip1" | "vip2" | "vip3" | "vip4" | "vip5" | "vip6"
+  accountMode: "standard" | "client"
+  maxActiveTokens: number
+  maxRateLimitPerMinute: number
+  allowedPresets: AgentScopePreset[]
+}
 
 export type AgentAuthContext = {
   token: AgentTokenRecord

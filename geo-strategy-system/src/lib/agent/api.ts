@@ -1,7 +1,7 @@
 import "server-only"
 
 import { createHash, randomUUID } from "node:crypto"
-import { getAgentAccessEligibility } from "@/lib/agent/eligibility"
+import { getAgentExecutionEligibility } from "@/lib/agent/eligibility"
 import { hasAgentScope } from "@/lib/agent/scopes"
 import {
   agentTokenAllowsClient,
@@ -106,7 +106,7 @@ export async function requireAgentAuth(
     })
   }
 
-  const eligibility = await getAgentAccessEligibility(token.ownerUserId)
+  const eligibility = await getAgentExecutionEligibility(token.ownerUserId)
   if (!eligibility.eligible) {
     throw new AgentApiError({
       code: "AGENT_ACCESS_SUSPENDED",

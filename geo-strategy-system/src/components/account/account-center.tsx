@@ -216,17 +216,15 @@ export function AccountCenter(props: Props) {
           </div>
           <div className="flex items-center gap-2">
             <UserNotificationCenter />
+            <Link href="/account/agents" className="hidden h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-[#69B1FF] hover:text-[#0958D9] sm:inline-flex">
+              <Bot className="h-4 w-4" />
+              Agent 接入
+            </Link>
             {props.isAdmin ? (
-              <>
-                <Link href="/account/agents" className="hidden h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-[#69B1FF] hover:text-[#0958D9] sm:inline-flex">
-                  <Bot className="h-4 w-4" />
-                  Agent 接入
-                </Link>
-                <Link href="/admin" className="hidden h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-[#69B1FF] hover:text-[#0958D9] sm:inline-flex">
-                  <ShieldCheck className="h-4 w-4" />
-                  管理后台
-                </Link>
-              </>
+              <Link href="/admin" className="hidden h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-[#69B1FF] hover:text-[#0958D9] sm:inline-flex">
+                <ShieldCheck className="h-4 w-4" />
+                管理后台
+              </Link>
             ) : null}
             <Link href="/workspace" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 transition hover:brightness-105">
               返回工作台
@@ -351,6 +349,8 @@ function OverviewTab(props: Props & {
           <QuickAction icon={BriefcaseBusiness} title="客户资料" detail={`${props.clients.length} 个客户档案`} onClick={() => props.onSelectTab("clients")} color="blue" />
           <QuickAction icon={FileClock} title="历史报告" detail="检测快照与专业 PDF" onClick={() => props.onSelectTab("reports")} color="violet" />
           <QuickAction icon={ReceiptText} title="账单与积分" detail={`${props.unlimitedCredits ? "无限" : props.credits.total} 可用积分`} onClick={() => props.onSelectTab("billing")} color="amber" />
+          <QuickAction icon={Bot} title="Agent 接入" detail="连接 Codex、Claude 或 Cursor" href="/account/agents" color="blue" />
+          <QuickAction icon={Settings} title="账号设置" detail="修改名称、邮箱和密码" onClick={() => props.onSelectTab("settings")} color="cyan" />
         </div>
       </section>
 

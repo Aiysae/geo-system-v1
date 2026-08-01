@@ -1,6 +1,6 @@
 import { agentError, agentSuccess, requireAgentAuth } from "@/lib/agent/api"
+import { listAgentClientCatalog } from "@/lib/agent/client-catalog"
 import { agentTokenAllowsClient } from "@/lib/agent/store"
-import { listClientCatalog } from "@/lib/client-access-catalog"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAgentAuth(request, ["client.view"])
     traceId = auth.traceId
-    const catalog = await listClientCatalog(auth.userId)
+    const catalog = await listAgentClientCatalog(auth.userId)
     const clients = catalog
       .filter(client => agentTokenAllowsClient(auth.token, client.id, client.teamId))
       .map(client => ({

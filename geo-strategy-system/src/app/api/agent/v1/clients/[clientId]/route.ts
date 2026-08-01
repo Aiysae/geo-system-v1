@@ -13,7 +13,7 @@ const SECTION_SCOPE: Record<string, AgentScope> = {
   research: "research.view",
   diagnosis: "diagnosis.view",
   difficulty: "difficulty.view",
-  knowledgeBase: "client.view",
+  knowledgeBase: "knowledge.view",
   keywordStrategy: "keyword.view",
   articleGeneration: "article.view",
   jobs: "tasks.view",

@@ -12,7 +12,7 @@ import {
 } from "@/lib/agent/api"
 import { hasAgentScope } from "@/lib/agent/scopes"
 import { appendAgentAudit } from "@/lib/agent/store"
-import { listClientCatalog } from "@/lib/client-access-catalog"
+import { listAgentClientCatalog } from "@/lib/agent/client-catalog"
 import { requireOperationAccess } from "@/lib/team-access"
 import type { TeamModuleKey } from "@/lib/team-permissions"
 import type { AgentAuthContext } from "@/types/agent"
@@ -90,7 +90,7 @@ export async function POST(
       })
     }
     assertAgentClientGrant(auth, estimate.clientId, estimate.teamId)
-    const clientExists = (await listClientCatalog(auth.userId)).some(client => (
+    const clientExists = (await listAgentClientCatalog(auth.userId)).some(client => (
       client.id === estimate.clientId
       && (client.teamId || undefined) === (estimate.teamId || undefined)
     ))

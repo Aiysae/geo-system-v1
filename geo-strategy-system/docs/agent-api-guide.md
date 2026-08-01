@@ -16,51 +16,45 @@ flowchart LR
   F --> I["云端历史产出与报告"]
 ```
 
-## 创建密钥
+## 最快接入
 
-管理员进入 `/account/agents`：
+所有正常登录用户都可以进入 `/account/agents`：
 
-1. 选择只读、业务执行或完整授权。
-2. 只开放 Agent 必须访问的客户。
-3. 设置每日积分上限和单任务积分上限。
-4. 可选配置完整 IPv4/IPv6 白名单和到期时间。
-5. 创建后立即保存明文 Token；系统不会再次展示。
+1. 选择 Codex、Claude、Cursor、通用 MCP、CLI 或 OpenAPI。
+2. 选择只读观察或业务执行，并只开放必须访问的客户。
+3. 设置每日积分上限、单任务积分上限和请求频率。
+4. 创建密钥后立即复制或下载页面生成的配置。
+5. 点击“测试连接”。测试只读取权限和客户目录，不扣积分。
 
-生产接口默认地址为 `https://shitugeo.top/api/agent/v1`，OpenAPI 为 `/api/agent/v1/openapi.json`。
+公开说明页为 `https://shitugeo.top/agent`，生产接口默认地址为 `https://shitugeo.top/api/agent/v1`，OpenAPI 为 `/api/agent/v1/openapi.json`。
 
 ## CLI
 
-项目目录内可直接运行：
+无需下载网站源码，可直接下载独立 CLI：
 
 ```bash
-npm run geo -- auth set --token "$SHITU_GEO_TOKEN" --base-url https://shitugeo.top
-npm run geo -- clients list --json
-npm run geo -- tasks list --json
+curl -fsSL https://shitugeo.top/downloads/shitu-geo.mjs -o shitu-geo.mjs
+node shitu-geo.mjs auth set --token "$SHITU_GEO_TOKEN" --base-url https://shitugeo.top
+node shitu-geo.mjs clients list --json
+node shitu-geo.mjs tasks list --json
 ```
 
-也可以执行 `npm link` 后使用全局命令 `shitu-geo`。配置文件在 macOS/Linux 的 `~/.config/shitu-geo/config.json`，Windows 的 `%APPDATA%\\shitu-geo\\config.json`，Unix 权限固定为 `0600`。
+配置文件在 macOS/Linux 的 `~/.config/shitu-geo/config.json`，Windows 的 `%APPDATA%\\shitu-geo\\config.json`，Unix 权限固定为 `0600`。
 
 ## MCP
 
-本地 stdio：
+远程 Streamable HTTP 地址为 `https://shitugeo.top/api/agent/mcp`，认证头为 `Authorization: Bearer <Agent Token>`。接入中心会按选择的 Agent 自动生成配置。
 
-```json
-{
-  "mcpServers": {
-    "shitu-geo": {
-      "command": "npm",
-      "args": ["run", "mcp:stdio"],
-      "cwd": "/absolute/path/to/geo-strategy-system",
-      "env": {
-        "SHITU_GEO_BASE_URL": "https://shitugeo.top",
-        "SHITU_GEO_TOKEN": "YOUR_AGENT_TOKEN"
-      }
-    }
-  }
-}
+Codex 可在 `~/.codex/config.toml` 中使用：
+
+```toml
+[mcp_servers.shitu_geo]
+url = "https://shitugeo.top/api/agent/mcp"
+bearer_token_env_var = "SHITU_GEO_TOKEN"
+default_tools_approval_mode = "writes"
 ```
 
-远程 Streamable HTTP 地址为 `https://shitugeo.top/api/agent/mcp`，认证头为 `Authorization: Bearer <Agent Token>`。
+Claude Code 可使用 `claude mcp add --transport http`；Cursor 和其他 MCP Agent 使用页面生成的 `mcp.json`。
 
 ## 推荐工作流
 
@@ -75,6 +69,7 @@ npm run geo -- tasks list --json
 7. 成功后读取历史产出或下载报告。
 
 相同 `requestId` 重试会返回原任务，不会重复创建业务任务或重复占用 Agent 日预算。
+CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频率，有新进度后立即恢复，避免多 Agent 同时等待时挤占服务。
 
 ## 渗透率检测示例
 
@@ -142,5 +137,7 @@ npm run geo -- tasks list --json
 - Bearer Token 只保存哈希，明文只出现一次。
 - Token 权限与当前账号、团队、客户权限取交集；团队撤销共享后旧 Token 也无法继续访问。
 - 所有写操作记录 traceId、requestId、客户、预计积分、状态和时间，不记录密码、Cookie 或大模型 API Key。
-- 默认生产灰度只允许管理员创建 Token；可通过环境变量逐步开放。
+- 正常登录用户可以创建 Token，有效密钥数量和请求频率按 VIP 等级控制。
+- 客户专属账号只能访问已关联客户，团队成员只能使用已授权模块。
+- 知识库原文需要独立的 `knowledge.view` 权限。
 - 撤销 Token 立即生效，历史审计保留。

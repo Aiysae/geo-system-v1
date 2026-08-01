@@ -9,6 +9,7 @@ export const AGENT_SPECIAL_SCOPES = [
   "tasks.view",
   "tasks.cancel",
   "outputs.view",
+  "knowledge.view",
 ] as const satisfies readonly AgentScope[]
 
 const SPECIAL_SCOPE_SET = new Set<string>(AGENT_SPECIAL_SCOPES)
@@ -44,10 +45,9 @@ export const AGENT_SCOPE_PRESETS = {
     "tasks.view",
     "tasks.cancel",
     "outputs.view",
+    "knowledge.view",
   ]),
 } as const
-
-export type AgentScopePreset = keyof typeof AGENT_SCOPE_PRESETS
 
 export function normalizeAgentScopes(value: unknown): AgentScope[] {
   const input = Array.isArray(value) ? value.map(item => String(item || "").trim()) : []

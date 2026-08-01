@@ -1,5 +1,7 @@
 import "server-only"
 
+import { ALL_AGENT_SCOPES } from "@/lib/agent/scopes"
+
 export function agentOpenApiDocument(origin: string): Record<string, unknown> {
   const security = [{ AgentBearer: [] }]
   const json = { "application/json": { schema: { type: "object", additionalProperties: true } } }
@@ -20,9 +22,14 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
     openapi: "3.1.0",
     info: {
       title: "势途 GEO Agent API",
-      version: "1.0.0",
+      version: "1.1.0",
       description: "供 CLI、MCP 和自动化 Agent 安全调用势途 GEO 现有业务能力。所有写操作均进入后台任务并沿用网页端权限、积分、联网与质量规则。",
     },
+    externalDocs: {
+      description: "势途 GEO Agent 接入说明",
+      url: `${origin}/agent`,
+    },
+    "x-shitu-mcp-url": `${origin}/api/agent/mcp`,
     servers: [{ url: `${origin}/api/agent/v1` }],
     security,
     tags: [
@@ -160,6 +167,11 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
         TaskId: { name: "taskId", in: "path", required: true, schema: { type: "string" } },
       },
       schemas: {
+        AgentScope: {
+          type: "string",
+          description: "Agent 密钥的最小权限单位。knowledge.view 单独控制客户知识库原文。",
+          enum: ALL_AGENT_SCOPES,
+        },
         TaskStatus: { type: "string", enum: ["queued", "running", "retrying", "succeeded", "partial", "failed", "cancelled", "blocked"] },
         ErrorResponse: {
           type: "object",

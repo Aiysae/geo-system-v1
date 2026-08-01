@@ -5,6 +5,30 @@ import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 
+const importedIntegrationModule = await import("../src/lib/agent/integration-catalog")
+const integrationModule = (
+  "default" in importedIntegrationModule
+    ? importedIntegrationModule.default
+    : importedIntegrationModule
+) as typeof import("../src/lib/agent/integration-catalog")
+const { AGENT_INTEGRATIONS, integrationConfig } = integrationModule
+
+const testToken = "stgeo_agt_integration_test"
+assert.equal(new Set(AGENT_INTEGRATIONS.map(item => item.key)).size, AGENT_INTEGRATIONS.length)
+const codexConfig = integrationConfig("codex", testToken)
+assert.match(codexConfig, /bearer_token_env_var = "SHITU_GEO_TOKEN"/)
+assert.doesNotMatch(codexConfig, /http_headers = \{ Authorization/)
+assert.doesNotMatch(codexConfig, new RegExp(testToken))
+assert.match(integrationConfig("claude", testToken), /claude mcp add --transport http/)
+assert.equal(JSON.parse(integrationConfig("cursor", testToken)).mcpServers["shitu-geo"].type, "http")
+assert.match(integrationConfig("cli", testToken), /downloads\/shitu-geo\.mjs/)
+
+assert.equal(
+  await fs.readFile("public/downloads/shitu-geo.mjs", "utf8"),
+  await fs.readFile("cli/shitu-geo.mjs", "utf8"),
+  "公开下载的 CLI 必须与源文件一致",
+)
+
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "geo-agent-cli-"))
 const server = http.createServer((request, response) => {
   if (request.url === "/api/agent/v1/capabilities" && request.headers.authorization === "Bearer cli-test-token") {

@@ -17,11 +17,26 @@ process.env.AGENT_API_ENABLED = "true"
 process.env.AGENT_TOKEN_MANAGEMENT_ENABLED = "true"
 process.env.AGENT_ACCESS_MIN_TIER = "admin"
 process.env.AGENT_INTERNAL_BASE_URL = "http://127.0.0.1:3000"
+process.env.PUBLIC_APP_URL = "https://shitugeo.top"
 delete process.env.DATABASE_URL
 
 try {
+  const proxyModule = await import("../src/proxy")
+  const publicGuide = proxyModule.proxy(new NextRequest("http://localhost/agent"))
+  assert.equal(publicGuide.status, 200)
+  assert.match(String(publicGuide.headers.get("cache-control")), /s-maxage=3600/)
+  const publicCli = proxyModule.proxy(new NextRequest("http://localhost/downloads/shitu-geo.mjs"))
+  assert.equal(publicCli.status, 200)
+  assert.match(String(publicCli.headers.get("cache-control")), /s-maxage=3600/)
+  const privateAgentCenter = proxyModule.proxy(new NextRequest("http://localhost/account/agents"))
+  assert.equal(privateAgentCenter.status, 307)
+  assert.match(String(privateAgentCenter.headers.get("location")), /sign-in/)
+
   const { createUser } = await import("../src/lib/auth")
+  const { saveClientAccountLink } = await import("../src/lib/client-accounts")
   const { createWorkspaceClient } = await import("../src/lib/workspace-store")
+  const { listAgentClientCatalog } = await import("../src/lib/agent/client-catalog")
+  const { getAgentAccessEligibility } = await import("../src/lib/agent/eligibility")
   const {
     appendAgentAudit,
     authenticateAgentToken,
@@ -53,6 +68,33 @@ try {
     createdAt: now,
     updatedAt: now,
   })
+
+  const clientUser = await createUser({
+    email: "agent-client@example.com",
+    password: "AgentPassword123",
+    name: "Agent 客户账号",
+  })
+  await saveClientAccountLink({
+    userId: clientUser.id,
+    parentUserId: user.id,
+    dataOwnerUserId: user.id,
+    sourceType: "personal",
+    clientId: "client-agent-test",
+    clientName: "Agent 测试客户",
+    operatorUserId: user.id,
+  })
+  process.env.AGENT_ACCESS_MIN_TIER = "all"
+  process.env.AGENT_SELF_SERVICE_ENABLED = "true"
+  const clientEligibility = await getAgentAccessEligibility(clientUser.id)
+  assert.equal(clientEligibility.eligible, true)
+  assert.equal(clientEligibility.canCreateTokens, true)
+  assert.equal(clientEligibility.accountMode, "client")
+  assert.equal(clientEligibility.maxActiveTokens, 1)
+  assert.deepEqual(clientEligibility.allowedPresets, ["observer", "operator"])
+  const linkedCatalog = await listAgentClientCatalog(clientUser.id)
+  assert.equal(linkedCatalog.length, 1)
+  assert.equal(linkedCatalog[0]?.id, "client-agent-test")
+  assert.equal(linkedCatalog[0]?.dataOwnerUserId, user.id)
 
   const created = await createAgentToken({
     ownerUserId: user.id,
@@ -151,7 +193,38 @@ try {
   assert.equal(clients.status, 200)
   assert.equal((await clients.json()).data.clients[0].id, "client-agent-test")
 
+  const linkedToken = await createAgentToken({
+    ownerUserId: clientUser.id,
+    name: "客户专属 Agent",
+    scopes: [...AGENT_SCOPE_PRESETS.observer],
+    clientMode: "selected",
+    clientGrants: [{ clientId: "client-agent-test" }],
+    dailyCreditLimit: 100,
+    maxTaskCredits: 100,
+  })
+  const linkedClients = await clientsRoute.GET(new Request("http://localhost/api/agent/v1/clients", {
+    headers: { Authorization: `Bearer ${linkedToken.token}` },
+  }))
+  assert.equal(linkedClients.status, 200)
+  assert.equal((await linkedClients.json()).data.clients[0].id, "client-agent-test")
+
+  const clientDetailRoute = await import("../src/app/api/agent/v1/clients/[clientId]/route")
+  const deniedKnowledge = await clientDetailRoute.GET(new NextRequest(
+    "http://localhost/api/agent/v1/clients/client-agent-test?sections=knowledgeBase",
+    { headers: { Authorization: `Bearer ${created.token}` } },
+  ), { params: Promise.resolve({ clientId: "client-agent-test" }) })
+  assert.equal(deniedKnowledge.status, 403)
+  assert.equal((await deniedKnowledge.json()).error.code, "AGENT_SCOPE_DENIED")
+
   const mcpRoute = await import("../src/app/api/agent/mcp/route")
+  const deniedMcpOrigin = await mcpRoute.OPTIONS(new Request("https://shitugeo.top/api/agent/mcp", {
+    method: "OPTIONS",
+    headers: { Origin: "https://malicious-agent.example" },
+  }))
+  assert.equal(deniedMcpOrigin.status, 403)
+  assert.equal(deniedMcpOrigin.headers.get("access-control-allow-origin"), "https://malicious-agent.example")
+  assert.equal((await deniedMcpOrigin.json()).error.code, "MCP_ORIGIN_DENIED")
+
   const mcpInitialize = await mcpRoute.POST(new Request("https://untrusted-host.example/api/agent/mcp", {
     method: "POST",
     headers: {
@@ -220,11 +293,21 @@ try {
   assert.equal((await denied.json()).error.code, "AGENT_CLIENT_DENIED")
 
   const { agentOpenApiDocument } = await import("../src/lib/agent/openapi")
-  const openapi = agentOpenApiDocument("https://shitugeo.top") as { paths: Record<string, unknown> }
+  const openapi = agentOpenApiDocument("https://shitugeo.top") as {
+    paths: Record<string, unknown>
+    externalDocs: { url: string }
+    components: { schemas: { AgentScope: { enum: string[] } } }
+  }
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/tasks/{taskId}/cancel"])
+  assert.equal(openapi.externalDocs.url, "https://shitugeo.top/agent")
+  assert.ok(openapi.components.schemas.AgentScope.enum.includes("knowledge.view"))
+  const openapiRoute = await import("../src/app/api/agent/v1/openapi.json/route")
+  const trustedOpenapi = await openapiRoute.GET(new Request("https://malicious-host.example/api/agent/v1/openapi.json"))
+  assert.equal((await trustedOpenapi.json()).externalDocs.url, "https://shitugeo.top/agent")
 
   await revokeAgentToken({ ownerUserId: user.id, tokenId: created.record.id })
+  await revokeAgentToken({ ownerUserId: clientUser.id, tokenId: linkedToken.record.id })
   assert.equal(await authenticateAgentToken(created.token), null)
   console.log("Agent store and REST contract tests passed.")
 } finally {
