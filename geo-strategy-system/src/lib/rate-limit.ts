@@ -95,6 +95,13 @@ function memoryReserve(
   }
 }
 
+function memoryRelease(key: string, amount: number): void {
+  const current = memoryBuckets.get(key)
+  if (!current || current.resetAt <= Date.now()) return
+  current.count = Math.max(0, current.count - Math.max(1, Math.floor(amount)))
+  memoryBuckets.set(key, current)
+}
+
 export function getClientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for")
   if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown"
@@ -163,5 +170,22 @@ export async function reserveRateLimit(
   } catch (error) {
     console.warn("[rate-limit] KV unavailable, using memory fallback", error)
     return memoryReserve(key, safeAmount, safeLimit, safeWindow)
+  }
+}
+
+export async function releaseRateLimitReservation(
+  namespace: string,
+  identifier: string,
+  amount: number,
+): Promise<void> {
+  const safeAmount = Math.max(1, Math.floor(amount))
+  const key = `rate:${cleanKey(namespace)}:${cleanKey(identifier || "unknown")}`
+  try {
+    const current = Number(await kv.get<number | string>(key))
+    if (!Number.isFinite(current) || current <= 0) return
+    await kv.decrby(key, Math.min(current, safeAmount))
+  } catch (error) {
+    console.warn("[rate-limit] KV release unavailable, using memory fallback", error)
+    memoryRelease(key, safeAmount)
   }
 }

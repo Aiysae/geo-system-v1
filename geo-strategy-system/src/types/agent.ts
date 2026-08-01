@@ -1,0 +1,112 @@
+export type AgentModuleKey =
+  | "client"
+  | "penetration"
+  | "research"
+  | "diagnosis"
+  | "difficulty"
+  | "keyword"
+  | "article"
+  | "feedback"
+  | "report"
+
+export type AgentModuleAction = "view" | "execute" | "edit" | "export" | "manage"
+
+export type AgentModuleScope = `${AgentModuleKey}.${AgentModuleAction}`
+
+export type AgentSpecialScope =
+  | "tasks.view"
+  | "tasks.cancel"
+  | "outputs.view"
+
+export type AgentScope = AgentModuleScope | AgentSpecialScope
+
+export type AgentClientMode = "all" | "selected"
+export type AgentTokenStatus = "active" | "revoked"
+
+export type AgentClientGrant = {
+  clientId: string
+  teamId?: string
+}
+
+export type AgentTokenRecord = {
+  id: string
+  ownerUserId: string
+  name: string
+  tokenPrefix: string
+  scopes: AgentScope[]
+  clientMode: AgentClientMode
+  clientGrants: AgentClientGrant[]
+  status: AgentTokenStatus
+  rateLimitPerMinute: number
+  dailyCreditLimit: number
+  maxTaskCredits: number
+  allowedIps: string[]
+  expiresAt?: string
+  lastUsedAt?: string
+  revokedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentTokenSecret = {
+  token: string
+  record: AgentTokenRecord
+}
+
+export type AgentAuditStatus = "accepted" | "succeeded" | "failed" | "denied"
+
+export type AgentAuditRecord = {
+  id: string
+  tokenId: string
+  ownerUserId: string
+  action: string
+  method: string
+  path: string
+  traceId: string
+  requestId?: string
+  clientId?: string
+  teamId?: string
+  status: AgentAuditStatus
+  httpStatus: number
+  estimatedCredits: number
+  metadata: Record<string, unknown>
+  createdAt: string
+}
+
+export type AgentActionName =
+  | "penetration.run"
+  | "difficulty.run"
+  | "background.run"
+  | "article.batch.run"
+  | "report.create"
+
+export type AgentAuthContext = {
+  token: AgentTokenRecord
+  userId: string
+  traceId: string
+  ip: string
+}
+
+export type AgentApiErrorBody = {
+  ok: false
+  error: {
+    code: string
+    message: string
+    retryable: boolean
+    details?: Record<string, unknown>
+  }
+  meta: {
+    traceId: string
+    requestId?: string
+  }
+}
+
+export type AgentApiSuccess<T> = {
+  ok: true
+  data: T
+  meta: {
+    traceId: string
+    requestId?: string
+    serverTime: string
+  }
+}

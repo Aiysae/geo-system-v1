@@ -306,6 +306,7 @@ async function publicTask(
     module: task.module,
     clientId: task.clientId,
     clientName: task.clientName,
+    teamId: typeof task.metadata?.teamId === "string" ? task.metadata.teamId : undefined,
     title: task.title,
     status: task.status,
     progressPercent: task.progressPercent,
@@ -479,6 +480,15 @@ export async function listTaskCenterTasks(
     unreadCount: tasks.filter(task => task.unread).length,
     serverTime: new Date().toISOString(),
   }
+}
+
+export async function getTaskCenterTask(
+  taskIdValue: string,
+  userId: string,
+): Promise<TaskCenterTask | null> {
+  const task = await getStored(taskIdValue)
+  if (!task || !await isAuthorizedVisible(task, userId)) return null
+  return publicTask(task, userId)
 }
 
 async function getPostgres(id: string): Promise<StoredTaskCenterTask | null> {

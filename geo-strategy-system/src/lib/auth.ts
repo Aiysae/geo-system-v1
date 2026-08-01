@@ -6,6 +6,7 @@ import { cookies } from "next/headers"
 import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto"
 import { promisify } from "util"
 import { AUTH_COOKIE_NAME, createSessionCookieValue, verifySessionCookieValue } from "./session-cookie"
+import { getAgentInvocationContext } from "@/lib/agent/actor-context"
 
 const scrypt = promisify(scryptCallback)
 
@@ -485,6 +486,16 @@ export async function destroySession(cookieValue?: string): Promise<void> {
 }
 
 export async function getCurrentUser(): Promise<PublicUser | null> {
+  const agentContext = getAgentInvocationContext()
+  if (agentContext) {
+    const agentUser = await kv.get<AuthUser>(KEY_USER(agentContext.userId))
+    if (!agentUser || agentUser.status !== "active") return null
+    return toPublicUser({
+      ...agentUser,
+      role: agentUser.role === "admin" ? "admin" : resolveRole(agentUser.email),
+    })
+  }
+
   const cookieStore = await cookies()
   const session = await getSession(cookieStore.get(AUTH_COOKIE_NAME)?.value)
   if (!session) return null
