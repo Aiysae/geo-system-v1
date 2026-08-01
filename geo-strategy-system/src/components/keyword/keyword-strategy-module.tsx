@@ -27,7 +27,7 @@ import {
   type KeywordStrategyLanguageStyle,
 } from "@/types/geo-strategy"
 import type { BackgroundJobKind, BackgroundJobRef, Client } from "@/types"
-import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, ExternalLink, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
+import { ArrowLeft, ArrowRight, Check, CloudUpload, Copy, Download, ExternalLink, FileDown, FileText, Loader2, Plus, RefreshCw, Settings, Trash2, X, Sparkles, Search, Eye, EyeOff, ListOrdered, AlertCircle } from "lucide-react"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { extractQuestionAdvantages, resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
@@ -637,9 +637,10 @@ async function renderPdfToImages(file: File): Promise<UploadedFile[]> {
 interface Props {
   client: Client
   onChangeClient: (patch: Partial<Client>) => void
+  onExportReport?: () => void
 }
 
-export default function KeywordStrategyModule({ client, onChangeClient }: Props) {
+export default function KeywordStrategyModule({ client, onChangeClient, onExportReport }: Props) {
   const subjectType = getClientSubjectType(client)
   const [activeBrand, setActiveBrand] = useState<BrandData>(() => {
     const initial = createBrandFromClient(client)
@@ -1600,6 +1601,7 @@ export default function KeywordStrategyModule({ client, onChangeClient }: Props)
               onExportJson={handleExportJson}
               onExportMarkdown={handleExportMarkdown}
               onExportWord={handleExportWord}
+              onExportPdf={onExportReport}
               onExportQuestionsCsv={handleExportQuestionsCsv}
               onExportQuestionsWord={handleExportQuestionsWord}
               wordExporting={wordExporting}
@@ -2261,7 +2263,7 @@ function StrategyStep({
   questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios,
   categoryConfig, questionProviderSettings, onCategoryConfigChange,
   onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onGenerateQuestions, onStopQuestions,
-  onExportJson, onExportMarkdown, onExportWord, onExportQuestionsCsv, onExportQuestionsWord, onBack,
+  onExportJson, onExportMarkdown, onExportWord, onExportPdf, onExportQuestionsCsv, onExportQuestionsWord, onBack,
   wordExporting, wordExportError,
   hasQuestions,
 }: {
@@ -2296,6 +2298,7 @@ function StrategyStep({
   onExportJson: () => void
   onExportMarkdown: () => void
   onExportWord: () => void
+  onExportPdf?: () => void
   onExportQuestionsCsv: () => void
   onExportQuestionsWord: () => void
   wordExporting: "strategy" | "questions" | null
@@ -2481,6 +2484,16 @@ function StrategyStep({
             {wordExporting === "strategy" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             {wordExporting === "strategy" ? "生成 Word..." : "Word"}
           </button>
+          {onExportPdf ? (
+            <button
+              type="button"
+              onClick={onExportPdf}
+              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#91CAFF] bg-[#EAF5FF] hover:bg-[#D6EDFF] text-[#0958D9] font-semibold transition"
+              title="生成关键词策略专业 PDF 报告"
+            >
+              <FileDown className="h-3.5 w-3.5" /> PDF 报告
+            </button>
+          ) : null}
         </div>
       </div>
 

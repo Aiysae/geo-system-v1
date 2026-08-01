@@ -29,6 +29,11 @@ import type {
   ResearchDimension,
   ReportBrandingSettings,
 } from "@/types"
+import type {
+  GeoStrategyPlan,
+  KeywordItem,
+  QuestionItem,
+} from "@/types/geo-strategy"
 import {
   isContentVolumeCostEstimate,
   isContentVolumeV3CostEstimate,
@@ -551,6 +556,47 @@ type QuestionCoverageRow = {
   sourceCount: number
 }
 
+type KeywordGroupKey = keyof GeoStrategyPlan["keyword_strategy"]
+
+type KeywordMatrixRow = {
+  group: string
+  priority: string
+  keyword: string
+  logic: string
+}
+
+type KeywordExecutionRecord = {
+  group: string
+  title: string
+  body: string
+  details: string[]
+}
+
+type KeywordPromptPage = {
+  title: string
+  part: number
+  totalParts: number
+  content: string
+}
+
+type KeywordEvidenceLink = {
+  title: string
+  url: string
+  domain: string
+  context: string
+}
+
+const KEYWORD_GROUPS: Array<{
+  key: KeywordGroupKey
+  label: string
+  color: string
+}> = [
+  { key: "core_keywords", label: "核心关键词", color: COLORS.blue },
+  { key: "pain_advantage_keywords", label: "痛点 / 优势关键词", color: COLORS.cyan },
+  { key: "weakness_conversion_keywords", label: "劣势转化关键词", color: COLORS.violet },
+  { key: "scenario_keywords", label: "场景需求关键词", color: COLORS.green },
+]
+
 function metricValueStyle(value: string): { fontSize: number; lineHeight: number } {
   const length = Array.from(value).length
   if (length <= 10) return { fontSize: 18, lineHeight: 1.2 }
@@ -649,6 +695,315 @@ function paginateListItems(items: string[]): string[][] {
   }
   if (page.length > 0) pages.push(page)
   return pages
+}
+
+function paginateEstimated<T>(
+  items: T[],
+  estimate: (item: T) => number,
+  maxPageHeight: number,
+  maxItemsPerPage: number,
+): T[][] {
+  const pages: T[][] = []
+  let page: T[] = []
+  let height = 0
+  for (const item of items) {
+    const itemHeight = Math.max(1, estimate(item))
+    if (page.length > 0 && (page.length >= maxItemsPerPage || height + itemHeight > maxPageHeight)) {
+      pages.push(page)
+      page = []
+      height = 0
+    }
+    page.push(item)
+    height += itemHeight
+  }
+  if (page.length > 0) pages.push(page)
+  return pages
+}
+
+function cleanReportText(value: unknown, fallback = ""): string {
+  const normalized = typeof value === "string"
+    ? value.replace(/\r\n?/g, "\n").replace(/[\t ]+/g, " ").trim()
+    : ""
+  return normalized || fallback
+}
+
+function displayPriority(value: unknown): string {
+  const priority = cleanReportText(value, "常规")
+  return /^P\d+$/i.test(priority) ? priority.toUpperCase() : priority
+}
+
+function keywordMatrixRows(input: CommercialReportInput): KeywordMatrixRow[] {
+  const strategy = input.keyword?.strategyPlan.keyword_strategy
+  if (!strategy) return []
+  return KEYWORD_GROUPS.flatMap(group => (
+    (strategy[group.key] || []).map((item: KeywordItem) => ({
+      group: group.label,
+      priority: displayPriority(item.priority),
+      keyword: cleanReportText(item.keyword, "未命名关键词"),
+      logic: cleanReportText(item.logic, "未填写策略逻辑"),
+    }))
+  ))
+}
+
+function keywordCountByGroup(input: CommercialReportInput): Array<{
+  label: string
+  count: number
+  color: string
+}> {
+  const strategy = input.keyword?.strategyPlan.keyword_strategy
+  return KEYWORD_GROUPS.map(group => ({
+    label: group.label,
+    count: strategy?.[group.key]?.length || 0,
+    color: group.color,
+  }))
+}
+
+function paginateKeywordMatrixRows(rows: KeywordMatrixRow[]): KeywordMatrixRow[][] {
+  return paginateEstimated(
+    rows,
+    row => Math.max(
+      estimatedTextHeight(`${row.group} ${row.priority}`, 15, 9, 10),
+      estimatedTextHeight(row.keyword, 20, 9, 10),
+      estimatedTextHeight(row.logic, 46, 9, 10),
+    ),
+    520,
+    14,
+  )
+}
+
+function questionClassification(question: QuestionItem): string {
+  return [
+    question.category,
+    question.decisionDimension,
+    question.intent,
+    question.userStage,
+  ].map(item => cleanReportText(item)).filter(Boolean).join("\n") || "未分类"
+}
+
+function questionContentStrategy(question: QuestionItem): string {
+  const optimization = question.geo_optimization
+  return [
+    cleanReportText(question.content_angle),
+    optimization?.keyword_placement ? `关键词位置：${cleanReportText(optimization.keyword_placement)}` : "",
+    optimization?.conclusion_first ? `结论前置：${cleanReportText(optimization.conclusion_first)}` : "",
+    optimization?.structure_format ? `内容结构：${cleanReportText(optimization.structure_format)}` : "",
+    optimization?.long_tail_terms?.length ? `长尾词：${optimization.long_tail_terms.map(item => cleanReportText(item)).filter(Boolean).join("、")}` : "",
+  ].filter(Boolean).join("\n") || "未填写内容策略"
+}
+
+function questionSubject(question: QuestionItem): string {
+  const keyword = cleanReportText(question.keyword)
+  return keyword
+    ? `${cleanReportText(question.question, "未命名疑问句")}\n关键词：${keyword}`
+    : cleanReportText(question.question, "未命名疑问句")
+}
+
+function paginateKeywordQuestions(questions: QuestionItem[]): QuestionItem[][] {
+  return paginateEstimated(
+    questions,
+    question => Math.max(
+      estimatedTextHeight(questionSubject(question), 31, 8.8, 11),
+      estimatedTextHeight(questionClassification(question), 13, 8.8, 11),
+      estimatedTextHeight(questionContentStrategy(question), 20, 8.8, 11),
+      estimatedTextHeight(cleanReportText(question.matched_advantage, "未匹配优势"), 20, 8.8, 11),
+    ),
+    360,
+    5,
+  )
+}
+
+function keywordExecutionRecords(input: CommercialReportInput): KeywordExecutionRecord[] {
+  const plan = input.keyword?.strategyPlan
+  if (!plan) return []
+  const records: KeywordExecutionRecord[] = []
+
+  for (const item of plan.official_site_strategy || []) {
+    records.push({
+      group: "官网策略",
+      title: cleanReportText(item.module, "官网模块"),
+      body: cleanReportText(item.action, "未填写执行动作"),
+      details: [`目标：${cleanReportText(item.goal, "未填写")}`],
+    })
+  }
+  for (const item of plan.third_party_site_strategy || []) {
+    records.push({
+      group: "第三方网站",
+      title: `${cleanReportText(item.suggested_name, "第三方站点")} · ${cleanReportText(item.site_type, "站点")}`,
+      body: cleanReportText(item.positioning, "未填写定位"),
+      details: [
+        `优先级：${displayPriority(item.priority)}`,
+        item.content_pillars ? `内容支柱：${cleanReportText(item.content_pillars)}` : "",
+        item.weakness_conversion ? `劣势转化：${cleanReportText(item.weakness_conversion)}` : "",
+        item.cross_validation_role ? `交叉佐证：${cleanReportText(item.cross_validation_role)}` : "",
+      ].filter(Boolean),
+    })
+  }
+
+  const appendMedia = (group: string, items: GeoStrategyPlan["media_plan"]) => {
+    for (const item of items || []) {
+      records.push({
+        group,
+        title: cleanReportText(item.platform, "未命名平台"),
+        body: cleanReportText(item.role, "未填写平台角色"),
+        details: [
+          item.keyword_focus ? `关键词重点：${cleanReportText(item.keyword_focus)}` : "",
+          item.sample_title ? `示例选题：${cleanReportText(item.sample_title)}` : "",
+          item.cadence ? `发布节奏：${cleanReportText(item.cadence)}` : "",
+          item.citation_events != null ? `历史采信：${item.citation_events} 次引用事件` : "",
+          item.evidence_domains?.length ? `证据域名：${item.evidence_domains.map(domain => cleanReportText(domain)).filter(Boolean).join("、")}` : "",
+        ].filter(Boolean),
+      })
+    }
+  }
+  appendMedia("自媒体与行业平台", plan.media_plan || [])
+  appendMedia("官媒与权威媒体", plan.authority_media_plan || [])
+
+  for (const item of plan.execution_roadmap || []) {
+    records.push({
+      group: "执行排期",
+      title: cleanReportText(item.phase, "执行阶段"),
+      body: cleanReportText(item.focus, "未填写阶段重点"),
+      details: [`交付物：${cleanReportText(item.deliverable, "未填写")}`],
+    })
+  }
+  for (const item of plan.geo_monitoring_plan || []) {
+    records.push({
+      group: "监测复盘",
+      title: cleanReportText(item.metric, "监测指标"),
+      body: cleanReportText(item.method, "未填写监测方法"),
+      details: [
+        `目标：${cleanReportText(item.target, "未填写")}`,
+        item.cadence ? `频率：${cleanReportText(item.cadence)}` : "",
+        item.contentAction ? `内容动作：${cleanReportText(item.contentAction)}` : "",
+        item.evidenceRequired ? `证据要求：${cleanReportText(item.evidenceRequired)}` : "",
+      ].filter(Boolean),
+    })
+  }
+  if (input.detail === "full") return records
+
+  const limits: Record<string, number> = {
+    官网策略: 12,
+    第三方网站: 10,
+    自媒体与行业平台: 12,
+    官媒与权威媒体: 8,
+    执行排期: 12,
+    监测复盘: 12,
+  }
+  const counts = new Map<string, number>()
+  return records.filter(record => {
+    const next = (counts.get(record.group) || 0) + 1
+    counts.set(record.group, next)
+    return next <= (limits[record.group] || 8)
+  })
+}
+
+function paginateKeywordExecution(records: KeywordExecutionRecord[]): KeywordExecutionRecord[][] {
+  return paginateEstimated(
+    records,
+    record => (
+      estimatedTextHeight(record.title, 46, 10, 7)
+      + estimatedTextHeight(record.body, 66, 9.5, 7)
+      + record.details.reduce((sum, detail) => sum + estimatedTextHeight(detail, 72, 8.5, 2), 0)
+      + 10
+    ),
+    535,
+    7,
+  )
+}
+
+function splitPromptText(value: string, maxCharacters = 2_500): string[] {
+  const text = value.replace(/\r\n?/g, "\n").trim()
+  if (!text) return []
+  const characters = Array.from(text)
+  const parts: string[] = []
+  let cursor = 0
+  while (cursor < characters.length) {
+    let end = Math.min(characters.length, cursor + maxCharacters)
+    if (end < characters.length) {
+      const searchStart = Math.max(cursor + Math.floor(maxCharacters * 0.65), cursor)
+      for (let index = end; index >= searchStart; index -= 1) {
+        if (characters[index] === "\n") {
+          end = index
+          break
+        }
+      }
+    }
+    if (end <= cursor) end = Math.min(characters.length, cursor + maxCharacters)
+    parts.push(characters.slice(cursor, end).join("").trim())
+    cursor = end
+    while (characters[cursor] === "\n") cursor += 1
+  }
+  return parts.filter(Boolean)
+}
+
+function keywordPromptPages(input: CommercialReportInput): KeywordPromptPage[] {
+  if (input.detail !== "full") return []
+  const plan = input.keyword?.strategyPlan
+  const prompts = plan?.website_prompts
+  if (!plan || !prompts) return []
+  const entries: Array<{ title: string; content: string }> = []
+  if (cleanReportText(prompts.official)) {
+    entries.push({ title: "官网建站执行指令", content: prompts.official! })
+  }
+  for (const [key, content] of Object.entries(prompts.third_party || {}).sort(([left], [right]) => Number(left) - Number(right))) {
+    if (!cleanReportText(content)) continue
+    const index = Number(key)
+    const site = Number.isInteger(index) ? plan.third_party_site_strategy?.[index] : undefined
+    entries.push({
+      title: `${site?.suggested_name || `第三方网站 ${key}`} · 建站执行指令`,
+      content,
+    })
+  }
+  return entries.flatMap(entry => {
+    const parts = splitPromptText(entry.content)
+    return parts.map((content, index) => ({
+      title: entry.title,
+      part: index + 1,
+      totalParts: parts.length,
+      content,
+    }))
+  })
+}
+
+function normalizeEvidenceUrl(value: unknown): string | null {
+  try {
+    const url = new URL(cleanReportText(value))
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null
+  } catch {
+    return null
+  }
+}
+
+function keywordEvidenceLinks(input: CommercialReportInput): KeywordEvidenceLink[] {
+  const plan = input.keyword?.strategyPlan
+  if (!plan) return []
+  const links: KeywordEvidenceLink[] = []
+  const seen = new Set<string>()
+  const append = (item: KeywordEvidenceLink) => {
+    const url = normalizeEvidenceUrl(item.url)
+    if (!url || seen.has(url)) return
+    seen.add(url)
+    links.push({ ...item, url })
+  }
+  for (const source of plan.keyword_research?.sources || []) {
+    append({
+      title: cleanReportText(source.title, source.domain || "关键词研究来源"),
+      url: source.url,
+      domain: cleanReportText(source.domain, "未知网站"),
+      context: "豆包联网关键词研究",
+    })
+  }
+  for (const platform of plan.source_platform_snapshot?.platforms || []) {
+    for (const evidence of platform.evidence || []) {
+      append({
+        title: cleanReportText(evidence.title, platform.platform),
+        url: evidence.url,
+        domain: cleanReportText(evidence.domain, platform.domains?.[0] || "未知网站"),
+        context: [platform.platform, evidence.model, evidence.question].map(item => cleanReportText(item)).filter(Boolean).join(" · "),
+      })
+    }
+  }
+  return links
 }
 
 function percent(value: number): string {
@@ -804,6 +1159,7 @@ function reportModuleLabels(input: CommercialReportInput): string[] {
   if (input.research || input.competitorCompare) modules.push("独立调研")
   if (input.diagnosis) modules.push("AI 诊断")
   if (input.difficulty) modules.push("难度测评")
+  if (input.keyword) modules.push("关键词策略")
   return modules
 }
 
@@ -877,6 +1233,17 @@ function executiveSummary(input: CommercialReportInput, answers: FlattenedAnswer
       `难度测评总分为 ${input.difficulty.result.totalScore} 分，等级为“${input.difficulty.result.level}”，稳定提及周期判断为 ${concisePeriod(input.difficulty.result.stableMentionPeriod)}。${costSummary}`,
     )
   }
+  if (input.keyword) {
+    const groups = keywordCountByGroup(input)
+    const keywordCount = groups.reduce((sum, group) => sum + group.count, 0)
+    const questions = input.keyword.questions
+    const matched = questions.filter(question => cleanReportText(question.matched_advantage)).length
+    const categoryCount = new Set(questions.map(question => cleanReportText(question.category)).filter(Boolean)).size
+    sections.push(
+      `关键词策略已形成 ${keywordCount} 个四类关键词、${input.keyword.totalQuestionCount} 条疑问句和 ${categoryCount} 类问题意图；`
+      + `当前报告所含疑问句的优势匹配率为 ${percent(questions.length > 0 ? matched / questions.length : 0)}，并同步纳入官网、第三方站、媒体渠道、执行排期与监测方案。`,
+    )
+  }
   if (answers.length > 0) {
     sections.push(`联网可验证率为 ${percent(verifiedRate(answers))}，本报告仅基于已保存的检测结果和可核验来源生成。`)
   }
@@ -902,6 +1269,16 @@ function actionItems(input: CommercialReportInput): string[] {
       if (actions.length >= 7) break
     }
     if (actions.length >= 7) break
+  }
+  for (const phase of input.keyword?.strategyPlan.execution_roadmap || []) {
+    const action = [phase.phase, phase.focus, phase.deliverable].map(item => cleanReportText(item)).filter(Boolean).join("：")
+    if (action) actions.push(action)
+    if (actions.length >= 8) break
+  }
+  for (const item of input.keyword?.strategyPlan.geo_monitoring_plan || []) {
+    const action = [item.metric, item.method, item.target].map(value => cleanReportText(value)).filter(Boolean).join("：")
+    if (action) actions.push(action)
+    if (actions.length >= 8) break
   }
   const missed = input.penetration?.aggregated.missedQuestions || []
   for (const question of missed.slice(0, 3)) {
@@ -1299,11 +1676,12 @@ function CoverPage({ input }: { input: CommercialReportInput }) {
   const branding = brandingForInput(input)
   const terms = reportVocabulary(input)
   const kindLabel: Record<CommercialReportInput["kind"], string> = {
-    combined: "GEO 四模块综合报告",
+    combined: "GEO 全链路综合报告",
     penetration: "GEO 渗透率情报报告",
     research: "GEO 独立调研报告",
     diagnosis: "GEO AI 诊断报告",
     difficulty: "GEO 难度测评报告",
+    keyword: "GEO 关键词策略报告",
   }
   return (
     <Page size="A4" style={styles.cover} wrap={false}>
@@ -1349,6 +1727,10 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
   const comparisons = competitorComparisons(input)
   const audit = input.diagnosis?.audit
   const auditIssues = audit?.checks.filter(check => check.status === "fail" || check.status === "warning").length || 0
+  const keywordGroups = keywordCountByGroup(input)
+  const keywordCount = keywordGroups.reduce((sum, group) => sum + group.count, 0)
+  const keywordQuestions = input.keyword?.questions || []
+  const keywordMatched = keywordQuestions.filter(question => cleanReportText(question.matched_advantage)).length
   return (
     <Page size="A4" style={styles.page}>
       <HeaderFooter input={input} />
@@ -1398,6 +1780,13 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
         ) : null}
         {difficulty ? (
           <MetricCard label="GEO 难度" value={`${difficulty.totalScore} 分`} note={`${difficulty.level} · ${concisePeriod(difficulty.stableMentionPeriod)}`} />
+        ) : null}
+        {input.keyword ? (
+          <MetricCard
+            label="关键词策略资产"
+            value={`${keywordCount} 词 · ${input.keyword.totalQuestionCount} 问`}
+            note={`报告纳入 ${keywordQuestions.length} 条 · 优势匹配 ${percent(keywordQuestions.length > 0 ? keywordMatched / keywordQuestions.length : 0)}`}
+          />
         ) : null}
       </View>
       <View style={styles.insightBox} wrap={false}>
@@ -2021,6 +2410,377 @@ function LegacyDiagnosisPage({ input }: { input: CommercialReportInput }) {
   )
 }
 
+function KeywordOverviewPage({ input }: { input: CommercialReportInput }) {
+  const snapshot = input.keyword!
+  const plan = snapshot.strategyPlan
+  const groups = keywordCountByGroup(input)
+  const keywordCount = groups.reduce((sum, group) => sum + group.count, 0)
+  const matched = snapshot.questions.filter(question => cleanReportText(question.matched_advantage)).length
+  const matchRate = snapshot.questions.length > 0 ? matched / snapshot.questions.length : 0
+  const categories = new Set(snapshot.questions.map(question => cleanReportText(question.category)).filter(Boolean)).size
+  const dimensions = new Set(snapshot.questions.map(question => cleanReportText(question.decisionDimension)).filter(Boolean)).size
+  const platformCount = plan.source_platform_snapshot?.platforms.length || 0
+  const research = plan.keyword_research
+  const quality = plan.quality_audit
+  return (
+    <Page size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="KEYWORD STRATEGY"
+        title="GEO 关键词策略总览"
+        intro="把关键词矩阵、用户真实提问、优势匹配、渠道动作与复盘指标整理为一份可直接交付的策略报告。"
+      />
+      <View style={styles.penetrationHero} wrap={false}>
+        <DonutChart value={matchRate} display={percent(matchRate)} label="疑问句优势匹配率" color={COLORS.violet} />
+        <View style={styles.heroMetrics}>
+          <HeroMetric label="四类关键词" value={`${keywordCount} 个`} />
+          <HeroMetric label="疑问句总量" value={`${snapshot.totalQuestionCount} 条`} />
+          <HeroMetric label="问题意图覆盖" value={`${categories}/7 类`} />
+          <HeroMetric label="决策维度" value={`${dimensions || 0} 类`} />
+        </View>
+      </View>
+      <View style={styles.section} wrap={false}>
+        <Text style={styles.sectionTitle}>关键词结构</Text>
+        {groups.map(group => (
+          <HorizontalBar
+            key={group.label}
+            label={group.label}
+            value={keywordCount > 0 ? group.count / keywordCount : 0}
+            display={`${group.count} 个`}
+            color={group.color}
+          />
+        ))}
+      </View>
+      <View style={styles.insightBox} wrap={false}>
+        <Text style={styles.insightTitle}>策略摘要</Text>
+        <Text style={styles.insightText}>{cleanReportText(plan.summary, "已完成关键词策略规划。")}</Text>
+      </View>
+      <View style={styles.twoColumn} wrap={false}>
+        <View style={styles.halfColumn}>
+          <View style={styles.compactPanel}>
+            <Text style={styles.compactPanelTitle}>生成与质检</Text>
+            <Text style={styles.compactPanelText}>策略时间：{formatDateToMinute(snapshot.strategyGeneratedAt)}</Text>
+            <Text style={styles.compactPanelText}>疑问句时间：{formatDateToMinute(snapshot.questionsGeneratedAt)}</Text>
+            <Text style={styles.compactPanelText}>质检状态：{quality ? quality.passed ? "通过" : "需复核" : "历史数据未记录"}</Text>
+            {quality ? <Text style={styles.compactPanelText}>重复关键词 {quality.duplicate_keyword_count} 个 · 缺失逻辑 {quality.missing_keyword_logic_count} 个</Text> : null}
+          </View>
+        </View>
+        <View style={styles.halfColumn}>
+          <View style={styles.compactPanel}>
+            <Text style={styles.compactPanelTitle}>联网研究与平台证据</Text>
+            <Text style={styles.compactPanelText}>研究状态：{research?.search_executed ? "已联网研究" : "未记录联网研究"}</Text>
+            <Text style={styles.compactPanelText}>研究来源：{research?.sources.length || 0} 个 · 采信平台：{platformCount} 个</Text>
+            <Text style={styles.compactPanelText}>目标地域：{research?.target_region || plan.generation_settings?.target_region || "未指定"}</Text>
+          </View>
+        </View>
+      </View>
+    </Page>
+  )
+}
+
+function KeywordMatrixPages({ input }: { input: CommercialReportInput }) {
+  const allRows = keywordMatrixRows(input)
+  if (allRows.length === 0) return null
+  const visible = input.detail === "full"
+    ? allRows
+    : (() => {
+        const counts = new Map<string, number>()
+        return allRows.filter(row => {
+          const next = (counts.get(row.group) || 0) + 1
+          counts.set(row.group, next)
+          return next <= 15
+        })
+      })()
+  const pages = paginateKeywordMatrixRows(visible)
+  let startIndex = 0
+  return pages.map((rows, pageIndex) => {
+    const pageStart = startIndex
+    startIndex += rows.length
+    return (
+      <Page key={`keyword-matrix-${pageIndex}`} size="A4" style={styles.page}>
+        <HeaderFooter input={input} />
+        <ChapterTitle
+          kicker="KEYWORD MATRIX"
+          title={pageIndex === 0 ? "四类关键词矩阵" : "四类关键词矩阵（续）"}
+          intro="按核心、痛点与优势、劣势转化、场景需求四类呈现关键词及其策略逻辑。"
+        />
+        <Text style={styles.continuationLabel}>第 {pageIndex + 1} 组 · 当前版本展示 {visible.length}/{allRows.length} 个关键词</Text>
+        <View style={styles.table}>
+          <View style={[styles.tableRow, styles.tableHeader]}>
+            <TableCell width="18%" header>关键词类型</TableCell>
+            <TableCell width="10%" header>优先级</TableCell>
+            <TableCell width="25%" header>关键词</TableCell>
+            <TableCell width="47%" header>策略逻辑</TableCell>
+          </View>
+          {rows.map((row, index) => (
+            <View key={`${pageStart + index}-${row.group}-${row.keyword}`} style={[styles.tableRow, index === rows.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+              <TableCell width="18%" strong>{row.group}</TableCell>
+              <TableCell width="10%">{row.priority}</TableCell>
+              <TableCell width="25%" strong>{row.keyword}</TableCell>
+              <TableCell width="47%">{row.logic}</TableCell>
+            </View>
+          ))}
+        </View>
+        {pageIndex === pages.length - 1 && allRows.length > visible.length ? (
+          <Text style={styles.tableNote}>精简决策版按每类优先展示前 15 个关键词；选择完整证据版可导出全部 {allRows.length} 个关键词。</Text>
+        ) : null}
+      </Page>
+    )
+  })
+}
+
+function storedPercent(value: number | undefined): string {
+  const percentage = Number.isFinite(value) ? Math.max(0, Math.min(100, Number(value))) : 0
+  return `${Number.isInteger(percentage) ? percentage : percentage.toFixed(1)}%`
+}
+
+function sourcePlatformCategoryLabel(value: string): string {
+  const labels: Record<string, string> = {
+    self_media: "自媒体",
+    industry_vertical: "行业垂直",
+    authority_media: "权威媒体",
+    government_association: "政府 / 协会",
+    brand_official: "品牌官方",
+    other: "其他",
+  }
+  return labels[value] || value || "其他"
+}
+
+function KeywordPlatformPage({ input }: { input: CommercialReportInput }) {
+  const snapshot = input.keyword?.strategyPlan.source_platform_snapshot
+  if (!snapshot?.platforms.length) return null
+  const platforms = [...snapshot.platforms]
+    .sort((left, right) => right.citation_events - left.citation_events || right.answer_hits - left.answer_hits)
+  const maxCitations = Math.max(1, platforms[0]?.citation_events || 1)
+  return (
+    <Page size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="SOURCE ADOPTION"
+        title="信源平台采信结构"
+        intro="同一平台被不同模型、不同问题重复引用时会累积引用事件，用于判断平台在当前行业中的实际采信权重。"
+      />
+      <View style={styles.metricsGrid}>
+        <MetricCard label="有效联网回答" value={`${snapshot.successful_answer_count} 条`} />
+        <MetricCard label="成功模型" value={`${snapshot.successful_model_count} 个`} />
+        <MetricCard label="平台引用事件" value={`${snapshot.total_citation_events} 次`} note="重复采信分别计数" />
+        <MetricCard label="采信平台" value={`${platforms.length} 个`} note={`唯一网址 ${snapshot.unique_url_count || 0} 个`} />
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>平台采信概率参考 · Top {Math.min(12, platforms.length)}</Text>
+        {platforms.slice(0, 12).map((platform, index) => (
+          <HorizontalBar
+            key={platform.platform_key || `${platform.platform}-${index}`}
+            label={`${index + 1}. ${platform.platform}`}
+            value={platform.citation_events / maxCitations}
+            display={`${platform.citation_events} 次 · ${storedPercent(platform.adoption_rate)}`}
+            color={index < 3 ? [COLORS.amber, COLORS.silver, COLORS.bronze][index] : COLORS.slate}
+          />
+        ))}
+      </View>
+      <View style={styles.methodology}>
+        <Text>统计说明：引用事件保留多个模型对同一网址或平台的重复采信；唯一网址用于观察来源多样性。排名首先按引用事件，其次按回答命中数排序，不把重复采信错误压缩为一条。</Text>
+      </View>
+    </Page>
+  )
+}
+
+function KeywordPlatformTablePages({ input }: { input: CommercialReportInput }) {
+  const snapshot = input.keyword?.strategyPlan.source_platform_snapshot
+  if (!snapshot?.platforms.length) return null
+  const all = [...snapshot.platforms]
+    .sort((left, right) => right.citation_events - left.citation_events || right.answer_hits - left.answer_hits)
+  const visible = input.detail === "full" ? all : all.slice(0, 24)
+  const pages = chunk(visible, 16)
+  return pages.map((platforms, pageIndex) => (
+    <Page key={`keyword-platform-table-${pageIndex}`} size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="PLATFORM INDEX"
+        title={pageIndex === 0 ? "信源平台明细" : "信源平台明细（续）"}
+        intro="按平台保留来源类型、引用事件、回答命中、采信率和模型覆盖，便于制定发文渠道优先级。"
+      />
+      <Text style={styles.continuationLabel}>第 {pageIndex + 1} 组 · 当前版本展示 {visible.length}/{all.length} 个平台</Text>
+      <View style={styles.table}>
+        <View style={[styles.tableRow, styles.tableHeader]}>
+          <TableCell width="7%" header>#</TableCell>
+          <TableCell width="25%" header>平台</TableCell>
+          <TableCell width="17%" header>类型</TableCell>
+          <TableCell width="14%" header>引用事件</TableCell>
+          <TableCell width="14%" header>回答命中</TableCell>
+          <TableCell width="13%" header>采信率</TableCell>
+          <TableCell width="10%" header>模型</TableCell>
+        </View>
+        {platforms.map((platform, index) => {
+          const rank = pageIndex * 16 + index + 1
+          return (
+            <View key={`${platform.platform_key}-${rank}`} style={[styles.tableRow, index === platforms.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+              <TableCell width="7%">{rank}</TableCell>
+              <TableCell width="25%" strong>{platform.platform}</TableCell>
+              <TableCell width="17%">{sourcePlatformCategoryLabel(platform.category)}</TableCell>
+              <TableCell width="14%" strong>{platform.citation_events}</TableCell>
+              <TableCell width="14%">{platform.answer_hits}</TableCell>
+              <TableCell width="13%">{storedPercent(platform.adoption_rate)}</TableCell>
+              <TableCell width="10%">{platform.model_keys.length}</TableCell>
+            </View>
+          )
+        })}
+      </View>
+      {pageIndex === pages.length - 1 && all.length > visible.length ? (
+        <Text style={styles.tableNote}>精简决策版展示前 {visible.length} 个平台；完整证据版会保留全部平台。</Text>
+      ) : null}
+    </Page>
+  ))
+}
+
+function KeywordExecutionPages({ input }: { input: CommercialReportInput }) {
+  const records = keywordExecutionRecords(input)
+  if (records.length === 0) return null
+  const pages = paginateKeywordExecution(records)
+  let startIndex = 0
+  return pages.map((pageRecords, pageIndex) => {
+    const pageStart = startIndex
+    startIndex += pageRecords.length
+    return (
+      <Page key={`keyword-execution-${pageIndex}`} size="A4" style={styles.page}>
+        <HeaderFooter input={input} />
+        <ChapterTitle
+          kicker="EXECUTION SYSTEM"
+          title={pageIndex === 0 ? "渠道策略与执行路线" : "渠道策略与执行路线（续）"}
+          intro="覆盖官网、第三方站、自媒体、权威媒体、阶段排期和持续监测，把策略直接落到可执行动作。"
+        />
+        <Text style={styles.continuationLabel}>第 {pageIndex + 1} 组 · 当前版本纳入 {records.length} 项执行动作</Text>
+        {pageRecords.map((record, index) => (
+          <View key={`${pageStart + index}-${record.group}-${record.title}`} style={styles.appendixItem} wrap={false}>
+            <Text style={styles.appendixMeta}>{record.group} · {record.title}</Text>
+            <Text style={styles.appendixAnswer}>{record.body}</Text>
+            {record.details.map((detail, detailIndex) => (
+              <Text key={`${detailIndex}-${detail}`} style={styles.sourceMeta}>{detail}</Text>
+            ))}
+          </View>
+        ))}
+        {pageIndex === pages.length - 1 && input.detail !== "full" ? (
+          <Text style={styles.tableNote}>精简决策版按类别保留优先执行项；完整证据版会保留策略中的全部渠道和动作。</Text>
+        ) : null}
+      </Page>
+    )
+  })
+}
+
+function KeywordQuestionPages({ input }: { input: CommercialReportInput }) {
+  const snapshot = input.keyword!
+  if (snapshot.questions.length === 0) return null
+  const pages = paginateKeywordQuestions(snapshot.questions)
+  let startIndex = 0
+  return pages.map((questions, pageIndex) => {
+    const pageStart = startIndex
+    startIndex += questions.length
+    return (
+      <Page key={`keyword-questions-${pageIndex}`} size="A4" style={styles.page}>
+        <HeaderFooter input={input} />
+        <ChapterTitle
+          kicker="QUESTION STRATEGY"
+          title={pageIndex === 0 ? "疑问句与优势匹配明细" : "疑问句与优势匹配明细（续）"}
+          intro="每条疑问句保留问题意图、内容方向、GEO 结构建议及生成后的独立优势匹配。优势不会被植入原疑问句。"
+        />
+        <Text style={styles.continuationLabel}>第 {pageIndex + 1} 组 · 当前版本纳入 {snapshot.questions.length}/{snapshot.totalQuestionCount} 条疑问句</Text>
+        <View style={styles.table}>
+          <View style={[styles.tableRow, styles.tableHeader]}>
+            <TableCell width="6%" header>#</TableCell>
+            <TableCell width="34%" header>疑问句 / 关键词</TableCell>
+            <TableCell width="16%" header>意图 / 维度</TableCell>
+            <TableCell width="24%" header>内容与 GEO 结构</TableCell>
+            <TableCell width="20%" header>匹配优势</TableCell>
+          </View>
+          {questions.map((question, index) => {
+            const absoluteIndex = pageStart + index + 1
+            return (
+              <View key={`${absoluteIndex}-${question.id}`} style={[styles.tableRow, index === questions.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+                <TableCell width="6%">{absoluteIndex}</TableCell>
+                <TableCell width="34%" strong>{questionSubject(question)}</TableCell>
+                <TableCell width="16%">{questionClassification(question)}</TableCell>
+                <TableCell width="24%">{questionContentStrategy(question)}</TableCell>
+                <TableCell width="20%" strong>{cleanReportText(question.matched_advantage, "未匹配优势")}</TableCell>
+              </View>
+            )
+          })}
+        </View>
+        {pageIndex === pages.length - 1 ? (
+          <View style={[styles.methodology, { marginTop: 8 }]}>
+            <Text>匹配说明：疑问句先按用户真实搜索表达独立生成，再根据语义、场景和决策目的匹配可佐证优势；匹配结果单独展示，不改变疑问句原文。</Text>
+            {snapshot.totalQuestionCount > snapshot.questions.length ? (
+              <Text style={{ marginTop: 4 }}>精简决策版展示前 {snapshot.questions.length} 条；选择完整证据版可导出全部 {snapshot.totalQuestionCount} 条疑问句。</Text>
+            ) : null}
+          </View>
+        ) : null}
+      </Page>
+    )
+  })
+}
+
+function KeywordPromptPages({ input }: { input: CommercialReportInput }) {
+  const pages = keywordPromptPages(input)
+  return pages.map((prompt, index) => (
+    <Page key={`keyword-prompt-${index}-${prompt.title}`} size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="EXECUTION PROMPT APPENDIX"
+        title={index === 0 ? "网站执行指令附录" : "网站执行指令附录（续）"}
+        intro="仅收录系统已经生成并保存的官网或第三方网站执行指令；导出时不会重新调用模型。"
+      />
+      <View style={styles.appendixItem}>
+        <Text style={styles.appendixMeta}>{prompt.title} · 第 {prompt.part}/{prompt.totalParts} 段</Text>
+        <Text style={styles.appendixAnswer}>{prompt.content}</Text>
+      </View>
+    </Page>
+  ))
+}
+
+function KeywordEvidencePages({ input }: { input: CommercialReportInput }) {
+  const all = keywordEvidenceLinks(input)
+  if (all.length === 0) return null
+  const visible = input.detail === "full" ? all : all.slice(0, 24)
+  const pages = paginateEstimated(
+    visible,
+    item => Math.max(
+      estimatedTextHeight(item.title, 70, 9, 5),
+      estimatedTextHeight(`${item.domain} ${item.context}`, 82, 8, 5),
+      estimatedTextHeight(item.url, 90, 8, 5),
+    ) + 8,
+    535,
+    12,
+  )
+  let startIndex = 0
+  return pages.map((sources, pageIndex) => {
+    const pageStart = startIndex
+    startIndex += sources.length
+    return (
+      <Page key={`keyword-evidence-${pageIndex}`} size="A4" style={styles.page}>
+        <HeaderFooter input={input} />
+        <ChapterTitle
+          kicker="KEYWORD EVIDENCE INDEX"
+          title={pageIndex === 0 ? "关键词研究与平台证据" : "关键词研究与平台证据（续）"}
+          intro="保留关键词联网研究与平台采信中可直接打开的具体网址，用于复核策略依据。"
+        />
+        <Text style={styles.continuationLabel}>第 {pageIndex + 1} 组 · 当前版本展示 {visible.length}/{all.length} 条去重来源</Text>
+        {sources.map((source, index) => {
+          const absoluteIndex = pageStart + index + 1
+          return (
+            <View key={`${absoluteIndex}-${source.url}`} style={styles.sourceRow} wrap={false}>
+              <Text style={styles.sourceTitle}>{absoluteIndex}. {source.title}</Text>
+              <Text style={styles.sourceMeta}>{source.domain} · {source.context}</Text>
+              <Link src={source.url} style={styles.sourceLink}>{source.url}</Link>
+            </View>
+          )
+        })}
+        {pageIndex === pages.length - 1 && all.length > visible.length ? (
+          <Text style={styles.tableNote}>精简决策版展示前 {visible.length} 条来源；完整证据版会保留全部可用网址。</Text>
+        ) : null}
+      </Page>
+    )
+  })
+}
+
 function DifficultyPage({ input }: { input: CommercialReportInput }) {
   const entry = input.difficulty!
   const result = entry.result
@@ -2334,6 +3094,9 @@ function ActionPage({ input }: { input: CommercialReportInput }) {
     input.difficulty
       ? "难度评分、周期和成本结论均采用测评时保存的版本，不按当前规则回写历史结果。"
       : "",
+    input.keyword
+      ? "关键词策略报告采用策略生成时已经保存的关键词矩阵、疑问句、优势匹配、平台采信与执行计划；导出过程不重新调用模型，也不会把上传原文件、API 密钥或内部运行信息写入报告。"
+      : "",
     "本报告用于 GEO 策略与内容决策，不构成法律、财务或绝对排名承诺。",
   ].filter(Boolean)
   return (
@@ -2447,10 +3210,18 @@ export function CommercialReportDocument({ input }: { input: CommercialReportInp
       {input.diagnosis?.audit ? <DiagnosisAccessPage input={input} /> : null}
       {input.diagnosis?.audit ? <DiagnosisCheckPages input={input} /> : null}
       {input.diagnosis?.audit ? <DiagnosisPageRecordPages input={input} /> : null}
+      {input.keyword ? <KeywordOverviewPage input={input} /> : null}
+      {input.keyword ? <KeywordMatrixPages input={input} /> : null}
+      {input.keyword ? <KeywordPlatformPage input={input} /> : null}
+      {input.keyword ? <KeywordPlatformTablePages input={input} /> : null}
+      {input.keyword ? <KeywordExecutionPages input={input} /> : null}
+      {input.keyword ? <KeywordQuestionPages input={input} /> : null}
+      {input.keyword ? <KeywordPromptPages input={input} /> : null}
       <ActionPage input={input} />
       <AppendixPages input={input} answers={answers} />
       {input.penetration ? <SourcesPage input={input} answers={answers} sources={sources} /> : null}
       {input.penetration ? <SourceIndexPages input={input} sources={sources} /> : null}
+      {input.keyword ? <KeywordEvidencePages input={input} /> : null}
       <ClosingPage input={input} />
     </Document>
   )

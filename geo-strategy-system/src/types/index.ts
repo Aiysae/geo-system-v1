@@ -1,5 +1,9 @@
 // ============ Legacy (保留兼容 /api/generate) ============
-import type { KeywordStrategyState } from "./geo-strategy"
+import type {
+  GeoStrategyPlan,
+  KeywordStrategyState,
+  QuestionItem,
+} from "./geo-strategy"
 import type {
   ArticleMethodologySelection,
   ArticleMethodologyTrace,
@@ -1108,6 +1112,7 @@ export type CommercialReportKind =
   | "research"
   | "diagnosis"
   | "difficulty"
+  | "keyword"
 export type CommercialReportDetail = "concise" | "full"
 export type CommercialReportJobStatus =
   | "queued"
@@ -1129,6 +1134,14 @@ export interface ReportExportPreset {
   difficultyEntryId?: string
 }
 
+export interface CommercialKeywordReportSnapshot {
+  strategyPlan: GeoStrategyPlan
+  questions: QuestionItem[]
+  strategyGeneratedAt?: string
+  questionsGeneratedAt?: string
+  totalQuestionCount: number
+}
+
 export interface CommercialReportInput {
   kind: CommercialReportKind
   detail: CommercialReportDetail
@@ -1148,6 +1161,7 @@ export interface CommercialReportInput {
   competitorCompare?: CompetitorCompareResult
   diagnosis?: Diagnosis
   difficulty?: DifficultyAssessmentEntry
+  keyword?: CommercialKeywordReportSnapshot
 }
 
 export interface CommercialReportJobRecord {

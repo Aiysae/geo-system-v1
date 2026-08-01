@@ -46,11 +46,12 @@ type Props = {
 }
 
 const KIND_LABELS: Record<CommercialReportKind, string> = {
-  combined: "四模块综合报告",
+  combined: "GEO 全链路综合报告",
   penetration: "渗透率情报",
   research: "独立调研",
   diagnosis: "AI 诊断",
   difficulty: "难度测评",
+  keyword: "关键词策略",
 }
 
 const STATUS_META: Record<CommercialReportJobStatus, {
@@ -392,6 +393,7 @@ export default function ReportHistoryDialog({
                   <option value="research">独立调研</option>
                   <option value="diagnosis">AI 诊断</option>
                   <option value="difficulty">难度测评</option>
+                  <option value="keyword">关键词策略</option>
                 </select>
                 <select
                   aria-label="筛选报告状态"

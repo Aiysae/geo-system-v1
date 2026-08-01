@@ -13,6 +13,7 @@ import {
   FileDown,
   Gauge,
   ImagePlus,
+  ListChecks,
   Layers3,
   Link2,
   LockKeyhole,
@@ -56,11 +57,12 @@ const KIND_OPTIONS: Array<{
   description: string
   icon: typeof Layers3
 }> = [
-  { kind: "combined", title: "四模块综合报告", description: "整合当前已有的前四个模块结果", icon: Layers3 },
+  { kind: "combined", title: "GEO 全链路综合报告", description: "整合当前已完成的各模块结果", icon: Layers3 },
   { kind: "penetration", title: "渗透率情报", description: "品牌声量、模型表现与联网信源", icon: BarChart3 },
   { kind: "research", title: "独立调研", description: "认知调研、证据缺口与竞品对比", icon: Brain },
   { kind: "diagnosis", title: "AI 诊断", description: "网站 GEO 评分、爬虫规则与整改证据", icon: Radar },
   { kind: "difficulty", title: "难度测评", description: "七维评分、关键洞察与执行路径", icon: Gauge },
+  { kind: "keyword", title: "关键词策略", description: "关键词矩阵、疑问句、优势匹配与执行路线", icon: ListChecks },
 ]
 
 const MAX_SOURCE_LOGO_BYTES = 8 * 1024 * 1024
@@ -155,7 +157,28 @@ function availableKinds(client: Client): CommercialReportKind[] {
   if (client.research || client.competitorCompare) modules.push("research")
   if (client.diagnosis) modules.push("diagnosis")
   if (client.difficultyAssessments?.length) modules.push("difficulty")
+  if (client.keywordStrategy?.strategyPlan) modules.push("keyword")
   return modules.length > 1 ? ["combined", ...modules] : modules
+}
+
+function compactKeywordStrategy(
+  client: Client,
+  detail: CommercialReportDetail,
+): CommercialReportInput["keyword"] {
+  const state = client.keywordStrategy
+  const plan = state?.strategyPlan
+  if (!state || !plan) return undefined
+  const sourceQuestions = state.questions?.length
+    ? state.questions
+    : plan.question_strategy || []
+  const limit = detail === "full" ? 2_000 : 60
+  return {
+    strategyPlan: { ...plan, question_strategy: undefined },
+    questions: sourceQuestions.slice(0, limit),
+    strategyGeneratedAt: plan.quality_audit?.checked_at || plan.keyword_research?.searched_at,
+    questionsGeneratedAt: state.questionGeneratedAt,
+    totalQuestionCount: sourceQuestions.length,
+  }
 }
 
 function compactItem(item: PenetrationItem, detail: CommercialReportDetail): PenetrationItem {
@@ -260,6 +283,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
     && (kind !== "research" || Boolean(client.research || client.competitorCompare))
     && (kind !== "diagnosis" || Boolean(client.diagnosis))
     && (kind !== "difficulty" || Boolean(difficulty))
+    && (kind !== "keyword" || Boolean(client.keywordStrategy?.strategyPlan))
     && !brandingLoading
     && !brandingSaving
     && !logoProcessing
@@ -324,6 +348,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
     const includeResearch = kind === "combined" || kind === "research"
     const includeDiagnosis = kind === "combined" || kind === "diagnosis"
     const includeDifficulty = kind === "combined" || kind === "difficulty"
+    const includeKeyword = kind === "combined" || kind === "keyword"
     return {
       kind,
       detail,
@@ -343,6 +368,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
       competitorCompare: includeResearch ? client.competitorCompare : undefined,
       diagnosis: includeDiagnosis ? client.diagnosis : undefined,
       difficulty: includeDifficulty ? difficulty : undefined,
+      keyword: includeKeyword ? compactKeywordStrategy(client, detail) : undefined,
     }
   }
 
@@ -509,7 +535,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
               <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center">
                 <BarChart3 className="mx-auto h-8 w-8 text-slate-300" />
                 <p className="mt-3 text-sm font-semibold text-slate-700">暂无可导出的报告数据</p>
-                <p className="mt-1 text-xs text-slate-500">请先完成渗透率情报、独立调研、AI 诊断或难度测评中的任意一项。</p>
+                <p className="mt-1 text-xs text-slate-500">请先完成渗透率情报、独立调研、AI 诊断、难度测评或关键词策略中的任意一项。</p>
               </div>
             ) : (
               <>
@@ -583,7 +609,13 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
                     </button>
                   </div>
                   <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                    {detail === "full" ? "完整保留全部已保存回答与可点击来源，适合交付、复盘和信源核验。" : "突出管理层摘要、核心图表和行动路线，文件更轻、生成更快。"}
+                    {detail === "full"
+                      ? kind === "keyword"
+                        ? "完整保留全部疑问句、优势匹配、渠道动作、执行指令和可点击来源，适合正式交付。"
+                        : kind === "combined"
+                          ? "完整保留各模块明细、全部疑问句、原始回答、执行指令和可点击来源，适合完整交付与复盘。"
+                          : "完整保留全部已保存回答与可点击来源，适合交付、复盘和信源核验。"
+                      : "突出管理层摘要、核心图表和行动路线，文件更轻、生成更快。"}
                   </p>
                 </section>
 

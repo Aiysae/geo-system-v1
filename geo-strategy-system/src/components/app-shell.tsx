@@ -932,7 +932,11 @@ function Dashboard({
           />
         )}
         {activeModule === "keyword" && (
-          <KeywordStrategyModule client={client} onChangeClient={moduleOnChange} />
+          <KeywordStrategyModule
+            client={client}
+            onChangeClient={moduleOnChange}
+            onExportReport={access.canCreateReports ? () => onExportReport({ kind: "keyword" }) : undefined}
+          />
         )}
         {activeModule === "article" && (
           <ArticleGenerationModule client={client} onChangeClient={moduleOnChange} />

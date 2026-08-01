@@ -29,6 +29,7 @@ import type {
   CommercialReportDetail,
   CommercialReportInput,
   CommercialReportKind,
+  CommercialKeywordReportSnapshot,
   CompetitorCompareResult,
   Diagnosis,
   DifficultyAssessmentEntry,
@@ -52,6 +53,7 @@ const REPORT_KINDS = new Set<CommercialReportKind>([
   "research",
   "diagnosis",
   "difficulty",
+  "keyword",
 ])
 const REPORT_DETAILS = new Set<CommercialReportDetail>(["concise", "full"])
 const MODEL_KEYS = new Set(["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"])
@@ -147,6 +149,68 @@ function validDiagnosis(value: unknown): value is Diagnosis {
     && Array.isArray(value.audit.dimensions) && value.audit.dimensions.length <= 20
 }
 
+function validRecordArray(
+  value: unknown,
+  maxItems: number,
+  validate: (item: Record<string, unknown>) => boolean = () => true,
+): boolean {
+  return value === undefined || (
+    Array.isArray(value)
+    && value.length <= maxItems
+    && value.every(item => isRecord(item) && validate(item))
+  )
+}
+
+function validKeywordSnapshot(value: unknown): value is CommercialKeywordReportSnapshot {
+  if (!isRecord(value) || !isRecord(value.strategyPlan) || !Array.isArray(value.questions)) return false
+  if (value.questions.length > 2_000) return false
+  if (!Number.isInteger(value.totalQuestionCount) || Number(value.totalQuestionCount) < value.questions.length) return false
+  if (Number(value.totalQuestionCount) > 100_000) return false
+  if (value.strategyGeneratedAt !== undefined && typeof value.strategyGeneratedAt !== "string") return false
+  if (value.questionsGeneratedAt !== undefined && typeof value.questionsGeneratedAt !== "string") return false
+
+  const plan = value.strategyPlan
+  if (typeof plan.project_name !== "string" || typeof plan.summary !== "string") return false
+  if (!isRecord(plan.profile) || !isRecord(plan.keyword_strategy)) return false
+  if (typeof plan.profile.brand_or_product !== "string" || typeof plan.profile.industry !== "string") return false
+
+  const keywordGroups = [
+    plan.keyword_strategy.core_keywords,
+    plan.keyword_strategy.pain_advantage_keywords,
+    plan.keyword_strategy.weakness_conversion_keywords,
+    plan.keyword_strategy.scenario_keywords,
+  ]
+  if (!keywordGroups.every(group => validRecordArray(group, 2_000, item => typeof item.keyword === "string"))) {
+    return false
+  }
+  if (!validRecordArray(plan.official_site_strategy, 500)) return false
+  if (!validRecordArray(plan.third_party_site_strategy, 500)) return false
+  if (!validRecordArray(plan.media_plan, 1_000)) return false
+  if (!validRecordArray(plan.authority_media_plan, 1_000)) return false
+  if (!validRecordArray(plan.geo_monitoring_plan, 1_000)) return false
+  if (!validRecordArray(plan.execution_roadmap, 500)) return false
+  if (!validRecordArray(plan.question_strategy, 2_000, item => typeof item.question === "string")) return false
+  if (!value.questions.every(item => isRecord(item) && typeof item.question === "string")) return false
+
+  if (plan.source_platform_snapshot !== undefined) {
+    if (!isRecord(plan.source_platform_snapshot)) return false
+    if (!validRecordArray(plan.source_platform_snapshot.platforms, 1_000)) return false
+  }
+  if (plan.keyword_research !== undefined) {
+    if (!isRecord(plan.keyword_research) || !validRecordArray(plan.keyword_research.sources, 1_000)) return false
+  }
+  if (plan.website_prompts !== undefined) {
+    if (!isRecord(plan.website_prompts)) return false
+    if (plan.website_prompts.official !== undefined && typeof plan.website_prompts.official !== "string") return false
+    if (plan.website_prompts.third_party !== undefined) {
+      if (!isRecord(plan.website_prompts.third_party)) return false
+      const prompts = Object.values(plan.website_prompts.third_party)
+      if (prompts.length > 500 || prompts.some(prompt => typeof prompt !== "string")) return false
+    }
+  }
+  return true
+}
+
 function parseInput(value: unknown): CommercialReportInput | null {
   if (!isRecord(value) || !isRecord(value.client)) return null
   const kind = value.kind as CommercialReportKind
@@ -170,16 +234,19 @@ function parseInput(value: unknown): CommercialReportInput | null {
   const competitorCompare = value.competitorCompare === undefined ? undefined : value.competitorCompare
   const diagnosis = value.diagnosis === undefined ? undefined : value.diagnosis
   const difficulty = value.difficulty === undefined ? undefined : value.difficulty
+  const keyword = value.keyword === undefined ? undefined : value.keyword
   if (penetration !== undefined && !validPenetration(penetration)) return null
   if (research !== undefined && !validResearch(research)) return null
   if (competitorCompare !== undefined && !validCompetitorCompare(competitorCompare)) return null
   if (diagnosis !== undefined && !validDiagnosis(diagnosis)) return null
   if (difficulty !== undefined && !validDifficulty(difficulty)) return null
+  if (keyword !== undefined && !validKeywordSnapshot(keyword)) return null
   if (kind === "penetration" && !penetration) return null
   if (kind === "research" && !research && !competitorCompare) return null
   if (kind === "diagnosis" && !diagnosis) return null
   if (kind === "difficulty" && !difficulty) return null
-  if (kind === "combined" && !penetration && !research && !competitorCompare && !diagnosis && !difficulty) return null
+  if (kind === "keyword" && !keyword) return null
+  if (kind === "combined" && !penetration && !research && !competitorCompare && !diagnosis && !difficulty && !keyword) return null
 
   return {
     kind,
@@ -191,6 +258,7 @@ function parseInput(value: unknown): CommercialReportInput | null {
     competitorCompare: competitorCompare as CompetitorCompareResult | undefined,
     diagnosis: diagnosis as Diagnosis | undefined,
     difficulty: difficulty as DifficultyAssessmentEntry | undefined,
+    keyword: keyword as CommercialKeywordReportSnapshot | undefined,
   }
 }
 
