@@ -57,6 +57,8 @@ const { readFirstXlsxWorksheet } = await import("./lib/read-xlsx-table")
 
 const workbookPath = resolve(argument("--file"))
 const apply = process.argv.includes("--apply")
+const accountFilterValue = argument("--account")
+const accountFilter = accountFilterValue ? accountNumber(accountFilterValue) : undefined
 if (!argument("--file") || !existsSync(workbookPath)) {
   throw new Error("请通过 --file 指定存在的 Excel 文件")
 }
@@ -84,6 +86,7 @@ for (const row of rows.slice(1)) {
   const apiKey = cell(row[5])
   const accountLabel = cell(row[6])
   if (!vendor || !apiKey || !accountLabel) continue
+  if (accountFilter && accountNumber(accountLabel) !== accountFilter) continue
   candidates.push({
     vendor,
     accountLabel,
@@ -99,9 +102,16 @@ const summary = candidates.reduce<Record<string, number>>((result, item) => {
 }, {})
 console.log(JSON.stringify({
   mode: apply ? "apply" : "preview",
+  account: accountFilter,
   credentials: candidates.length,
   providers: summary,
 }, null, 2))
+
+if (candidates.length === 0) {
+  throw new Error(accountFilter
+    ? `Excel 中没有找到 ${accountFilter} 号账号的 API Key`
+    : "Excel 中没有找到可导入的 API Key")
+}
 
 if (!apply) {
   console.log("预览完成：加上 --apply 后才会加密导入，且所有新账号默认停用。")
@@ -126,23 +136,28 @@ for (const candidate of candidates) {
     baseUrl: candidate.baseUrl || preset.baseUrl,
     chatPath: chatPathForBase(candidate.baseUrl || preset.baseUrl, preset.chatPath),
     apiKey: candidate.apiKey,
-    enabled: false,
-    priority: 100,
-    weight: 100,
-    maxConcurrency: preset.defaultConcurrency,
-    quotaGroupMaxConcurrency: preset.defaultConcurrency,
+    enabled: previous?.enabled ?? false,
+    priority: previous?.priority ?? 100,
+    weight: previous?.weight ?? 100,
+    maxConcurrency: previous?.maxConcurrency ?? preset.defaultConcurrency,
+    quotaGroupMaxConcurrency: previous?.quotaGroupMaxConcurrency
+      ?? preset.defaultConcurrency,
+    rpmLimit: previous?.rpmLimit,
+    tpmLimit: previous?.tpmLimit,
+    dailyBudgetCents: previous?.dailyBudgetCents,
     allowedModels: [...new Set([
       ...(candidate.models.length > 0 ? candidate.models : preset.defaultModels),
+      ...(previous?.allowedModels || []),
       ...preset.defaultModels,
     ])],
-    allowedModules: preset.allowedModules,
-    declaredCapabilities: preset.declaredCapabilities,
+    allowedModules: previous?.allowedModules || preset.allowedModules,
+    declaredCapabilities: previous?.declaredCapabilities || preset.declaredCapabilities,
   }, "xlsx-import")
   imported += 1
 }
 
 console.log(JSON.stringify({
   imported,
-  enabled: 0,
-  message: "导入完成；请逐个执行能力检测后再启用。",
+  account: accountFilter,
+  message: "导入完成；新账号保持停用，已有账号保留原状态，请逐个执行能力检测后再启用。",
 }, null, 2))
