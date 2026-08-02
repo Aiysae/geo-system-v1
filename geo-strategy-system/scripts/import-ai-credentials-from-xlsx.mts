@@ -149,8 +149,8 @@ for (const candidate of candidates) {
     tpmLimit: previous?.tpmLimit,
     dailyBudgetCents: previous?.dailyBudgetCents,
     allowedModels: [...new Set([
-      ...(candidate.models.length > 0 ? candidate.models : preset.defaultModels),
       ...(previous?.allowedModels || []),
+      ...(candidate.models.length > 0 ? candidate.models : preset.defaultModels),
       ...preset.defaultModels,
     ])],
     allowedModules: previous?.allowedModules || preset.allowedModules,
