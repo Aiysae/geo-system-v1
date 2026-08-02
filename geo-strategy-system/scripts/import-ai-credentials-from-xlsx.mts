@@ -133,8 +133,11 @@ for (const candidate of candidates) {
     name: `${preset.label} · ${candidate.accountLabel}`,
     accountLabel: candidate.accountLabel,
     quotaGroup: `${candidate.vendor}-account-${accountNo}`,
-    baseUrl: candidate.baseUrl || preset.baseUrl,
-    chatPath: chatPathForBase(candidate.baseUrl || preset.baseUrl, preset.chatPath),
+    baseUrl: previous?.baseUrl || candidate.baseUrl || preset.baseUrl,
+    chatPath: previous?.chatPath || chatPathForBase(
+      candidate.baseUrl || preset.baseUrl,
+      preset.chatPath,
+    ),
     apiKey: candidate.apiKey,
     enabled: previous?.enabled ?? false,
     priority: previous?.priority ?? 100,
