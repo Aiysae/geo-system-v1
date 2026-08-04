@@ -16,6 +16,13 @@ const connected = await collectArticleWebContext({
   search: async query => {
     calls.push(query)
     if (query === "第一条检索") return []
+    if (query === "不会执行") {
+      return [{
+        title: "补充行业资料",
+        snippet: "来自另一个检索意图的可核验资料。",
+        url: "https://example.com/supplement",
+      }]
+    }
     return [
       {
         title: "最新行业资料",
@@ -36,14 +43,15 @@ const connected = await collectArticleWebContext({
   },
 })
 
-assert.deepEqual(calls, ["第一条检索", "第二条检索"])
-assert.equal(connected.attempts, 2)
-assert.equal(connected.sourceCount, 1)
+assert.deepEqual(calls, ["第一条检索", "第二条检索", "不会执行"])
+assert.equal(connected.attempts, 3)
+assert.equal(connected.sourceCount, 2)
 assert.equal(connected.fallbackReason, undefined)
 
 const prompt = buildArticleWebEnhancedPrompt("请生成文章正文。", connected)
 assert.match(prompt, /请生成文章正文/)
 assert.match(prompt, /最新行业资料/)
+assert.match(prompt, /补充行业资料/)
 assert.match(prompt, /不可信外部数据/)
 assert.match(prompt, /不额外输出资料包/)
 

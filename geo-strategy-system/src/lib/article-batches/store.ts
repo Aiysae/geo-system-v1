@@ -164,6 +164,7 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
     methodologyTrace: item.methodologyTrace,
     generationId: item.generationId,
     connectivity: item.connectivity,
+    qualityAudit: item.qualityAudit,
     promptKey: item.promptKey,
     promptTitle: item.promptTitle,
     routeConfidence: item.routeConfidence,

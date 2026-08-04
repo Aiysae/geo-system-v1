@@ -108,6 +108,7 @@ const fixtures: Array<{
 
 assert.equal(new Set(fixtures.map(item => item.key)).size, 10)
 const previousMethodologyVersion = process.env.GEO_METHODOLOGY_VERSION
+const activeLongformTemplates = new Set<string>()
 
 for (const fixture of fixtures) {
   assert.equal(
@@ -122,7 +123,10 @@ for (const fixture of fixtures) {
 
   delete process.env.GEO_METHODOLOGY_VERSION
   const template = getArticlePromptTemplate(fixture.key)
-  assert.equal(template?.template, LONGFORM_CONTENT_COMPILER_PROMPT)
+  assert.ok(template?.template.includes(LONGFORM_CONTENT_COMPILER_PROMPT))
+  assert.ok(template?.template.includes(fixture.prompt))
+  assert.notEqual(template?.template, LONGFORM_CONTENT_COMPILER_PROMPT)
+  activeLongformTemplates.add(template?.template || "")
   assert.equal(template?.maxTokens, 12000)
 
   process.env.GEO_METHODOLOGY_VERSION = "legacy"
@@ -135,6 +139,7 @@ for (const fixture of fixtures) {
   assert.ok(featureKey)
   assert.equal(getFeaturePrice(featureKey).credits, fixture.credits)
 }
+assert.equal(activeLongformTemplates.size, fixtures.length)
 if (previousMethodologyVersion === undefined) delete process.env.GEO_METHODOLOGY_VERSION
 else process.env.GEO_METHODOLOGY_VERSION = previousMethodologyVersion
 
@@ -147,4 +152,4 @@ assert.equal(
   "short-video prompt must remain unchanged",
 )
 
-console.log("All 10 long-form prompts use the unified compiler with legacy rollback; short-video prompt is unchanged")
+console.log("All 10 long-form prompts combine a dedicated contract with the unified compiler; legacy rollback and short-video remain intact")

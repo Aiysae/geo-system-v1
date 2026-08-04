@@ -69,6 +69,10 @@ function contentTrace(lineage: ArticleGenerationLineage): ClientExecutionContent
     recipeVersion: lineage.methodologyTrace.recipeVersion,
     modelProvider: lineage.modelProvider,
     model: lineage.model,
+    contentPipelineVersion: lineage.qualityAudit?.pipelineVersion,
+    deterministicQualityScore: lineage.qualityAudit?.deterministicScore,
+    semanticQualityScore: lineage.qualityAudit?.semanticScore,
+    qualityRepaired: lineage.qualityAudit?.repaired,
   }
 }
 

@@ -19,6 +19,7 @@ interface NativeChatArgs {
   timeoutSec?: number
   label: string
   onUsage?: (usage: LlmTokenUsage) => void
+  signal?: AbortSignal
 }
 
 function requestUrl(args: NativeChatArgs): string {
@@ -154,8 +155,25 @@ function extractResult(
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+function abortedError(): Error {
+  const error = new Error("AI 请求已停止")
+  error.name = "AbortError"
+  return error
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(abortedError())
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(abortedError())
+    }
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
 }
 
 export async function nativeModelChat(args: NativeChatArgs): Promise<string> {
@@ -163,7 +181,10 @@ export async function nativeModelChat(args: NativeChatArgs): Promise<string> {
   if (!args.model) throw new Error(`${args.label} 尚未选择模型`)
 
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), Math.max(30, args.timeoutSec || 300) * 1000)
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, args.timeoutSec || 300) * 1000)
+  const abortFromParent = () => controller.abort()
+  if (args.signal?.aborted) controller.abort()
+  else args.signal?.addEventListener("abort", abortFromParent, { once: true })
   try {
     let response: Response | undefined
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -178,12 +199,12 @@ export async function nativeModelChat(args: NativeChatArgs): Promise<string> {
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") throw error
         if (attempt === 2) throw error
-        await sleep(800 * (attempt + 1))
+        await sleep(800 * (attempt + 1), controller.signal)
         continue
       }
       if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 2) break
       await response.text().catch(() => "")
-      await sleep(1000 * (attempt + 1))
+      await sleep(1000 * (attempt + 1), controller.signal)
     }
     if (!response) throw new Error("没有收到上游响应")
     const raw = await response.text()
@@ -202,11 +223,13 @@ export async function nativeModelChat(args: NativeChatArgs): Promise<string> {
     return result.content
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
+      if (args.signal?.aborted) throw abortedError()
       throw new Error(`${args.label} 请求超时，请稍后重试`)
     }
     if (error instanceof TypeError) throw new Error(`${args.label} API 连接失败：${error.message}`)
     throw error
   } finally {
     clearTimeout(timeout)
+    args.signal?.removeEventListener("abort", abortFromParent)
   }
 }

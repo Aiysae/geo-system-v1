@@ -356,6 +356,7 @@ export interface ArticleGenerationState {
   methodologyTrace?: ArticleMethodologyTrace
   lineage?: ArticleGenerationLineage
   connectivity?: ArticleGenerationConnectivity
+  qualityAudit?: ArticleGenerationQualityAudit
   extractStatus?: GenerationStatus
   extractError?: string
   coreQuestion: string
@@ -381,6 +382,19 @@ export interface ArticleGenerationConnectivity {
   webAttempts: number
   sourceCount: number
   fallbackReason?: string
+}
+
+export interface ArticleGenerationQualityAudit {
+  pipelineVersion: string
+  planUsedFallback: boolean
+  evidenceMode: "verified" | "public_evidence" | "framework" | "insufficient"
+  plannedSectionCount: number
+  deterministicScore: number
+  semanticScore?: number
+  semanticPassed?: boolean
+  repaired: boolean
+  finalPassed: boolean
+  issues: string[]
 }
 
 export interface ArticlePublishingSettings {
@@ -410,6 +424,7 @@ export interface ArticleGenerationLineage {
   model: string
   methodologyTrace: ArticleMethodologyTrace
   connectivity?: ArticleGenerationConnectivity
+  qualityAudit?: ArticleGenerationQualityAudit
   generatedAt: string
 }
 
@@ -460,6 +475,7 @@ export interface ArticleBatchItemRecord {
   methodologyTrace?: ArticleMethodologyTrace
   generationId?: string
   connectivity?: ArticleGenerationConnectivity
+  qualityAudit?: ArticleGenerationQualityAudit
   promptKey?: ArticlePromptKey
   promptTitle?: string
   routeConfidence?: number

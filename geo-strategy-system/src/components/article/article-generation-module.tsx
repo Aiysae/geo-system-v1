@@ -53,6 +53,7 @@ import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type { AiGatewayArticleOption, AiGatewayModelFamily } from "@/types/ai-gateway"
 import type {
   ArticleGenerationConnectivity,
+  ArticleGenerationQualityAudit,
   ArticleGenerationState,
   ArticleGenerationLineage,
   ArticleBatchQuestionTask,
@@ -97,6 +98,7 @@ interface ArticleGenerationResponse {
   methodologyTrace?: ArticleMethodologyTrace
   lineage?: ArticleGenerationLineage
   connectivity?: ArticleGenerationConnectivity
+  qualityAudit?: ArticleGenerationQualityAudit
   error?: string
 }
 
@@ -612,6 +614,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         methodologyTrace: data.methodologyTrace || article.methodologyTrace,
         lineage: data.lineage || article.lineage,
         connectivity: data.connectivity,
+        qualityAudit: data.qualityAudit,
         generatedAt: data.generatedAt || new Date().toISOString(),
         status: "done",
         error: undefined,
@@ -976,6 +979,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       rewriteAnalysis: currentRewriteAnalysis,
       rewriteMappings,
       connectivity: undefined,
+      qualityAudit: undefined,
       status: "generating",
       error: undefined,
     }

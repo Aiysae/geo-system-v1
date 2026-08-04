@@ -314,7 +314,11 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
         const markdown = String(jobResult.article || "").trim()
         const trace = record(jobResult.methodologyTrace)
         const lineage = record(jobResult.lineage)
+        const qualityAudit = record(jobResult.qualityAudit)
         item.connectivity = articleConnectivity(jobResult.connectivity)
+        if (Object.keys(qualityAudit).length > 0) {
+          item.qualityAudit = qualityAudit as unknown as NonNullable<typeof item.qualityAudit>
+        }
         if (Object.keys(trace).length > 0) {
           item.methodologyTrace = trace as unknown as ArticleMethodologyTrace
         }
