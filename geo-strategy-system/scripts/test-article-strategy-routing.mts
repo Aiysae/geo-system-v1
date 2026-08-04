@@ -39,6 +39,19 @@ assert.equal(fallback.promptKey, "thirdPartyObservation")
 assert.equal(fallback.articleFormat, "recommendationRoundup")
 assert.ok(fallback.promptTitle)
 
+const evidenceSafeFallback = fallbackArticleStrategyRoute({
+  task: {
+    questionId: "q2",
+    question: "这家服务商是否有值得参考的成功项目？",
+    category: "品牌认知型",
+    matchedAdvantage: "提供标准化服务流程",
+    methodologyCandidates: ["evidenceStory"],
+  },
+  comparisonBrandCount: 0,
+})
+assert.notEqual(evidenceSafeFallback.promptKey, "clientCaseStudy")
+assert.deepEqual(evidenceSafeFallback.missingEvidence, [])
+
 assert.equal(
   articleStrategyPromptCandidates({
     question: "A 与 B 的实测样本和参数对比结果如何？",

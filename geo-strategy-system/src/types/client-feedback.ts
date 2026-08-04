@@ -77,6 +77,10 @@ export interface ClientExecutionContentTrace {
   recipeVersion?: string
   modelProvider: string
   model: string
+  contentPipelineVersion?: string
+  deterministicQualityScore?: number
+  semanticQualityScore?: number
+  qualityRepaired?: boolean
 }
 
 export interface ClientExecutionAction {

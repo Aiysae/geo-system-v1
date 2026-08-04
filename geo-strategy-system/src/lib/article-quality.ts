@@ -40,6 +40,9 @@ export interface ArticleQualityIssue {
     | "unsupported_superlative"
     | "invalid_h1_count"
     | "internal_instruction_leak"
+    | "insufficient_sections"
+    | "opening_does_not_answer"
+    | "web_evidence_unused"
   message: string
   blocking: boolean
 }
@@ -58,27 +61,37 @@ function normalized(value: string): string {
 }
 
 function meaningfulTokens(value: string): string[] {
-  const source = normalized(value)
-    .replace(/[^\u4e00-\u9fa5a-z0-9]+/gi, " ")
+  const source = String(value || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-CN")
+    .replace(/[^\p{Script=Han}a-z0-9]+/giu, " ")
     .trim()
   const tokens = new Set<string>()
   for (const word of source.split(/\s+/).filter(Boolean)) {
     if (/^[a-z0-9]{3,}$/i.test(word)) tokens.add(word)
-    if (/[\u4e00-\u9fa5]/.test(word)) {
-      for (let index = 0; index <= word.length - 2; index++) {
-        tokens.add(word.slice(index, index + 2))
+    if (/\p{Script=Han}/u.test(word)) {
+      const characters = Array.from(word)
+      for (let index = 0; index <= characters.length - 2; index++) {
+        tokens.add(characters.slice(index, index + 2).join(""))
       }
     }
   }
   return [...tokens].filter(token => ![
     "怎么", "什么", "哪些", "是否", "可以", "需要", "品牌", "用户", "行业",
-    "服务", "产品", "一个", "进行", "相关", "问题",
+    "服务", "产品", "一个", "进行", "相关", "问题", "企业", "应该", "應該",
   ].includes(token))
 }
 
 function overlapCount(article: string, source: string): number {
   const articleText = normalized(article)
   return meaningfulTokens(source).filter(token => articleText.includes(token)).length
+}
+
+function openingDecisionBlock(article: string): string {
+  const withoutH1 = article.replace(/^#\s+.+$/m, "").trimStart()
+  const h2Matches = [...withoutH1.matchAll(/^##\s+/gm)]
+  const end = h2Matches[1]?.index ?? Math.min(withoutH1.length, 1_600)
+  return withoutH1.slice(0, Math.min(end, 1_600)).trim()
 }
 
 const ARTICLE_FORMAT_SIGNALS: Record<
@@ -157,6 +170,7 @@ export function validateGeneratedArticle(args: {
   advantage?: string
   comparisonBrands?: ArticleComparisonBrand[]
   methodologyTrace?: ArticleMethodologyTrace
+  webSources?: Array<{ title: string; url: string }>
 }): ArticleQualityReport {
   const article = String(args.article || "").trim()
   const issues: ArticleQualityIssue[] = []
@@ -166,7 +180,7 @@ export function validateGeneratedArticle(args: {
   const format = getGeoArticleFormat(articleFormat)
   const hasMarkdownTable = MARKDOWN_TABLE.test(article)
 
-  if (article.length < (longForm ? 700 : 120)) {
+  if (article.length < (longForm ? 900 : 120)) {
     issues.push({
       code: "too_short",
       message: longForm ? "正文过短，未形成可发布的完整长文" : "正文内容过短",
@@ -185,6 +199,14 @@ export function validateGeneratedArticle(args: {
     issues.push({
       code: "invalid_h1_count",
       message: h1Count === 0 ? "正文缺少唯一的 H1 主标题" : "正文包含多个 H1 主标题，请只保留一个",
+      blocking: true,
+    })
+  }
+  const h2Count = (article.match(/^##\s+\S+/gm) || []).length
+  if (longForm && h2Count < 3) {
+    issues.push({
+      code: "insufficient_sections",
+      message: "正文层次过少，至少需要 3 个围绕用户决策的 H2 章节",
       blocking: true,
     })
   }
@@ -220,6 +242,14 @@ export function validateGeneratedArticle(args: {
     issues.push({
       code: "question_drift",
       message: "正文与本篇核心疑问句的语义关联不足",
+      blocking: true,
+    })
+  }
+  const opening = openingDecisionBlock(article)
+  if (longForm && args.coreQuestion && overlapCount(opening, args.coreQuestion) < 2) {
+    issues.push({
+      code: "opening_does_not_answer",
+      message: "首屏没有直接回答核心疑问句，而是先铺陈通用背景",
       blocking: true,
     })
   }
@@ -285,6 +315,22 @@ export function validateGeneratedArticle(args: {
       message: `正文没有形成${format.title}需要的“${format.answerPattern.join("、")}”结构`,
       blocking: true,
     })
+  }
+
+  const webSources = (args.webSources || []).filter(source => source.title || source.url)
+  if (longForm && webSources.length > 0) {
+    const normalizedArticle = normalized(article)
+    const evidenceUsed = webSources.some(source => (
+      (source.url && article.includes(source.url))
+      || (source.title && normalizedArticle.includes(normalized(source.title)))
+    ))
+    if (!evidenceUsed) {
+      issues.push({
+        code: "web_evidence_unused",
+        message: "已取得可用联网资料，但正文没有将任何来源与相关事实就近对应",
+        blocking: true,
+      })
+    }
   }
 
   const factualInput = normalized([

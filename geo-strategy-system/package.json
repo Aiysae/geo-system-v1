@@ -28,6 +28,8 @@
     "test:article-publishing": "tsx scripts/test-article-publishing.mts",
     "test:article-batches": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-batches.mts",
     "test:article-quality": "tsx scripts/test-article-quality.mts",
+    "test:article-content-pipeline": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-content-pipeline.mts",
+    "test:article-stage-budget": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-stage-budget.mts",
     "test:article-strategy-routing": "tsx scripts/test-article-strategy-routing.mts",
     "test:article-question-import": "tsx scripts/test-article-question-import.mts",
     "test:article-question-materials": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-question-materials.mts",
@@ -107,6 +109,7 @@
     "test:onboarding": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-onboarding.mts",
     "test:source-platforms": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-source-platform-intelligence.mts",
     "smoke:penetration-live": "NODE_OPTIONS=--conditions=react-server tsx scripts/smoke-penetration-live.mts",
+    "smoke:article-quality-live": "node --env-file=.env.local --conditions=react-server --import tsx scripts/smoke-article-quality-live.mts",
     "stress:penetration-live": "NODE_OPTIONS=--conditions=react-server tsx scripts/stress-penetration-live.mts",
     "kv:migrate:file-to-redis": "node scripts/migrate-file-kv-to-redis.mjs"
   },

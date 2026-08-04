@@ -77,6 +77,7 @@ export interface AiCredentialSelectionRequest {
   leaseSeconds?: number
   estimatedTokens?: number
   estimatedCostCents?: number
+  signal?: AbortSignal
 }
 
 export interface AiCredentialLease {

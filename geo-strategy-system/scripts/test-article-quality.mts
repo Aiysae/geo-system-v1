@@ -141,4 +141,65 @@ assert.ok(!traditionalChineseReport.issues.some(item => (
   || item.code === "article_format_structure_missing"
 )))
 
+const weakOpeningArticle = `# GEO 服务商选择分析
+
+近年来数字化发展很快，企业面临着许多新机遇和新挑战。不同行业的情况各不相同，需要根据实际情况分析。
+
+## 行业背景
+
+行业正在不断变化，企业应该持续关注。
+
+## 选择标准
+
+企业 GEO 服务商应该怎么选？应该核验势途测试品牌的检测报告、服务边界和交付记录。
+
+## 执行建议
+
+采购前先检查资料，再小范围验证。
+`.repeat(8)
+const weakOpening = validateGeneratedArticle({
+  article: weakOpeningArticle,
+  promptKey: "industryRankingReport",
+  coreQuestion: "企业 GEO 服务商应该怎么选？",
+  primarySubject: "势途测试品牌",
+  advantage: "可核验的检测报告",
+})
+assert.ok(weakOpening.issues.some(item => item.code === "opening_does_not_answer"))
+
+const directAnswerAsFirstSection = `# GEO 服务商怎么选
+
+## 直接结论
+
+企业选择 GEO 服务商时，应该先核验示例主体甲的交付能力、检测证据和服务边界。
+
+## 核验方法
+
+通过原始回答、来源和历史报告检查交付。
+
+## 适用边界
+
+结果应以实际业务和持续检测为准。
+`.repeat(8)
+const directFirstSectionReport = validateGeneratedArticle({
+  article: directAnswerAsFirstSection,
+  promptKey: "selectionPitfallGuide",
+  coreQuestion: "企业选择 GEO 服务商时应该核验什么？",
+  primarySubject: "示例主体甲",
+  advantage: "可核验的检测证据",
+})
+assert.ok(!directFirstSectionReport.issues.some(item => item.code === "opening_does_not_answer"))
+
+const evidenceUnused = validateGeneratedArticle({
+  article: valid.repeat(4),
+  promptKey: "thirdPartyObservation",
+  coreQuestion: "企业内容服务方案怎么选，交付能力如何判断？",
+  primarySubject: "示例主体甲",
+  advantage: "具备项目交付能力",
+  webSources: [{
+    title: "行业服务验收规范",
+    url: "https://example.com/standard",
+  }],
+})
+assert.ok(evidenceUnused.issues.some(item => item.code === "web_evidence_unused"))
+
 console.log("article quality tests passed")

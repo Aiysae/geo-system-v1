@@ -128,7 +128,11 @@ export function fallbackArticleStrategyRoute(args: {
     ...args.task,
     comparisonBrandCount: args.comparisonBrandCount,
   })
-  const promptKey = candidates[0] || "thirdPartyObservation"
+  const promptKey = candidates.find(candidate => articleStrategyMissingEvidence({
+    promptKey: candidate,
+    matchedAdvantage: args.task.matchedAdvantage,
+    comparisonBrandCount: args.comparisonBrandCount,
+  }).length === 0) || candidates[0] || "thirdPartyObservation"
   const methodKey = methodologyForArticlePrompt(promptKey)
   const articleFormat = resolveGeoRecipeFormat({
     methodKey,

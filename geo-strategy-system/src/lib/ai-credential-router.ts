@@ -243,6 +243,31 @@ function noCredentialMessage(request: AiCredentialSelectionRequest): string {
   return `${request.vendor} 暂无已启用且通过验证的可用账号${capabilities}`
 }
 
+function credentialWaitAborted(): Error {
+  const error = new Error("AI 账号排队已停止")
+  error.name = "AbortError"
+  return error
+}
+
+function throwIfCredentialWaitAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw credentialWaitAborted()
+}
+
+function waitForCredential(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  throwIfCredentialWaitAborted(signal)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(credentialWaitAborted())
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
 async function acquireFromPool(
   request: AiCredentialSelectionRequest,
   missingOk: boolean,
@@ -259,14 +284,25 @@ async function acquireFromPool(
   let sawCandidate = false
 
   do {
+    throwIfCredentialWaitAborted(request.signal)
     const candidates = await orderedCandidates(request)
     sawCandidate ||= candidates.length > 0
     for (const credential of candidates) {
+      throwIfCredentialWaitAborted(request.signal)
       const lease = await tryAcquireCredential(credential, request, leaseSeconds)
-      if (lease) return lease
+      if (lease) {
+        if (request.signal?.aborted) {
+          await lease.release()
+          throw credentialWaitAborted()
+        }
+        return lease
+      }
     }
     if (Date.now() >= deadline) break
-    await new Promise(resolve => setTimeout(resolve, Math.min(500, Math.max(100, deadline - Date.now()))))
+    await waitForCredential(
+      Math.min(500, Math.max(100, deadline - Date.now())),
+      request.signal,
+    )
   } while (Date.now() <= deadline)
 
   if (!sawCandidate && missingOk) return null

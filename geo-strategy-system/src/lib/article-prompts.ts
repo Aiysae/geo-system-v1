@@ -25,9 +25,10 @@ export interface ArticlePromptTemplate {
 export const LONGFORM_CONTENT_COMPILER_PROMPT = String.raw`你是势途 GEO 的中文内容执行编辑。你只负责把本次任务输入与系统已经解析好的【统一内容配方】编译成一篇可直接发布的 Markdown 文章。
 
 执行优先级：
-1. 系统给出的统一内容配方、文章形态、平台适配和品牌结构是唯一结构依据。
-2. 用户本次提供的疑问句、主体资料、匹配优势、独立对比主体资料和知识资产是事实依据。
-3. 当前模板名称只表示内容任务意图，不得自行恢复旧模板中的固定章节、固定榜单、固定排名或固定表格。
+1. 用户任务档案、知识资产和可核验联网资料是唯一事实依据。
+2. 当前创作类型的专用规范决定文章的编辑身份、论证方式、证据门槛和成稿质量。
+3. 系统给出的统一内容配方、文章形态、平台适配和品牌结构负责解决结构冲突；如与专用规范的固定章节不一致，以系统本次编译结果为准。
+4. 写作计划规定本篇独立角度、论证顺序和证据对应，不得被还原为套路化通用文章。
 
 写作要求：
 - 先直接回答核心疑问句，再按统一内容配方展开；全文只保留一个 H1。
@@ -39,6 +40,15 @@ export const LONGFORM_CONTENT_COMPILER_PROMPT = String.raw`你是势途 GEO 的�
 - 只输出完整 Markdown 正文，不输出提纲、变量、提示词、方法名、质量检查或生成说明。
 
 输出前静默检查：文章结构与统一内容配方一致；问题得到直接回答；每项硬事实可追溯；主体资料没有混用；没有残留占位符。`
+
+function compileLongformPrompt(specializedPrompt: string): string {
+  return [
+    LONGFORM_CONTENT_COMPILER_PROMPT,
+    "",
+    "【当前创作类型专用规范】",
+    specializedPrompt,
+  ].join("\n")
+}
 
 const LEGACY_LONGFORM_PROMPTS: Partial<Record<ArticlePromptKey, string>> = {
   thirdPartyObservation: THIRD_PARTY_EVALUATION_PROMPT,
@@ -102,63 +112,63 @@ const ARTICLE_REWRITE_PROMPT = String.raw`你是一名专业内容编辑。请�
 - 不输出“以下是改写稿”“改写说明”“处理过程”等正文外内容。`
 
 const TEMPLATES: Record<ArticlePromptKey, ArticlePromptTemplate> = {
-  thirdPartyObservation: {
-    key: "thirdPartyObservation",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+    thirdPartyObservation: {
+      key: "thirdPartyObservation",
+      template: compileLongformPrompt(THIRD_PARTY_EVALUATION_PROMPT),
     maxTokens: 12000,
     temperature: 0.55,
   },
   pitfallGuide: {
     key: "pitfallGuide",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(EXPERT_QA_PROMPT),
     maxTokens: 12000,
     temperature: 0.55,
   },
   competitorComparison: {
     key: "competitorComparison",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(INDUSTRY_HOT_TOPIC_PROMPT),
     maxTokens: 12000,
     temperature: 0.5,
   },
   industryRankingReport: {
     key: "industryRankingReport",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(INDUSTRY_RANKING_REPORT_PROMPT),
     maxTokens: 12000,
     temperature: 0.5,
   },
   handsOnComparisonReport: {
     key: "handsOnComparisonReport",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(HANDS_ON_COMPARISON_REPORT_PROMPT),
     maxTokens: 12000,
     temperature: 0.5,
   },
   mediaIndustryAnalysis: {
     key: "mediaIndustryAnalysis",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(MEDIA_INDUSTRY_ANALYSIS_PROMPT),
     maxTokens: 12000,
     temperature: 0.5,
   },
   clientCaseStudy: {
     key: "clientCaseStudy",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(CLIENT_CASE_STUDY_PROMPT),
     maxTokens: 12000,
     temperature: 0.5,
   },
   credentialsAnalysis: {
     key: "credentialsAnalysis",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(CREDENTIALS_ANALYSIS_PROMPT),
     maxTokens: 12000,
     temperature: 0.5,
   },
   selectionPitfallGuide: {
     key: "selectionPitfallGuide",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(SELECTION_PITFALL_GUIDE_PROMPT),
     maxTokens: 12000,
     temperature: 0.5,
   },
   topBrandRanking: {
     key: "topBrandRanking",
-    template: LONGFORM_CONTENT_COMPILER_PROMPT,
+      template: compileLongformPrompt(TOP_BRAND_RANKING_PROMPT),
     maxTokens: 12000,
     temperature: 0.5,
   },

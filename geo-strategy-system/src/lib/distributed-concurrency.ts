@@ -9,6 +9,7 @@ interface DistributedConcurrencyInput {
   waitTimeoutMs: number
   leaseSeconds: number
   label: string
+  signal?: AbortSignal
 }
 
 interface AcquiredDistributedSlot {
@@ -49,6 +50,31 @@ async function release(slot: AcquiredDistributedSlot): Promise<void> {
   }
 }
 
+function abortedError(label: string): Error {
+  const error = new Error(`${label} 排队已停止`)
+  error.name = "AbortError"
+  return error
+}
+
+function throwIfAborted(signal: AbortSignal | undefined, label: string): void {
+  if (signal?.aborted) throw abortedError(label)
+}
+
+function wait(ms: number, signal: AbortSignal | undefined, label: string): Promise<void> {
+  throwIfAborted(signal, label)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(abortedError(label))
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
 export async function acquireDistributedConcurrency(
   input: DistributedConcurrencyInput,
 ): Promise<() => Promise<void>> {
@@ -61,13 +87,21 @@ export async function acquireDistributedConcurrency(
   let slot: AcquiredDistributedSlot | null = null
 
   do {
+    throwIfAborted(input.signal, input.label)
     slot = await tryAcquire(scope, limit, leaseSeconds)
-    if (slot) break
+    if (slot) {
+      if (input.signal?.aborted) {
+        await release(slot)
+        throw abortedError(input.label)
+      }
+      break
+    }
     if (Date.now() >= deadline) break
-    await new Promise(resolve => setTimeout(
-      resolve,
+    await wait(
       Math.min(500, Math.max(50, deadline - Date.now())),
-    ))
+      input.signal,
+      input.label,
+    )
   } while (Date.now() <= deadline)
 
   if (!slot) {

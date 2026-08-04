@@ -42,10 +42,18 @@ export interface ArticleModelChatInput {
   mode?: LlmMode
   webPolicy?: "disabled" | "required_with_fallback"
   webSearchQueries?: string[]
+  requestTimeoutMs?: number
+  totalTimeoutMs?: number
+  signal?: AbortSignal
   usageContext?: {
     userId: string
     task: string
   }
+}
+
+interface RuntimeArticleModelChatInput extends ArticleModelChatInput {
+  signal: AbortSignal
+  deadlineAt?: number
 }
 
 export interface ArticleModelChatResult {
@@ -58,6 +66,25 @@ export interface ArticleModelChatResult {
 const circuits = new Map<string, CircuitState>()
 const CIRCUIT_FAILURE_THRESHOLD = 3
 const CIRCUIT_COOLDOWN_MS = 60_000
+
+function articleAbortError(): Error {
+  const error = new Error("AI 请求已停止")
+  error.name = "AbortError"
+  return error
+}
+
+function isAbortFailure(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError"
+}
+
+function throwIfArticleStageStopped(input: RuntimeArticleModelChatInput): void {
+  if (input.signal.aborted) throw articleAbortError()
+}
+
+function remainingStageMs(input: RuntimeArticleModelChatInput): number {
+  if (!input.deadlineAt) return Number.POSITIVE_INFINITY
+  return Math.max(0, input.deadlineAt - Date.now())
+}
 
 function retryableFailure(error: unknown): boolean {
   return shouldFailOverAiCredential(error)
@@ -113,29 +140,45 @@ function recordFailure(model: ResolvedArticleModel, error: unknown): void {
 
 async function acquireProviderSlot(
   model: ResolvedArticleModel,
+  input: RuntimeArticleModelChatInput,
 ): Promise<() => Promise<void>> {
+  throwIfArticleStageStopped(input)
   if (!model.providerId || !model.maxConcurrency) return async () => undefined
   return acquireDistributedConcurrency({
     scope: `article-gateway:${model.providerId}`,
     limit: model.maxConcurrency,
-    waitTimeoutMs: Math.max(30, model.timeout) * 1000,
+    waitTimeoutMs: Math.min(
+      Math.max(30, model.timeout) * 1000,
+      remainingStageMs(input),
+    ),
     leaseSeconds: Math.max(90, model.timeout + 120),
     label: model.label,
+    signal: input.signal,
   })
 }
 
 async function executeModel(
   model: ResolvedArticleModel,
-  input: ArticleModelChatInput,
+  input: RuntimeArticleModelChatInput,
   usedFallback: boolean,
 ): Promise<string> {
+  throwIfArticleStageStopped(input)
   if (circuitIsOpen(model)) {
     throw new Error(`${model.label} 线路正在短暂恢复中`)
   }
-  const release = await acquireProviderSlot(model)
+  const release = await acquireProviderSlot(model, input)
   const startedAt = Date.now()
   let usage: LlmTokenUsage | undefined
   try {
+    throwIfArticleStageStopped(input)
+    const requestTimeoutMs = Math.min(
+      model.timeout * 1000,
+      input.requestTimeoutMs && input.requestTimeoutMs > 0
+        ? input.requestTimeoutMs
+        : Number.POSITIVE_INFINITY,
+      remainingStageMs(input),
+    )
+    const requestTimeoutSec = Math.max(1, Math.ceil(requestTimeoutMs / 1000))
     const onUsage = (value: LlmTokenUsage) => {
       usage = usage
         ? {
@@ -157,7 +200,8 @@ async function executeModel(
           maxTokens: input.maxTokens,
           jsonMode: input.jsonMode,
           mode: input.mode,
-          timeoutSec: model.timeout,
+          timeoutSec: requestTimeoutSec,
+          signal: input.signal,
           label: `${model.label}·${input.label}`,
           onUsage,
         })
@@ -172,7 +216,8 @@ async function executeModel(
           temperature: input.temperature,
           maxTokens: input.maxTokens,
           jsonMode: input.jsonMode,
-          timeoutSec: model.timeout,
+          timeoutSec: requestTimeoutSec,
+          signal: input.signal,
           label: `${model.label}·${input.label}`,
           onUsage,
         })
@@ -194,8 +239,9 @@ async function executeModel(
     }
     return content
   } catch (error) {
-    recordFailure(model, error)
-    if (input.usageContext) {
+    const stopped = input.signal.aborted || isAbortFailure(error)
+    if (!stopped) recordFailure(model, error)
+    if (input.usageContext && !stopped) {
       await recordAiUsageQuietly({
         userId: input.usageContext.userId,
         task: input.usageContext.task,
@@ -219,9 +265,10 @@ async function executeModel(
 
 async function callModel(
   model: ResolvedArticleModel,
-  input: ArticleModelChatInput,
+  input: RuntimeArticleModelChatInput,
   usedFallback: boolean,
 ): Promise<string> {
+  throwIfArticleStageStopped(input)
   const vendor = credentialVendor(model)
   if (!vendor) return executeModel(model, input, usedFallback)
 
@@ -239,14 +286,20 @@ async function callModel(
     ? model.model
     : undefined
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    throwIfArticleStageStopped(input)
     const lease = await tryAcquireAiCredential({
       vendor,
       module: "article",
       model: selectionModel,
       requiredCapabilities: ["chat"],
       excludeCredentialIds: excludedCredentialIds,
-      waitTimeoutMs: Math.min(60_000, Math.max(5_000, model.timeout * 1000)),
+      waitTimeoutMs: Math.min(
+        60_000,
+        Math.max(5_000, model.timeout * 1000),
+        remainingStageMs(input),
+      ),
       leaseSeconds: Math.min(60 * 60, Math.max(60, model.timeout + 60)),
+      signal: input.signal,
       ...quotaEstimate,
     })
     if (!lease) {
@@ -292,6 +345,7 @@ async function callModel(
       return content
     } catch (error) {
       lastError = error
+      if (input.signal.aborted || isAbortFailure(error)) throw error
       await recordAiCredentialFailure(lease.credential, error)
       if (!credentialFailoverFailure(error)) throw error
       console.warn(
@@ -305,7 +359,11 @@ async function callModel(
   throw lastError instanceof Error ? lastError : new Error(`${model.label} 暂无可用账号`)
 }
 
-async function fallbackModels(primary: ResolvedArticleModel): Promise<ResolvedArticleModel[]> {
+async function fallbackModels(
+  primary: ResolvedArticleModel,
+  input: RuntimeArticleModelChatInput,
+): Promise<ResolvedArticleModel[]> {
+  throwIfArticleStageStopped(input)
   if (!primary.providerId || !primary.model) return []
   const gateways = await listAiGatewayProvidersPublic()
   const candidates = gateways.filter(gateway =>
@@ -316,6 +374,7 @@ async function fallbackModels(primary: ResolvedArticleModel): Promise<ResolvedAr
   )
   const resolved: ResolvedArticleModel[] = []
   for (const gateway of candidates) {
+    throwIfArticleStageStopped(input)
     try {
       resolved.push(await resolveArticleModel(gateway.providerKey, primary.model))
     } catch (error) {
@@ -325,10 +384,11 @@ async function fallbackModels(primary: ResolvedArticleModel): Promise<ResolvedAr
   return resolved
 }
 
-export async function runArticleModelChat(
+async function runArticleModelChatWithinBudget(
   primary: ResolvedArticleModel,
-  input: ArticleModelChatInput,
+  input: RuntimeArticleModelChatInput,
 ): Promise<ArticleModelChatResult> {
+  throwIfArticleStageStopped(input)
   let effectiveInput = input
   let connectivity: ArticleGenerationConnectivity | undefined
   if (input.webPolicy === "required_with_fallback") {
@@ -345,6 +405,7 @@ export async function runArticleModelChat(
         Math.min(12, Math.floor(Number(process.env.ARTICLE_WEB_SEARCH_RESULTS) || 8)),
       ),
     })
+    throwIfArticleStageStopped(input)
     if (context.sourceCount > 0) {
       effectiveInput = {
         ...input,
@@ -367,10 +428,11 @@ export async function runArticleModelChat(
     }
   }
 
-  const candidates = [primary, ...(await fallbackModels(primary))]
+  const candidates = [primary, ...(await fallbackModels(primary, input))]
   let lastError: unknown
 
   for (let index = 0; index < candidates.length; index += 1) {
+    throwIfArticleStageStopped(input)
     const model = candidates[index]
     try {
       return {
@@ -381,6 +443,7 @@ export async function runArticleModelChat(
       }
     } catch (error) {
       lastError = error
+      if (input.signal.aborted || isAbortFailure(error)) throw error
       if (!retryableFailure(error) || index === candidates.length - 1) throw error
       console.warn(
         `[article-model-fallback] ${model.label}/${model.model} 暂时不可用，尝试同模型备用线路。`,
@@ -389,4 +452,48 @@ export async function runArticleModelChat(
   }
 
   throw lastError instanceof Error ? lastError : new Error("文章模型调用失败")
+}
+
+export async function runArticleModelChat(
+  primary: ResolvedArticleModel,
+  input: ArticleModelChatInput,
+): Promise<ArticleModelChatResult> {
+  const controller = new AbortController()
+  const totalTimeoutMs = input.totalTimeoutMs && input.totalTimeoutMs > 0
+    ? Math.min(15 * 60_000, Math.max(1, Math.floor(input.totalTimeoutMs)))
+    : undefined
+  const deadlineAt = totalTimeoutMs ? Date.now() + totalTimeoutMs : undefined
+  let timedOut = false
+  const abortFromParent = () => controller.abort()
+  if (input.signal?.aborted) controller.abort()
+  else input.signal?.addEventListener("abort", abortFromParent, { once: true })
+  const timeout = totalTimeoutMs
+    ? setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, totalTimeoutMs)
+    : undefined
+
+  try {
+    const result = await runArticleModelChatWithinBudget(primary, {
+      ...input,
+      signal: controller.signal,
+      deadlineAt,
+    })
+    if (timedOut) throw articleAbortError()
+    return result
+  } catch (error) {
+    if (timedOut) {
+      const timeoutError = new Error(
+        `${input.label}处理超时（超过 ${Math.ceil((totalTimeoutMs || 0) / 1000)} 秒），已停止当前阶段的排队与线路重试`,
+      )
+      timeoutError.name = "ArticleStageTimeoutError"
+      throw timeoutError
+    }
+    if (input.signal?.aborted) throw articleAbortError()
+    throw error
+  } finally {
+    if (timeout) clearTimeout(timeout)
+    input.signal?.removeEventListener("abort", abortFromParent)
+  }
 }
