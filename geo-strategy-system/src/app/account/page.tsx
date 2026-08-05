@@ -84,6 +84,7 @@ export default async function AccountPage({
 
   return (
     <AccountCenter
+      key={`account-${typeof params.tab === "string" ? params.tab : "overview"}`}
       initialTab={typeof params.tab === "string" ? params.tab : undefined}
       user={{
         id: user.id,
