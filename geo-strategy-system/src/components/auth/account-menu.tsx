@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Crown, House, LogOut, ShieldCheck, UserRound } from "lucide-react"
+import { CircleHelp, Crown, House, LogOut, ShieldCheck, UserRound } from "lucide-react"
 import type { MembershipSnapshot } from "@/types"
 
 type MeResponse = {
@@ -107,6 +107,15 @@ export function AccountMenu() {
           >
             <House className="h-4 w-4 text-[#1677FF]" />
             品牌主页
+          </Link>
+
+          <Link
+            href="/help"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
+            onClick={() => setOpen(false)}
+          >
+            <CircleHelp className="h-4 w-4 text-[#1677FF]" />
+            帮助与说明
           </Link>
 
           <button

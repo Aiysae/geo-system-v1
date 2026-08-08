@@ -91,6 +91,8 @@ export type WorkspaceAccessScope =
 
 const KEY_LINK = (userId: string) => `client_account:link:${userId}`
 const KEY_LINK_INDEX = "client_account:links"
+const KEY_PARENT_SET = "client_account:parents"
+const KEY_PARENT_SET_BACKFILLED = "client_account:parents:backfilled:v1"
 const KEY_PARENT_INDEX = (parentUserId: string) => (
   `client_account:parent_links:${encodeURIComponent(parentUserId)}`
 )
@@ -201,6 +203,7 @@ export async function getClientAccountLink(userId: string): Promise<ClientAccoun
     await Promise.all([
       kv.set(KEY_LINK(userId), link),
       kv.sadd(KEY_PARENT_INDEX(link.parentUserId), userId),
+      kv.sadd(KEY_PARENT_SET, link.parentUserId),
       kv.set(sourceLinkKey(link), userId),
     ])
   }
@@ -234,6 +237,30 @@ export async function listClientAccountLinksForOwner(
     await kv.sadd(KEY_PARENT_INDEX(parentUserId), ...links.map(link => link.userId))
   }
   return links
+}
+
+export async function listClientAccountParentIds(): Promise<string[]> {
+  const indexed = await kv.smembers<string[]>(KEY_PARENT_SET)
+  if (await kv.get(KEY_PARENT_SET_BACKFILLED)) {
+    return [...new Set(indexed)].sort()
+  }
+
+  const links = await listClientAccountLinks()
+  const parentIds = [...new Set([
+    ...indexed,
+    ...links.map(link => link.parentUserId),
+  ])].sort()
+  if (parentIds.length > 0) await kv.sadd(KEY_PARENT_SET, ...parentIds)
+  await kv.set(KEY_PARENT_SET_BACKFILLED, {
+    completedAt: new Date().toISOString(),
+    parentCount: parentIds.length,
+  })
+  return parentIds
+}
+
+async function removeParentIndexWhenEmpty(parentUserId: string): Promise<void> {
+  const remaining = await kv.smembers<string[]>(KEY_PARENT_INDEX(parentUserId))
+  if (remaining.length === 0) await kv.srem(KEY_PARENT_SET, parentUserId)
 }
 
 function sourceLinkKey(link: Pick<
@@ -435,10 +462,12 @@ export async function saveClientAccountLink(input: {
   await kv.set(KEY_LINK(userId), link)
   await kv.sadd(KEY_LINK_INDEX, userId)
   await kv.sadd(KEY_PARENT_INDEX(parentUserId), userId)
+  await kv.sadd(KEY_PARENT_SET, parentUserId)
   await kv.set(sourceLinkKey(link), userId)
   if (existing) {
     if (existing.parentUserId !== parentUserId) {
       await kv.srem(KEY_PARENT_INDEX(existing.parentUserId), userId)
+      await removeParentIndexWhenEmpty(existing.parentUserId)
     }
     if (sourceLinkKey(existing) !== sourceLinkKey(link)) {
       await kv.del(sourceLinkKey(existing))
@@ -512,6 +541,7 @@ export async function deleteClientAccountLink(input: {
   await kv.del(KEY_LINK(input.userId))
   await kv.srem(KEY_LINK_INDEX, input.userId)
   await kv.srem(KEY_PARENT_INDEX(existing.parentUserId), input.userId)
+  await removeParentIndexWhenEmpty(existing.parentUserId)
   await kv.del(sourceLinkKey(existing))
   await writeAudit({
     userId: input.userId,

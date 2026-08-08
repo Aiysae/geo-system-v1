@@ -18,6 +18,13 @@ import {
   isTaskCancellationRequested,
   startTaskCancellationMonitor,
 } from "@/lib/task-cancellation"
+import {
+  actionReminderQueueName,
+  closeActionReminderQueue,
+  createActionReminderWorker,
+  enqueueActionReminderCatchup,
+  registerActionReminderScheduler,
+} from "@/lib/action-reminders/scheduler"
 
 function workerConcurrency(name: string, fallback: number): number {
   return Math.max(
@@ -55,6 +62,7 @@ const workerDefinitions = [
     concurrency: workerConcurrency("TASK_WORKER_LEGACY_CONCURRENCY", 1),
   },
 ] as const
+const actionReminderWorker = createActionReminderWorker()
 const prefix = String(process.env.TASK_QUEUE_PREFIX || "geo:bull")
 
 const workerStartedAt = new Date().toISOString()
@@ -72,11 +80,21 @@ async function writeWorkerHeartbeat(): Promise<void> {
     await recordDurableTaskWorkerHeartbeat({
       workerId,
       startedAt: workerStartedAt,
-      queues: workerDefinitions.map(definition => ({
+    queues: [
+      ...workerDefinitions.map(definition => ({
         lane: definition.lane,
         queueName: definition.queueName,
         concurrency: definition.concurrency,
       })),
+      {
+        lane: "notifications" as const,
+        queueName: actionReminderQueueName(),
+        concurrency: Math.max(
+          1,
+          Math.min(4, Number(process.env.ACTION_REMINDER_CONCURRENCY) || 2),
+        ),
+      },
+    ],
     })
   } catch (error) {
     console.warn(
@@ -288,8 +306,16 @@ async function waitForWebProcess(): Promise<void> {
 
 async function startWorker(): Promise<void> {
   await waitForWebProcess()
-  const runPromises = workers.map(worker => worker.run())
-  await Promise.all(workers.map(worker => worker.waitUntilReady()))
+  await registerActionReminderScheduler()
+  await enqueueActionReminderCatchup()
+  const runPromises = [
+    ...workers.map(worker => worker.run()),
+    actionReminderWorker.run(),
+  ]
+  await Promise.all([
+    ...workers.map(worker => worker.waitUntilReady()),
+    actionReminderWorker.waitUntilReady(),
+  ])
   startWorkerHeartbeat()
   await recoverPendingTasks()
   await Promise.all(runPromises)
@@ -314,6 +340,8 @@ async function shutdown(signal: string): Promise<void> {
     await Promise.all([
       stopWorkerHeartbeat(),
       ...workers.map(worker => worker.close()),
+      actionReminderWorker.close(),
+      closeActionReminderQueue(),
     ])
     clearTimeout(forceTimer)
     process.exit(0)

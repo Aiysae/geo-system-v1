@@ -13,6 +13,7 @@ import {
 import {
   ArrowRight,
   BadgeCheck,
+  BellRing,
   Bot,
   BookOpenCheck,
   BriefcaseBusiness,
@@ -20,6 +21,7 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  CircleHelp,
   Crown,
   FileClock,
   FileText,
@@ -115,6 +117,12 @@ type CreditSnapshot = {
   monthlyAllowance?: number
   monthlyPeriod?: string
   renewsAt?: string
+}
+
+type ActionReminderSettings = {
+  version: 1
+  emailEnabled: boolean
+  inAppEnabled: boolean
 }
 
 type Props = {
@@ -302,7 +310,7 @@ export function AccountCenter(props: Props) {
           {activeTab === "billing" ? <BillingTab {...props} /> : null}
           {activeTab === "reports" ? <ReportsTab clients={clients} onOpen={() => setHistoryOpen(true)} /> : null}
           {activeTab === "vip" ? <VipTab membership={props.membership} whiteLabelCredits={props.whiteLabelCredits} progress={progress} /> : null}
-          {activeTab === "settings" ? <SettingsTab user={currentUser} setUser={setCurrentUser} isAdmin={props.isAdmin} /> : null}
+          {activeTab === "settings" ? <SettingsTab user={currentUser} setUser={setCurrentUser} isAdmin={props.isAdmin} showActionReminders={props.access.mode !== "client"} /> : null}
         </div>
       </main>
 
@@ -350,6 +358,7 @@ function OverviewTab(props: Props & {
           <QuickAction icon={FileClock} title="历史报告" detail="检测快照与专业 PDF" onClick={() => props.onSelectTab("reports")} color="violet" />
           <QuickAction icon={ReceiptText} title="账单与积分" detail={`${props.unlimitedCredits ? "无限" : props.credits.total} 可用积分`} onClick={() => props.onSelectTab("billing")} color="amber" />
           <QuickAction icon={Bot} title="Agent 接入" detail="连接 Codex、Claude 或 Cursor" href="/account/agents" color="blue" />
+          <QuickAction icon={CircleHelp} title="使用说明" detail="按模块查看操作方法与常见问题" href="/help" color="violet" />
           <QuickAction icon={Settings} title="账号设置" detail="修改名称、邮箱和密码" onClick={() => props.onSelectTab("settings")} color="cyan" />
         </div>
       </section>
@@ -801,10 +810,11 @@ function VipTab({ membership, whiteLabelCredits, progress }: {
   )
 }
 
-function SettingsTab({ user, setUser, isAdmin }: {
+function SettingsTab({ user, setUser, isAdmin, showActionReminders }: {
   user: AccountUser
   setUser: Dispatch<SetStateAction<AccountUser>>
   isAdmin: boolean
+  showActionReminders: boolean
 }) {
   const [name, setName] = useState(user.name)
   const [newEmail, setNewEmail] = useState("")
@@ -813,9 +823,27 @@ function SettingsTab({ user, setUser, isAdmin }: {
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
-  const [busy, setBusy] = useState<"name" | "email-code" | "email" | "password" | null>(null)
+  const [busy, setBusy] = useState<"name" | "email-code" | "email" | "password" | "notifications" | null>(null)
   const [cooldown, setCooldown] = useState(0)
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null)
+  const [reminders, setReminders] = useState<ActionReminderSettings | null>(null)
+
+  useEffect(() => {
+    if (!showActionReminders) return
+    let alive = true
+    fetch("/api/account/notification-settings", {
+      cache: "no-store",
+      credentials: "same-origin",
+    })
+      .then(response => response.ok ? response.json() : Promise.reject(new Error("提醒设置读取失败")))
+      .then((body: { settings?: ActionReminderSettings }) => {
+        if (alive && body.settings) setReminders(body.settings)
+      })
+      .catch(() => {
+        if (alive) setReminders({ version: 1, emailEnabled: true, inAppEnabled: true })
+      })
+    return () => { alive = false }
+  }, [showActionReminders])
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -865,6 +893,31 @@ function SettingsTab({ user, setUser, isAdmin }: {
     } catch (error) { setNotice({ tone: "error", text: error instanceof Error ? error.message : "密码修改失败" }) } finally { setBusy(null) }
   }
 
+  async function updateReminderSetting(
+    key: "emailEnabled" | "inAppEnabled",
+    value: boolean,
+  ) {
+    if (!reminders || busy === "notifications") return
+    const previous = reminders
+    const next = { ...reminders, [key]: value }
+    setReminders(next)
+    setBusy("notifications"); setNotice(null)
+    try {
+      const data = await requestJson<{ settings: ActionReminderSettings }>(
+        "/api/account/notification-settings",
+        { [key]: value },
+        "PATCH",
+      )
+      setReminders(data.settings)
+      setNotice({ tone: "success", text: "提醒设置已更新" })
+    } catch (error) {
+      setReminders(previous)
+      setNotice({ tone: "error", text: error instanceof Error ? error.message : "提醒设置更新失败" })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       {notice ? <div role="status" className={cn("rounded-lg border px-4 py-3 text-xs font-medium", notice.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-rose-200 bg-rose-50 text-rose-700")}>{notice.text}</div> : null}
@@ -875,6 +928,30 @@ function SettingsTab({ user, setUser, isAdmin }: {
           <button type="submit" disabled={busy === "name" || name.trim() === user.name} className={PRIMARY_BUTTON_CLASS}>{busy === "name" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}保存名称</button>
         </form>
       </section>
+
+      {showActionReminders ? (
+        <section className="grid overflow-hidden rounded-lg border border-[#D8E7F7] bg-white shadow-sm lg:grid-cols-[240px_1fr]">
+          <SettingHeading icon={BellRing} title="动作录入提醒" detail="每天 22:00，仅在还有客户未录入当天动作时提醒。" />
+          <div className="divide-y divide-slate-100 border-t border-slate-100 lg:border-l lg:border-t-0">
+            <NotificationSettingRow
+              icon={Mail}
+              title="邮件提醒"
+              detail={`发送到 ${user.email}`}
+              checked={reminders?.emailEnabled ?? true}
+              disabled={!reminders || busy === "notifications"}
+              onChange={value => void updateReminderSetting("emailEnabled", value)}
+            />
+            <NotificationSettingRow
+              icon={BellRing}
+              title="站内提醒"
+              detail="在消息中心保留，并在登录状态下弹出提醒"
+              checked={reminders?.inAppEnabled ?? true}
+              disabled={!reminders || busy === "notifications"}
+              onChange={value => void updateReminderSetting("inAppEnabled", value)}
+            />
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid overflow-hidden rounded-lg border border-[#D8E7F7] bg-white shadow-sm lg:grid-cols-[240px_1fr]">
         <SettingHeading icon={Mail} title="登录邮箱" detail={isAdmin ? "管理员邮箱由服务端安全配置管理。" : `当前邮箱：${user.email}`} />
@@ -898,6 +975,40 @@ function SettingsTab({ user, setUser, isAdmin }: {
           <button type="submit" disabled={busy === "password" || !currentPassword || !newPassword || !confirmPassword} className={cn(PRIMARY_BUTTON_CLASS, "sm:justify-self-end")}>{busy === "password" ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}更新密码</button>
         </form>
       </section>
+    </div>
+  )
+}
+
+function NotificationSettingRow({
+  icon: Icon,
+  title,
+  detail,
+  checked,
+  disabled,
+  onChange,
+}: {
+  icon: typeof BellRing
+  title: string
+  detail: string
+  checked: boolean
+  disabled: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <div className="flex min-h-20 items-center gap-3 px-5 py-4">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#EEF7FF] text-[#1677FF] ring-1 ring-[#D8E7F7]"><Icon className="h-4 w-4" /></span>
+      <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-slate-800">{title}</span><span className="mt-1 block text-[11px] leading-5 text-slate-500">{detail}</span></span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={`${checked ? "关闭" : "开启"}${title}`}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={cn("relative h-7 w-12 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2 disabled:opacity-50", checked ? "bg-gradient-to-r from-[#1677FF] to-[#00AEEA]" : "bg-slate-200")}
+      >
+        <span className={cn("absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-5" : "translate-x-1")} />
+      </button>
     </div>
   )
 }

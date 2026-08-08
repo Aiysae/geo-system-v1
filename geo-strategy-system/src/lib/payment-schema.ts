@@ -108,7 +108,7 @@ CREATE INDEX IF NOT EXISTS geo_admin_payment_requests_status_created_idx
 CREATE TABLE IF NOT EXISTS geo_user_notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('payment_request', 'payment_request_credited', 'payment_request_canceled')),
+  type TEXT NOT NULL CHECK (type IN ('payment_request', 'payment_request_credited', 'payment_request_canceled', 'feedback_action_reminder')),
   title TEXT NOT NULL,
   body TEXT NOT NULL,
   action_url TEXT,
@@ -119,6 +119,31 @@ CREATE TABLE IF NOT EXISTS geo_user_notifications (
   expires_at BIGINT,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+
+DO $$
+DECLARE
+  current_definition TEXT;
+BEGIN
+  SELECT pg_get_constraintdef(oid)
+    INTO current_definition
+    FROM pg_constraint
+   WHERE conrelid = 'geo_user_notifications'::regclass
+     AND conname = 'geo_user_notifications_type_check';
+
+  IF current_definition IS NOT NULL
+     AND current_definition NOT LIKE '%feedback_action_reminder%' THEN
+    ALTER TABLE geo_user_notifications
+      DROP CONSTRAINT geo_user_notifications_type_check;
+    ALTER TABLE geo_user_notifications
+      ADD CONSTRAINT geo_user_notifications_type_check
+      CHECK (type IN (
+        'payment_request',
+        'payment_request_credited',
+        'payment_request_canceled',
+        'feedback_action_reminder'
+      ));
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS geo_user_notifications_user_created_idx
   ON geo_user_notifications (user_id, created_at DESC);

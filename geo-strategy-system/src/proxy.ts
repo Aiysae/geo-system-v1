@@ -10,6 +10,7 @@ const PUBLIC_PATHS = [
   "/terms",
   "/privacy",
   "/recharge-rules",
+  "/help",
   "/robots.txt",
   "/sitemap.xml",
   "/llms.txt",

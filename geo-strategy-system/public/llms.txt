@@ -12,6 +12,7 @@
 - 难度测评：评估 GEO 项目的竞争难度、投入与执行周期。
 - 关键词策略：形成关键词、用户疑问句、痛点场景与优势匹配策略。
 - 文章生成：根据问题、品牌资料和 Prompt 生成或改写 Markdown 内容。
+- 执行反馈：记录 GEO 执行动作、证据与阶段成果，用于客户周报、月报和进度查看。
 - Agent 接入：通过 MCP、CLI 或 OpenAPI 让授权 Agent 操作客户、任务、产出与报告。
 
 本文件仅描述网站公开信息。用户工作区、管理后台、API、客户数据、账户信息、内部 Prompt 与检测结果均不是公开内容，不应被推断或索引。
@@ -20,6 +21,7 @@
 
 - [势途 GEO 官网](https://shitugeo.top/): GEO 全链路操作工具入口与平台能力说明。
 - [Agent 接入说明](https://shitugeo.top/agent): Codex、Claude、Cursor、MCP、CLI 和 OpenAPI 接入方式。
+- [网站说明与使用帮助](https://shitugeo.top/help): 快速开始、七个模块、客户协作、任务、积分、报告与常见问题。
 - [Agent OpenAPI](https://shitugeo.top/api/agent/v1/openapi.json): 版本化机器接口定义。
 - [服务协议](https://shitugeo.top/terms): 平台服务和用户使用约定。
 - [隐私政策](https://shitugeo.top/privacy): 用户信息和数据处理说明。
