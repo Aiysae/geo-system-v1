@@ -69,6 +69,9 @@ export async function cancelTaskCenterTask(
   } else if (target.source === "articleBatch") {
     const { cancelArticleBatch } = await import("@/lib/article-batches/manager")
     result = await cancelArticleBatch(target.sourceJobId, target.actorUserId)
+  } else if (target.source === "articleMedia") {
+    const { cancelArticleMediaJob } = await import("@/lib/article-media/jobs")
+    result = await cancelArticleMediaJob(target.sourceJobId, target.actorUserId)
   } else if (target.source === "report") {
     const { cancelCommercialReportJob } = await import("@/lib/reports/report-jobs")
     result = await cancelCommercialReportJob(

@@ -112,6 +112,7 @@ const SOURCES: TaskCenterSource[] = [
   "difficulty",
   "question",
   "articleBatch",
+  "articleMedia",
   "report",
 ]
 const MODULES: TaskCenterModule[] = [

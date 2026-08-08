@@ -11,6 +11,7 @@ export type DurableTaskSource =
   | "background"
   | "question"
   | "articleBatch"
+  | "articleMedia"
   | "report"
 
 export type DurableTaskQueueLane =
@@ -102,6 +103,7 @@ const MIGRATED_SOURCES = new Set<DurableTaskSource>([
   "background",
   "question",
   "articleBatch",
+  "articleMedia",
   "report",
 ])
 
@@ -127,7 +129,7 @@ export function durableTaskQueueLane(
   source: DurableTaskSource,
 ): DurableTaskQueueLane {
   if (source === "penetration") return "penetration"
-  if (source === "report") return "utility"
+  if (source === "report" || source === "articleMedia") return "utility"
   return "generation"
 }
 
@@ -625,6 +627,7 @@ export function isDurableTaskSource(value: unknown): value is DurableTaskSource 
     "background",
     "question",
     "articleBatch",
+    "articleMedia",
     "report",
   ].includes(String(value) as TaskCenterSource)
 }

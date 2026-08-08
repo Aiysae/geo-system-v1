@@ -14,6 +14,7 @@ import {
   FileWarning,
   Files,
   Globe2,
+  ImagePlus,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -21,6 +22,7 @@ import {
   Trash2,
   X,
 } from "lucide-react"
+import ArticleMediaDialog from "@/components/article/article-media-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -59,6 +61,7 @@ interface BatchArticleDetail {
   title?: string
   topic: string
   markdown?: string
+  mediaMarkdown?: string
   status: ArticleBatchItemRecord["status"]
   stage?: string
   qualityStatus?: ArticleBatchItemRecord["qualityStatus"]
@@ -139,6 +142,8 @@ export default function ArticleBatchWorkspace({
   const [previewDetail, setPreviewDetail] = useState<BatchArticleDetail | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState("")
+  const [previewVariant, setPreviewVariant] = useState<"original" | "media">("original")
+  const [mediaOpen, setMediaOpen] = useState(false)
   const previousStatuses = useRef<Map<string, ArticleBatchRecord["status"]>>(new Map())
   const initialized = useRef(false)
 
@@ -194,6 +199,7 @@ export default function ArticleBatchWorkspace({
 
   const selectedBatch = batches.find(batch => batch.id === selectedBatchId) || batches[0]
   const generatedCount = selectedBatch?.items.filter(item => item.hasDraft).length || 0
+  const mediaGeneratedCount = selectedBatch?.items.filter(item => item.hasMediaVersion).length || 0
   const passedCount = selectedBatch?.passedCount
     ?? selectedBatch?.items.filter(item => item.qualityStatus === "passed").length
     ?? 0
@@ -204,6 +210,9 @@ export default function ArticleBatchWorkspace({
   const previewNeedsReview = (
     previewDetail?.qualityStatus || previewItem?.qualityStatus
   ) === "review_required"
+  const previewMarkdown = previewVariant === "media" && previewDetail?.mediaMarkdown
+    ? previewDetail.mediaMarkdown
+    : previewDetail?.markdown
   const providedTopicCount = topicLines(customTopics)
   const totalCredits = Math.max(0, perArticleCredits) * count
   const blockedReason = startBlockReason({
@@ -381,6 +390,7 @@ export default function ArticleBatchWorkspace({
     setPreviewBatchId(selectedBatch.id)
     setPreviewDetail(null)
     setPreviewError("")
+    setPreviewVariant(item.hasMediaVersion ? "media" : "original")
     setPreviewLoading(true)
     try {
       const response = await apiFetch(
@@ -406,6 +416,7 @@ export default function ArticleBatchWorkspace({
     setPreviewBatchId("")
     setPreviewDetail(null)
     setPreviewError("")
+    setPreviewVariant("original")
   }
 
   return (
@@ -675,6 +686,28 @@ export default function ArticleBatchWorkspace({
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   {generatedCount > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setMediaOpen(true)}
+                      className="h-8 gap-1.5 border-cyan-200 text-cyan-700 hover:bg-cyan-50 hover:text-cyan-800"
+                    >
+                      <ImagePlus className="h-3.5 w-3.5" />
+                      批量插入图片
+                    </Button>
+                  )}
+                  {mediaGeneratedCount > 0 && (
+                    <a
+                      href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=all&variant=media`}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 font-semibold text-white transition hover:brightness-105"
+                      title="下载内嵌图片的 Word、离线 HTML、Markdown 和图片文件"
+                    >
+                      <ImagePlus className="h-3.5 w-3.5" />
+                      下载图文成品 {mediaGeneratedCount} 篇
+                    </a>
+                  )}
+                  {generatedCount > 0 && (
                     <a
                       href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=all`}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#003EB3] px-3 font-semibold text-white transition hover:bg-[#0958D9]"
@@ -723,6 +756,12 @@ export default function ArticleBatchWorkspace({
                           {item.promptTitle}
                         </span>
                       )}
+                      {item.hasMediaVersion && (
+                        <span className="hidden shrink-0 items-center gap-1 rounded bg-cyan-50 px-1.5 py-0.5 font-medium text-cyan-700 sm:inline-flex">
+                          <ImagePlus className="h-3 w-3" />
+                          图文 {item.mediaImageCount || 0} 图
+                        </span>
+                      )}
                       {item.status === "succeeded" && item.connectivity && (
                         <span
                           className={`hidden shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium sm:inline-flex ${
@@ -759,6 +798,16 @@ export default function ArticleBatchWorkspace({
                       >
                         <Download className="h-3.5 w-3.5" />
                       </a>
+                      {item.hasMediaVersion && (
+                        <a
+                          href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/items/${encodeURIComponent(item.id)}/download?variant=media`}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-100 text-cyan-700 transition hover:bg-cyan-50"
+                          title="下载图文版 Word"
+                          aria-label={`下载第 ${item.position} 篇图文版 Word`}
+                        >
+                          <ImagePlus className="h-3.5 w-3.5" />
+                        </a>
+                      )}
                     </div>
                   ) : (
                     <span className="w-8 text-right text-[10px] text-slate-400">{item.progressPercent}%</span>
@@ -805,6 +854,12 @@ export default function ArticleBatchWorkspace({
                   {previewDetail?.promptTitle || previewItem.promptTitle || selectedBatch?.promptTitle}
                   {previewDetail?.model ? ` · ${previewDetail.model}` : ""}
                 </div>
+                {previewDetail?.mediaMarkdown && (
+                  <div className="mt-2 inline-flex bg-slate-100 p-0.5">
+                    <button type="button" onClick={() => setPreviewVariant("original")} className={`h-7 px-3 text-[11px] font-semibold ${previewVariant === "original" ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500"}`}>原文版</button>
+                    <button type="button" onClick={() => setPreviewVariant("media")} className={`h-7 px-3 text-[11px] font-semibold ${previewVariant === "media" ? "bg-white text-cyan-700 shadow-sm" : "text-slate-500"}`}>图文版</button>
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -827,7 +882,7 @@ export default function ArticleBatchWorkspace({
                 <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                   {previewError}
                 </div>
-              ) : previewDetail?.markdown ? (
+              ) : previewMarkdown ? (
                 <div className="space-y-4">
                   {previewNeedsReview && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
@@ -857,9 +912,9 @@ export default function ArticleBatchWorkspace({
                     </div>
                   )}
 
-                  <article className="mx-auto max-w-3xl overflow-hidden bg-white px-5 py-6 text-[15px] leading-8 text-slate-700 shadow-sm ring-1 ring-slate-200 sm:px-9 [&_a]:break-all [&_a]:text-blue-600 [&_blockquote]:border-l-4 [&_blockquote]:border-blue-200 [&_blockquote]:bg-blue-50 [&_blockquote]:px-4 [&_blockquote]:py-2 [&_code]:break-words [&_h1]:mb-5 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-950 [&_h2]:mb-3 [&_h2]:mt-7 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-base [&_h3]:font-bold [&_li]:my-1 [&_ol]:my-4 [&_ol]:pl-6 [&_p]:my-4 [&_pre]:overflow-x-auto [&_pre]:bg-slate-900 [&_pre]:p-4 [&_pre]:text-slate-100 [&_strong]:text-slate-950 [&_table]:my-5 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-blue-50 [&_th]:p-2 [&_ul]:my-4 [&_ul]:pl-6">
+                  <article className="mx-auto max-w-3xl overflow-hidden bg-white px-5 py-6 text-[15px] leading-8 text-slate-700 shadow-sm ring-1 ring-slate-200 sm:px-9 [&_a]:break-all [&_a]:text-blue-600 [&_blockquote]:border-l-4 [&_blockquote]:border-blue-200 [&_blockquote]:bg-blue-50 [&_blockquote]:px-4 [&_blockquote]:py-2 [&_code]:break-words [&_h1]:mb-5 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-950 [&_h2]:mb-3 [&_h2]:mt-7 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-base [&_h3]:font-bold [&_img]:mx-auto [&_img]:my-6 [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md [&_li]:my-1 [&_ol]:my-4 [&_ol]:pl-6 [&_p]:my-4 [&_pre]:overflow-x-auto [&_pre]:bg-slate-900 [&_pre]:p-4 [&_pre]:text-slate-100 [&_strong]:text-slate-950 [&_table]:my-5 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-blue-50 [&_th]:p-2 [&_ul]:my-4 [&_ul]:pl-6">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {previewDetail.markdown}
+                      {previewMarkdown}
                     </ReactMarkdown>
                   </article>
                 </div>
@@ -872,11 +927,11 @@ export default function ArticleBatchWorkspace({
               </span>
               {previewBatchId && previewItem.hasDraft && (
                 <a
-                  href={`/api/article-generation/batches/${encodeURIComponent(previewBatchId)}/items/${encodeURIComponent(previewItem.id)}/download`}
+                  href={`/api/article-generation/batches/${encodeURIComponent(previewBatchId)}/items/${encodeURIComponent(previewItem.id)}/download${previewVariant === "media" ? "?variant=media" : ""}`}
                   className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#003EB3] px-4 text-xs font-semibold text-white transition hover:bg-[#0958D9]"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  下载这篇 Word
+                  下载这篇{previewVariant === "media" ? "图文版" : ""} Word
                 </a>
               )}
             </footer>
@@ -884,6 +939,19 @@ export default function ArticleBatchWorkspace({
         </div>,
         document.body,
       ) : null}
+
+      {selectedBatch && (
+        <ArticleMediaDialog
+          open={mediaOpen}
+          clientId={clientId}
+          batch={selectedBatch}
+          onClose={() => setMediaOpen(false)}
+          onCompleted={() => {
+            void loadBatches(true)
+            setCompletionNotice("批量图文版本已生成，可以预览或下载图文成品包。")
+          }}
+        />
+      )}
 
       {completionNotice ? createPortal(
         <div className="fixed bottom-6 right-6 z-[120] max-w-sm rounded-lg border border-emerald-300/70 bg-emerald-600 px-4 py-3 text-sm leading-relaxed text-white shadow-2xl shadow-emerald-300/40" role="status" aria-live="polite">

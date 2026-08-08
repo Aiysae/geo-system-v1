@@ -29,6 +29,8 @@ export async function GET(
       title: item.title,
       topic: item.topic,
       markdown: item.markdown,
+      mediaMarkdown: item.mediaRevision?.markdown,
+      mediaPlacements: item.mediaRevision?.placements,
       status: item.status,
       stage: item.stage,
       qualityStatus: item.qualityStatus,
