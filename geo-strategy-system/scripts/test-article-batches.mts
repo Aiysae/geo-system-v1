@@ -6,6 +6,7 @@ import path from "node:path"
 import JSZip from "jszip"
 import type * as ArticleDocxModule from "../src/lib/article-batches/docx"
 import type * as ArticlePlanningModule from "../src/lib/article-batches/planning"
+import type * as ArticleBatchQualityModule from "../src/lib/article-batches/quality"
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "geo-article-batches-"))
 process.env.ARTICLE_BATCH_STORE = "kv"
@@ -20,6 +21,48 @@ const {
   articleSimilarity,
   planArticleBatch,
 } = require("../src/lib/article-batches/planning.ts") as typeof ArticlePlanningModule
+const {
+  hasArticleBatchDraft,
+  isArticleBatchDraftDownloadable,
+  isArticleBatchQualityPassed,
+  resolveArticleBatchQualityStatus,
+} = require("../src/lib/article-batches/quality.ts") as typeof ArticleBatchQualityModule
+
+function qualityAudit(finalPassed: boolean) {
+  return {
+    pipelineVersion: "test",
+    planUsedFallback: false,
+    evidenceMode: "framework" as const,
+    plannedSectionCount: 4,
+    deterministicScore: finalPassed ? 90 : 62,
+    repaired: !finalPassed,
+    finalPassed,
+    issues: finalPassed ? [] : ["证据说明不足"],
+  }
+}
+
+const passedDraft = {
+  status: "succeeded" as const,
+  markdown: "# 质检通过文章",
+  qualityAudit: qualityAudit(true),
+}
+const reviewDraft = {
+  status: "succeeded" as const,
+  markdown: "# 待人工复核文章",
+  qualityAudit: qualityAudit(false),
+}
+const technicalFailure = {
+  status: "failed" as const,
+  qualityAudit: qualityAudit(false),
+}
+assert.equal(hasArticleBatchDraft(reviewDraft), true)
+assert.equal(resolveArticleBatchQualityStatus(passedDraft), "passed")
+assert.equal(resolveArticleBatchQualityStatus(reviewDraft), "review_required")
+assert.equal(resolveArticleBatchQualityStatus(technicalFailure), "not_available")
+assert.equal(isArticleBatchDraftDownloadable(reviewDraft), true)
+assert.equal(isArticleBatchDraftDownloadable(technicalFailure), false)
+assert.equal(isArticleBatchQualityPassed(passedDraft), true)
+assert.equal(isArticleBatchQualityPassed(reviewDraft), false)
 
 const planned = planArticleBatch({
   count: 10,
@@ -126,7 +169,10 @@ const {
   getOwnedStoredArticleBatch,
   saveStoredArticleBatch,
 } = await import("../src/lib/article-batches/store")
-const { deleteArticleBatch } = await import("../src/lib/article-batches/manager")
+const {
+  deleteArticleBatch,
+  getArticleBatchDownloadItems,
+} = await import("../src/lib/article-batches/manager")
 
 function storedBatch(id: string, status: "running" | "succeeded") {
   const markdown = "# 待清理文章\n\n这是批量任务删除测试。"
@@ -199,6 +245,104 @@ assert.equal(await deleteArticleBatch(finished.id, "another-owner"), "not_found"
 assert.equal(await deleteArticleBatch(finished.id, finished.ownerUserId), "deleted")
 assert.equal(await getOwnedStoredArticleBatch(finished.id, finished.ownerUserId), null)
 await assert.rejects(() => fs.access(artifact.artifactPath))
+
+const qualityBatch = createStoredArticleBatchInput({
+  id: "abatch_quality_download_test",
+  ownerUserId: "article-quality-owner",
+  clientId: "article-quality-client",
+  requestId: "request_quality_download_test",
+  promptKey: "thirdPartyObservation",
+  promptTitle: "第三方观察",
+  modelProvider: "article",
+  model: "deepseek-chat",
+  topicMode: "custom",
+  similarityRetry: true,
+  basePayload: {
+    promptKey: "thirdPartyObservation",
+    modelProvider: "article",
+    model: "deepseek-chat",
+    clientName: "测试客户",
+    brandName: "测试品牌",
+    subjectType: "brand",
+    subjectContext: "",
+    industry: "企业服务",
+    website: "",
+    coreQuestion: "批量下载范围",
+    keywords: "",
+    region: "全国",
+    business: "GEO 服务",
+    advantages: "",
+    audience: "企业客户",
+    extraRequirements: "",
+  },
+  items: [
+    {
+      id: "quality_passed_item",
+      position: 1,
+      topic: "通过文章",
+      brief: "通过文章",
+      requestId: "quality_passed_request",
+      status: "succeeded",
+      qualityStatus: "passed",
+      progressPercent: 100,
+      stage: "质检通过",
+      attempt: 1,
+      markdown: "# 通过文章\n\n这是通过质检的正文。",
+      qualityAudit: qualityAudit(true),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: "quality_review_item",
+      position: 2,
+      topic: "待复核文章",
+      brief: "待复核文章",
+      requestId: "quality_review_request",
+      status: "succeeded",
+      qualityStatus: "review_required",
+      progressPercent: 100,
+      stage: "待人工复核",
+      attempt: 1,
+      markdown: "# 待复核文章\n\n这是系统未通过但需要人工查看的正文。",
+      qualityAudit: qualityAudit(false),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: "quality_failed_item",
+      position: 3,
+      topic: "技术失败文章",
+      brief: "技术失败文章",
+      requestId: "quality_failed_request",
+      status: "failed",
+      qualityStatus: "not_available",
+      progressPercent: 100,
+      stage: "生成失败",
+      error: "接口超时",
+      attempt: 1,
+      updatedAt: new Date().toISOString(),
+    },
+  ],
+})
+qualityBatch.status = "partial"
+qualityBatch.completedCount = 2
+qualityBatch.passedCount = 1
+qualityBatch.reviewRequiredCount = 1
+qualityBatch.failedCount = 1
+await saveStoredArticleBatch(qualityBatch)
+const allDownloadItems = await getArticleBatchDownloadItems(
+  qualityBatch.id,
+  qualityBatch.ownerUserId,
+  "all",
+)
+const passedDownloadItems = await getArticleBatchDownloadItems(
+  qualityBatch.id,
+  qualityBatch.ownerUserId,
+  "passed",
+)
+assert.equal(allDownloadItems?.length, 2)
+assert.deepEqual(allDownloadItems?.map(item => item.qualityStatus), ["passed", "review_required"])
+assert.equal(passedDownloadItems?.length, 1)
+assert.equal(passedDownloadItems?.[0].qualityStatus, "passed")
+assert.equal(await deleteArticleBatch(qualityBatch.id, qualityBatch.ownerUserId), "deleted")
 
 await fs.rm(directory, { recursive: true, force: true })
 console.log("article batch tests passed")

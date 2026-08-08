@@ -4,6 +4,10 @@ import { createHash } from "crypto"
 import { Pool } from "pg"
 import { kv } from "@/lib/kv"
 import { syncArticleBatchTask } from "@/lib/task-center/adapters"
+import {
+  hasArticleBatchDraft,
+  resolveArticleBatchQualityStatus,
+} from "@/lib/article-batches/quality"
 import type {
   AnalysisSubjectType,
   ArticleBatchItemRecord,
@@ -136,6 +140,7 @@ function normalizeStoredBatch(value: unknown): StoredArticleBatch | null {
 }
 
 function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
+  const hasDraft = hasArticleBatchDraft(item)
   return {
     id: item.id,
     position: item.position,
@@ -165,6 +170,8 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
     generationId: item.generationId,
     connectivity: item.connectivity,
     qualityAudit: item.qualityAudit,
+    qualityStatus: resolveArticleBatchQualityStatus(item),
+    hasDraft,
     promptKey: item.promptKey,
     promptTitle: item.promptTitle,
     routeConfidence: item.routeConfidence,
@@ -184,6 +191,12 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
 }
 
 export function toPublicArticleBatch(batch: StoredArticleBatch): ArticleBatchRecord {
+  const publicItems = batch.items
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map(toPublicItem)
+  const passedCount = publicItems.filter(item => item.qualityStatus === "passed").length
+  const reviewRequiredCount = publicItems.filter(item => item.qualityStatus === "review_required").length
   return {
     id: batch.id,
     clientId: batch.clientId,
@@ -199,6 +212,8 @@ export function toPublicArticleBatch(batch: StoredArticleBatch): ArticleBatchRec
     )),
     requestedCount: batch.requestedCount,
     completedCount: batch.completedCount,
+    passedCount,
+    reviewRequiredCount,
     failedCount: batch.failedCount,
     cancelledCount: batch.cancelledCount,
     webCompletedCount: batch.items.filter(item => (
@@ -213,10 +228,7 @@ export function toPublicArticleBatch(batch: StoredArticleBatch): ArticleBatchRec
     createdAt: batch.createdAt,
     updatedAt: batch.updatedAt,
     finishedAt: batch.finishedAt,
-    items: batch.items
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .map(toPublicItem),
+    items: publicItems,
   }
 }
 
@@ -468,6 +480,8 @@ export function createStoredArticleBatchInput(args: {
     mixedPrompts: args.mixedPrompts,
     requestedCount: args.items.length,
     completedCount: 0,
+    passedCount: 0,
+    reviewRequiredCount: 0,
     failedCount: 0,
     cancelledCount: 0,
     status: "preparing",

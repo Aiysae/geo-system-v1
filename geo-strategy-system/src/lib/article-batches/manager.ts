@@ -31,6 +31,11 @@ import {
   planArticleBatch,
 } from "@/lib/article-batches/planning"
 import {
+  isArticleBatchDraftDownloadable,
+  isArticleBatchQualityPassed,
+  resolveArticleBatchQualityStatus,
+} from "@/lib/article-batches/quality"
+import {
   ARTICLE_BATCH_PENDING_SET_KEY,
   createStoredArticleBatchInput,
   deleteOwnedStoredArticleBatch,
@@ -183,6 +188,11 @@ function itemRequestId(batchId: string, position: number, attempt: number): stri
 
 function aggregateBatch(batch: StoredArticleBatch): void {
   batch.completedCount = batch.items.filter(item => item.status === "succeeded").length
+  batch.passedCount = batch.items.filter(isArticleBatchQualityPassed).length
+  batch.reviewRequiredCount = batch.items.filter(item => (
+    isArticleBatchDraftDownloadable(item)
+    && resolveArticleBatchQualityStatus(item) === "review_required"
+  )).length
   batch.failedCount = batch.items.filter(item => item.status === "failed").length
   batch.cancelledCount = batch.items.filter(item => item.status === "cancelled").length
   const terminalCount = batch.completedCount + batch.failedCount + batch.cancelledCount
@@ -190,9 +200,12 @@ function aggregateBatch(batch: StoredArticleBatch): void {
 
   if (terminalCount >= batch.requestedCount) {
     batch.finishedAt = batch.finishedAt || nowIso()
-    if (batch.completedCount === batch.requestedCount) {
+    if (batch.completedCount === batch.requestedCount && batch.reviewRequiredCount === 0) {
       batch.status = "succeeded"
       batch.stage = `${batch.completedCount} 篇文章及 Word 文档已全部生成`
+    } else if (batch.completedCount === batch.requestedCount) {
+      batch.status = "partial"
+      batch.stage = `已生成 ${batch.completedCount} 篇，其中 ${batch.reviewRequiredCount} 篇待人工复核`
     } else if (batch.completedCount > 0) {
       batch.status = "partial"
       batch.stage = `已完成 ${batch.completedCount} 篇，${batch.failedCount + batch.cancelledCount} 篇未完成`
@@ -243,7 +256,10 @@ async function finalizeArticle(
 
   item.status = "succeeded"
   item.progressPercent = 100
-  item.stage = stage
+  item.qualityStatus = resolveArticleBatchQualityStatus(item)
+  item.stage = item.qualityStatus === "review_required"
+    ? "文章和 Word 文档已生成，等待人工复核"
+    : stage
   item.error = undefined
   item.updatedAt = nowIso()
   item.fallbackMarkdown = undefined
@@ -521,6 +537,7 @@ export async function createArticleBatch(
     missingEvidence: plan.missingEvidence,
     requestId: itemRequestId(batchId, plan.position, 1),
     status: "queued",
+    qualityStatus: "pending",
     progressPercent: 0,
     stage: "等待创建独立文章任务",
     attempt: 1,
@@ -595,6 +612,7 @@ export async function createArticleBatch(
       const job = created.jobs[index]
       item.jobId = job.id
       item.status = "queued"
+      item.qualityStatus = "pending"
       item.progressPercent = 0
       item.stage = job.stage
       item.updatedAt = job.updatedAt
@@ -805,6 +823,7 @@ export async function retryFailedArticleBatchItems(
       item.requestId = requests[index].requestId
       item.attempt = attempts[index]
       item.status = "queued"
+      item.qualityStatus = "pending"
       item.progressPercent = 0
       item.stage = "失败文章已重新进入队列"
       item.error = undefined
@@ -824,7 +843,7 @@ export async function getArticleBatchDocx(args: {
 }): Promise<{ buffer: Buffer; fileName: string } | null> {
   const batch = await getOwnedStoredArticleBatch(args.batchId, args.ownerUserId)
   const item = batch?.items.find(candidate => candidate.id === args.itemId)
-  if (!batch || !item || item.status !== "succeeded" || !item.markdown) return null
+  if (!batch || !item || !isArticleBatchDraftDownloadable(item) || !item.markdown) return null
   const artifact = await readArticleDocxArtifact({
     batchId: batch.id,
     itemId: item.id,
@@ -846,14 +865,28 @@ export async function getArticleBatchDocx(args: {
   return { buffer: artifact.buffer, fileName: artifact.fileName }
 }
 
+type ArticleBatchDownloadItem = {
+  itemId: string
+  position: number
+  title: string
+  buffer: Buffer
+  fileName: string
+  qualityStatus: "passed" | "review_required"
+}
+
 export async function getArticleBatchDownloadItems(
   batchId: string,
   ownerUserId: string,
-): Promise<Array<{ itemId: string; position: number; title: string; buffer: Buffer; fileName: string }> | null> {
+  scope: "all" | "passed" = "passed",
+): Promise<ArticleBatchDownloadItem[] | null> {
   const batch = await getOwnedStoredArticleBatch(batchId, ownerUserId)
   if (!batch) return null
-  const completed = batch.items.filter(item => item.status === "succeeded" && item.markdown)
-  const files = []
+  const completed = batch.items.filter(item => (
+    isArticleBatchDraftDownloadable(item)
+    && item.markdown
+    && (scope === "all" || isArticleBatchQualityPassed(item))
+  ))
+  const files: ArticleBatchDownloadItem[] = []
   for (const item of completed) {
     const file = await getArticleBatchDocx({ batchId, itemId: item.id, ownerUserId })
     if (!file) continue
@@ -863,6 +896,9 @@ export async function getArticleBatchDownloadItems(
       title: item.title || item.topic,
       buffer: file.buffer,
       fileName: file.fileName,
+      qualityStatus: resolveArticleBatchQualityStatus(item) === "review_required"
+        ? "review_required"
+        : "passed",
     })
   }
   return files

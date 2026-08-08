@@ -2,12 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import {
   AlertCircle,
   CheckCircle2,
   Clock3,
   Download,
+  Eye,
   FileDown,
+  FileWarning,
   Files,
   Globe2,
   Loader2,
@@ -30,6 +34,7 @@ import type {
   ArticleBatchQuestionTask,
   ArticleBatchRecord,
   ArticleBatchTopicMode,
+  ArticleGenerationQualityAudit,
   ArticleQuestionMaterial,
 } from "@/types"
 import type { QuestionItem } from "@/types/geo-strategy"
@@ -49,18 +54,37 @@ interface BatchListResponse {
   error?: string
 }
 
+interface BatchArticleDetail {
+  id: string
+  title?: string
+  topic: string
+  markdown?: string
+  status: ArticleBatchItemRecord["status"]
+  stage?: string
+  qualityStatus?: ArticleBatchItemRecord["qualityStatus"]
+  qualityAudit?: ArticleGenerationQualityAudit
+  promptTitle?: string
+  model?: string
+  generatedAt?: string
+  error?: string
+}
+
 const TERMINAL_BATCH = new Set(["succeeded", "partial", "failed", "cancelled"])
 
 function statusLabel(item: ArticleBatchItemRecord): string {
   if (item.status === "queued") return "排队中"
   if (item.status === "running") return "生成中"
   if (item.status === "word_processing") return "正在整理文档"
-  if (item.status === "succeeded") return "已完成"
+  if (item.qualityStatus === "review_required" && item.hasDraft) return "待人工复核"
+  if (item.status === "succeeded") return "质检通过"
   if (item.status === "cancelled") return "已停止"
-  return "失败"
+  return item.hasDraft ? "待人工复核" : "生成失败"
 }
 
 function statusClass(item: ArticleBatchItemRecord): string {
+  if (item.qualityStatus === "review_required" && item.hasDraft) {
+    return "bg-amber-50 text-amber-700 ring-amber-200"
+  }
   if (item.status === "succeeded") return "bg-emerald-50 text-emerald-700 ring-emerald-100"
   if (item.status === "failed") return "bg-rose-50 text-rose-700 ring-rose-100"
   if (item.status === "cancelled") return "bg-slate-100 text-slate-500 ring-slate-200"
@@ -110,6 +134,11 @@ export default function ArticleBatchWorkspace({
   const [acting, setActing] = useState(false)
   const [error, setError] = useState("")
   const [completionNotice, setCompletionNotice] = useState("")
+  const [previewItem, setPreviewItem] = useState<ArticleBatchItemRecord | null>(null)
+  const [previewBatchId, setPreviewBatchId] = useState("")
+  const [previewDetail, setPreviewDetail] = useState<BatchArticleDetail | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState("")
   const previousStatuses = useRef<Map<string, ArticleBatchRecord["status"]>>(new Map())
   const initialized = useRef(false)
 
@@ -121,7 +150,7 @@ export default function ArticleBatchWorkspace({
           setCompletionNotice(
             batch.status === "succeeded"
               ? `批量文章已完成：${batch.completedCount} 篇 Word 文档可以下载。`
-              : `批量文章已结束：完成 ${batch.completedCount} 篇，未完成 ${batch.failedCount + batch.cancelledCount} 篇。`,
+              : `批量文章已结束：质检通过 ${batch.passedCount || 0} 篇，待人工复核 ${batch.reviewRequiredCount || 0} 篇，未生成 ${batch.failedCount + batch.cancelledCount} 篇。`,
           )
         }
       }
@@ -164,6 +193,17 @@ export default function ArticleBatchWorkspace({
   }, [hasActiveBatch, loadBatches])
 
   const selectedBatch = batches.find(batch => batch.id === selectedBatchId) || batches[0]
+  const generatedCount = selectedBatch?.items.filter(item => item.hasDraft).length || 0
+  const passedCount = selectedBatch?.passedCount
+    ?? selectedBatch?.items.filter(item => item.qualityStatus === "passed").length
+    ?? 0
+  const reviewRequiredCount = selectedBatch?.reviewRequiredCount
+    ?? selectedBatch?.items.filter(item => item.qualityStatus === "review_required").length
+    ?? 0
+  const previewAudit = previewDetail?.qualityAudit || previewItem?.qualityAudit
+  const previewNeedsReview = (
+    previewDetail?.qualityStatus || previewItem?.qualityStatus
+  ) === "review_required"
   const providedTopicCount = topicLines(customTopics)
   const totalCredits = Math.max(0, perArticleCredits) * count
   const blockedReason = startBlockReason({
@@ -333,6 +373,39 @@ export default function ArticleBatchWorkspace({
     } finally {
       setActing(false)
     }
+  }
+
+  async function openPreview(item: ArticleBatchItemRecord) {
+    if (!selectedBatch || !item.hasDraft) return
+    setPreviewItem(item)
+    setPreviewBatchId(selectedBatch.id)
+    setPreviewDetail(null)
+    setPreviewError("")
+    setPreviewLoading(true)
+    try {
+      const response = await apiFetch(
+        `/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/items/${encodeURIComponent(item.id)}`,
+        { cache: "no-store" },
+      )
+      const detail = await readApiJson<BatchArticleDetail>(response, "文章正文")
+      if (!response.ok) throw new Error(detail.error || "读取文章正文失败")
+      if (!detail.markdown?.trim()) throw new Error("这篇任务没有保存可供复核的正文")
+      setPreviewDetail(detail)
+    } catch (previewFailure) {
+      setPreviewError(toUserFacingError(previewFailure, {
+        fallback: "读取文章正文失败，请稍后重试。",
+        subject: "文章正文",
+      }))
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  function closePreview() {
+    setPreviewItem(null)
+    setPreviewBatchId("")
+    setPreviewDetail(null)
+    setPreviewError("")
   }
 
   return (
@@ -584,7 +657,10 @@ export default function ArticleBatchWorkspace({
               </div>
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span>完成 {selectedBatch.completedCount} · 失败 {selectedBatch.failedCount} · 停止 {selectedBatch.cancelledCount}</span>
+                  <span>
+                    质检通过 {passedCount} · 待人工复核 {reviewRequiredCount}
+                    · 生成失败 {selectedBatch.failedCount} · 停止 {selectedBatch.cancelledCount}
+                  </span>
                   {(selectedBatch.webCompletedCount || 0) > 0 && (
                     <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
                       <Globe2 className="h-3 w-3" />
@@ -597,16 +673,28 @@ export default function ArticleBatchWorkspace({
                     </span>
                   )}
                 </div>
-                {selectedBatch.completedCount > 0 && (
-                  <a
-                    href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download`}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#003EB3] px-3 font-semibold text-white transition hover:bg-[#0958D9]"
-                    title="将当前已完成文章打包为 ZIP 下载"
-                  >
-                    <FileDown className="h-3.5 w-3.5" />
-                    一键下载 {selectedBatch.completedCount} 篇
-                  </a>
-                )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {generatedCount > 0 && (
+                    <a
+                      href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=all`}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#003EB3] px-3 font-semibold text-white transition hover:bg-[#0958D9]"
+                      title="下载全部已生成正文，包含待人工复核文章"
+                    >
+                      <FileDown className="h-3.5 w-3.5" />
+                      下载全部（含待复核）{generatedCount} 篇
+                    </a>
+                  )}
+                  {passedCount > 0 && (
+                    <a
+                      href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=passed`}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 font-semibold text-[#0958D9] transition hover:bg-blue-50"
+                      title="只下载系统质检通过的文章"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      仅下载质检通过 {passedCount} 篇
+                    </a>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -620,7 +708,13 @@ export default function ArticleBatchWorkspace({
                     </div>
                     <div className="mt-1 flex min-w-0 items-center gap-2 text-[10px] text-slate-400">
                       <span className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-medium ring-1 ${statusClass(item)}`}>
-                        {item.status === "succeeded" ? <CheckCircle2 className="h-3 w-3" /> : item.status === "failed" ? <AlertCircle className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
+                        {item.qualityStatus === "review_required" && item.hasDraft
+                          ? <FileWarning className="h-3 w-3" />
+                          : item.status === "succeeded"
+                            ? <CheckCircle2 className="h-3 w-3" />
+                            : item.status === "failed"
+                              ? <AlertCircle className="h-3 w-3" />
+                              : <Clock3 className="h-3 w-3" />}
                         {statusLabel(item)}
                       </span>
                       <span className="truncate" title={item.error || item.stage}>{item.error || item.stage}</span>
@@ -646,15 +740,26 @@ export default function ArticleBatchWorkspace({
                       )}
                     </div>
                   </div>
-                  {item.status === "succeeded" ? (
-                    <a
-                      href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/items/${encodeURIComponent(item.id)}/download`}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 text-[#0958D9] transition hover:bg-blue-50"
-                      title={`下载 ${item.fileName || "Word 文档"}`}
-                      aria-label={`下载第 ${item.position} 篇 Word 文档`}
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                    </a>
+                  {item.hasDraft ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void openPreview(item)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#0958D9]"
+                        title="查看文章正文和质检结果"
+                        aria-label={`查看第 ${item.position} 篇文章`}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                      <a
+                        href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/items/${encodeURIComponent(item.id)}/download`}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 text-[#0958D9] transition hover:bg-blue-50"
+                        title={`下载 ${item.fileName || "Word 文档"}`}
+                        aria-label={`下载第 ${item.position} 篇 Word 文档`}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
                   ) : (
                     <span className="w-8 text-right text-[10px] text-slate-400">{item.progressPercent}%</span>
                   )}
@@ -664,6 +769,121 @@ export default function ArticleBatchWorkspace({
           </>
         )}
       </div>
+
+      {previewItem ? createPortal(
+        <div
+          className="fixed inset-0 z-[130] flex items-end justify-center bg-[#00133F]/60 p-0 backdrop-blur-sm sm:items-center sm:p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-label="查看批量生成文章"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            onClick={closePreview}
+            aria-label="关闭文章预览"
+          />
+          <section className="relative flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden bg-white shadow-2xl sm:rounded-lg">
+            <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-3 sm:px-6">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-base font-semibold text-slate-900">
+                    {previewDetail?.title || previewItem.title || previewItem.topic}
+                  </h2>
+                  <span className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold ring-1 ${
+                    previewNeedsReview
+                      ? "bg-amber-50 text-amber-700 ring-amber-200"
+                      : "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                  }`}>
+                    {previewNeedsReview
+                      ? <FileWarning className="h-3 w-3" />
+                      : <CheckCircle2 className="h-3 w-3" />}
+                    {previewNeedsReview ? "待人工复核" : "质检通过"}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  {previewDetail?.promptTitle || previewItem.promptTitle || selectedBatch?.promptTitle}
+                  {previewDetail?.model ? ` · ${previewDetail.model}` : ""}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closePreview}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                title="关闭"
+                aria-label="关闭文章预览"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+
+            <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-3 py-4 sm:px-6">
+              {previewLoading ? (
+                <div className="flex min-h-72 items-center justify-center text-sm text-slate-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  正在读取文章正文
+                </div>
+              ) : previewError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {previewError}
+                </div>
+              ) : previewDetail?.markdown ? (
+                <div className="space-y-4">
+                  {previewNeedsReview && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+                      <div className="font-semibold">系统质检未通过，请人工确认后使用</div>
+                      <div className="mt-1 text-xs text-amber-700">
+                        正文已完整保留，可以继续查看或下载。系统判断仅作为辅助，不替代人工决策。
+                      </div>
+                    </div>
+                  )}
+
+                  {previewAudit && (
+                    <div className="grid gap-3 border-y border-slate-200 bg-white px-4 py-3 text-xs sm:grid-cols-[120px_minmax(0,1fr)]">
+                      <div>
+                        <div className="text-slate-400">质量评分</div>
+                        <div className="mt-1 text-xl font-semibold text-slate-900">
+                          {previewAudit.semanticScore ?? previewAudit.deterministicScore ?? "-"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400">复核重点</div>
+                        <div className="mt-1 leading-5 text-slate-700">
+                          {previewAudit.issues.length > 0
+                            ? previewAudit.issues.slice(0, 8).join("；")
+                            : "系统未记录额外问题"}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <article className="mx-auto max-w-3xl overflow-hidden bg-white px-5 py-6 text-[15px] leading-8 text-slate-700 shadow-sm ring-1 ring-slate-200 sm:px-9 [&_a]:break-all [&_a]:text-blue-600 [&_blockquote]:border-l-4 [&_blockquote]:border-blue-200 [&_blockquote]:bg-blue-50 [&_blockquote]:px-4 [&_blockquote]:py-2 [&_code]:break-words [&_h1]:mb-5 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-950 [&_h2]:mb-3 [&_h2]:mt-7 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-base [&_h3]:font-bold [&_li]:my-1 [&_ol]:my-4 [&_ol]:pl-6 [&_p]:my-4 [&_pre]:overflow-x-auto [&_pre]:bg-slate-900 [&_pre]:p-4 [&_pre]:text-slate-100 [&_strong]:text-slate-950 [&_table]:my-5 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-blue-50 [&_th]:p-2 [&_ul]:my-4 [&_ul]:pl-6">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {previewDetail.markdown}
+                    </ReactMarkdown>
+                  </article>
+                </div>
+              ) : null}
+            </div>
+
+            <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
+              <span className="text-[11px] text-slate-500">
+                {previewNeedsReview ? "请重点核对事实、品牌信息和发布适配性" : "文章已通过当前质量规则"}
+              </span>
+              {previewBatchId && previewItem.hasDraft && (
+                <a
+                  href={`/api/article-generation/batches/${encodeURIComponent(previewBatchId)}/items/${encodeURIComponent(previewItem.id)}/download`}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#003EB3] px-4 text-xs font-semibold text-white transition hover:bg-[#0958D9]"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  下载这篇 Word
+                </a>
+              )}
+            </footer>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
 
       {completionNotice ? createPortal(
         <div className="fixed bottom-6 right-6 z-[120] max-w-sm rounded-lg border border-emerald-300/70 bg-emerald-600 px-4 py-3 text-sm leading-relaxed text-white shadow-2xl shadow-emerald-300/40" role="status" aria-live="polite">
