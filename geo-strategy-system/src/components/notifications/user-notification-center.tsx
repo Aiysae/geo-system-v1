@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
+  CalendarCheck2,
   CheckCheck,
   CheckCircle2,
   ChevronRight,
@@ -14,9 +15,32 @@ import {
 import type {
   UserNotification,
   UserNotificationSnapshot,
+  UserNotificationType,
 } from "@/lib/admin-payment-request-types"
 
 const POLL_INTERVAL_MS = 20_000
+
+function notificationMeta(type: UserNotificationType) {
+  if (type === "feedback_action_reminder") {
+    return {
+      Icon: CalendarCheck2,
+      iconClass: "bg-cyan-50 text-cyan-700 ring-cyan-200",
+      actionLabel: "去录入",
+    }
+  }
+  if (type === "payment_request_credited") {
+    return {
+      Icon: CheckCircle2,
+      iconClass: "bg-emerald-50 text-emerald-600 ring-emerald-200",
+      actionLabel: "查看到账记录",
+    }
+  }
+  return {
+    Icon: ReceiptText,
+    iconClass: "bg-white text-[#1677FF] ring-[#B7D9FF]",
+    actionLabel: "查看订单",
+  }
+}
 
 export function UserNotificationCenter({
   variant = "light",
@@ -145,7 +169,8 @@ export function UserNotificationCenter({
               ) : (
                 <div className="space-y-2">
                   {snapshot.notifications.map(item => {
-                    const credited = item.type === "payment_request_credited"
+                    const meta = notificationMeta(item.type)
+                    const Icon = meta.Icon
                     return (
                       <Link
                         key={item.id}
@@ -156,8 +181,8 @@ export function UserNotificationCenter({
                         }}
                         className={`group flex min-h-20 items-start gap-3 rounded-lg border px-3 py-3 transition ${item.readAt ? "border-slate-200 bg-white hover:border-[#91CAFF] hover:bg-[#F7FBFF]" : "border-[#91CAFF] bg-[#EEF7FF] hover:bg-[#E5F3FF]"}`}
                       >
-                        <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ${credited ? "bg-emerald-50 text-emerald-600 ring-emerald-200" : "bg-white text-[#1677FF] ring-[#B7D9FF]"}`}>
-                          {credited ? <CheckCircle2 className="h-4 w-4" /> : <ReceiptText className="h-4 w-4" />}
+                        <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ${meta.iconClass}`}>
+                          <Icon className="h-4 w-4" />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-2">
@@ -184,7 +209,11 @@ export function UserNotificationCenter({
           <div className="h-1 bg-gradient-to-r from-[#1677FF] via-[#00C8FF] to-[#13C2C2]" />
           <div className="p-4">
             <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#EAF5FF] text-[#0958D9] ring-1 ring-[#B7DBFF]"><ReceiptText className="h-5 w-5" /></span>
+              {(() => {
+                const meta = notificationMeta(toast.type)
+                const Icon = meta.Icon
+                return <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 ${meta.iconClass}`}><Icon className="h-5 w-5" /></span>
+              })()}
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-slate-900">{toast.title}</div>
                 <div className="mt-1 text-xs leading-5 text-slate-600">{toast.body}</div>
@@ -193,7 +222,7 @@ export function UserNotificationCenter({
             </div>
             <div className="mt-3 flex justify-end gap-2">
               <button type="button" onClick={() => setToast(null)} className="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100">稍后查看</button>
-              <Link href={toast.actionUrl || "/account"} onClick={() => { void markRead([toast.id]); setToast(null) }} className="rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 py-2 text-xs font-semibold text-white">查看订单</Link>
+              <Link href={toast.actionUrl || "/account"} onClick={() => { void markRead([toast.id]); setToast(null) }} className="rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 py-2 text-xs font-semibold text-white">{notificationMeta(toast.type).actionLabel}</Link>
             </div>
           </div>
         </aside>

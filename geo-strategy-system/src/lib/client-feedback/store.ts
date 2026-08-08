@@ -37,6 +37,9 @@ const actionKey = (id: string) => `geo:client-feedback:action:${id}`
 const actionIndexKey = (ownerUserId: string, clientId: string) => (
   `geo:client-feedback:actions:${ownerUserId}:${clientId}`
 )
+const actionDateIndexKey = (ownerUserId: string, clientId: string, date: string) => (
+  `geo:client-feedback:actions-by-date:${ownerUserId}:${clientId}:${date}`
+)
 const actionImportResultKey = (ownerUserId: string, clientId: string, importId: string) => (
   `geo:client-feedback:action-import:${ownerUserId}:${clientId}:${importId}`
 )
@@ -364,6 +367,43 @@ export async function listClientExecutionActions(
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
 }
 
+function actionShanghaiDate(action: Pick<ClientExecutionAction, "occurredAt">): string {
+  return shanghaiDateOnly(new Date(action.occurredAt))
+}
+
+export async function hasClientExecutionActionOnDate(
+  ownerUserId: string,
+  clientId: string,
+  date: string,
+): Promise<boolean> {
+  const safeDate = validActionDateOnly(date)
+  const indexKey = actionDateIndexKey(ownerUserId, clientId, safeDate)
+  const indexedIds = await kv.smembers<string[]>(indexKey)
+  if (indexedIds.length > 0) {
+    const indexedActions = await Promise.all(
+      indexedIds.map(id => kv.get<ClientExecutionAction>(actionKey(id))),
+    )
+    const validIds = indexedActions
+      .filter((action): action is ClientExecutionAction => Boolean(
+        action
+        && action.ownerUserId === ownerUserId
+        && action.clientId === clientId
+        && actionShanghaiDate(action) === safeDate,
+      ))
+      .map(action => action.id)
+    if (validIds.length > 0) return true
+    await kv.del(indexKey)
+  }
+
+  const matching = (await listClientExecutionActions(ownerUserId, clientId))
+    .filter(action => actionShanghaiDate(action) === safeDate)
+  if (matching.length > 0) {
+    await kv.sadd(indexKey, ...matching.map(action => action.id))
+    return true
+  }
+  return false
+}
+
 export async function getClientExecutionAction(
   ownerUserId: string,
   clientId: string,
@@ -390,8 +430,29 @@ export async function saveClientExecutionAction(input: {
   value: Partial<ClientExecutionAction>
 }): Promise<ClientExecutionAction> {
   const action = buildClientExecutionAction(input)
+  const existing = await kv.get<ClientExecutionAction>(actionKey(action.id))
   await kv.set(actionKey(action.id), action)
   await kv.sadd(actionIndexKey(action.ownerUserId, action.clientId), action.id)
+  const nextDate = actionShanghaiDate(action)
+  await kv.sadd(actionDateIndexKey(action.ownerUserId, action.clientId, nextDate), action.id)
+  if (existing) {
+    const previousDate = actionShanghaiDate(existing)
+    if (
+      existing.ownerUserId !== action.ownerUserId
+      || existing.clientId !== action.clientId
+    ) {
+      await kv.srem(actionIndexKey(existing.ownerUserId, existing.clientId), action.id)
+      await kv.srem(
+        actionDateIndexKey(existing.ownerUserId, existing.clientId, previousDate),
+        action.id,
+      )
+    } else if (previousDate !== nextDate) {
+      await kv.srem(
+        actionDateIndexKey(existing.ownerUserId, existing.clientId, previousDate),
+        action.id,
+      )
+    }
+  }
   return action
 }
 
@@ -599,6 +660,14 @@ export async function saveClientExecutionActionBatch(input: {
         actionIndexKey(ownerUserId, clientId),
         ...newActions.map(action => action.id),
       )
+      const actionIdsByDate = new Map<string, string[]>()
+      for (const action of newActions) {
+        const date = actionShanghaiDate(action)
+        actionIdsByDate.set(date, [...(actionIdsByDate.get(date) || []), action.id])
+      }
+      await Promise.all([...actionIdsByDate].map(([date, ids]) => (
+        kv.sadd(actionDateIndexKey(ownerUserId, clientId, date), ...ids)
+      )))
     }
 
     const result: ClientEvidenceImportResult = {
@@ -624,6 +693,10 @@ export async function deleteClientExecutionAction(
   if (!stored || stored.ownerUserId !== ownerUserId || stored.clientId !== clientId) return false
   await kv.del(actionKey(actionId))
   await kv.srem(actionIndexKey(ownerUserId, clientId), actionId)
+  await kv.srem(
+    actionDateIndexKey(ownerUserId, clientId, actionShanghaiDate(stored)),
+    actionId,
+  )
   return true
 }
 
@@ -646,6 +719,14 @@ export async function deleteClientExecutionActionBatch(
     actionIndexKey(owner, client),
     ...actions.map(action => action.id),
   )
+  const actionIdsByDate = new Map<string, string[]>()
+  for (const action of actions) {
+    const date = actionShanghaiDate(action)
+    actionIdsByDate.set(date, [...(actionIdsByDate.get(date) || []), action.id])
+  }
+  await Promise.all([...actionIdsByDate].map(([date, ids]) => (
+    kv.srem(actionDateIndexKey(owner, client, date), ...ids)
+  )))
   return actions.length
 }
 

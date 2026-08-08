@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   ArrowUp,
   CheckCircle2,
+  CircleHelp,
   Cloud,
   CloudOff,
   FileDown,
@@ -311,6 +312,7 @@ export default function Home({
         <div className="relative z-10">
         <StickyHeader
           client={active}
+          helpHref={`/help#module-${activeModule}`}
           onOpenSidebar={() => setSidebarOpen(true)}
           onExportReport={() => {
             void ensureSections(WORKSPACE_SECTIONS).then(fullClient => {
@@ -422,6 +424,7 @@ export default function Home({
 
 function StickyHeader({
   client,
+  helpHref,
   onOpenSidebar,
   onExportReport,
   onOpenReportHistory,
@@ -434,6 +437,7 @@ function StickyHeader({
   userNotifier,
 }: {
   client: Client | null
+  helpHref: string
   onOpenSidebar: () => void
   onExportReport: () => void
   onOpenReportHistory: () => void
@@ -490,6 +494,14 @@ function StickyHeader({
         </div>
 
         <div className="no-print hidden items-center gap-2 lg:flex">
+          <Link
+            href={helpHref}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/8 text-white transition hover:bg-white/14"
+            title="查看当前模块使用说明"
+            aria-label="查看当前模块使用说明"
+          >
+            <CircleHelp className="h-4 w-4" />
+          </Link>
           <Link
             href="/workspace/tutorial?manual=1"
             className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/20 bg-white/8 px-3 text-xs font-semibold text-white transition hover:bg-white/14"
@@ -548,6 +560,14 @@ function StickyHeader({
                   onClick={() => setMobileActionsOpen(false)}
                 />
                 <div className="absolute right-0 top-11 z-50 w-48 overflow-hidden rounded-lg border border-[#C8D7E8] bg-white p-1.5 text-[#38536E] shadow-xl">
+                  <Link
+                    href={helpHref}
+                    onClick={() => setMobileActionsOpen(false)}
+                    className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold hover:bg-[#EEF5FC]"
+                  >
+                    <CircleHelp className="h-4 w-4 text-[#1677FF]" />
+                    当前模块说明
+                  </Link>
                   <Link
                     href="/workspace/tutorial?manual=1"
                     onClick={() => setMobileActionsOpen(false)}

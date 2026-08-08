@@ -17,6 +17,7 @@ export type DurableTaskQueueLane =
   | "penetration"
   | "generation"
   | "utility"
+  | "notifications"
 
 export type DurableTaskPayload = {
   source: DurableTaskSource

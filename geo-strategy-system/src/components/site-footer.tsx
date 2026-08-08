@@ -30,6 +30,10 @@ export default function SiteFooter({ className = "" }: SiteFooterProps) {
             充值规则
           </Link>
           <span className="hidden text-slate-300 sm:inline">|</span>
+          <Link href="/help" className="font-medium text-slate-600 transition hover:text-[#003EB3]">
+            帮助与说明
+          </Link>
+          <span className="hidden text-slate-300 sm:inline">|</span>
           <a
             href="https://beian.miit.gov.cn/"
             target="_blank"
