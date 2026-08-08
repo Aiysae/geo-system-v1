@@ -30,6 +30,11 @@ export async function GET(
       topic: item.topic,
       markdown: item.markdown,
       status: item.status,
+      stage: item.stage,
+      qualityStatus: item.qualityStatus,
+      qualityAudit: item.qualityAudit,
+      promptTitle: item.promptTitle,
+      model: authorized.batch.model,
       generatedAt: item.generatedAt,
     }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {

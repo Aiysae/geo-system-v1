@@ -837,17 +837,6 @@ export async function POST(req: NextRequest) {
         ].filter(Boolean).slice(0, 20),
       }
 
-      if (!finalPassed) {
-        await refundReservedCreditsQuietly(reservation)
-        reservation = null
-        const failureIssues = [
-          ...quality.issues.map(item => item.message),
-          ...(semanticQuality?.issues || []).map(item => item.message),
-        ]
-        return NextResponse.json({
-          error: `文章质量核验未通过：${failureIssues.slice(0, 3).join("；")}。本次积分已退回，请重新生成。`,
-        }, { status: 502 })
-      }
     }
 
     await settleReservedCredits(reservation, cost)
@@ -908,6 +897,9 @@ export async function POST(req: NextRequest) {
         methodologyTrace: methodology.trace,
         connectivity,
         qualityAudit,
+        generationDisposition: qualityAudit?.finalPassed === false
+          ? "review_required"
+          : "passed",
         lineage,
         generatedAt,
       },

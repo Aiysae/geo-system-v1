@@ -16,14 +16,26 @@ function disposition(fileName: string): string {
   return `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`
 }
 
+function csvCell(value: unknown): string {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`
+}
+
+function qualityLabel(value: string | undefined): string {
+  if (value === "passed") return "质检通过"
+  if (value === "review_required") return "待人工复核"
+  if (value === "pending") return "处理中"
+  return "未产生正文"
+}
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ batchId: string }> },
 ) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
     const { batchId } = await context.params
+    const scope = req.nextUrl.searchParams.get("scope") === "all" ? "all" : "passed"
     const authorized = await requireArticleBatchAccess({
       batchId,
       userId: auth.userId,
@@ -32,7 +44,7 @@ export async function GET(
     if (!authorized) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
     const [batch, files] = await Promise.all([
       getArticleBatch(batchId, auth.userId),
-      getArticleBatchDownloadItems(batchId, auth.userId),
+      getArticleBatchDownloadItems(batchId, auth.userId, scope),
     ])
     if (!batch || !files) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
     if (files.length === 0) {
@@ -40,17 +52,36 @@ export async function GET(
     }
 
     const zip = new JSZip()
-    for (const file of files) zip.file(file.fileName, file.buffer)
-    zip.file("生成清单.txt", [
-      `创作类型：${batch.promptTitle}`,
-      `模型：${batch.model || batch.modelProvider}`,
-      `创建时间：${batch.createdAt}`,
-      `已完成：${batch.completedCount}/${batch.requestedCount}`,
-      "",
-      ...files.map(file => `${file.position}. ${file.title}`),
-    ].join("\n"))
+    for (const file of files) {
+      const folder = file.qualityStatus === "review_required" ? "待人工复核" : "质检通过"
+      zip.file(`${folder}/${file.fileName}`, file.buffer)
+    }
+    const manifestItems = scope === "all"
+      ? batch.items
+      : batch.items.filter(item => item.qualityStatus === "passed")
+    const manifestRows = [
+      ["序号", "标题", "状态", "Prompt", "模型", "质量分", "质检说明", "文件名"],
+      ...manifestItems.map(item => {
+        const score = item.qualityAudit?.semanticScore ?? item.qualityAudit?.deterministicScore
+        return [
+          item.position,
+          item.title || item.topic,
+          qualityLabel(item.qualityStatus),
+          item.promptTitle || batch.promptTitle,
+          batch.model || batch.modelProvider,
+          score === undefined ? "" : score,
+          item.qualityAudit?.issues.join("；") || item.error || "",
+          item.fileName || "",
+        ]
+      }),
+    ]
+    zip.file(
+      "文章生成清单.csv",
+      "\uFEFF" + manifestRows.map(row => row.map(csvCell).join(",")).join("\r\n"),
+    )
     const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
-    const fileName = `${sanitizeArticleFileName(batch.promptTitle)}_${batch.completedCount}篇_${new Date().toISOString().slice(0, 10)}.zip`
+    const scopeLabel = scope === "all" ? "全部已生成" : "质检通过"
+    const fileName = `${sanitizeArticleFileName(batch.promptTitle)}_${scopeLabel}${files.length}篇_${new Date().toISOString().slice(0, 10)}.zip`
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": "application/zip",

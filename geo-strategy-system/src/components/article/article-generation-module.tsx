@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import {
+  AlertTriangle,
   Check,
   ExternalLink,
   FileText,
@@ -99,6 +100,7 @@ interface ArticleGenerationResponse {
   lineage?: ArticleGenerationLineage
   connectivity?: ArticleGenerationConnectivity
   qualityAudit?: ArticleGenerationQualityAudit
+  generationDisposition?: "passed" | "review_required"
   error?: string
 }
 
@@ -1699,16 +1701,35 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             perArticleCredits={estimateFeatureCredits(articleFeatureKey)}
           />
         ) : (
-          <ArticleMarkdownWorkspace
-            value={article.output}
-            onChange={value => updateField("output", value)}
-            fileBaseName={buildFileBaseName(client, activePrompt)}
-            title={client.ourBrand || client.name || activePrompt.title || "文章生成"}
-            statusText={article.status === "done" ? "已生成，可编辑、预览、导出或发布" : isRewrite ? "等待改写" : "等待生成"}
-            placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的 Markdown 内容会显示在这里"}
-            publishing={article.publishing}
-            onPublishingChange={updatePublishing}
-          />
+          <div className="min-w-0 space-y-3">
+            {article.status === "done" && article.qualityAudit?.finalPassed === false && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  文章已生成，系统建议人工复核
+                </div>
+                <div className="mt-1 text-xs text-amber-700">
+                  {article.qualityAudit.issues.length > 0
+                    ? article.qualityAudit.issues.slice(0, 5).join("；")
+                    : "请在发布前人工核对事实、品牌信息和内容完整性。"}
+                </div>
+              </div>
+            )}
+            <ArticleMarkdownWorkspace
+              value={article.output}
+              onChange={value => updateField("output", value)}
+              fileBaseName={buildFileBaseName(client, activePrompt)}
+              title={client.ourBrand || client.name || activePrompt.title || "文章生成"}
+              statusText={article.status === "done"
+                ? article.qualityAudit?.finalPassed === false
+                  ? "已生成，等待人工复核；仍可编辑、预览和导出"
+                  : "已生成，可编辑、预览、导出或发布"
+                : isRewrite ? "等待改写" : "等待生成"}
+              placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的 Markdown 内容会显示在这里"}
+              publishing={article.publishing}
+              onPublishingChange={updatePublishing}
+            />
+          </div>
         )}
       </div>
     </div>

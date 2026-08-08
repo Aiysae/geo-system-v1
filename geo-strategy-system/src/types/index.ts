@@ -447,6 +447,12 @@ export type ArticleBatchItemStatus =
   | "failed"
   | "cancelled"
 
+export type ArticleBatchQualityStatus =
+  | "pending"
+  | "passed"
+  | "review_required"
+  | "not_available"
+
 export interface ArticleBatchItemRecord {
   id: string
   position: number
@@ -476,6 +482,8 @@ export interface ArticleBatchItemRecord {
   generationId?: string
   connectivity?: ArticleGenerationConnectivity
   qualityAudit?: ArticleGenerationQualityAudit
+  qualityStatus?: ArticleBatchQualityStatus
+  hasDraft?: boolean
   promptKey?: ArticlePromptKey
   promptTitle?: string
   routeConfidence?: number
@@ -506,6 +514,8 @@ export interface ArticleBatchRecord {
   mixedPrompts?: boolean
   requestedCount: number
   completedCount: number
+  passedCount?: number
+  reviewRequiredCount?: number
   failedCount: number
   cancelledCount: number
   webCompletedCount?: number
