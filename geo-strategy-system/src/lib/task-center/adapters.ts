@@ -341,6 +341,51 @@ export async function syncArticleBatchTask(job: CommonJob & {
   })
 }
 
+export async function syncArticleMediaJobTask(job: CommonJob & {
+  ownerUserId: string
+  workspaceOwnerUserId?: string
+  teamId?: string
+  clientId: string
+  batchId: string
+  requestedCount: number
+  completedCount: number
+  failedCount: number
+  progressPercent: number
+  stage: string
+}): Promise<void> {
+  const status = normalizeStatus(job.status)
+  await syncTaskCenterTask({
+    source: "articleMedia",
+    sourceJobId: job.id,
+    kind: "articleBatchMedia",
+    module: "article",
+    actorUserId: job.ownerUserId,
+    workspaceOwnerUserId: job.workspaceOwnerUserId || job.ownerUserId,
+    clientId: job.clientId,
+    title: `批量文章配图 · ${job.requestedCount} 篇`,
+    status,
+    progressPercent: progress(job.progressPercent),
+    stage: job.stage,
+    error: job.error,
+    resultUrl: workspaceUrl(job.clientId, "article", job.teamId, {
+      view: "batch",
+      jobId: job.batchId,
+    }),
+    canCancel: active(status),
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    metadata: {
+      batchId: job.batchId,
+      requestedCount: job.requestedCount,
+      completedCount: job.completedCount,
+      failedCount: job.failedCount,
+      teamId: job.teamId,
+    },
+  })
+}
+
 export async function syncReportJobTask(job: CommonJob & {
   ownerUserId: string
   actorUserId?: string

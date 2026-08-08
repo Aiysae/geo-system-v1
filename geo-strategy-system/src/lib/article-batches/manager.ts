@@ -26,6 +26,10 @@ import {
   writeArticleDocxArtifact,
 } from "@/lib/article-batches/docx"
 import {
+  getOwnedArticleMediaAsset,
+  readArticleMediaAssetBuffer,
+} from "@/lib/article-media/assets"
+import {
   ARTICLE_SIMILARITY_RETRY_THRESHOLD,
   mostSimilarArticle,
   planArticleBatch,
@@ -840,25 +844,49 @@ export async function getArticleBatchDocx(args: {
   batchId: string
   itemId: string
   ownerUserId: string
+  variant?: "original" | "media"
 }): Promise<{ buffer: Buffer; fileName: string } | null> {
   const batch = await getOwnedStoredArticleBatch(args.batchId, args.ownerUserId)
   const item = batch?.items.find(candidate => candidate.id === args.itemId)
   if (!batch || !item || !isArticleBatchDraftDownloadable(item) || !item.markdown) return null
+  const useMedia = args.variant === "media"
+  if (useMedia && !item.mediaRevision?.markdown) return null
+  const markdown = useMedia ? item.mediaRevision!.markdown : item.markdown
   const artifact = await readArticleDocxArtifact({
     batchId: batch.id,
     itemId: item.id,
     position: item.position,
-    markdown: item.markdown,
+    markdown,
     title: item.title || `${batch.promptTitle}-${item.position}`,
-    fileName: item.fileName,
-    artifactPath: item.artifactPath,
+    fileName: useMedia ? item.mediaFileName : item.fileName,
+    artifactPath: useMedia ? item.mediaArtifactPath : item.artifactPath,
+    variant: useMedia ? "media" : "original",
+    resolveImage: useMedia ? async source => {
+      const match = source.match(/\/api\/article-generation\/assets\/([A-Za-z0-9_-]+)\/content/)
+      if (!match) return null
+      const asset = await getOwnedArticleMediaAsset(match[1], args.ownerUserId)
+      if (!asset) return null
+      return {
+        data: await readArticleMediaAssetBuffer(asset),
+        type: asset.mimeType === "image/png" ? "png" : "jpg",
+        width: asset.width,
+        height: asset.height,
+      }
+    } : undefined,
   })
-  if (item.artifactPath !== artifact.artifactPath || item.fileName !== artifact.fileName) {
+  const currentPath = useMedia ? item.mediaArtifactPath : item.artifactPath
+  const currentName = useMedia ? item.mediaFileName : item.fileName
+  if (currentPath !== artifact.artifactPath || currentName !== artifact.fileName) {
     await mutateStoredArticleBatch(batch.id, current => {
       const currentItem = current.items.find(candidate => candidate.id === item.id)
       if (!currentItem) return
-      currentItem.artifactPath = artifact.artifactPath
-      currentItem.fileName = artifact.fileName
+      if (useMedia) {
+        currentItem.mediaArtifactPath = artifact.artifactPath
+        currentItem.mediaFileName = artifact.fileName
+      } else {
+        currentItem.artifactPath = artifact.artifactPath
+        currentItem.fileName = artifact.fileName
+      }
       currentItem.updatedAt = nowIso()
     })
   }
@@ -878,17 +906,19 @@ export async function getArticleBatchDownloadItems(
   batchId: string,
   ownerUserId: string,
   scope: "all" | "passed" = "passed",
+  variant: "original" | "media" = "original",
 ): Promise<ArticleBatchDownloadItem[] | null> {
   const batch = await getOwnedStoredArticleBatch(batchId, ownerUserId)
   if (!batch) return null
   const completed = batch.items.filter(item => (
     isArticleBatchDraftDownloadable(item)
     && item.markdown
+    && (variant === "original" || Boolean(item.mediaRevision?.markdown))
     && (scope === "all" || isArticleBatchQualityPassed(item))
   ))
   const files: ArticleBatchDownloadItem[] = []
   for (const item of completed) {
-    const file = await getArticleBatchDocx({ batchId, itemId: item.id, ownerUserId })
+    const file = await getArticleBatchDocx({ batchId, itemId: item.id, ownerUserId, variant })
     if (!file) continue
     files.push({
       itemId: item.id,

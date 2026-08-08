@@ -15,13 +15,14 @@ function disposition(fileName: string): string {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ batchId: string; itemId: string }> },
 ) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
     const { batchId, itemId } = await context.params
+    const variant = req.nextUrl.searchParams.get("variant") === "media" ? "media" : "original"
     const authorized = await requireArticleBatchAccess({
       batchId,
       userId: auth.userId,
@@ -34,6 +35,7 @@ export async function GET(
       batchId,
       itemId,
       ownerUserId: auth.userId,
+      variant,
     })
     if (!file) {
       return NextResponse.json({ error: "Word 文档不存在或尚未生成" }, { status: 404 })

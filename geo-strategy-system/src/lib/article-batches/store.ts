@@ -14,6 +14,7 @@ import type {
   ArticleBatchRecord,
   ArticleGenerationState,
   ArticleGenerationLineage,
+  ArticleMediaRevision,
   ClientKnowledgeBase,
   ArticleModelProviderKey,
   ArticlePromptKey,
@@ -49,6 +50,9 @@ export interface StoredArticleBatchItem extends ArticleBatchItemRecord {
   markdown?: string
   fallbackMarkdown?: string
   artifactPath?: string
+  mediaRevision?: ArticleMediaRevision
+  mediaArtifactPath?: string
+  mediaFileName?: string
   lineage?: ArticleGenerationLineage
 }
 
@@ -185,6 +189,9 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
     error: item.error,
     attempt: item.attempt,
     similarityScore: item.similarityScore,
+    hasMediaVersion: Boolean(item.mediaRevision?.markdown && item.mediaRevision.placements.length > 0),
+    mediaImageCount: item.mediaRevision?.placements.length || 0,
+    mediaUpdatedAt: item.mediaRevision?.updatedAt,
     generatedAt: item.generatedAt,
     updatedAt: item.updatedAt,
   }

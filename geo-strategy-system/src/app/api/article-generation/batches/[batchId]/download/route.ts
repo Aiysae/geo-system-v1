@@ -3,6 +3,15 @@ import JSZip from "jszip"
 import { getArticleBatch, getArticleBatchDownloadItems } from "@/lib/article-batches/manager"
 import { sanitizeArticleFileName } from "@/lib/article-batches/docx"
 import {
+  getOwnedArticleMediaAssets,
+  readArticleMediaAssetBuffer,
+} from "@/lib/article-media/assets"
+import {
+  articleMediaAssetIds,
+  replaceArticleMediaUrls,
+} from "@/lib/article-media/markdown"
+import { renderStandaloneArticleHtml } from "@/lib/article-media/export"
+import {
   isTeamAccessError,
   requireArticleBatchAccess,
 } from "@/lib/article-batches/access"
@@ -36,6 +45,7 @@ export async function GET(
   try {
     const { batchId } = await context.params
     const scope = req.nextUrl.searchParams.get("scope") === "all" ? "all" : "passed"
+    const variant = req.nextUrl.searchParams.get("variant") === "media" ? "media" : "original"
     const authorized = await requireArticleBatchAccess({
       batchId,
       userId: auth.userId,
@@ -44,23 +54,23 @@ export async function GET(
     if (!authorized) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
     const [batch, files] = await Promise.all([
       getArticleBatch(batchId, auth.userId),
-      getArticleBatchDownloadItems(batchId, auth.userId, scope),
+      getArticleBatchDownloadItems(batchId, auth.userId, scope, variant),
     ])
     if (!batch || !files) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
     if (files.length === 0) {
-      return NextResponse.json({ error: "当前还没有可下载的 Word 文档" }, { status: 409 })
+      return NextResponse.json({ error: variant === "media" ? "当前还没有可下载的图文版本" : "当前还没有可下载的 Word 文档" }, { status: 409 })
     }
 
     const zip = new JSZip()
     for (const file of files) {
       const folder = file.qualityStatus === "review_required" ? "待人工复核" : "质检通过"
-      zip.file(`${folder}/${file.fileName}`, file.buffer)
+      zip.file(`${variant === "media" ? "Word图文成品/" : ""}${folder}/${file.fileName}`, file.buffer)
     }
     const manifestItems = scope === "all"
       ? batch.items
       : batch.items.filter(item => item.qualityStatus === "passed")
     const manifestRows = [
-      ["序号", "标题", "状态", "Prompt", "模型", "质量分", "质检说明", "文件名"],
+      ["序号", "标题", "状态", "Prompt", "模型", "质量分", "质检说明", "插图数", "文件名"],
       ...manifestItems.map(item => {
         const score = item.qualityAudit?.semanticScore ?? item.qualityAudit?.deterministicScore
         return [
@@ -71,6 +81,7 @@ export async function GET(
           batch.model || batch.modelProvider,
           score === undefined ? "" : score,
           item.qualityAudit?.issues.join("；") || item.error || "",
+          item.mediaImageCount || 0,
           item.fileName || "",
         ]
       }),
@@ -79,8 +90,42 @@ export async function GET(
       "文章生成清单.csv",
       "\uFEFF" + manifestRows.map(row => row.map(csvCell).join(",")).join("\r\n"),
     )
+
+    if (variant === "media") {
+      const storedItems = authorized.batch.items.filter(item => (
+        Boolean(item.mediaRevision?.markdown)
+        && (scope === "all" || item.qualityStatus === "passed")
+      ))
+      const assetIds = [...new Set(storedItems.flatMap(item => (
+        articleMediaAssetIds(item.mediaRevision?.markdown || "")
+      )))]
+      const assets = await getOwnedArticleMediaAssets(assetIds, auth.userId)
+      const assetPaths = new Map<string, string>()
+      for (const asset of assets) {
+        const fileName = `${asset.id.slice(-10)}_${sanitizeArticleFileName(asset.fileName, "配图")}`
+        const relativePath = `images/${fileName}`
+        assetPaths.set(asset.id, relativePath)
+        zip.file(relativePath, await readArticleMediaAssetBuffer(asset))
+      }
+      for (const item of storedItems) {
+        const baseName = `${String(item.position).padStart(2, "0")}_${sanitizeArticleFileName(item.title || item.topic)}`
+        const offlineMarkdown = replaceArticleMediaUrls(
+          item.mediaRevision?.markdown || "",
+          assetId => `../${assetPaths.get(assetId) || `images/${assetId}.jpg`}`,
+        )
+        zip.file(`Markdown图文成品/${baseName}.md`, offlineMarkdown)
+        zip.file(`HTML图文成品/${baseName}.html`, renderStandaloneArticleHtml({
+          title: item.title || item.topic,
+          markdown: offlineMarkdown,
+        }))
+      }
+      zip.file(
+        "图文成品使用说明.txt",
+        "Word图文成品可直接查看和编辑；HTML图文成品可在浏览器离线打开；Markdown图文成品需与 images 文件夹保持当前相对位置。\r\n原始无图文章仍保留在系统中，可随时重新下载。",
+      )
+    }
     const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
-    const scopeLabel = scope === "all" ? "全部已生成" : "质检通过"
+    const scopeLabel = `${scope === "all" ? "全部已生成" : "质检通过"}${variant === "media" ? "_图文成品" : ""}`
     const fileName = `${sanitizeArticleFileName(batch.promptTitle)}_${scopeLabel}${files.length}篇_${new Date().toISOString().slice(0, 10)}.zip`
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

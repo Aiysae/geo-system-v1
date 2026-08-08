@@ -13,6 +13,7 @@ export type TaskCenterSource =
   | "difficulty"
   | "question"
   | "articleBatch"
+  | "articleMedia"
   | "report"
 
 export type TaskCenterStatus =

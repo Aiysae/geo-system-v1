@@ -8,6 +8,7 @@ import {
   Document,
   ExternalHyperlink,
   HeadingLevel,
+  ImageRun,
   LevelFormat,
   Packer,
   Paragraph,
@@ -19,6 +20,17 @@ import {
   WidthType,
   type IParagraphOptions,
 } from "docx"
+
+export type ArticleDocxImage = {
+  data: Buffer
+  type: "jpg" | "png"
+  width: number
+  height: number
+}
+
+export type ArticleDocxImageResolver = (
+  source: string,
+) => Promise<ArticleDocxImage | null>
 
 const BODY_FONT = "Microsoft YaHei"
 const BODY_COLOR = "1F2937"
@@ -130,7 +142,10 @@ function parseTable(lines: string[]): Table {
   })
 }
 
-function markdownChildren(markdown: string): Array<Paragraph | Table> {
+async function markdownChildren(
+  markdown: string,
+  resolveImage?: ArticleDocxImageResolver,
+): Promise<Array<Paragraph | Table>> {
   const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n")
   const children: Array<Paragraph | Table> = []
   let inCode = false
@@ -176,6 +191,42 @@ function markdownChildren(markdown: string): Array<Paragraph | Table> {
     if (!line.trim()) {
       if (children.length > 0) children.push(new Paragraph({ spacing: { after: 60 } }))
       continue
+    }
+    if (/^<!--\s*shitu-article-media:[^>]+-->$/.test(line.trim())) continue
+
+    const image = line.trim().match(/^!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)$/)
+    if (image && resolveImage) {
+      const resolved = await resolveImage(image[2])
+      if (resolved) {
+        const maxWidth = 620
+        const scale = Math.min(1, maxWidth / Math.max(1, resolved.width))
+        children.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 140, after: image[1] ? 70 : 180 },
+          children: [new ImageRun({
+            data: resolved.data,
+            type: resolved.type,
+            transformation: {
+              width: Math.max(1, Math.round(resolved.width * scale)),
+              height: Math.max(1, Math.round(resolved.height * scale)),
+            },
+          })],
+        }))
+        if (image[1]) {
+          children.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 180, line: 280 },
+            children: [new TextRun({
+              text: image[1],
+              font: BODY_FONT,
+              size: 18,
+              color: "64748B",
+              italics: true,
+            })],
+          }))
+        }
+        continue
+      }
     }
     if (/^---+$/.test(line.trim())) {
       children.push(new Paragraph({
@@ -229,7 +280,11 @@ function markdownChildren(markdown: string): Array<Paragraph | Table> {
   return children
 }
 
-export async function buildArticleDocxBuffer(markdown: string, title: string): Promise<Buffer> {
+export async function buildArticleDocxBuffer(
+  markdown: string,
+  title: string,
+  resolveImage?: ArticleDocxImageResolver,
+): Promise<Buffer> {
   const document = new Document({
     creator: "势途 GEO 全链路操作工具",
     title,
@@ -292,16 +347,16 @@ export async function buildArticleDocxBuffer(markdown: string, title: string): P
           margin: { top: 1100, right: 1100, bottom: 1100, left: 1100 },
         },
       },
-      children: markdownChildren(markdown),
+      children: await markdownChildren(markdown, resolveImage),
     }],
   })
   return Packer.toBuffer(document)
 }
 
-function safeArtifactPath(batchId: string, itemId: string): string {
+function safeArtifactPath(batchId: string, itemId: string, variant: "original" | "media" = "original"): string {
   const safeBatch = batchId.replace(/[^A-Za-z0-9_-]/g, "")
   const safeItem = itemId.replace(/[^A-Za-z0-9_-]/g, "")
-  return path.join(artifactRoot(), safeBatch, `${safeItem}.docx`)
+  return path.join(artifactRoot(), safeBatch, `${safeItem}${variant === "media" ? ".media" : ""}.docx`)
 }
 
 export async function writeArticleDocxArtifact(args: {
@@ -310,11 +365,14 @@ export async function writeArticleDocxArtifact(args: {
   position: number
   markdown: string
   title: string
+  variant?: "original" | "media"
+  resolveImage?: ArticleDocxImageResolver
 }): Promise<{ artifactPath: string; fileName: string; buffer: Buffer }> {
   const title = extractArticleTitle(args.markdown, args.title)
-  const fileName = `${String(args.position).padStart(2, "0")}_${sanitizeArticleFileName(title)}.docx`
-  const artifactPath = safeArtifactPath(args.batchId, args.itemId)
-  const buffer = await buildArticleDocxBuffer(args.markdown, title)
+  const suffix = args.variant === "media" ? "_图文版" : ""
+  const fileName = `${String(args.position).padStart(2, "0")}_${sanitizeArticleFileName(title)}${suffix}.docx`
+  const artifactPath = safeArtifactPath(args.batchId, args.itemId, args.variant)
+  const buffer = await buildArticleDocxBuffer(args.markdown, title, args.resolveImage)
   await fs.mkdir(path.dirname(artifactPath), { recursive: true })
   const tempPath = `${artifactPath}.${process.pid}.${Date.now()}.tmp`
   await fs.writeFile(tempPath, buffer)
@@ -330,14 +388,16 @@ export async function readArticleDocxArtifact(args: {
   title: string
   fileName?: string
   artifactPath?: string
+  variant?: "original" | "media"
+  resolveImage?: ArticleDocxImageResolver
 }): Promise<{ buffer: Buffer; fileName: string; artifactPath: string }> {
-  const expectedPath = safeArtifactPath(args.batchId, args.itemId)
+  const expectedPath = safeArtifactPath(args.batchId, args.itemId, args.variant)
   if (args.artifactPath === expectedPath) {
     try {
       const buffer = await fs.readFile(/*turbopackIgnore: true*/ expectedPath)
       return {
         buffer,
-        fileName: args.fileName || `${String(args.position).padStart(2, "0")}_${sanitizeArticleFileName(args.title)}.docx`,
+        fileName: args.fileName || `${String(args.position).padStart(2, "0")}_${sanitizeArticleFileName(args.title)}${args.variant === "media" ? "_图文版" : ""}.docx`,
         artifactPath: expectedPath,
       }
     } catch {

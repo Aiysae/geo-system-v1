@@ -453,6 +453,71 @@ export type ArticleBatchQualityStatus =
   | "review_required"
   | "not_available"
 
+export type ArticleMediaTemplateKey = "opening" | "standard" | "rich"
+
+export type ArticleMediaMappingMode = "round_robin" | "same_set" | "per_article"
+
+export interface ArticleMediaAssetRecord {
+  id: string
+  clientId: string
+  batchId?: string
+  originalName: string
+  fileName: string
+  mimeType: "image/jpeg" | "image/png"
+  sizeBytes: number
+  width: number
+  height: number
+  createdAt: string
+}
+
+export interface ArticleMediaPlacement {
+  assetId: string
+  alt: string
+  anchor: "opening" | "section" | "conclusion"
+  blockIndex: number
+}
+
+export interface ArticleMediaRevision {
+  id: string
+  version: 1
+  sourceHash: string
+  markdown: string
+  template: ArticleMediaTemplateKey
+  mappingMode: ArticleMediaMappingMode
+  assetIds: string[]
+  placements: ArticleMediaPlacement[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type ArticleMediaJobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "cancelled"
+
+export interface ArticleMediaJobRecord {
+  id: string
+  batchId: string
+  clientId: string
+  requestId: string
+  status: ArticleMediaJobStatus
+  template: ArticleMediaTemplateKey
+  mappingMode: ArticleMediaMappingMode
+  requestedCount: number
+  completedCount: number
+  failedCount: number
+  progressPercent: number
+  stage: string
+  error?: string
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  finishedAt?: string
+}
+
 export interface ArticleBatchItemRecord {
   id: string
   position: number
@@ -497,6 +562,9 @@ export interface ArticleBatchItemRecord {
   error?: string
   attempt: number
   similarityScore?: number
+  hasMediaVersion?: boolean
+  mediaImageCount?: number
+  mediaUpdatedAt?: string
   generatedAt?: string
   updatedAt: string
 }
