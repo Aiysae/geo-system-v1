@@ -22,7 +22,9 @@ async function authorizeJob(input: {
     userId: input.userId,
     clientId: job.clientId,
     module: moduleForBackgroundJob(job.kind),
-    action: input.action,
+    action: job.kind === "knowledgeImport"
+      ? input.action === "view" ? "view" : "edit"
+      : input.action,
   })
   if (!access.ok) {
     return {

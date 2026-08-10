@@ -121,6 +121,20 @@ Users can manage the structured knowledge base from **My Account > My Clients**.
 Team-shared records use the existing module permissions and optimistic workspace
 versions, preventing a stale device from silently overwriting a newer edit.
 
+The batch importer accepts Word, Excel, CSV, PDF, text, Markdown, and image
+files. Originals are kept in private server storage; extraction produces review
+candidates and never writes directly into generation data. Exact duplicates,
+same-topic conflicts, subject mismatches, and instruction-like text are marked
+before approval. Approved candidates are versioned with their source file and
+locator. Article compilation then selects only related, reviewed facts under a
+format-specific item and character budget; comparison data stays excluded unless
+the chosen article format explicitly supports comparisons.
+
+Production should set `KNOWLEDGE_IMPORT_STORE=postgres` and place
+`KNOWLEDGE_IMPORT_FILES_DIR` on a private, backed-up directory writable only by
+the application user. Set `GEO_KNOWLEDGE_RETRIEVAL_VERSION=legacy` only as a
+temporary rollback for the previous broad retrieval behavior.
+
 Set `GEO_METHODOLOGY_VERSION=legacy` and restart the web and worker processes to
 restore the previous long-form prompts during an emergency rollback. The
 short-video script template and article rewrite flow remain outside this

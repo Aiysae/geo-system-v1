@@ -204,6 +204,7 @@ function resolveTask(kind: BackgroundJobKind, payload: unknown): TaskDefinition 
       }
     }
     case "keywordExtract":
+    case "knowledgeImport":
       return {
         endpoint: "/api/geo-strategy/extract",
         featureKey: "keywordExtract",
@@ -696,6 +697,7 @@ export function isBackgroundJobKind(value: unknown): value is BackgroundJobKind 
     "diagnosis",
     "competitorCompare",
     "keywordExtract",
+    "knowledgeImport",
     "keywordAdvantages",
     "keywordStrategy",
     "keywordWebsitePrompt",

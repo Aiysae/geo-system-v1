@@ -172,6 +172,9 @@ export interface GeoKnowledgeAsset {
   aliases?: string[]
   subjectName?: string
   occurredAt?: string
+  sourceFileName?: string
+  sourceLocator?: string
+  importJobId?: string
   updatedAt: string
 }
 
@@ -215,6 +218,9 @@ export interface ArticleMethodologyTrace {
   knowledgeClaimIds?: string[]
   knowledgeSourceIds?: string[]
   knowledgeBaseRevision?: number
+  knowledgeRetrievalVersion?: string
+  knowledgeContextChars?: number
+  knowledgeCandidateCount?: number
   resolutionNotes?: string[]
   compiledAt: string
 }

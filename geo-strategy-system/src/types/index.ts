@@ -38,6 +38,13 @@ export type {
 } from "./agent"
 
 export type {
+  KnowledgeImportCandidate,
+  KnowledgeImportFileRecord,
+  KnowledgeImportRecord,
+  KnowledgeImportStatus,
+} from "./knowledge-import"
+
+export type {
   ArticleMethodologySelection,
   ArticleMethodologyTrace,
   ClientKnowledgeBase,
@@ -298,6 +305,7 @@ export type BackgroundJobKind =
   | "diagnosis"
   | "competitorCompare"
   | "keywordExtract"
+  | "knowledgeImport"
   | "keywordAdvantages"
   | "keywordStrategy"
   | "keywordWebsitePrompt"

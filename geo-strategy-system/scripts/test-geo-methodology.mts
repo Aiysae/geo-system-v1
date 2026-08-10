@@ -26,9 +26,11 @@ const {
 } = require("../src/lib/geo-methodology/readiness.ts") as typeof ReadinessModule
 const {
   getKnowledgeBaseHealth,
+  buildKnowledgeContext,
   mergeExtractedProfileIntoKnowledgeBase,
   normalizeClientKnowledgeBase,
   selectKnowledgeAssets,
+  selectKnowledgeAssetsWithTrace,
 } = require("../src/lib/client-knowledge-base.ts") as typeof KnowledgeModule
 const {
   GEO_CONTENT_RECIPES,
@@ -120,6 +122,60 @@ assert.deepEqual(
   selectKnowledgeAssets({ knowledgeBase: filteredKnowledge, query: "报告事实" }).map(item => item.id),
   ["legacy_asset"],
 )
+
+const noisyKnowledge = normalizeClientKnowledgeBase({
+  ...knowledgeBase,
+  assets: [
+    ...knowledgeBase.assets,
+    ...Array.from({ length: 18 }, (_, index) => ({
+      id: `unrelated_${index}`,
+      kind: "advantage",
+      title: `无关餐饮资料 ${index + 1}`,
+      content: "火锅底料供应和门店菜单信息，与企业内容服务无关。".repeat(60),
+      evidenceLevel: "primary",
+      status: "provided",
+      sourceUrls: [],
+      tags: ["餐饮"],
+      subjectName: "测试品牌",
+      updatedAt: "2026-08-01T00:00:00.000Z",
+    })),
+    {
+      id: "competitor_private",
+      kind: "competitor",
+      title: "竞品乙",
+      content: "竞品乙的服务说明",
+      evidenceLevel: "context",
+      status: "provided",
+      sourceUrls: [],
+      tags: ["竞品"],
+      subjectName: "测试品牌",
+      updatedAt: "2026-08-01T00:00:00.000Z",
+    },
+  ],
+}, { subjectType: "brand", subjectName: "测试品牌" })
+const focusedSelection = selectKnowledgeAssetsWithTrace({
+  knowledgeBase: noisyKnowledge,
+  query: "企业内容服务的认证怎么核验",
+  preferredKinds: ["credential"],
+  articleFormat: "directAnswerGuide",
+})
+assert.ok(focusedSelection.assets.length <= 5)
+assert.ok(focusedSelection.assets.some(item => item.kind === "credential"))
+assert.ok(!focusedSelection.assets.some(item => item.id.startsWith("unrelated_")))
+assert.ok(!focusedSelection.assets.some(item => item.kind === "competitor"))
+assert.ok(buildKnowledgeContext(
+  focusedSelection.assets,
+  noisyKnowledge,
+  focusedSelection.policy,
+).length <= focusedSelection.policy.maxContextChars)
+
+const comparisonSelection = selectKnowledgeAssetsWithTrace({
+  knowledgeBase: noisyKnowledge,
+  query: "测试品牌和竞品乙的服务对比",
+  articleFormat: "neutralComparisonReview",
+  allowCompetitors: true,
+})
+assert.ok(comparisonSelection.assets.some(item => item.id === "competitor_private"))
 
 const questionMetadata = classifyQuestionMethodology({
   category: "采购决策型",
