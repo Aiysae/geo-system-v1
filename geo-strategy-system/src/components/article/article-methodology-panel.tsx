@@ -250,7 +250,7 @@ export default function ArticleMethodologyPanel({
         </span>
         <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
           <Database className="h-3 w-3 text-[#1677FF]" />
-          已同步 {knowledgeAssetCount} 条客户资料
+          资料库 {knowledgeAssetCount} 条，本篇按主题匹配
         </span>
         <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
           <Sparkles className="h-3 w-3 text-cyan-500" />

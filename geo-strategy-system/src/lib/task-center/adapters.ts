@@ -27,6 +27,7 @@ const BACKGROUND_CONFIG: Record<string, {
   diagnosis: { module: "diagnosis", title: "AI 网站诊断" },
   competitorCompare: { module: "research", title: "竞品对比分析" },
   keywordExtract: { module: "keyword", title: "关键词提取" },
+  knowledgeImport: { module: "article", title: "客户资料导入" },
   keywordAdvantages: { module: "keyword", title: "核心优势提炼" },
   keywordStrategy: { module: "keyword", title: "关键词策略生成" },
   keywordWebsitePrompt: { module: "keyword", title: "第三方网站 Prompt 生成" },
@@ -70,6 +71,7 @@ function workspaceUrl(
 }
 
 function backgroundResultView(kind: string): string {
+  if (kind === "knowledgeImport") return "knowledge"
   if (kind === "keywordExtract" || kind === "keywordAdvantages") return "extraction"
   if (kind === "keywordStrategy" || kind === "keywordWebsitePrompt") return "strategy"
   if (kind === "queryGeneration") return "questions"

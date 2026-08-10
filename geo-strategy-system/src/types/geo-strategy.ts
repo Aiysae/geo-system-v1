@@ -105,6 +105,9 @@ export interface ExtractedKnowledgeAsset {
   source_urls: string[]
   tags?: string[]
   occurred_at?: string
+  source_file?: string
+  source_locator?: string
+  subject_name?: string
 }
 
 /** 可编辑的条目 */

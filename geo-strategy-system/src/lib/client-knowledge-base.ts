@@ -9,6 +9,7 @@ import type {
   GeoKnowledgeEntityType,
   GeoKnowledgeSource,
   GeoKnowledgeSourceKind,
+  GeoArticleFormatKey,
 } from "@/types/geo-methodology"
 import type { AnalysisSubjectType } from "@/types"
 import type { ExtractedItem, ExtractedProfile } from "@/types/geo-strategy"
@@ -131,6 +132,9 @@ function normalizeAsset(value: unknown, index: number, now: string): GeoKnowledg
     aliases: list(input.aliases, 30, 160),
     subjectName: clean(input.subjectName, 200) || undefined,
     occurredAt: clean(input.occurredAt, 80) || undefined,
+    sourceFileName: clean(input.sourceFileName, 300) || undefined,
+    sourceLocator: clean(input.sourceLocator, 300) || undefined,
+    importJobId: clean(input.importJobId, 160) || undefined,
     updatedAt: validIso(input.updatedAt) || now,
   }
 }
@@ -455,6 +459,8 @@ export function mergeExtractedProfileIntoKnowledgeBase(args: {
       tags: list(source.tags, 30, 120),
       subjectName: args.subjectName,
       occurredAt: clean(source.occurred_at, 80) || undefined,
+      sourceFileName: clean(source.source_file, 300) || undefined,
+      sourceLocator: clean(source.source_locator, 300) || undefined,
       updatedAt: now,
     })
   }
@@ -499,6 +505,112 @@ function tokenSet(value: string): Set<string> {
     tokens.add(normalized.slice(index, index + 2))
   }
   return tokens
+}
+
+export const KNOWLEDGE_RETRIEVAL_VERSION = "shitu-knowledge-retrieval-v3"
+
+export interface KnowledgeRetrievalPolicy {
+  version: typeof KNOWLEDGE_RETRIEVAL_VERSION
+  limit: number
+  maxContextChars: number
+  maxAssetChars: number
+  minimumSemanticScore: number
+  allowCompetitors: boolean
+  kindCaps: Partial<Record<GeoKnowledgeAssetKind, number>>
+}
+
+export interface KnowledgeSelectionResult {
+  assets: GeoKnowledgeAsset[]
+  policy: KnowledgeRetrievalPolicy
+  candidateCount: number
+  estimatedContextChars: number
+}
+
+const COMPARISON_FORMATS = new Set<GeoArticleFormatKey>([
+  "recommendationRoundup",
+  "fieldReviewQa",
+  "tieredEvaluation",
+  "neutralComparisonReview",
+])
+
+export function knowledgeRetrievalPolicy(args: {
+  articleFormat?: GeoArticleFormatKey
+  allowCompetitors?: boolean
+} = {}): KnowledgeRetrievalPolicy {
+  const articleFormat = args.articleFormat || "directAnswerGuide"
+  const isWhitepaper = articleFormat === "industryWhitepaper"
+  const isEvidenceHeavy = [
+    "primaryEvidenceDossier",
+    "evidenceCaseStory",
+    "entityKnowledgeProfile",
+    ...COMPARISON_FORMATS,
+  ].includes(articleFormat)
+  const limit = isWhitepaper ? 10 : isEvidenceHeavy ? 8 : 5
+  return {
+    version: KNOWLEDGE_RETRIEVAL_VERSION,
+    limit,
+    maxContextChars: isWhitepaper ? 7_000 : isEvidenceHeavy ? 5_000 : 2_800,
+    maxAssetChars: isWhitepaper ? 1_600 : isEvidenceHeavy ? 1_200 : 900,
+    minimumSemanticScore: 2,
+    allowCompetitors: args.allowCompetitors === true && COMPARISON_FORMATS.has(articleFormat),
+    kindCaps: {
+      identity: 1,
+      product: 2,
+      service: 2,
+      advantage: 2,
+      credential: 2,
+      report: 2,
+      case: 2,
+      quote: 1,
+      pricing: 1,
+      media: 1,
+      competitor: COMPARISON_FORMATS.has(articleFormat) ? 4 : 0,
+      boundary: 1,
+      other: 1,
+    },
+  }
+}
+
+function semanticOverlapScore(asset: GeoKnowledgeAsset, queryTokens: Set<string>): number {
+  const titleTokens = tokenSet(asset.title)
+  const bodyTokens = tokenSet([
+    asset.content,
+    asset.tags.join(" "),
+    ...(asset.aliases || []),
+  ].join(" "))
+  let score = 0
+  for (const token of queryTokens) {
+    if (titleTokens.has(token)) score += 3
+    if (bodyTokens.has(token)) score += 1
+  }
+  if (/(?:与.{0,30})?(?:无关|不相关|不适用|不属于当前)/.test(`${asset.title}\n${asset.content}`)) {
+    score -= 12
+  }
+  return score
+}
+
+function normalizedSubject(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase("zh-CN").replace(/[^\u4e00-\u9fa5a-z0-9]+/gi, "")
+}
+
+function belongsToKnowledgeSubject(
+  asset: GeoKnowledgeAsset,
+  knowledgeBase: ClientKnowledgeBase,
+): boolean {
+  if (!asset.subjectName) return true
+  const allowed = new Set([
+    knowledgeBase.subjectName,
+    ...knowledgeBase.aliases,
+  ].map(normalizedSubject).filter(Boolean))
+  return allowed.has(normalizedSubject(asset.subjectName))
+}
+
+function assetContextCost(asset: GeoKnowledgeAsset, maxAssetChars: number): number {
+  return asset.title.length
+    + Math.min(asset.content.length, maxAssetChars)
+    + asset.tags.join("").length
+    + asset.sourceUrls.join("").length
+    + 180
 }
 
 function overlapScore(
@@ -548,6 +660,88 @@ export function selectKnowledgeAssets(args: {
   preferredKinds?: GeoKnowledgeAssetKind[]
   assetIds?: string[]
   limit?: number
+  articleFormat?: GeoArticleFormatKey
+  allowCompetitors?: boolean
+}): GeoKnowledgeAsset[] {
+  return selectKnowledgeAssetsWithTrace(args).assets
+}
+
+export function selectKnowledgeAssetsWithTrace(args: {
+  knowledgeBase?: ClientKnowledgeBase
+  query: string
+  preferredKinds?: GeoKnowledgeAssetKind[]
+  assetIds?: string[]
+  limit?: number
+  articleFormat?: GeoArticleFormatKey
+  allowCompetitors?: boolean
+}): KnowledgeSelectionResult {
+  const policy = knowledgeRetrievalPolicy({
+    articleFormat: args.articleFormat,
+    allowCompetitors: args.allowCompetitors,
+  })
+  if (!args.knowledgeBase) {
+    return { assets: [], policy, candidateCount: 0, estimatedContextChars: 0 }
+  }
+  const queryTokens = tokenSet(args.query)
+  const preferred = new Set(args.preferredKinds || [])
+  const requestedIds = new Set(args.assetIds || [])
+  const subjectTerms = tokenSet([
+    args.knowledgeBase.subjectName,
+    ...args.knowledgeBase.aliases,
+  ].join(" "))
+  const limit = Math.max(1, Math.min(30, args.limit || policy.limit))
+  const ranked = args.knowledgeBase.assets
+    .filter(asset => !["archived", "expired", "conflicted", "pendingReview"].includes(asset.status))
+    .filter(asset => asset.kind !== "competitor" || policy.allowCompetitors)
+    .filter(asset => asset.kind === "competitor"
+      || belongsToKnowledgeSubject(asset, args.knowledgeBase as ClientKnowledgeBase))
+    .map(asset => {
+      const semanticScore = semanticOverlapScore(asset, queryTokens)
+      return {
+        asset,
+        semanticScore,
+        score: semanticScore * 4
+          + overlapScore(asset, queryTokens, subjectTerms)
+          + (preferred.has(asset.kind) ? 12 : 0)
+          + (requestedIds.has(asset.id) ? 100 : 0),
+      }
+    })
+    .filter(item => requestedIds.has(item.asset.id)
+      || item.semanticScore >= policy.minimumSemanticScore
+      || ["identity", "boundary"].includes(item.asset.kind))
+    .sort((left, right) => right.score - left.score || left.asset.title.localeCompare(right.asset.title, "zh-CN"))
+  const selected: GeoKnowledgeAsset[] = []
+  const kindCounts = new Map<GeoKnowledgeAssetKind, number>()
+  let estimatedContextChars = 0
+  for (const item of ranked) {
+    const count = kindCounts.get(item.asset.kind) || 0
+    const kindCap = policy.kindCaps[item.asset.kind] ?? Math.max(2, Math.ceil(limit / 3))
+    if (!requestedIds.has(item.asset.id) && count >= kindCap) continue
+    const cost = assetContextCost(item.asset, policy.maxAssetChars)
+    if (
+      !requestedIds.has(item.asset.id)
+      && selected.length > 0
+      && estimatedContextChars + cost > policy.maxContextChars
+    ) continue
+    selected.push(item.asset)
+    kindCounts.set(item.asset.kind, count + 1)
+    estimatedContextChars += cost
+    if (selected.length >= limit) break
+  }
+  return {
+    assets: selected,
+    policy,
+    candidateCount: ranked.length,
+    estimatedContextChars: Math.min(estimatedContextChars, policy.maxContextChars),
+  }
+}
+
+export function selectKnowledgeAssetsLegacy(args: {
+  knowledgeBase?: ClientKnowledgeBase
+  query: string
+  preferredKinds?: GeoKnowledgeAssetKind[]
+  assetIds?: string[]
+  limit?: number
 }): GeoKnowledgeAsset[] {
   if (!args.knowledgeBase) return []
   const queryTokens = tokenSet(args.query)
@@ -567,16 +761,7 @@ export function selectKnowledgeAssets(args: {
         + (requestedIds.has(asset.id) ? 100 : 0),
     }))
     .sort((left, right) => right.score - left.score || left.asset.title.localeCompare(right.asset.title, "zh-CN"))
-  const selected: GeoKnowledgeAsset[] = []
-  const kindCounts = new Map<GeoKnowledgeAssetKind, number>()
-  for (const item of ranked) {
-    const count = kindCounts.get(item.asset.kind) || 0
-    if (!requestedIds.has(item.asset.id) && count >= Math.max(3, Math.ceil(limit / 3))) continue
-    selected.push(item.asset)
-    kindCounts.set(item.asset.kind, count + 1)
-    if (selected.length >= limit) break
-  }
-  return selected
+  return ranked.slice(0, limit).map(item => item.asset)
 }
 
 export function knowledgeReferencesForAssets(
@@ -628,25 +813,46 @@ export function getKnowledgeBaseHealth(knowledgeBase?: ClientKnowledgeBase): {
 export function buildKnowledgeContext(
   assets: GeoKnowledgeAsset[],
   knowledgeBase?: ClientKnowledgeBase,
+  budget?: Pick<KnowledgeRetrievalPolicy, "maxContextChars" | "maxAssetChars">,
 ): string {
   if (assets.length === 0) return "本篇未匹配到结构化知识资产，只能使用用户本次明确填写的资料。"
   const claimByAsset = new Map(
     (knowledgeBase?.claims || []).filter(claim => claim.assetId).map(claim => [claim.assetId as string, claim]),
   )
   const sourceById = new Map((knowledgeBase?.sources || []).map(source => [source.id, source]))
-  return JSON.stringify(assets.map(asset => ({
-    assetId: asset.id,
-    type: asset.kind,
-    title: asset.title,
-    content: asset.content,
-    evidenceLevel: asset.evidenceLevel,
-    reviewStatus: asset.status,
-    sourceUrls: asset.sourceUrls.length > 0
-      ? asset.sourceUrls
-      : (claimByAsset.get(asset.id)?.sourceIds || [])
-          .map(id => sourceById.get(id)?.url)
-          .filter(Boolean),
-    occurredAt: asset.occurredAt,
-    updatedAt: asset.updatedAt,
-  })), null, 2)
+  const maxContextChars = Math.max(800, budget?.maxContextChars || 5_000)
+  const maxAssetChars = Math.max(300, budget?.maxAssetChars || 1_200)
+  const output: Record<string, unknown>[] = []
+  for (const asset of assets) {
+    const base = {
+      assetId: asset.id,
+      type: asset.kind,
+      title: asset.title,
+      evidenceLevel: asset.evidenceLevel,
+      reviewStatus: asset.status,
+      sourceUrls: asset.sourceUrls.length > 0
+        ? asset.sourceUrls
+        : (claimByAsset.get(asset.id)?.sourceIds || [])
+            .map(id => sourceById.get(id)?.url)
+            .filter(Boolean),
+      sourceFileName: asset.sourceFileName,
+      sourceLocator: asset.sourceLocator,
+      occurredAt: asset.occurredAt,
+      updatedAt: asset.updatedAt,
+    }
+    let content = asset.content.slice(0, maxAssetChars)
+    let candidate = { ...base, content }
+    let serialized = JSON.stringify([...output, candidate], null, 2)
+    if (serialized.length > maxContextChars) {
+      const overflow = serialized.length - maxContextChars
+      content = content.slice(0, Math.max(0, content.length - overflow - 20))
+      if (content.length < 40 && output.length > 0) continue
+      candidate = { ...base, content }
+      serialized = JSON.stringify([...output, candidate], null, 2)
+      if (serialized.length > maxContextChars && output.length > 0) continue
+    }
+    output.push(candidate)
+    if (JSON.stringify(output, null, 2).length >= maxContextChars - 80) break
+  }
+  return JSON.stringify(output, null, 2)
 }

@@ -25,6 +25,7 @@ import type {
   GeoKnowledgeAssetStatus,
 } from "@/types/geo-methodology"
 import type { AnalysisSubjectType } from "@/types"
+import { KnowledgeImportPanel } from "@/components/knowledge/knowledge-import-panel"
 
 const KIND_OPTIONS: Array<{ value: GeoKnowledgeAssetKind; label: string }> = [
   { value: "identity", label: "主体信息" },
@@ -127,6 +128,8 @@ export function ClientKnowledgeBaseDialog({
   const [notice, setNotice] = useState("")
   const [asset, setAsset] = useState<AssetDraft>(EMPTY_ASSET)
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null)
+  const [activeView, setActiveView] = useState<"overview" | "import">("overview")
+  const [dirty, setDirty] = useState(false)
 
   const query = teamId ? `&teamId=${encodeURIComponent(teamId)}` : ""
   const health = useMemo(() => getKnowledgeBaseHealth(knowledgeBase || undefined), [knowledgeBase])
@@ -163,6 +166,21 @@ export function ClientKnowledgeBaseDialog({
 
   function patchBase(next: Partial<ClientKnowledgeBase>) {
     setKnowledgeBase(current => current ? { ...current, ...next } : current)
+    setDirty(true)
+  }
+
+  function switchView(next: "overview" | "import") {
+    if (next === "import" && (
+      dirty
+      || asset.title.trim()
+      || asset.content.trim()
+      || editingAssetId
+    )) {
+      setNotice("请先保存或取消当前编辑，再进入批量导入")
+      return
+    }
+    setActiveView(next)
+    setNotice("")
   }
 
   function commitAsset() {
@@ -244,6 +262,7 @@ export function ClientKnowledgeBaseDialog({
         { subjectType, subjectName },
       ))
       setVersions(payload.snapshot.versions || versions)
+      setDirty(false)
       setNotice("资料库已同步到云端")
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "资料库保存失败")
@@ -276,6 +295,12 @@ export function ClientKnowledgeBaseDialog({
               <HealthMetric label="已复核" value={`${health.verified} 条`} />
             </div>
 
+            <div className="mt-4 flex items-center gap-1 border-b border-[#D8E7F7]">
+              <button type="button" onClick={() => switchView("overview")} className={`h-10 border-b-2 px-4 text-xs font-semibold transition ${activeView === "overview" ? "border-[#1677FF] text-[#0958D9]" : "border-transparent text-slate-500 hover:text-slate-800"}`}>资料概览</button>
+              <button type="button" onClick={() => switchView("import")} className={`h-10 border-b-2 px-4 text-xs font-semibold transition ${activeView === "import" ? "border-[#1677FF] text-[#0958D9]" : "border-transparent text-slate-500 hover:text-slate-800"}`}>批量导入</button>
+            </div>
+
+            {activeView === "overview" ? <>
             <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]">
               <section className="rounded-lg border border-[#D8E7F7] bg-white p-4">
                 <div className="flex items-center gap-2"><BookOpenCheck className="h-4 w-4 text-[#1677FF]" /><h3 className="text-sm font-bold text-slate-900">主体资料</h3></div>
@@ -316,12 +341,27 @@ export function ClientKnowledgeBaseDialog({
                 </div>
               ))}</div>}
             </section>
+            </> : (
+              <div className="mt-4">
+                <KnowledgeImportPanel
+                  clientId={clientId}
+                  teamId={teamId}
+                  canEdit={canEdit}
+                  onCommitted={(nextKnowledgeBase, nextVersions) => {
+                    setKnowledgeBase(normalizeClientKnowledgeBase(nextKnowledgeBase, { subjectType, subjectName }))
+                    setVersions(nextVersions)
+                    setDirty(false)
+                    setNotice("审核通过的资料已同步到云端")
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3 sm:px-5">
           <p className={`min-h-4 text-[11px] ${notice.includes("失败") || notice.includes("其他设备") ? "text-rose-600" : "text-slate-500"}`} role="status">{notice || (canEdit ? `资料库版本 ${knowledgeBase?.revision || 1}` : "当前为只读资料库")}</p>
-          <div className="flex items-center gap-2"><button type="button" onClick={onClose} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600">关闭</button>{canEdit && knowledgeBase ? <button type="button" onClick={() => void save()} disabled={saving} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-4 text-xs font-semibold text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}保存到云端</button> : null}</div>
+          <div className="flex items-center gap-2"><button type="button" onClick={onClose} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600">关闭</button>{canEdit && knowledgeBase && activeView === "overview" ? <button type="button" onClick={() => void save()} disabled={saving || !dirty} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-4 text-xs font-semibold text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}保存到云端</button> : null}</div>
         </footer>
       </div>
       <style jsx global>{`.kb-input{width:100%;min-height:2.5rem;border:1px solid #dbe7f3;border-radius:.5rem;background:#f8fbff;padding:.6rem .75rem;font-size:.75rem;line-height:1.25rem;color:#1e293b;outline:none;transition:border-color .15s,box-shadow .15s,background .15s}.kb-input:focus{border-color:#69b1ff;background:#fff;box-shadow:0 0 0 3px rgba(22,119,255,.1)}.kb-input:disabled{cursor:not-allowed;background:#f1f5f9;color:#64748b}`}</style>

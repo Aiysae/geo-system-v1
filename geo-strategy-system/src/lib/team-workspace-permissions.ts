@@ -21,6 +21,7 @@ const BACKGROUND_JOB_MODULE: Record<BackgroundJobKind, TeamModuleKey> = {
   diagnosis: "diagnosis",
   competitorCompare: "research",
   keywordExtract: "keyword",
+  knowledgeImport: "client",
   keywordAdvantages: "keyword",
   keywordStrategy: "keyword",
   keywordWebsitePrompt: "keyword",

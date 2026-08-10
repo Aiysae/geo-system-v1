@@ -303,6 +303,11 @@ export async function POST(req: NextRequest) {
 
     const subjectType = normalizeAnalysisSubjectType(base.subjectType)
     const brandName = text(base.brandName, 160)
+    const currentClient = (await listWorkspaceClients(access.dataOwnerUserId))
+      .find(item => item.client.id === clientId)?.client
+    if (!currentClient) {
+      return NextResponse.json({ error: "客户资料已不存在，请刷新客户列表" }, { status: 404 })
+    }
     const result = await createArticleBatch({
       requestId,
       clientId,
@@ -329,10 +334,10 @@ export async function POST(req: NextRequest) {
         advantages: text(base.advantages, 12_000),
         comparisonBrands: parsedComparisonBrands,
         methodology: normalizeArticleMethodologySelection(base.methodology),
-        knowledgeBase: normalizeClientKnowledgeBase(base.knowledgeBase, {
+        knowledgeBase: normalizeClientKnowledgeBase(currentClient.knowledgeBase, {
           subjectType,
-          subjectName: brandName || text(base.clientName, 160),
-          aliases: [],
+          subjectName: currentClient.ourBrand || brandName || text(base.clientName, 160),
+          aliases: currentClient.brandAliases,
         }),
         audience: text(base.audience, 2_000),
         extraRequirements: text(base.extraRequirements, 5_000),
