@@ -64,6 +64,46 @@ export class ShituAgentApiClient {
     }
     return (value?.data ?? value) as T
   }
+
+  async requestBinary(path: string): Promise<{
+    bytes: Uint8Array
+    contentType: string
+    fileName?: string
+  }> {
+    const response = await fetch(`${this.baseUrl}/api/agent/v1${path}`, {
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: "application/pdf, application/zip, application/octet-stream",
+        ...(this.forwardedIp ? { "X-Forwarded-For": this.forwardedIp } : {}),
+      },
+      cache: "no-store",
+    })
+    if (!response.ok) {
+      const value = await response.json().catch(() => null) as {
+        error?: { code?: string; message?: string; retryable?: boolean }
+        meta?: { traceId?: string }
+      } | null
+      throw new ShituAgentClientError({
+        code: value?.error?.code || `HTTP_${response.status}`,
+        message: value?.error?.message || `Agent 文件下载失败（HTTP ${response.status}）`,
+        retryable: value?.error?.retryable,
+        traceId: value?.meta?.traceId,
+        status: response.status,
+      })
+    }
+    const disposition = String(response.headers.get("content-disposition") || "")
+    const utf8Name = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+    const basicName = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+    let fileName = utf8Name || basicName
+    if (fileName) {
+      try { fileName = decodeURIComponent(fileName) } catch { /* keep upstream name */ }
+    }
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      contentType: String(response.headers.get("content-type") || "application/octet-stream"),
+      fileName,
+    }
+  }
 }
 
 export function agentQuery(input: Record<string, unknown>): string {

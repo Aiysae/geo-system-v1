@@ -42,6 +42,9 @@ const MODULE_LABELS: Record<SystemOutputModule, string> = {
   research: "独立调研",
   diagnosis: "AI 诊断",
   difficulty: "难度测评",
+  keyword: "关键词策略",
+  article: "文章生成",
+  feedback: "执行反馈",
 }
 
 const KIND_LABELS: Record<SystemOutputKind, string> = {
@@ -50,6 +53,14 @@ const KIND_LABELS: Record<SystemOutputKind, string> = {
   competitor_comparison: "竞品对比",
   website_diagnosis: "网站诊断",
   difficulty_assessment: "难度测评",
+  keyword_extraction: "客户资料提取",
+  keyword_advantages: "核心优势",
+  keyword_strategy: "关键词策略",
+  keyword_website_prompt: "第三方网站 Prompt",
+  keyword_questions: "疑问句池",
+  article_generation: "单篇文章",
+  article_batch: "批量文章",
+  feedback_report: "执行反馈报告",
 }
 
 const PAGE_SIZE = 20

@@ -8,7 +8,9 @@ import type { AgentScope, SystemOutputModule, SystemOutputStatus } from "@/types
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const MODULES = new Set<SystemOutputModule>(["penetration", "research", "diagnosis", "difficulty"])
+const MODULES = new Set<SystemOutputModule>([
+  "penetration", "research", "diagnosis", "difficulty", "keyword", "article", "feedback",
+])
 const STATUSES = new Set<SystemOutputStatus>(["succeeded", "partial", "failed", "cancelled"])
 
 export async function GET(request: NextRequest) {

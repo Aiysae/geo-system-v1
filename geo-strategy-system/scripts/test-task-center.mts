@@ -10,6 +10,7 @@ process.env.TASK_CENTER_STORE = "kv"
 delete process.env.DATABASE_URL
 
 const {
+  getTaskCenterTask,
   listTaskCenterTasks,
   markAllTaskCenterTasksRead,
   markTaskCenterTaskRead,
@@ -64,6 +65,11 @@ assert.equal(ownerCompleted.tasks.length, 1, "同一来源任务更新不得产�
 assert.equal(ownerCompleted.activeCount, 0)
 assert.equal(ownerCompleted.unreadCount, 1, "新完成任务应产生未读提醒")
 assert.equal(ownerCompleted.tasks[0].unread, true)
+assert.equal(
+  (await getTaskCenterTask(standardTask.sourceJobId, "owner-a"))?.id,
+  ownerCompleted.tasks[0].id,
+  "旧版业务任务号应自动解析为任务中心编号",
+)
 
 assert.equal(
   await markTaskCenterTaskRead(ownerCompleted.tasks[0].id, "unrelated-user"),
@@ -142,6 +148,35 @@ assert.equal(resumed.tasks[0].status, "running")
 assert.equal(resumed.tasks[0].progressPercent, 45)
 assert.equal(resumed.activeCount, 1)
 assert.equal(resumed.unreadCount, 0)
+
+for (let index = 0; index < 4; index += 1) {
+  await upsertTaskCenterTask({
+    ...standardTask,
+    sourceJobId: `pjob_page_${index}`,
+    status: "succeeded",
+    canCancel: false,
+    updatedAt: new Date(Date.now() + 10_000 + index * 1_000).toISOString(),
+  })
+}
+const firstPage = await listTaskCenterTasks("owner-a", {
+  limit: 2,
+  clientId: "client-a",
+  status: "succeeded",
+})
+assert.equal(firstPage.tasks.length, 2)
+assert.ok(firstPage.nextCursor)
+const secondPage = await listTaskCenterTasks("owner-a", {
+  limit: 2,
+  clientId: "client-a",
+  status: "succeeded",
+  cursor: firstPage.nextCursor,
+})
+assert.equal(secondPage.tasks.length, 2)
+assert.equal(
+  new Set([...firstPage.tasks, ...secondPage.tasks].map(task => task.id)).size,
+  4,
+  "游标分页不应重复任务",
+)
 
 await fs.rm(directory, { recursive: true, force: true })
 console.log("task center tests passed")

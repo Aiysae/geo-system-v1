@@ -65,8 +65,9 @@ Claude Code 可使用 `claude mcp add --transport http`；Cursor 和其他 MCP A
 3. 使用稳定的 `requestId`，先提交 `dryRun: true`。
 4. 向用户展示预计积分、问题数和模型数，并等待 Agent 宿主的执行确认。
 5. 使用相同 `requestId` 正式提交。
-6. 根据返回任务 ID 查询任务中心；不要保持 HTTP 长连接等待业务完成。
-7. 成功后读取历史产出或下载报告。
+6. 根据返回的 `task.taskId` 查询任务中心；不要保持 HTTP 长连接等待业务完成。
+7. 完成后读取 `task.resultUrl`，或从不可变历史产出中读取结果。
+8. PDF 和文章 ZIP 使用下载端点或 MCP 受保护资源，不嵌入普通 JSON。
 
 相同 `requestId` 重试会返回原任务，不会重复创建业务任务或重复占用 Agent 日预算。
 CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频率，有新进度后立即恢复，避免多 Agent 同时等待时挤占服务。
@@ -116,21 +117,42 @@ CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频�
 }
 ```
 
-## 后台任务类型
+## 专用动作
 
-`background.run` 支持：
+Agent 1.2 已将旧版 `background.run` 拆成可发现、可校验的专用动作：
 
-- `research`
-- `competitorCompare`
-- `diagnosis`
-- `queryGeneration`
-- `keywordExtract`
-- `keywordAdvantages`
-- `keywordStrategy`
-- `keywordWebsitePrompt`
-- `articleGeneration`
+| 模块 | 动作 |
+| --- | --- |
+| 渗透率情报 | `penetration.run` |
+| 独立调研 | `research.run`、`research.compare` |
+| AI 诊断 | `diagnosis.run` |
+| 难度测评 | `difficulty.run` |
+| 关键词策略 | `keyword.extract`、`keyword.advantages`、`keyword.strategy.run`、`keyword.website-prompt.run`、`keyword.questions.run` |
+| 文章生成 | `article.generate`、`article.rewrite`、`article.batch.run` |
+| 执行反馈 | `feedback.action.create`、`feedback.actions.import`、`feedback.report.create` |
+| 客户资料库 | `knowledge.import`、`knowledge.commit` |
+| 专业报告 | `report.create` |
 
-正文结构为 `{ clientId, teamId?, requestId, kind, payload }`。`payload` 与网页端对应功能使用同一业务结构。
+每个动作在 OpenAPI 和 MCP 中都有独立 Schema。`background.run` 仅用于兼容旧 Agent，不建议新流程继续使用。
+
+## 结果与文件
+
+- `GET /tasks/{taskId}/result`：读取后台任务的真实业务结果。
+- `POST /tasks/{taskId}/restore`：任务完成但工作区未显示时恢复结果。
+- `GET /outputs`：按客户和模块分页读取不可变云端产出，模块覆盖 `penetration`、`research`、`diagnosis`、`difficulty`、`keyword`、`article`、`feedback`。
+- `GET /articles/batches/{batchId}/download?scope=passed|all&variant=original|media`：下载文章 ZIP。
+- `GET /reports/{jobId}/download`：下载专业报告 PDF。
+- `GET /knowledge/imports/{importId}`：读取待人工审核的资料候选项；确认后调用 `knowledge.commit`。
+
+MCP 中对应 `shitu_get_task_result`、`shitu_restore_task_result`、`shitu_get_article_batch_zip` 和 `shitu_get_report_pdf`。文件工具返回受保护资源链接，Agent 需要时再读取。
+
+## 就绪预检
+
+带 `dryRun: true` 的动作会同时检查参数、客户权限、团队权限、预计积分和模型账号池，不会发起模型请求或扣积分。返回 `readiness.state`：
+
+- `ready`：可正式提交。
+- `degraded`：核心动作可执行，但部分增强能力或所选模型不可用。
+- `blocked`：必要模型、联网能力或账号池未准备好；接口返回 `ACTION_NOT_READY`。
 
 ## 安全边界
 

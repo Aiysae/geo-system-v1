@@ -18,6 +18,10 @@ process.env.AGENT_TOKEN_MANAGEMENT_ENABLED = "true"
 process.env.AGENT_ACCESS_MIN_TIER = "admin"
 process.env.AGENT_INTERNAL_BASE_URL = "http://127.0.0.1:3000"
 process.env.PUBLIC_APP_URL = "https://shitugeo.top"
+process.env.DASHSCOPE_API_KEY = "agent-test-qwen-key"
+process.env.QWEN_MODEL = "qwen3-max"
+process.env.ARK_API_KEY = "agent-test-doubao-key"
+process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 delete process.env.DATABASE_URL
 
 try {
@@ -47,7 +51,7 @@ try {
   } = await import("../src/lib/agent/store")
   const { AGENT_SCOPE_PRESETS } = await import("../src/lib/agent/scopes")
   const { readAgentJson, reserveAgentCreditBudget } = await import("../src/lib/agent/api")
-  const { dispatchAgentAction } = await import("../src/lib/agent/action-dispatch")
+  const { buildAgentSubmittedTask, dispatchAgentAction } = await import("../src/lib/agent/action-dispatch")
 
   const user = await createUser({
     email: "agent-admin@example.com",
@@ -127,6 +131,17 @@ try {
     readAgentJson(chunkedOversizedRequest, 16),
     error => Boolean(error && typeof error === "object" && "code" in error && error.code === "PAYLOAD_TOO_LARGE"),
   )
+  const submittedTask = buildAgentSubmittedTask(
+    "penetration.run",
+    { id: "pjob_agent_contract" },
+    "https://shitugeo.top/api/agent/v1/actions/penetration.run",
+  )
+  assert.deepEqual(submittedTask, {
+    taskId: "task_penetration_pjob_agent_contract",
+    sourceJobId: "pjob_agent_contract",
+    statusUrl: "https://shitugeo.top/api/agent/v1/tasks/task_penetration_pjob_agent_contract",
+    resultUrl: "https://shitugeo.top/api/agent/v1/tasks/task_penetration_pjob_agent_contract/result",
+  })
 
   const budgetAuth = {
     token: created.record,
@@ -184,7 +199,10 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.2")
+  assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
+  assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
+  assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
 
   const clientsRoute = await import("../src/app/api/agent/v1/clients/route")
   const clients = await clientsRoute.GET(new Request("http://localhost/api/agent/v1/clients", {
@@ -275,6 +293,141 @@ try {
   assert.equal(dryRunBody.data.dryRun, true)
   assert.equal(dryRunBody.data.estimate.scope, "difficulty.execute")
 
+  const keywordDryRun = await actionRoute.POST(new NextRequest(
+    "http://localhost/api/agent/v1/actions/keyword.questions.run",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${created.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: "client-agent-test",
+        requestId: "agent_keyword_test_0001",
+        strategy: { project_name: "Agent 测试客户" },
+        totalCount: 120,
+        dryRun: true,
+      }),
+    },
+  ), { params: Promise.resolve({ action: "keyword.questions.run" }) })
+  assert.equal(keywordDryRun.status, 200)
+  assert.equal((await keywordDryRun.json()).data.estimate.units, 120)
+
+  const feedbackDryRun = await actionRoute.POST(new NextRequest(
+    "http://localhost/api/agent/v1/actions/feedback.action.create",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${created.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: "client-agent-test",
+        requestId: "agent_feedback_test_0001",
+        action: {
+          category: "strategy_adjustment",
+          status: "completed",
+          visibility: "client",
+          title: "完成 Agent 接口检查",
+          occurredAt: new Date().toISOString(),
+        },
+        dryRun: true,
+      }),
+    },
+  ), { params: Promise.resolve({ action: "feedback.action.create" }) })
+  assert.equal(feedbackDryRun.status, 200)
+  assert.equal((await feedbackDryRun.json()).data.estimate.scope, "feedback.edit")
+
+  const feedbackRequestId = "agent_feedback_idempotency_0001"
+  const feedbackPayload = {
+    clientId: "client-agent-test",
+    requestId: feedbackRequestId,
+    action: {
+      category: "strategy_adjustment",
+      status: "completed",
+      visibility: "client",
+      title: "验证 Agent 幂等写入",
+      occurredAt: new Date().toISOString(),
+    },
+  }
+  const createFeedback = () => actionRoute.POST(new NextRequest(
+    "http://localhost/api/agent/v1/actions/feedback.action.create",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${created.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(feedbackPayload),
+    },
+  ), { params: Promise.resolve({ action: "feedback.action.create" }) })
+  const firstFeedback = await createFeedback()
+  const secondFeedback = await createFeedback()
+  assert.equal(firstFeedback.status, 201)
+  assert.equal(secondFeedback.status, 201)
+  const firstFeedbackBody = await firstFeedback.json()
+  const secondFeedbackBody = await secondFeedback.json()
+  assert.equal(
+    firstFeedbackBody.data.result.action.id,
+    secondFeedbackBody.data.result.action.id,
+    "同一 requestId 重放时必须复用同一条执行反馈记录",
+  )
+  const { listClientExecutionActions } = await import("../src/lib/client-feedback/store")
+  const storedFeedback = (await listClientExecutionActions(user.id, "client-agent-test"))
+    .filter(action => action.title === "验证 Agent 幂等写入")
+  assert.equal(storedFeedback.length, 1)
+
+  const { estimateAgentAction, parseAgentActionInput } = await import("../src/lib/agent/action-catalog")
+  assert.equal(estimateAgentAction("background.run", {
+    clientId: "client-agent-test",
+    requestId: "agent_knowledge_test_0001",
+    kind: "knowledgeImport",
+    payload: {},
+  }).scope, "keyword.execute")
+  const parsedQuestions = parseAgentActionInput("keyword.questions.run", {
+    clientId: "client-agent-test",
+    requestId: "agent_question_schema_0001",
+    strategy: { project_name: "Agent 测试客户" },
+    totalCount: 600,
+  })
+  assert.equal((parsedQuestions.categoryConfig as { allocationMode: string }).allocationMode, "ratio")
+  assert.throws(() => parseAgentActionInput("keyword.questions.run", {
+    clientId: "client-agent-test",
+    requestId: "agent_question_schema_0002",
+    strategy: { project_name: "Agent 测试客户" },
+    totalCount: 601,
+  }))
+  const parsedWebsitePrompt = parseAgentActionInput("keyword.website-prompt.run", {
+    clientId: "client-agent-test",
+    requestId: "agent_website_schema_0001",
+    plan: { official_site_strategy: [] },
+  })
+  assert.equal(parsedWebsitePrompt.kind, "official")
+  const parsedRewrite = parseAgentActionInput("article.rewrite", {
+    clientId: "client-agent-test",
+    requestId: "agent_rewrite_schema_0001",
+    promptKey: "rewrite",
+    sourceMarkdown: "# 原文\n\n这是需要改写的品牌文章。",
+    rewriteAnalysis: {
+      sourceFingerprint: "fingerprint",
+      brands: [],
+    },
+    rewriteMappings: [{
+      sourceBrand: "原品牌",
+      targetBrand: "测试品牌",
+      materials: "真实品牌资料",
+    }],
+  })
+  assert.equal(parsedRewrite.coreQuestion, "")
+  assert.equal(parsedRewrite.modelProvider, "doubao")
+  assert.throws(() => estimateAgentAction("report.create", {
+    clientId: "client-agent-test",
+    requestId: "agent_report_scope_0001",
+    input: {
+      kind: "penetration",
+      detail: "concise",
+      client: {
+        id: "client-outside-token-grant",
+        name: "越权客户",
+        ourBrand: "越权品牌",
+        brandAliases: [],
+        industry: "企业服务",
+        website: "https://example.com",
+      },
+    },
+  }), /必须与已授权的 clientId 一致/)
+
   const deniedRequest = new NextRequest("http://localhost/api/agent/v1/actions/difficulty.run", {
     method: "POST",
     headers: { Authorization: `Bearer ${created.token}`, "Content-Type": "application/json" },
@@ -299,7 +452,14 @@ try {
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
   assert.ok(openapi.paths["/actions/{action}"])
+  assert.ok(openapi.paths["/actions/penetration.run"])
+  assert.ok(openapi.paths["/actions/article.batch.run"])
+  assert.ok(openapi.paths["/actions/keyword.questions.run"])
+  assert.ok(openapi.paths["/tasks/{taskId}/result"])
   assert.ok(openapi.paths["/tasks/{taskId}/cancel"])
+  assert.ok(openapi.paths["/articles/batches/{batchId}/download"])
+  assert.ok(openapi.paths["/feedback/{clientId}"])
+  assert.ok(openapi.paths["/knowledge/imports/{importId}"])
   assert.equal(openapi.externalDocs.url, "https://shitugeo.top/agent")
   assert.ok(openapi.components.schemas.AgentScope.enum.includes("knowledge.view"))
   const openapiRoute = await import("../src/app/api/agent/v1/openapi.json/route")

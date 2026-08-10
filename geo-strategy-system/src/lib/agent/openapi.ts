@@ -1,5 +1,6 @@
 import "server-only"
 
+import { AGENT_ACTIONS } from "@/lib/agent/action-catalog"
 import { ALL_AGENT_SCOPES } from "@/lib/agent/scopes"
 
 export function agentOpenApiDocument(origin: string): Record<string, unknown> {
@@ -17,13 +18,32 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
       },
     },
   }
+  const actionPaths = Object.fromEntries(AGENT_ACTIONS.map(action => [
+    `/actions/${action.name}`,
+    {
+      post: {
+        tags: ["Action"],
+        operationId: action.name.replace(/\./g, "_"),
+        summary: action.title,
+        description: action.description,
+        deprecated: action.deprecated === true,
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: action.inputSchema } },
+        },
+        responses: { 200: success, 201: success, 202: success, 400: error, 401: error, 403: error, 409: error, 429: error },
+        "x-required-scope": action.requiredScope,
+        "x-task-source": action.taskSource,
+      },
+    },
+  ]))
 
   return {
     openapi: "3.1.0",
     info: {
       title: "势途 GEO Agent API",
-      version: "1.1.0",
-      description: "供 CLI、MCP 和自动化 Agent 安全调用势途 GEO 现有业务能力。所有写操作均进入后台任务并沿用网页端权限、积分、联网与质量规则。",
+      version: "1.2.0",
+      description: "供 CLI、MCP 和自动化 Agent 安全调用势途 GEO 现有业务能力。耗时操作进入后台任务；资料审核与动作记录等轻量写操作同步完成。所有操作沿用网页端权限、积分、联网与质量规则。",
     },
     externalDocs: {
       description: "势途 GEO Agent 接入说明",
@@ -38,6 +58,9 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
       { name: "Task" },
       { name: "Output" },
       { name: "Report" },
+      { name: "Article" },
+      { name: "Feedback" },
+      { name: "Knowledge" },
       { name: "Action" },
     ],
     paths: {
@@ -68,6 +91,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
             { name: "clientId", in: "query", schema: { type: "string" } },
             { $ref: "#/components/parameters/TeamId" },
             { name: "status", in: "query", schema: { $ref: "#/components/schemas/TaskStatus" } },
+            { name: "cursor", in: "query", schema: { type: "string" }, description: "上一页返回的 nextCursor" },
           ],
           responses: { 200: success, 401: error, 403: error },
         },
@@ -88,6 +112,24 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
           responses: { 200: success, 401: error, 403: error, 404: error },
         },
       },
+      "/tasks/{taskId}/result": {
+        get: {
+          tags: ["Task"],
+          operationId: "getTaskResult",
+          description: "返回任务当前真实业务结果；任务未完成时可返回 409。",
+          parameters: [{ $ref: "#/components/parameters/TaskId" }],
+          responses: { 200: success, 401: error, 403: error, 404: error, 409: error },
+        },
+      },
+      "/tasks/{taskId}/restore": {
+        post: {
+          tags: ["Task"],
+          operationId: "restoreTaskResult",
+          description: "尝试从持久化任务记录恢复结果。",
+          parameters: [{ $ref: "#/components/parameters/TaskId" }],
+          responses: { 200: success, 401: error, 403: error, 404: error },
+        },
+      },
       "/outputs": {
         get: {
           tags: ["Output"],
@@ -95,7 +137,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
           parameters: [
             { $ref: "#/components/parameters/ClientIdQuery" },
             { $ref: "#/components/parameters/TeamId" },
-            { name: "module", in: "query", required: true, schema: { type: "string", enum: ["penetration", "research", "diagnosis", "difficulty"] } },
+            { name: "module", in: "query", required: true, schema: { type: "string", enum: ["penetration", "research", "diagnosis", "difficulty", "keyword", "article", "feedback"] } },
             { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
             { name: "pageSize", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
           ],
@@ -140,19 +182,98 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
           },
         },
       },
+      "/articles/batches": {
+        get: {
+          tags: ["Article"],
+          operationId: "listArticleBatches",
+          parameters: [
+            { $ref: "#/components/parameters/ClientIdQuery" },
+            { $ref: "#/components/parameters/TeamId" },
+          ],
+          responses: { 200: success, 400: error, 401: error, 403: error },
+        },
+      },
+      "/articles/batches/{batchId}": {
+        get: {
+          tags: ["Article"],
+          operationId: "getArticleBatch",
+          parameters: [{ $ref: "#/components/parameters/BatchId" }],
+          responses: { 200: success, 401: error, 403: error, 404: error },
+        },
+      },
+      "/articles/batches/{batchId}/download": {
+        get: {
+          tags: ["Article"],
+          operationId: "downloadArticleBatch",
+          parameters: [
+            { $ref: "#/components/parameters/BatchId" },
+            { name: "scope", in: "query", schema: { type: "string", enum: ["passed", "all"], default: "passed" } },
+            { name: "variant", in: "query", schema: { type: "string", enum: ["original", "media"], default: "original" } },
+          ],
+          responses: {
+            200: { description: "文章 ZIP 文件", content: { "application/zip": { schema: { type: "string", contentEncoding: "binary" } } } },
+            401: error,
+            403: error,
+            404: error,
+          },
+        },
+      },
+      "/feedback/{clientId}": {
+        get: {
+          tags: ["Feedback"],
+          operationId: "getClientFeedback",
+          parameters: [
+            { $ref: "#/components/parameters/ClientId" },
+            { $ref: "#/components/parameters/TeamId" },
+          ],
+          responses: { 200: success, 401: error, 403: error, 404: error },
+        },
+      },
+      "/knowledge/imports": {
+        get: {
+          tags: ["Knowledge"],
+          operationId: "listKnowledgeImports",
+          parameters: [
+            { $ref: "#/components/parameters/ClientIdQuery" },
+            { $ref: "#/components/parameters/TeamId" },
+          ],
+          responses: { 200: success, 400: error, 401: error, 403: error },
+        },
+      },
+      "/knowledge/imports/{importId}": {
+        get: {
+          tags: ["Knowledge"],
+          operationId: "getKnowledgeImport",
+          parameters: [
+            { name: "importId", in: "path", required: true, schema: { type: "string" } },
+            { $ref: "#/components/parameters/ClientIdQuery" },
+            { $ref: "#/components/parameters/TeamId" },
+          ],
+          responses: { 200: success, 400: error, 401: error, 403: error, 404: error },
+        },
+      },
+      ...actionPaths,
       "/actions/{action}": {
         post: {
           tags: ["Action"],
           operationId: "runAction",
-          description: "动作可选 penetration.run、difficulty.run、background.run、article.batch.run、report.create。正文与对应网页业务接口一致，另可传 dryRun=true 仅校验权限与预计积分。",
+          deprecated: true,
+          description: "兼容旧版动态动作入口。新 Agent 应使用 OpenAPI 中对应的动作专用路径和参数 Schema。",
           parameters: [{
             name: "action",
             in: "path",
             required: true,
-            schema: { type: "string", enum: ["penetration.run", "difficulty.run", "background.run", "article.batch.run", "report.create"] },
+            schema: { type: "string", enum: AGENT_ACTIONS.map(action => action.name) },
           }],
-          requestBody: { required: true, content: json },
-          responses: { 200: success, 202: success, 400: error, 401: error, 403: error, 409: error, 429: error },
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { oneOf: AGENT_ACTIONS.map(action => action.inputSchema) },
+              },
+            },
+          },
+          responses: { 200: success, 201: success, 202: success, 400: error, 401: error, 403: error, 409: error, 429: error },
         },
       },
     },
@@ -165,6 +286,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
         ClientIdQuery: { name: "clientId", in: "query", required: true, schema: { type: "string" } },
         TeamId: { name: "teamId", in: "query", required: false, schema: { type: "string" } },
         TaskId: { name: "taskId", in: "path", required: true, schema: { type: "string" } },
+        BatchId: { name: "batchId", in: "path", required: true, schema: { type: "string" } },
       },
       schemas: {
         AgentScope: {

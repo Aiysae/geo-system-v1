@@ -8,7 +8,7 @@ const BACKGROUND_JOB_MODULE = {
   diagnosis: "diagnosis",
   competitorCompare: "research",
   keywordExtract: "keyword",
-  knowledgeImport: "client",
+  knowledgeImport: "keyword",
   keywordAdvantages: "keyword",
   keywordStrategy: "keyword",
   keywordWebsitePrompt: "keyword",

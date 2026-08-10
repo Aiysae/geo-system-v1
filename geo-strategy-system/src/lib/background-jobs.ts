@@ -343,8 +343,8 @@ async function persistBackgroundJobInWorkspace(
   }
 }
 
-function createsDurableModuleOutput(kind: BackgroundJobKind): kind is "research" | "competitorCompare" | "diagnosis" {
-  return kind === "research" || kind === "competitorCompare" || kind === "diagnosis"
+function createsDurableModuleOutput(kind: BackgroundJobKind): kind is Exclude<BackgroundJobKind, "queryGeneration"> {
+  return kind !== "queryGeneration"
 }
 
 type BackgroundOutputPatch = Pick<

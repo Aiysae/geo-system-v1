@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
-import { estimateAgentAction, isAgentActionName } from "@/lib/agent/action-catalog"
+import { AGENT_ACTION_REGISTRY, estimateAgentAction, isAgentActionName, parseAgentActionInput } from "@/lib/agent/action-catalog"
 import { dispatchAgentAction } from "@/lib/agent/action-dispatch"
+import { checkAgentActionReadiness } from "@/lib/agent/readiness"
 import {
   AgentApiError,
   agentError,
@@ -14,7 +15,7 @@ import { hasAgentScope } from "@/lib/agent/scopes"
 import { appendAgentAudit } from "@/lib/agent/store"
 import { listAgentClientCatalog } from "@/lib/agent/client-catalog"
 import { requireOperationAccess } from "@/lib/team-access"
-import type { TeamModuleKey } from "@/lib/team-permissions"
+import type { TeamModuleKey, TeamPermissionAction } from "@/lib/team-permissions"
 import type { AgentAuthContext } from "@/types/agent"
 
 export const runtime = "nodejs"
@@ -72,8 +73,9 @@ export async function POST(
     }
     auth = await requireAgentAuth(request)
     const body = await readAgentJson(request)
-    const dryRun = body.dryRun === true
-    const payload = { ...body }
+    const parsed = parseAgentActionInput(actionName, body)
+    const dryRun = parsed.dryRun === true
+    const payload = { ...parsed }
     delete payload.dryRun
     const estimate = estimateAgentAction(actionName, payload)
     requestId = estimate.requestId
@@ -101,13 +103,28 @@ export async function POST(
         status: 404,
       })
     }
+    const definition = AGENT_ACTION_REGISTRY[actionName]
+    const operationScope = "operationScope" in definition
+      ? definition.operationScope
+      : estimate.scope
+    const [operationModule, operationAction] = operationScope.split(".") as [TeamModuleKey, TeamPermissionAction]
     await requireOperationAccess({
       userId: auth.userId,
       clientId: estimate.clientId,
       teamId: estimate.teamId,
-      module: estimate.scope.split(".")[0] as TeamModuleKey,
-      action: "execute",
+      module: operationModule,
+      action: operationAction,
     })
+    const readiness = await checkAgentActionReadiness(actionName, payload)
+    if (!readiness.ready) {
+      throw new AgentApiError({
+        code: "ACTION_NOT_READY",
+        message: "当前动作所需的模型或账号池尚未准备好",
+        status: 409,
+        retryable: true,
+        details: { readiness },
+      })
+    }
 
     if (dryRun) {
       await audit({
@@ -120,9 +137,9 @@ export async function POST(
         status: "succeeded",
         httpStatus: 200,
         estimatedCredits,
-        metadata: { dryRun: true, units: estimate.units, label: estimate.label },
+        metadata: { dryRun: true, units: estimate.units, label: estimate.label, readiness },
       })
-      return agentSuccess({ action: actionName, dryRun: true, estimate }, auth.traceId, requestId)
+      return agentSuccess({ action: actionName, dryRun: true, estimate, readiness }, auth.traceId, requestId)
     }
 
     const budget = await reserveAgentCreditBudget(
@@ -166,6 +183,7 @@ export async function POST(
     return agentSuccess({
       action: actionName,
       estimate,
+      task: dispatched.task,
       result: dispatched.data,
     }, auth.traceId, requestId, dispatched.status)
   } catch (error) {

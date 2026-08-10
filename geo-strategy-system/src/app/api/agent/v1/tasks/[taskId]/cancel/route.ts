@@ -1,8 +1,7 @@
 import { AgentApiError, agentError, agentSuccess, assertAgentClientGrant, requireAgentAuth } from "@/lib/agent/api"
-import { hasAgentScope } from "@/lib/agent/scopes"
+import { agentTaskScope, hasAgentScope } from "@/lib/agent/scopes"
 import { cancelTaskCenterTask } from "@/lib/task-center/cancel"
-import { getTaskCenterCancellationTarget } from "@/lib/task-center/store"
-import type { AgentScope } from "@/types/agent"
+import { getTaskCenterCancellationTarget, getTaskCenterTask } from "@/lib/task-center/store"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -16,12 +15,15 @@ export async function POST(
     const auth = await requireAgentAuth(request, ["tasks.cancel"])
     traceId = auth.traceId
     const { taskId } = await context.params
-    const target = await getTaskCenterCancellationTarget(taskId, auth.userId)
-    if (!target) {
+    const [target, task] = await Promise.all([
+      getTaskCenterCancellationTarget(taskId, auth.userId),
+      getTaskCenterTask(taskId, auth.userId),
+    ])
+    if (!target || !task) {
       throw new AgentApiError({ code: "NOT_FOUND", message: "任务不存在或无权停止", status: 404 })
     }
     assertAgentClientGrant(auth, target.clientId, target.teamId)
-    const scope = `${target.module}.execute` as AgentScope
+    const scope = agentTaskScope({ kind: task.kind, module: target.module, action: "execute" })
     if (!hasAgentScope(auth.token.scopes, scope)) {
       throw new AgentApiError({ code: "AGENT_SCOPE_DENIED", message: `Agent 密钥缺少 ${scope} 权限`, status: 403 })
     }

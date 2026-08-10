@@ -3,6 +3,9 @@ export type SystemOutputModule =
   | "research"
   | "diagnosis"
   | "difficulty"
+  | "keyword"
+  | "article"
+  | "feedback"
 
 export type SystemOutputKind =
   | "penetration_analysis"
@@ -10,6 +13,14 @@ export type SystemOutputKind =
   | "competitor_comparison"
   | "website_diagnosis"
   | "difficulty_assessment"
+  | "keyword_extraction"
+  | "keyword_advantages"
+  | "keyword_strategy"
+  | "keyword_website_prompt"
+  | "keyword_questions"
+  | "article_generation"
+  | "article_batch"
+  | "feedback_report"
 
 export type SystemOutputStatus =
   | "succeeded"
@@ -19,10 +30,11 @@ export type SystemOutputStatus =
 
 export type SystemOutputSource = "job" | "workspace_backfill"
 
-export type SystemOutputResourceReference = {
-  type: "penetration_history"
-  id: string
-}
+export type SystemOutputResourceReference =
+  | { type: "penetration_history"; id: string }
+  | { type: "keyword_question_job"; id: string }
+  | { type: "article_batch"; id: string }
+  | { type: "feedback_report"; id: string }
 
 export type SystemOutputSummary = {
   title: string

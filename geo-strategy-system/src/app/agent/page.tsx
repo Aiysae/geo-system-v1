@@ -23,9 +23,9 @@ export const metadata: Metadata = {
 }
 
 const CAPABILITIES = [
-  { icon: CircleGauge, title: "执行 GEO 检测", detail: "提交渗透率检测和难度测评" },
-  { icon: Layers3, title: "生成策略与文章", detail: "调用客户资料和现有内容方法" },
-  { icon: FileText, title: "读取结果与报告", detail: "查看历史产出并下载专业报告" },
+  { icon: CircleGauge, title: "执行四类分析", detail: "渗透率、独立调研、AI 诊断与难度测评" },
+  { icon: Layers3, title: "生成策略与文章", detail: "关键词、疑问句、单篇、改写与批量文章" },
+  { icon: FileText, title: "管理资料与交付", detail: "资料审核、执行反馈、历史产出与专业报告" },
   { icon: Route, title: "后台持续执行", detail: "切换页面或设备不中断任务" },
 ] as const
 
