@@ -30,10 +30,29 @@ assert.equal(
 )
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "geo-agent-cli-"))
-const server = http.createServer((request, response) => {
+let lastActionPath = ""
+let lastActionPayload: Record<string, unknown> | undefined
+const server = http.createServer(async (request, response) => {
   if (request.url === "/api/agent/v1/capabilities" && request.headers.authorization === "Bearer cli-test-token") {
     response.setHeader("Content-Type", "application/json")
     response.end(JSON.stringify({ ok: true, data: { apiVersion: "v1", token: { id: "agt_cli" } }, meta: { traceId: "trace_cli" } }))
+    return
+  }
+  if (request.url === "/api/agent/v1/actions/research.run" && request.method === "POST" && request.headers.authorization === "Bearer cli-test-token") {
+    const chunks: Buffer[] = []
+    for await (const chunk of request) chunks.push(Buffer.from(chunk))
+    lastActionPath = request.url
+    lastActionPayload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>
+    response.statusCode = 202
+    response.setHeader("Content-Type", "application/json")
+    response.end(JSON.stringify({
+      ok: true,
+      data: {
+        action: "research.run",
+        task: { taskId: "task_background_cli_test" },
+      },
+      meta: { traceId: "trace_cli_action", requestId: lastActionPayload.requestId },
+    }))
     return
   }
   response.statusCode = 401
@@ -47,9 +66,12 @@ if (!address || typeof address === "string") throw new Error("CLI test server fa
 
 function run(args: string[], env: Record<string, string> = {}) {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+    const cleanEnvironment = { ...process.env }
+    delete cleanEnvironment.SHITU_GEO_TOKEN
+    delete cleanEnvironment.SHITU_GEO_BASE_URL
     const child = spawn(process.execPath, ["cli/shitu-geo.mjs", ...args], {
       cwd: process.cwd(),
-      env: { ...process.env, XDG_CONFIG_HOME: directory, ...env },
+      env: { ...cleanEnvironment, XDG_CONFIG_HOME: directory, ...env },
       stdio: ["ignore", "pipe", "pipe"],
     })
     let stdout = ""
@@ -68,6 +90,17 @@ try {
   const status = await run(["auth", "status", "--json"])
   assert.equal(status.code, 0, status.stderr)
   assert.equal(JSON.parse(status.stdout).apiVersion, "v1")
+  const payloadFile = path.join(directory, "research-payload.json")
+  await fs.writeFile(payloadFile, JSON.stringify({
+    clientId: "client-cli-test",
+    requestId: "cli_research_test_0001",
+    query: "测试行业趋势",
+  }))
+  const research = await run(["research", "run", "--file", payloadFile, "--json"])
+  assert.equal(research.code, 0, research.stderr)
+  assert.equal(JSON.parse(research.stdout).task.taskId, "task_background_cli_test")
+  assert.equal(lastActionPath, "/api/agent/v1/actions/research.run")
+  assert.equal(lastActionPayload?.requestId, "cli_research_test_0001")
   const configFile = path.join(directory, "shitu-geo", "config.json")
   if (process.platform !== "win32") {
     assert.equal((await fs.stat(configFile)).mode & 0o777, 0o600)

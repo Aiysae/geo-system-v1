@@ -1,21 +1,41 @@
-import {
-  ALL_TEAM_PERMISSIONS,
-  normalizeTeamPermissions,
-  type TeamPermissionKey,
-} from "@/lib/team-permissions"
+import { normalizeTeamPermissions, type TeamPermissionKey } from "@/lib/team-permissions"
 import type { AgentScope } from "@/types/agent"
+import type { TaskCenterModule } from "@/types/task-center"
 
 export const AGENT_SPECIAL_SCOPES = [
   "tasks.view",
   "tasks.cancel",
   "outputs.view",
   "knowledge.view",
+  "knowledge.import",
 ] as const satisfies readonly AgentScope[]
 
 const SPECIAL_SCOPE_SET = new Set<string>(AGENT_SPECIAL_SCOPES)
 
+export const AGENT_CALLABLE_MODULE_SCOPES = [
+  "client.view",
+  "penetration.view",
+  "penetration.execute",
+  "research.view",
+  "research.execute",
+  "diagnosis.view",
+  "diagnosis.execute",
+  "difficulty.view",
+  "difficulty.execute",
+  "keyword.view",
+  "keyword.execute",
+  "article.view",
+  "article.execute",
+  "article.export",
+  "feedback.view",
+  "feedback.edit",
+  "report.view",
+  "report.execute",
+  "report.export",
+] as const satisfies readonly AgentScope[]
+
 export const ALL_AGENT_SCOPES: readonly AgentScope[] = [
-  ...ALL_TEAM_PERMISSIONS,
+  ...AGENT_CALLABLE_MODULE_SCOPES,
   ...AGENT_SPECIAL_SCOPES,
 ]
 
@@ -28,6 +48,7 @@ export const AGENT_SCOPE_PRESETS = {
     "difficulty.view",
     "keyword.view",
     "article.view",
+    "article.export",
     "feedback.view",
     "report.view",
     "report.export",
@@ -35,17 +56,23 @@ export const AGENT_SCOPE_PRESETS = {
     "outputs.view",
   ]),
   operator: normalizeAgentScopes([
-    ...ALL_TEAM_PERMISSIONS.filter(scope => !scope.endsWith(".manage")),
+    ...AGENT_CALLABLE_MODULE_SCOPES.filter(scope => (
+      scope.endsWith(".view")
+      || scope.endsWith(".execute")
+      || scope.endsWith(".export")
+      || scope === "feedback.edit"
+    )),
     "tasks.view",
     "tasks.cancel",
     "outputs.view",
   ]),
   full: normalizeAgentScopes([
-    ...ALL_TEAM_PERMISSIONS,
+    ...AGENT_CALLABLE_MODULE_SCOPES,
     "tasks.view",
     "tasks.cancel",
     "outputs.view",
     "knowledge.view",
+    "knowledge.import",
   ]),
 } as const
 
@@ -58,6 +85,7 @@ export function normalizeAgentScopes(value: unknown): AgentScope[] {
   const normalized = new Set<AgentScope>([...moduleScopes, ...specialScopes])
 
   if (normalized.has("tasks.cancel")) normalized.add("tasks.view")
+  if (normalized.has("knowledge.import")) normalized.add("knowledge.view")
   if ([...normalized].some(scope => scope.includes(".") && !scope.startsWith("tasks.") && !scope.startsWith("outputs."))) {
     normalized.add("client.view")
   }
@@ -79,4 +107,15 @@ export function hasAgentScope(
 export function teamPermissionFromAgentScope(scope: AgentScope): TeamPermissionKey | null {
   if (SPECIAL_SCOPE_SET.has(scope)) return null
   return scope as TeamPermissionKey
+}
+
+export function agentTaskScope(input: {
+  kind: string
+  module: TaskCenterModule
+  action: "view" | "execute"
+}): AgentScope {
+  if (input.kind === "knowledgeImport") {
+    return input.action === "view" ? "knowledge.view" : "knowledge.import"
+  }
+  return `${input.module}.${input.action}` as AgentScope
 }

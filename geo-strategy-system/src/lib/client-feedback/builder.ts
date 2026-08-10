@@ -7,6 +7,7 @@ import {
 } from "@/lib/penetration/history-store"
 import {
   executionCounters,
+  getClientFeedbackReport,
   listClientExecutionActions,
   listClientFeedbackReports,
   saveClientFeedbackReport,
@@ -203,7 +204,12 @@ export async function buildClientFeedbackReport(input: {
   client: Client
   profile: ClientExecutionProfile
   period: ClientFeedbackPeriod
+  reportId?: string
 }): Promise<ClientFeedbackReport> {
+  if (input.reportId) {
+    const existing = await getClientFeedbackReport(input.ownerUserId, input.reportId)
+    if (existing?.clientId === input.client.id) return existing
+  }
   const [history, manualActions, previousReports, publicationPolicy] = await Promise.all([
     listAllHistory(input.ownerUserId, input.client.id),
     listClientExecutionActions(input.ownerUserId, input.client.id),
@@ -277,7 +283,7 @@ export async function buildClientFeedbackReport(input: {
       : input.client.ourBrand
     : input.client.ourBrand
   const report: ClientFeedbackReport = {
-    id: `cfr_${randomUUID().replace(/-/g, "")}`,
+    id: input.reportId || `cfr_${randomUUID().replace(/-/g, "")}`,
     ownerUserId: input.ownerUserId,
     clientId: input.client.id,
     type: input.period.type,

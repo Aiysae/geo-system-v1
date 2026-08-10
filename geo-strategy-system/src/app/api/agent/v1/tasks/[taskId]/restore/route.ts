@@ -1,6 +1,12 @@
-import { AgentApiError, agentError, agentSuccess, assertAgentClientGrant, requireAgentAuth } from "@/lib/agent/api"
+import {
+  AgentApiError,
+  agentError,
+  agentSuccess,
+  assertAgentClientGrant,
+  requireAgentAuth,
+} from "@/lib/agent/api"
 import { agentTaskScope, hasAgentScope } from "@/lib/agent/scopes"
-import { cancelTaskCenterTask } from "@/lib/task-center/cancel"
+import { restoreTaskCenterResult } from "@/lib/task-center/restore"
 import { getTaskCenterCancellationTarget, getTaskCenterTask } from "@/lib/task-center/store"
 
 export const runtime = "nodejs"
@@ -12,7 +18,7 @@ export async function POST(
 ) {
   let traceId: string | undefined
   try {
-    const auth = await requireAgentAuth(request, ["tasks.cancel"])
+    const auth = await requireAgentAuth(request, ["tasks.view"])
     traceId = auth.traceId
     const { taskId } = await context.params
     const [target, task] = await Promise.all([
@@ -20,15 +26,22 @@ export async function POST(
       getTaskCenterTask(taskId, auth.userId),
     ])
     if (!target || !task) {
-      throw new AgentApiError({ code: "NOT_FOUND", message: "任务不存在或无权停止", status: 404 })
+      throw new AgentApiError({ code: "NOT_FOUND", message: "任务不存在或无权恢复", status: 404 })
     }
     assertAgentClientGrant(auth, target.clientId, target.teamId)
-    const scope = agentTaskScope({ kind: task.kind, module: target.module, action: "execute" })
+    const scope = agentTaskScope({ kind: task.kind, module: target.module, action: "view" })
     if (!hasAgentScope(auth.token.scopes, scope)) {
       throw new AgentApiError({ code: "AGENT_SCOPE_DENIED", message: `Agent 密钥缺少 ${scope} 权限`, status: 403 })
     }
-    const result = await cancelTaskCenterTask(taskId, auth.userId)
-    return agentSuccess(result, auth.traceId)
+    const restored = await restoreTaskCenterResult(target.id, auth.userId)
+    if (!restored) {
+      throw new AgentApiError({
+        code: "RESULT_NOT_AVAILABLE",
+        message: "该任务没有可恢复的结果",
+        status: 404,
+      })
+    }
+    return agentSuccess({ taskId: target.id, restored: true }, auth.traceId)
   } catch (error) {
     return agentError(error, traceId)
   }

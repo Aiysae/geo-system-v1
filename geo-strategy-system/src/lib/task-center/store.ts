@@ -7,6 +7,7 @@ import { resolveOperationAccess } from "@/lib/team-access"
 import {
   isTaskCenterTerminalStatus,
   type TaskCenterListResponse,
+  type TaskCenterListQuery,
   type TaskCenterModule,
   type TaskCenterSource,
   type TaskCenterStatus,
@@ -168,7 +169,7 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 24)
 }
 
-function taskId(source: TaskCenterSource, sourceJobId: string): string {
+export function taskCenterTaskId(source: TaskCenterSource, sourceJobId: string): string {
   return `task_${source}_${sourceJobId}`
 }
 
@@ -204,7 +205,7 @@ function normalizeInput(input: TaskCenterTaskInput): StoredTaskCenterTask {
   const createdAt = asIso(input.createdAt) || new Date().toISOString()
   const updatedAt = asIso(input.updatedAt) || createdAt
   return {
-    id: taskId(source, sourceJobId),
+    id: taskCenterTaskId(source, sourceJobId),
     source,
     sourceJobId,
     kind: cleanText(input.kind, 120, source),
@@ -413,32 +414,145 @@ export async function syncTaskCenterTask(input: TaskCenterTaskInput): Promise<vo
   }
 }
 
-async function listPostgres(userId: string, limit: number): Promise<TaskCenterTask[]> {
+type TaskCursor = {
+  rank: number
+  updatedAt: string
+  id: string
+}
+
+function taskRank(status: TaskCenterStatus): number {
+  return isTaskCenterTerminalStatus(status) ? 1 : 0
+}
+
+function encodeCursor(task: Pick<TaskCenterTask, "id" | "status" | "updatedAt">): string {
+  return Buffer.from(JSON.stringify({
+    rank: taskRank(task.status),
+    updatedAt: task.updatedAt,
+    id: task.id,
+  } satisfies TaskCursor), "utf8").toString("base64url")
+}
+
+function decodeCursor(value: string | undefined): TaskCursor | undefined {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<TaskCursor>
+    const rank = Number(parsed.rank)
+    const updatedAt = String(parsed.updatedAt || "")
+    const id = String(parsed.id || "")
+    if ((rank !== 0 && rank !== 1) || !Number.isFinite(Date.parse(updatedAt)) || !id) return undefined
+    return { rank, updatedAt: new Date(updatedAt).toISOString(), id }
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeListQuery(value: number | TaskCenterListQuery): Required<Pick<TaskCenterListQuery, "limit">> & TaskCenterListQuery {
+  const source = typeof value === "number" ? { limit: value } : value
+  const limit = Math.max(1, Math.min(MAX_LIST_LIMIT, Math.floor(Number(source.limit) || 50)))
+  return {
+    ...source,
+    limit,
+    clientId: cleanText(source.clientId, 220) || undefined,
+    teamId: cleanText(source.teamId, 220) || undefined,
+    modules: source.modules?.filter(module => MODULES.includes(module)),
+    clientFilters: source.clientFilters
+      ?.map(filter => ({
+        clientId: cleanText(filter.clientId, 220),
+        teamId: cleanText(filter.teamId, 220) || undefined,
+      }))
+      .filter(filter => Boolean(filter.clientId)),
+  }
+}
+
+function matchesQuery(task: StoredTaskCenterTask, query: ReturnType<typeof normalizeListQuery>): boolean {
+  const teamId = typeof task.metadata?.teamId === "string" ? task.metadata.teamId : undefined
+  if (query.clientId && task.clientId !== query.clientId) return false
+  if (query.teamId !== undefined && teamId !== query.teamId) return false
+  if (query.status && task.status !== query.status) return false
+  if (query.modules?.length && !query.modules.includes(task.module)) return false
+  if (query.clientFilters?.length && !query.clientFilters.some(filter => (
+    filter.clientId === task.clientId && filter.teamId === teamId
+  ))) return false
+  return true
+}
+
+function isAfterCursor(task: StoredTaskCenterTask, cursor: TaskCursor | undefined): boolean {
+  if (!cursor) return true
+  const rank = taskRank(task.status)
+  if (rank !== cursor.rank) return rank > cursor.rank
+  if (task.updatedAt !== cursor.updatedAt) return task.updatedAt < cursor.updatedAt
+  return task.id < cursor.id
+}
+
+async function listPostgres(
+  userId: string,
+  query: ReturnType<typeof normalizeListQuery>,
+): Promise<{ tasks: TaskCenterTask[]; nextCursor?: string }> {
   await ensureSchema()
+  const params: unknown[] = [userId]
+  const where = ["(task.actor_user_id = $1 OR task.workspace_owner_user_id = $1)"]
+  const addParam = (value: unknown): string => {
+    params.push(value)
+    return `$${params.length}`
+  }
+  if (query.clientId) where.push(`task.client_id = ${addParam(query.clientId)}`)
+  if (query.teamId !== undefined) {
+    where.push(`COALESCE(task.metadata->>'teamId', '') = ${addParam(query.teamId || "")}`)
+  }
+  if (query.status) where.push(`task.status = ${addParam(query.status)}`)
+  if (query.modules?.length) where.push(`task.module = ANY(${addParam(query.modules)}::text[])`)
+  if (query.clientFilters?.length) {
+    const filters = query.clientFilters.map(filter => {
+      const client = addParam(filter.clientId)
+      const team = addParam(filter.teamId || "")
+      return `(task.client_id = ${client} AND COALESCE(task.metadata->>'teamId', '') = ${team})`
+    })
+    where.push(`(${filters.join(" OR ")})`)
+  }
+  const cursor = decodeCursor(query.cursor)
+  if (query.cursor && !cursor) throw new Error("任务列表 cursor 无效")
+  if (cursor) {
+    const rank = addParam(cursor.rank)
+    const updatedAt = addParam(cursor.updatedAt)
+    const id = addParam(cursor.id)
+    const rankSql = "CASE WHEN task.status IN ('queued', 'running', 'retrying') THEN 0 ELSE 1 END"
+    where.push(`(${rankSql} > ${rank} OR (${rankSql} = ${rank} AND (task.updated_at < ${updatedAt}::timestamptz OR (task.updated_at = ${updatedAt}::timestamptz AND task.id < ${id}))))`)
+  }
+  const fetchLimit = Math.min(600, Math.max(query.limit + 1, query.limit * 5))
+  params.push(fetchLimit)
   const result = await pool().query<TaskCenterRow>(
     `SELECT task.*, reads.read_at
      FROM geo_tasks_v1 task
      LEFT JOIN geo_task_reads_v1 reads
        ON reads.task_id = task.id AND reads.user_id = $1
-     WHERE task.actor_user_id = $1 OR task.workspace_owner_user_id = $1
+     WHERE ${where.join(" AND ")}
      ORDER BY
        CASE WHEN task.status IN ('queued', 'running', 'retrying') THEN 0 ELSE 1 END,
-       task.updated_at DESC
-     LIMIT $2`,
-    [userId, Math.min(500, Math.max(limit, limit * 4))],
+       task.updated_at DESC,
+       task.id DESC
+     LIMIT $${params.length}`,
+    params,
   )
   const checked = await Promise.all(result.rows.map(async row => ({
     row,
     task: fromRow(row),
     allowed: await isAuthorizedVisible(fromRow(row), userId),
   })))
-  return Promise.all(checked
-    .filter(item => item.allowed)
-    .slice(0, limit)
-    .map(item => publicTask(item.task, userId, item.row.read_at)))
+  const allowed = checked.filter(item => item.allowed)
+  const page = allowed.slice(0, query.limit)
+  const tasks = await Promise.all(page.map(item => publicTask(item.task, userId, item.row.read_at)))
+  const hasMore = allowed.length > query.limit || result.rows.length === fetchLimit
+  const cursorTask = page.at(-1)?.task || (hasMore ? checked.at(-1)?.task : undefined)
+  return {
+    tasks,
+    nextCursor: hasMore && cursorTask ? encodeCursor(cursorTask) : undefined,
+  }
 }
 
-async function listKv(userId: string, limit: number): Promise<TaskCenterTask[]> {
+async function listKv(
+  userId: string,
+  query: ReturnType<typeof normalizeListQuery>,
+): Promise<{ tasks: TaskCenterTask[]; nextCursor?: string }> {
   const [actorIds, workspaceIds] = await Promise.all([
     kv.smembers<string[]>(actorIndexKey(userId)),
     kv.smembers<string[]>(workspaceIndexKey(userId)),
@@ -454,32 +568,46 @@ async function listKv(userId: string, limit: number): Promise<TaskCenterTask[]> 
   }
   const candidates = loaded
     .map(normalizeStored)
-    .filter((task): task is StoredTaskCenterTask => Boolean(task && isVisible(task, userId)))
+    .filter((task): task is StoredTaskCenterTask => Boolean(
+      task
+      && isVisible(task, userId)
+      && matchesQuery(task, query)
+      && isAfterCursor(task, decodeCursor(query.cursor)),
+    ))
   const allowed = await Promise.all(candidates.map(task => isAuthorizedVisible(task, userId)))
   const tasks = candidates
     .filter((_, index) => allowed[index])
     .sort((left, right) => {
       const leftActive = isTaskCenterTerminalStatus(left.status) ? 1 : 0
       const rightActive = isTaskCenterTerminalStatus(right.status) ? 1 : 0
-      return leftActive - rightActive || right.updatedAt.localeCompare(left.updatedAt)
+      return leftActive - rightActive
+        || right.updatedAt.localeCompare(left.updatedAt)
+        || right.id.localeCompare(left.id)
     })
-    .slice(0, limit)
-  return Promise.all(tasks.map(task => publicTask(task, userId)))
+  if (query.cursor && !decodeCursor(query.cursor)) throw new Error("任务列表 cursor 无效")
+  const page = tasks.slice(0, query.limit)
+  return {
+    tasks: await Promise.all(page.map(task => publicTask(task, userId))),
+    nextCursor: tasks.length > query.limit && page.length > 0
+      ? encodeCursor(page[page.length - 1])
+      : undefined,
+  }
 }
 
 export async function listTaskCenterTasks(
   userId: string,
-  requestedLimit = 50,
+  requested: number | TaskCenterListQuery = 50,
 ): Promise<TaskCenterListResponse> {
-  const limit = Math.max(1, Math.min(MAX_LIST_LIMIT, Math.floor(requestedLimit)))
-  const tasks = backend() === "postgres"
-    ? await listPostgres(userId, limit)
-    : await listKv(userId, limit)
+  const query = normalizeListQuery(requested)
+  const page = backend() === "postgres"
+    ? await listPostgres(userId, query)
+    : await listKv(userId, query)
   return {
-    tasks,
-    activeCount: tasks.filter(task => !isTaskCenterTerminalStatus(task.status)).length,
-    unreadCount: tasks.filter(task => task.unread).length,
+    tasks: page.tasks,
+    activeCount: page.tasks.filter(task => !isTaskCenterTerminalStatus(task.status)).length,
+    unreadCount: page.tasks.filter(task => task.unread).length,
     serverTime: new Date().toISOString(),
+    nextCursor: page.nextCursor,
   }
 }
 
@@ -495,7 +623,7 @@ export async function getTaskCenterTask(
 async function getPostgres(id: string): Promise<StoredTaskCenterTask | null> {
   await ensureSchema()
   const result = await pool().query<TaskCenterRow>(
-    "SELECT * FROM geo_tasks_v1 WHERE id = $1 LIMIT 1",
+    "SELECT * FROM geo_tasks_v1 WHERE id = $1 OR source_job_id = $1 ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END LIMIT 1",
     [id],
   )
   return result.rows[0] ? fromRow(result.rows[0]) : null
@@ -503,7 +631,13 @@ async function getPostgres(id: string): Promise<StoredTaskCenterTask | null> {
 
 async function getStored(id: string): Promise<StoredTaskCenterTask | null> {
   if (backend() === "postgres") return getPostgres(id)
-  return normalizeStored(await kv.get<StoredTaskCenterTask>(taskKey(id)))
+  const exact = normalizeStored(await kv.get<StoredTaskCenterTask>(taskKey(id)))
+  if (exact || id.startsWith("task_")) return exact
+  for (const source of SOURCES) {
+    const candidate = normalizeStored(await kv.get<StoredTaskCenterTask>(taskKey(taskCenterTaskId(source, id))))
+    if (candidate) return candidate
+  }
+  return null
 }
 
 export async function markTaskCenterTaskRead(

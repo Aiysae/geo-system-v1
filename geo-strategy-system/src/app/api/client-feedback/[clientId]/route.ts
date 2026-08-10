@@ -29,18 +29,20 @@ function noStore(response: NextResponse): NextResponse {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ clientId: string }> },
 ) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
     const { clientId } = await context.params
+    const teamId = String(request.nextUrl.searchParams.get("teamId") || "").trim() || undefined
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
       module: "feedback",
       action: "view",
+      teamId,
     })
     const client = (await listWorkspaceClients(access.dataOwnerUserId))
       .find(record => record.client.id === access.clientId)?.client

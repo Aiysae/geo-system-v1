@@ -4,6 +4,8 @@ import { createHash } from "crypto"
 import { Pool } from "pg"
 import { kv } from "@/lib/kv"
 import { syncArticleBatchTask } from "@/lib/task-center/adapters"
+import { buildArticleBatchSystemOutputRecord } from "@/lib/system-output/builders"
+import { saveSystemOutputRecord } from "@/lib/system-output/store"
 import {
   hasArticleBatchDraft,
   resolveArticleBatchQualityStatus,
@@ -284,6 +286,17 @@ export async function saveStoredArticleBatch(batch: StoredArticleBatch): Promise
   else await saveKv(batch)
   await syncArticleBatchTask(batch)
   await syncPendingIndex(batch)
+  if (["succeeded", "partial", "failed", "cancelled"].includes(batch.status)) {
+    const ownerUserId = batch.workspaceOwnerUserId || batch.ownerUserId
+    await saveSystemOutputRecord(ownerUserId, buildArticleBatchSystemOutputRecord({
+      ownerUserId,
+      actorUserId: batch.ownerUserId,
+      clientName: batch.basePayload.clientName || batch.clientId,
+      batch: toPublicArticleBatch(batch),
+    })).catch(error => {
+      console.warn("[article-batches] system output save failed", batch.id, error instanceof Error ? error.message : error)
+    })
+  }
 }
 
 async function getPostgres(id: string): Promise<StoredArticleBatch | null> {

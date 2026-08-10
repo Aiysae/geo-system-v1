@@ -18,6 +18,7 @@ export type AgentSpecialScope =
   | "tasks.cancel"
   | "outputs.view"
   | "knowledge.view"
+  | "knowledge.import"
 
 export type AgentScope = AgentModuleScope | AgentSpecialScope
 
@@ -77,8 +78,23 @@ export type AgentAuditRecord = {
 export type AgentActionName =
   | "penetration.run"
   | "difficulty.run"
+  | "research.run"
+  | "research.compare"
+  | "diagnosis.run"
+  | "keyword.extract"
+  | "keyword.advantages"
+  | "keyword.strategy.run"
+  | "keyword.website-prompt.run"
+  | "keyword.questions.run"
+  | "article.generate"
+  | "article.rewrite"
+  | "knowledge.import"
+  | "knowledge.commit"
   | "background.run"
   | "article.batch.run"
+  | "feedback.action.create"
+  | "feedback.actions.import"
+  | "feedback.report.create"
   | "report.create"
 
 export type AgentAccessMode = "admin" | "vip4" | "all"

@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { buildClientFeedbackReport } from "@/lib/client-feedback/builder"
+import { buildFeedbackReportSystemOutputRecord } from "@/lib/system-output/builders"
+import { saveSystemOutputRecord } from "@/lib/system-output/store"
 import {
   feedbackPeriodForDate,
   getClientExecutionProfile,
@@ -19,18 +22,20 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ clientId: string }> },
 ) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
     const { clientId } = await context.params
+    const teamId = String(request.nextUrl.searchParams.get("teamId") || "").trim() || undefined
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
       module: "feedback",
       action: "view",
+      teamId,
     })
     const [reports, publicationPolicy] = await Promise.all([
       listClientFeedbackReports(access.dataOwnerUserId, access.clientId),
@@ -64,13 +69,19 @@ export async function POST(
   if (!auth.ok) return auth.response
   try {
     const { clientId } = await context.params
+    const body = await request.json() as {
+      type?: unknown
+      targetDate?: unknown
+      teamId?: unknown
+      requestId?: unknown
+    }
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
       module: "feedback",
       action: "edit",
+      teamId: typeof body.teamId === "string" ? body.teamId : undefined,
     })
-    const body = await request.json() as { type?: unknown; targetDate?: unknown }
     const type: ClientFeedbackReportType = body.type === "monthly" ? "monthly" : "weekly"
     const profile = await getClientExecutionProfile(access.dataOwnerUserId, access.clientId)
     const client = (await listWorkspaceClients(access.dataOwnerUserId))
@@ -78,12 +89,33 @@ export async function POST(
     if (!client) throw new Error("客户面板不存在")
     const targetDate = typeof body.targetDate === "string" ? body.targetDate : undefined
     const period = feedbackPeriodForDate(profile, type, targetDate)
+    const requestId = typeof body.requestId === "string" && /^[A-Za-z0-9_-]{16,160}$/.test(body.requestId)
+      ? body.requestId
+      : ""
+    const reportId = requestId
+      ? `cfr_agent_${createHash("sha256")
+          .update(`${access.dataOwnerUserId}:${access.clientId}:${requestId}`)
+          .digest("hex")
+          .slice(0, 32)}`
+      : undefined
     const report = await buildClientFeedbackReport({
       ownerUserId: access.dataOwnerUserId,
       actorUserId: auth.userId,
       client,
       profile,
       period,
+      reportId,
+    })
+    await saveSystemOutputRecord(
+      access.dataOwnerUserId,
+      buildFeedbackReportSystemOutputRecord({
+        ownerUserId: access.dataOwnerUserId,
+        actorUserId: auth.userId,
+        clientName: client.name,
+        report,
+      }),
+    ).catch(error => {
+      console.warn("[client-feedback] system output save failed", report.id, error instanceof Error ? error.message : error)
     })
     return NextResponse.json({ report }, { status: 201 })
   } catch (error) {

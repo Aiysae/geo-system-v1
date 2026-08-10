@@ -81,7 +81,9 @@ async function apiRequest(apiPath, options = {}) {
     method: options.method || "GET",
     headers: {
       Authorization: `Bearer ${auth.token}`,
-      Accept: options.binary ? "application/pdf" : "application/json",
+      Accept: options.binary
+        ? options.accept || "application/pdf, application/zip, application/octet-stream"
+        : "application/json",
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.requestId ? { "X-Request-Id": options.requestId } : {}),
     },
@@ -136,6 +138,8 @@ function help() {
   clients get <clientId> [--team-id id] [--sections core,penetration]
   tasks list [--client-id id] [--team-id id] [--status running]
   tasks get <taskId>
+  tasks result <taskId>
+  tasks restore <taskId>
   tasks watch <taskId> [--interval 2000] [--timeout 1800000]  # 无进度时自动降低轮询频率
   tasks cancel <taskId>
 
@@ -143,13 +147,58 @@ function help() {
   outputs list --client-id id --module penetration [--team-id id]
   outputs get <outputId> [--team-id id]
   reports list --client-id id [--team-id id]
+  reports create --file payload.json
   reports download <jobId> --out report.pdf
+  articles list --client-id id [--team-id id]
+  articles get <batchId>
+  articles download <batchId> [--scope passed|all] [--variant original|media] --out articles.zip
+  feedback get <clientId> [--team-id id]
+  knowledge list --client-id id [--team-id id]
+  knowledge get <importId> --client-id id [--team-id id]
 
 执行
   actions run <action> --file payload.json [--dry-run]
+  research run|compare --file payload.json [--dry-run]
+  diagnosis run --file payload.json [--dry-run]
+  keywords extract|advantages|strategy|website-prompt|questions --file payload.json [--dry-run]
+  articles generate|rewrite|batch --file payload.json [--dry-run]
+  feedback action|import|report --file payload.json [--dry-run]
+  knowledge import|commit --file payload.json [--dry-run]
   capabilities
 
 所有命令均支持 --json、--base-url 和 --token；生产环境更建议使用 SHITU_GEO_TOKEN。`
+}
+
+const ACTION_COMMANDS = new Map([
+  ["research:run", "research.run"],
+  ["research:compare", "research.compare"],
+  ["diagnosis:run", "diagnosis.run"],
+  ["keywords:extract", "keyword.extract"],
+  ["keywords:advantages", "keyword.advantages"],
+  ["keywords:strategy", "keyword.strategy.run"],
+  ["keywords:website-prompt", "keyword.website-prompt.run"],
+  ["keywords:questions", "keyword.questions.run"],
+  ["articles:generate", "article.generate"],
+  ["articles:rewrite", "article.rewrite"],
+  ["articles:batch", "article.batch.run"],
+  ["feedback:action", "feedback.action.create"],
+  ["feedback:import", "feedback.actions.import"],
+  ["feedback:report", "feedback.report.create"],
+  ["knowledge:import", "knowledge.import"],
+  ["knowledge:commit", "knowledge.commit"],
+  ["reports:create", "report.create"],
+])
+
+async function runAction(action, flags) {
+  const payload = await readPayload(flags.file)
+  if (flags.dryRun) payload.dryRun = true
+  const result = await apiRequest(`/actions/${encodeURIComponent(action)}`, {
+    method: "POST",
+    body: payload,
+    requestId: payload.requestId,
+    flags,
+  })
+  return print(result.data, flags)
 }
 
 async function main() {
@@ -183,12 +232,20 @@ async function main() {
     return print(result.data, flags)
   }
   if (group === "tasks" && command === "list") {
-    const query = queryString({ limit: flags.limit, clientId: flags.clientId, teamId: flags.teamId, status: flags.status })
+    const query = queryString({ limit: flags.limit, cursor: flags.cursor, clientId: flags.clientId, teamId: flags.teamId, status: flags.status })
     const result = await apiRequest(`/tasks${query}`, { flags })
     return print(result.data, flags)
   }
   if (group === "tasks" && command === "get" && id) {
     const result = await apiRequest(`/tasks/${encodeURIComponent(id)}`, { flags })
+    return print(result.data, flags)
+  }
+  if (group === "tasks" && command === "result" && id) {
+    const result = await apiRequest(`/tasks/${encodeURIComponent(id)}/result`, { flags })
+    return print(result.data, flags)
+  }
+  if (group === "tasks" && command === "restore" && id) {
+    const result = await apiRequest(`/tasks/${encodeURIComponent(id)}/restore`, { method: "POST", flags })
     return print(result.data, flags)
   }
   if (group === "tasks" && command === "cancel" && id) {
@@ -238,17 +295,47 @@ async function main() {
     await fs.writeFile(target, result.data)
     return print(target, flags)
   }
-  if (group === "actions" && command === "run" && id) {
-    const payload = await readPayload(flags.file)
-    if (flags.dryRun) payload.dryRun = true
-    const result = await apiRequest(`/actions/${encodeURIComponent(id)}`, {
-      method: "POST",
-      body: payload,
-      requestId: payload.requestId,
-      flags,
-    })
+  if (group === "articles" && command === "list") {
+    const query = queryString({ clientId: flags.clientId, teamId: flags.teamId })
+    const result = await apiRequest(`/articles/batches${query}`, { flags })
     return print(result.data, flags)
   }
+  if (group === "articles" && command === "get" && id) {
+    const result = await apiRequest(`/articles/batches/${encodeURIComponent(id)}`, { flags })
+    return print(result.data, flags)
+  }
+  if (group === "articles" && command === "download" && id) {
+    const scope = flags.scope === "all" ? "all" : "passed"
+    const variant = flags.variant === "media" ? "media" : "original"
+    const target = path.resolve(String(flags.out || `geo-articles-${id}-${scope}-${variant}.zip`))
+    const query = queryString({ scope, variant })
+    const result = await apiRequest(`/articles/batches/${encodeURIComponent(id)}/download${query}`, {
+      flags,
+      binary: true,
+      accept: "application/zip, application/octet-stream",
+    })
+    await fs.writeFile(target, result.data)
+    return print(target, flags)
+  }
+  if (group === "feedback" && command === "get" && id) {
+    const result = await apiRequest(`/feedback/${encodeURIComponent(id)}${queryString({ teamId: flags.teamId })}`, { flags })
+    return print(result.data, flags)
+  }
+  if (group === "knowledge" && command === "list") {
+    const query = queryString({ clientId: flags.clientId, teamId: flags.teamId })
+    const result = await apiRequest(`/knowledge/imports${query}`, { flags })
+    return print(result.data, flags)
+  }
+  if (group === "knowledge" && command === "get" && id) {
+    const query = queryString({ clientId: flags.clientId, teamId: flags.teamId })
+    const result = await apiRequest(`/knowledge/imports/${encodeURIComponent(id)}${query}`, { flags })
+    return print(result.data, flags)
+  }
+  if (group === "actions" && command === "run" && id) {
+    return runAction(id, flags)
+  }
+  const dedicatedAction = ACTION_COMMANDS.get(`${group}:${command}`)
+  if (dedicatedAction) return runAction(dedicatedAction, flags)
   throw new Error(`无法识别命令。\n\n${help()}`)
 }
 

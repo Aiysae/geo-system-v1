@@ -57,6 +57,22 @@ export interface TaskCenterListResponse {
   activeCount: number
   unreadCount: number
   serverTime: string
+  nextCursor?: string
+}
+
+export interface TaskCenterClientFilter {
+  clientId: string
+  teamId?: string
+}
+
+export interface TaskCenterListQuery {
+  limit?: number
+  cursor?: string
+  clientId?: string
+  teamId?: string
+  status?: TaskCenterStatus
+  modules?: TaskCenterModule[]
+  clientFilters?: TaskCenterClientFilter[]
 }
 
 export interface TaskCenterTaskInput {

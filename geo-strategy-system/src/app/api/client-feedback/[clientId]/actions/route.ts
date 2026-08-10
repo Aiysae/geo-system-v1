@@ -18,13 +18,14 @@ export async function POST(
   if (!auth.ok) return auth.response
   try {
     const { clientId } = await context.params
+    const body = await request.json() as { action?: Record<string, unknown>; teamId?: unknown }
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
       module: "feedback",
       action: "edit",
+      teamId: typeof body.teamId === "string" ? body.teamId : undefined,
     })
-    const body = await request.json() as { action?: Record<string, unknown> }
     const action = await saveClientExecutionAction({
       ownerUserId: access.dataOwnerUserId,
       clientId: access.clientId,

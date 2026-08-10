@@ -1,6 +1,7 @@
 import { AGENT_ACTIONS } from "@/lib/agent/action-catalog"
 import { agentError, agentSuccess, requireAgentAuth } from "@/lib/agent/api"
 import { ALL_AGENT_SCOPES } from "@/lib/agent/scopes"
+import { hasAgentScope } from "@/lib/agent/scopes"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -11,8 +12,11 @@ export async function GET(request: Request) {
     const auth = await requireAgentAuth(request)
     traceId = auth.traceId
     return agentSuccess({
-      apiVersion: "v1",
-      actions: AGENT_ACTIONS,
+      apiVersion: "v1.2",
+      actions: AGENT_ACTIONS.filter(action => (
+        action.requiredScope === "dynamic"
+        || hasAgentScope(auth.token.scopes, action.requiredScope)
+      )),
       scopes: ALL_AGENT_SCOPES,
       token: {
         id: auth.token.id,

@@ -29,23 +29,35 @@ Initial read operations:
 - task list and task detail
 - system output list and detail
 
-Initial execution operations:
+Current typed execution operations:
 
-- `penetration.run`
-- `difficulty.run`
-- `background.run`
-- `article.batch.run`
-- `report.create`
+- Analysis: `penetration.run`, `research.run`, `research.compare`,
+  `diagnosis.run`, and `difficulty.run`.
+- Keyword strategy: `keyword.extract`, `keyword.advantages`,
+  `keyword.strategy.run`, `keyword.website-prompt.run`, and
+  `keyword.questions.run`.
+- Content: `article.generate`, `article.rewrite`, and
+  `article.batch.run`.
+- Delivery: `feedback.action.create`, `feedback.actions.import`,
+  `feedback.report.create`, and `report.create`.
+- Knowledge: `knowledge.import` followed by human-reviewed
+  `knowledge.commit`.
+
+`background.run` remains available only for compatibility. New clients use the
+typed operation matching the actual business module.
 
 Every execution supports a caller-generated request id and a dry-run preflight.
-Successful submissions return a task or job identifier immediately; agents use
-task APIs instead of holding a gateway request open.
+Successful asynchronous submissions return canonical `taskId`, `sourceJobId`,
+`statusUrl`, and `resultUrl` values immediately; agents use task APIs instead
+of holding a gateway request open. Synchronous feedback and knowledge-commit
+operations return their result directly.
 
 ## Implemented clients
 
 - `cli/shitu-geo.mjs` is a dependency-light Node.js CLI for macOS, Linux, and
-  Windows. It supports JSON output, background task watching, cancellation, and
-  protected report downloads.
+  Windows. It supports typed action aliases, cursor pagination, task result
+  restoration, background watching, cancellation, protected report downloads,
+  article batch ZIP downloads, feedback reads, and knowledge review.
 - `src/agent/mcp-stdio.ts` exposes the same contract to local MCP clients.
 - `/api/agent/mcp` is a stateless Streamable HTTP MCP endpoint. Each request is
   authenticated with the same Agent Bearer Token and each tool delegates to the
@@ -65,6 +77,10 @@ second server-side workflow engine:
 3. reuse the same stable `requestId` for the approved execution;
 4. poll the returned task through the task API;
 5. read immutable outputs or download the completed report.
+
+The same flow applies to PDF and article ZIP resources. MCP exposes protected
+resource templates, while REST and CLI stream the binary response only when it
+is explicitly requested.
 
 MCP marks cancellation as destructive and execution tools as non-read-only, so
 compatible Agent hosts can show their native confirmation UI. Replaying an
@@ -87,6 +103,8 @@ previously issued token is still cryptographically valid.
 ## Compatibility policy
 
 - `/api/agent/v1` is additive and versioned.
+- Action definitions, OpenAPI request schemas, MCP tools, and server-side
+  dispatch all derive from the same action registry.
 - Machine errors include stable codes and retryability.
 - Large results are returned as protected resource links, not embedded blobs.
 - CLI and MCP are thin clients over the Agent REST contract.

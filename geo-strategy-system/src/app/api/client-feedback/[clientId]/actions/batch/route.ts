@@ -19,6 +19,7 @@ export const dynamic = "force-dynamic"
 
 const MAX_BATCH_BODY_BYTES = 600 * 1024
 const CATEGORIES = new Set<ClientExecutionActionCategory>([
+  "penetration_check",
   "content_production",
   "self_media_publish",
   "authority_media_publish",
@@ -57,17 +58,19 @@ export async function POST(
       return noStore({ error: "批量导入内容过多，请拆分后重试" }, { status: 413 })
     }
     const { clientId } = await context.params
+    const body = await request.json() as {
+      importId?: unknown
+      teamId?: unknown
+      defaults?: Partial<ClientEvidenceImportDefaults>
+      rows?: unknown
+    }
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
       module: "feedback",
       action: "edit",
+      teamId: typeof body.teamId === "string" ? body.teamId : undefined,
     })
-    const body = await request.json() as {
-      importId?: unknown
-      defaults?: Partial<ClientEvidenceImportDefaults>
-      rows?: unknown
-    }
     if (!Array.isArray(body.rows) || body.rows.length === 0) {
       return noStore({ error: "请至少填写一条标题和证据网址" }, { status: 400 })
     }

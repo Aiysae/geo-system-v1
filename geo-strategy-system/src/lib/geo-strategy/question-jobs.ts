@@ -10,6 +10,8 @@ import { createInternalApiHeaders } from "@/lib/internal-api"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
 import { syncQuestionJobTask } from "@/lib/task-center/adapters"
+import { buildQuestionSystemOutputRecord } from "@/lib/system-output/builders"
+import { saveSystemOutputRecord } from "@/lib/system-output/store"
 import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
 import {
   clearTaskCancellation,
@@ -154,6 +156,18 @@ async function saveStoredQuestionJob(job: StoredQuestionJobRecord): Promise<void
     console.warn("[question-jobs] KV save failed, using memory fallback:", error)
   }
   await syncQuestionJobTask(job)
+  if (job.status === "succeeded") {
+    const ownerUserId = job.workspaceOwnerUserId || job.ownerUserId
+    await saveSystemOutputRecord(ownerUserId, buildQuestionSystemOutputRecord({
+      ownerUserId,
+      actorUserId: job.ownerUserId,
+      clientId: String(job.request.clientId || ""),
+      clientName: String(job.request.clientName || job.request.strategy.project_name || job.request.clientId || "当前客户"),
+      job: toPublicJob(job),
+    })).catch(error => {
+      console.warn("[question-jobs] system output save failed", job.id, error instanceof Error ? error.message : error)
+    })
+  }
 }
 
 async function getStoredQuestionJob(id: string): Promise<StoredQuestionJobRecord | null> {
