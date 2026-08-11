@@ -199,9 +199,21 @@ export interface ClientFeedbackMetricSnapshot {
   historyRecordId?: string
 }
 
+export type ClientFeedbackMetricSelectionMode = "automatic" | "manual"
+
+export interface ClientFeedbackMetricOption extends ClientFeedbackMetricSnapshot {
+  historyRecordId: string
+  status: "succeeded" | "partial"
+  operation: "replace" | "append"
+  subjectName: string
+  completedAt: string
+}
+
 export interface ClientFeedbackMetricComparison {
   baseline: ClientFeedbackMetricSnapshot | null
   current: ClientFeedbackMetricSnapshot | null
+  baselineSelectionMode?: ClientFeedbackMetricSelectionMode
+  currentSelectionMode?: ClientFeedbackMetricSelectionMode
   comparable: boolean
   comparabilityNote: string
   penetrationDelta: number | null
@@ -214,6 +226,7 @@ export interface ClientFeedbackReportSnapshot {
   clientName: string
   subjectName: string
   industry: string
+  projectStartDate?: string
   reportTitle: string
   generatedAt: string
   dataCutoffAt: string
@@ -268,4 +281,12 @@ export interface ClientFeedbackPeriod {
   start: string
   end: string
   label: string
+}
+
+export interface ClientFeedbackReportOptions {
+  period: ClientFeedbackPeriod
+  metrics: ClientFeedbackMetricOption[]
+  suggestedBaselineHistoryRecordId?: string
+  suggestedCurrentHistoryRecordId?: string
+  truncated: boolean
 }

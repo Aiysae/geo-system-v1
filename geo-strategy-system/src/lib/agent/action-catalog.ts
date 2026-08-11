@@ -412,6 +412,8 @@ const feedbackReportSchema = z.looseObject({
   ...clientContextShape,
   type: z.enum(["weekly", "monthly"]),
   targetDate: z.string().optional(),
+  baselineHistoryRecordId: z.string().max(240).optional(),
+  currentHistoryRecordId: z.string().max(240).optional(),
 })
 
 const knowledgeImportSchema = z.looseObject({

@@ -42,8 +42,10 @@ import type {
   ClientExecutionPublicationPolicy,
   ClientExecutionStage,
   ClientEvidenceImportResult,
+  ClientFeedbackMetricOption,
   ClientFeedbackPeriod,
   ClientFeedbackReport,
+  ClientFeedbackReportOptions,
   ClientFeedbackReportType,
 } from "@/types/client-feedback"
 
@@ -138,6 +140,15 @@ function formatTime(value: string): string {
   })
 }
 
+function metricPercent(value: number | null | undefined): string {
+  return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "暂无"
+}
+
+function metricOptionLabel(item: ClientFeedbackMetricOption): string {
+  const status = item.status === "partial" ? "部分完成" : "完整完成"
+  return `${formatTime(item.completedAt)} · 渗透率 ${metricPercent(item.penetrationRate)} · ${item.questionCount} 问题 / ${item.modelCount} 模型 · ${status}`
+}
+
 function monthLabel(month: string): string {
   const [year, value] = month.split("-")
   return `${year} 年 ${Number(value)} 月`
@@ -175,6 +186,13 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
   const [calendarMonth, setCalendarMonth] = useState(today().slice(0, 7))
   const [selectedDate, setSelectedDate] = useState(today())
   const [reportTargetDate, setReportTargetDate] = useState(today())
+  const [reportDialogType, setReportDialogType] = useState<ClientFeedbackReportType | null>(null)
+  const [reportOptions, setReportOptions] = useState<ClientFeedbackReportOptions | null>(null)
+  const [reportOptionsLoading, setReportOptionsLoading] = useState(false)
+  const [reportOptionsError, setReportOptionsError] = useState("")
+  const [reportOptionsReloadKey, setReportOptionsReloadKey] = useState(0)
+  const [baselineHistoryRecordId, setBaselineHistoryRecordId] = useState("")
+  const [currentHistoryRecordId, setCurrentHistoryRecordId] = useState("")
   const [previewReport, setPreviewReport] = useState<ClientFeedbackReport | null>(null)
   const [copiedReportId, setCopiedReportId] = useState("")
   const [shareUrl, setShareUrl] = useState("")
@@ -203,6 +221,52 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     const timer = window.setTimeout(() => void load(), 0)
     return () => window.clearTimeout(timer)
   }, [load])
+
+  useEffect(() => {
+    if (!reportDialogType) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setReportOptionsLoading(true)
+      setReportOptionsError("")
+      const params = new URLSearchParams({
+        type: reportDialogType,
+        targetDate: reportTargetDate,
+      })
+      void (async () => {
+        try {
+          const response = await fetch(`${endpoint}/report-options?${params.toString()}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          })
+          const body = await response.json().catch(() => null)
+          if (!response.ok) throw new Error(toUserFacingError(body?.error, {
+            status: response.status,
+            fallback: "报告配置读取失败，请稍后重试。",
+            subject: "反馈报告",
+          }))
+          if (controller.signal.aborted) return
+          const options = body as ClientFeedbackReportOptions
+          setReportOptions(options)
+          setBaselineHistoryRecordId(options.suggestedBaselineHistoryRecordId || "")
+          setCurrentHistoryRecordId(options.suggestedCurrentHistoryRecordId || "")
+        } catch (caught) {
+          if (!controller.signal.aborted) {
+            setReportOptions(null)
+            setReportOptionsError(toUserFacingError(caught, {
+              fallback: "报告配置读取失败，请稍后重试。",
+              subject: "反馈报告",
+            }))
+          }
+        } finally {
+          if (!controller.signal.aborted) setReportOptionsLoading(false)
+        }
+      })()
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [endpoint, reportDialogType, reportOptionsReloadKey, reportTargetDate])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -235,6 +299,18 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
   )
   const visibleReports = payload?.reports || []
   const canEditActionVisibility = payload?.canManageVisibility && !customerActionPreview
+  const selectedBaselineMetric = reportOptions?.metrics.find(
+    item => item.historyRecordId === baselineHistoryRecordId,
+  )
+  const selectedCurrentMetric = reportOptions?.metrics.find(
+    item => item.historyRecordId === currentHistoryRecordId,
+  )
+  const baselineMetricOptions = (reportOptions?.metrics || []).filter(item => (
+    !selectedCurrentMetric || Date.parse(item.completedAt) < Date.parse(selectedCurrentMetric.completedAt)
+  ))
+  const currentMetricOptions = (reportOptions?.metrics || []).filter(item => (
+    !selectedBaselineMetric || Date.parse(item.completedAt) > Date.parse(selectedBaselineMetric.completedAt)
+  ))
 
   async function saveProfile() {
     if (!profileDraft) return
@@ -447,11 +523,17 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
       const response = await fetch(`${endpoint}/reports`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, targetDate: reportTargetDate }),
+        body: JSON.stringify({
+          type,
+          targetDate: reportTargetDate,
+          baselineHistoryRecordId: baselineHistoryRecordId || undefined,
+          currentHistoryRecordId: currentHistoryRecordId || undefined,
+        }),
       })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "反馈报告生成失败，请稍后重试。", subject: "反馈报告" }))
       setPreviewReport(body.report as ClientFeedbackReport)
+      setReportDialogType(null)
       setNotice("报告草稿已生成，确认后可发布给客户")
       await load(true)
     } catch (caught) {
@@ -822,12 +904,12 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
           </div>
           {payload.canManage ? (
             <div className="flex flex-wrap items-center gap-2">
-              <input type="date" value={reportTargetDate} min={payload.profile.startDate} onChange={event => setReportTargetDate(event.target.value)} className="h-9 rounded-lg border border-[#C8D9E8] px-3 text-xs outline-none focus:border-[#1677FF]" />
-              <button type="button" onClick={() => void generateReport("weekly")} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#91CAFF] px-3 text-xs font-semibold text-[#0958D9] disabled:opacity-50">
-                {pending === "generate:weekly" ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <FileBarChart2 className="h-3.5 w-3.5" />}生成周报
+              <input type="date" value={reportTargetDate} min={payload.profile.startDate} max={today()} onChange={event => setReportTargetDate(event.target.value)} className="h-9 rounded-lg border border-[#C8D9E8] px-3 text-xs outline-none focus:border-[#1677FF]" aria-label="反馈报告截止日期" />
+              <button type="button" onClick={() => { setReportOptions(null); setReportDialogType("weekly") }} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#91CAFF] px-3 text-xs font-semibold text-[#0958D9] disabled:opacity-50">
+                <FileBarChart2 className="h-3.5 w-3.5" />生成周报
               </button>
-              <button type="button" onClick={() => void generateReport("monthly")} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#6C5CE7] px-3 text-xs font-semibold text-white disabled:opacity-50">
-                {pending === "generate:monthly" ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <FileBarChart2 className="h-3.5 w-3.5" />}生成月报
+              <button type="button" onClick={() => { setReportOptions(null); setReportDialogType("monthly") }} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#6C5CE7] px-3 text-xs font-semibold text-white disabled:opacity-50">
+                <FileBarChart2 className="h-3.5 w-3.5" />生成月报
               </button>
             </div>
           ) : null}
@@ -876,16 +958,148 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         )}
       </section>
 
+      {reportDialogType ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#00133F]/58 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="feedback-report-dialog-title">
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-2xl">
+            <header className="flex items-start justify-between gap-4 border-b border-[#E3EDF6] px-5 py-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 id="feedback-report-dialog-title" className="text-base font-semibold">
+                    生成{reportDialogType === "weekly" ? "周反馈" : "月反馈"}
+                  </h3>
+                  <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-[10px] font-semibold text-[#0958D9]">
+                    {reportDialogType === "weekly" ? "连续 7 天" : "连续 30 天"}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-[#7E91A7]">确认动作范围，并选择用于效果对比的两次真实检测记录</p>
+              </div>
+              <button type="button" onClick={() => setReportDialogType(null)} disabled={pending.startsWith("generate:")} className="rounded-md p-2 hover:bg-[#EEF5FC] disabled:opacity-50" aria-label="关闭"><X className="h-4 w-4" /></button>
+            </header>
+
+            <div className="space-y-5 p-5">
+              <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
+                <label className="space-y-1.5 text-xs font-semibold">
+                  报告截止日期
+                  <input
+                    type="date"
+                    value={reportTargetDate}
+                    min={payload.profile.startDate}
+                    max={today()}
+                    onChange={event => setReportTargetDate(event.target.value)}
+                    className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]"
+                  />
+                </label>
+                <div className="rounded-lg border border-[#CFE1F5] bg-[linear-gradient(135deg,#F1F8FF_0%,#F3FDFF_100%)] px-4 py-3">
+                  <p className="text-[10px] font-semibold text-[#6B8299]">动作统计范围</p>
+                  <p className="mt-1 text-sm font-bold text-[#0958D9]">
+                    {reportOptions
+                      ? `${reportOptions.period.start} 至 ${reportOptions.period.end}`
+                      : reportOptionsLoading ? "正在计算…" : "等待加载"}
+                  </p>
+                  <p className="mt-1 text-[10px] text-[#7E91A7]">按北京时间计算，首尾日期均计入报告</p>
+                </div>
+              </div>
+
+              {reportOptionsLoading ? (
+                <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-[#C8D9E8] py-12 text-sm text-[#6B8299]">
+                  <LoaderCircle className="h-4 w-4 animate-spin text-[#1677FF]" />正在读取历史检测记录
+                </div>
+              ) : reportOptionsError ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  <span>{reportOptionsError}</span>
+                  <button type="button" onClick={() => setReportOptionsReloadKey(value => value + 1)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rose-200 bg-white px-3 text-xs font-semibold"><RefreshCw className="h-3.5 w-3.5" />重试</button>
+                </div>
+              ) : reportOptions ? (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="space-y-1.5 text-xs font-semibold">
+                      起始检测
+                      <select
+                        value={baselineHistoryRecordId}
+                        onChange={event => setBaselineHistoryRecordId(event.target.value)}
+                        className="h-11 w-full rounded-lg border border-[#C8D9E8] bg-white px-3 font-normal outline-none focus:border-[#1677FF]"
+                      >
+                        <option value="">不设置起始检测</option>
+                        {baselineMetricOptions.map(item => <option key={item.historyRecordId} value={item.historyRecordId}>{metricOptionLabel(item)}</option>)}
+                      </select>
+                    </label>
+                    <label className="space-y-1.5 text-xs font-semibold">
+                      当前检测
+                      <select
+                        value={currentHistoryRecordId}
+                        onChange={event => {
+                          const nextId = event.target.value
+                          setCurrentHistoryRecordId(nextId)
+                          const next = reportOptions.metrics.find(item => item.historyRecordId === nextId)
+                          if (next && selectedBaselineMetric && Date.parse(selectedBaselineMetric.completedAt) >= Date.parse(next.completedAt)) {
+                            setBaselineHistoryRecordId("")
+                          }
+                        }}
+                        className="h-11 w-full rounded-lg border border-[#C8D9E8] bg-white px-3 font-normal outline-none focus:border-[#1677FF]"
+                      >
+                        <option value="">暂无当前检测</option>
+                        {currentMetricOptions.map(item => <option key={item.historyRecordId} value={item.historyRecordId}>{metricOptionLabel(item)}</option>)}
+                      </select>
+                    </label>
+                  </div>
+
+                  {reportOptions.metrics.length === 0 ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
+                      截止该日期还没有可用的渗透率检测记录。仍可生成动作反馈报告，效果对比会显示为暂无数据。
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {[
+                        { label: "起始值", item: selectedBaselineMetric },
+                        { label: "当前值", item: selectedCurrentMetric },
+                      ].map(entry => (
+                        <div key={entry.label} className="min-w-0 rounded-lg border border-[#DCE8F4] bg-[#F8FBFF] p-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold text-[#6B8299]">{entry.label}</span>
+                            {entry.item ? <span className={`rounded-md px-2 py-0.5 text-[9px] font-semibold ${entry.item.status === "partial" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{entry.item.status === "partial" ? "部分完成" : "完整完成"}</span> : null}
+                          </div>
+                          <p className="mt-2 text-2xl font-bold text-[#102A43]">{metricPercent(entry.item?.penetrationRate)}</p>
+                          <p className="mt-1 break-words text-[10px] text-[#7E91A7]">{entry.item ? formatTime(entry.item.completedAt) : "未选择"}</p>
+                          {entry.item ? <p className="mt-2 text-[10px] text-[#526A83]">{entry.item.questionCount} 个问题 · {entry.item.modelCount} 个模型 · {entry.item.completedSlots}/{entry.item.totalSlots} 次采样</p> : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border border-[#CFE7FA] bg-[#F2F9FF] px-4 py-3 text-[11px] leading-5 text-[#526A83]">
+                    系统会在生成时校验两次检测的模型和疑问句样本。样本一致会标记为“可直接对比”；不一致仍可保留观察结果，但会明确标注差异原因。
+                    {reportOptions.truncated ? " 当前历史记录超过 1000 次，列表已展示最近 1000 次。" : ""}
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            <footer className="flex flex-wrap justify-end gap-2 border-t border-[#E3EDF6] px-5 py-4">
+              <button type="button" onClick={() => setReportDialogType(null)} disabled={pending.startsWith("generate:")} className="h-9 rounded-lg border border-[#C8D9E8] px-4 text-xs font-semibold disabled:opacity-50">取消</button>
+              <button
+                type="button"
+                onClick={() => void generateReport(reportDialogType)}
+                disabled={reportOptionsLoading || Boolean(reportOptionsError) || !reportOptions || pending.startsWith("generate:")}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#6C5CE7] px-4 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {pending === `generate:${reportDialogType}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <FileBarChart2 className="h-3.5 w-3.5" />}
+                生成报告草稿
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
       {settingsOpen ? (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#00133F]/58 p-3 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-2xl">
             <header className="flex items-center justify-between border-b border-[#E3EDF6] px-5 py-4">
-              <div><h3 className="text-base font-semibold">执行设置</h3><p className="mt-1 text-xs text-[#7E91A7]">开始日期决定服务周、服务月和反馈周期</p></div>
+              <div><h3 className="text-base font-semibold">执行设置</h3><p className="mt-1 text-xs text-[#7E91A7]">开始日期决定服务进度，反馈报告固定回溯近 7 天或近 30 天</p></div>
               <button type="button" onClick={() => setSettingsOpen(false)} className="rounded-md p-2 hover:bg-[#EEF5FC]" aria-label="关闭"><X className="h-4 w-4" /></button>
             </header>
             <div className="grid gap-4 p-5 sm:grid-cols-2">
               <label className="space-y-1.5 text-xs font-semibold">正式执行日期<input type="date" value={profileDraft.startDate} onChange={event => setProfileDraft({ ...profileDraft, startDate: event.target.value })} className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]" /></label>
-              <label className="space-y-1.5 text-xs font-semibold">报告周期<select value={profileDraft.periodMode} onChange={event => setProfileDraft({ ...profileDraft, periodMode: event.target.value === "calendar" ? "calendar" : "service" })} className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]"><option value="service">从正式执行日滚动计算</option><option value="calendar">按自然周 / 自然月</option></select></label>
+              <label className="space-y-1.5 text-xs font-semibold">进度编号方式<select value={profileDraft.periodMode} onChange={event => setProfileDraft({ ...profileDraft, periodMode: event.target.value === "calendar" ? "calendar" : "service" })} className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]"><option value="service">从正式执行日计算</option><option value="calendar">按自然周 / 自然月计算</option></select></label>
               <label className="space-y-1.5 text-xs font-semibold">当前阶段<select value={profileDraft.currentStage} onChange={event => setProfileDraft({ ...profileDraft, currentStage: event.target.value as ClientExecutionStage })} className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]">{STAGE_OPTIONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
               <label className="space-y-1.5 text-xs font-semibold">项目负责人<input value={profileDraft.projectOwner} onChange={event => setProfileDraft({ ...profileDraft, projectOwner: event.target.value })} placeholder="负责人姓名" className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]" /></label>
               <label className="space-y-1.5 text-xs font-semibold sm:col-span-2">阶段进度 · {profileDraft.stageProgress}%<input type="range" min="0" max="100" value={profileDraft.stageProgress} onChange={event => setProfileDraft({ ...profileDraft, stageProgress: Number(event.target.value) })} className="w-full accent-[#1677FF]" /></label>

@@ -24,8 +24,8 @@ export default async function SharedFeedbackPage({
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#EAF5FF_0%,#F7FBFF_44%,#EAF2F8_100%)] px-3 py-5 sm:px-6 sm:py-8 print:bg-white print:p-0">
-      <ClientFeedbackReportView report={report} publicView />
       <PublicReportActions />
+      <ClientFeedbackReportView report={report} publicView />
     </main>
   )
 }

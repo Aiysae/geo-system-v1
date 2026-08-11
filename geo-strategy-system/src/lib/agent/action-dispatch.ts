@@ -157,6 +157,8 @@ async function routeForAction(
         teamId: payload.teamId,
         type: payload.type,
         targetDate: payload.targetDate,
+        baselineHistoryRecordId: payload.baselineHistoryRecordId,
+        currentHistoryRecordId: payload.currentHistoryRecordId,
         requestId: payload.requestId,
       },
     }
