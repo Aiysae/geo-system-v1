@@ -16,7 +16,6 @@ import {
   penetrationHistoryActionId,
 } from "@/lib/client-feedback/publication"
 import {
-  feedbackHistoryDate,
   listClientFeedbackHistory,
   selectFeedbackMetricRecords,
   usableFeedbackMetricRecord,
@@ -25,6 +24,8 @@ import type { Client, PenetrationHistoryListItem, PenetrationHistoryRecord } fro
 import type {
   ClientExecutionAction,
   ClientExecutionProfile,
+  ClientExecutionPublicationPolicy,
+  ClientFeedbackActionDaySummary,
   ClientFeedbackContentAttribution,
   ClientFeedbackMetricSnapshot,
   ClientFeedbackPeriod,
@@ -128,6 +129,56 @@ function systemAction(
   return applyActionPublication(action, policy)
 }
 
+export function collectClientFeedbackPeriodActions(input: {
+  manualActions: ClientExecutionAction[]
+  history: PenetrationHistoryListItem[]
+  publicationPolicy: ClientExecutionPublicationPolicy
+  period: ClientFeedbackPeriod
+}): ClientExecutionAction[] {
+  const inPeriod = (occurredAt: string) => {
+    const date = shanghaiDateOnly(new Date(occurredAt))
+    return date >= input.period.start && date <= input.period.end
+  }
+  const actions = [
+    ...input.manualActions
+      .map(action => applyActionPublication(action, input.publicationPolicy))
+      .filter(action => action.visibility === "client" && inPeriod(action.occurredAt)),
+    ...input.history
+      .filter(record => inPeriod(record.completedAt || record.updatedAt || record.createdAt))
+      .map(record => systemAction(record, input.publicationPolicy))
+      .filter(action => action.visibility === "client"),
+  ]
+  return [...new Map(actions.map(action => [action.id, action])).values()]
+    .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))
+}
+
+function addDateDays(value: string, count: number): string {
+  const [year, month, day] = value.split("-").map(Number)
+  return new Date(Date.UTC(year, month - 1, day + count)).toISOString().slice(0, 10)
+}
+
+export function summarizeClientFeedbackPeriodActions(
+  actions: ClientExecutionAction[],
+  period: ClientFeedbackPeriod,
+): ClientFeedbackActionDaySummary[] {
+  const byDate = new Map<string, ClientExecutionAction[]>()
+  for (const action of actions) {
+    const date = shanghaiDateOnly(new Date(action.occurredAt))
+    byDate.set(date, [...(byDate.get(date) || []), action])
+  }
+  const result: ClientFeedbackActionDaySummary[] = []
+  for (let date = period.start; date <= period.end; date = addDateDays(date, 1)) {
+    const dayActions = byDate.get(date) || []
+    result.push({
+      date,
+      count: dayActions.length,
+      completedCount: dayActions.filter(action => action.status === "completed").length,
+      plannedCount: dayActions.filter(action => action.status === "planned").length,
+    })
+  }
+  return result
+}
+
 export async function listSystemClientExecutionActions(
   ownerUserId: string,
   clientId: string,
@@ -224,25 +275,12 @@ export async function buildClientFeedbackReport(input: {
   const baselineMetric = metricSnapshot(selected.baseline)
   const currentMetric = metricSnapshot(selected.current)
   const quality = comparability(baselineRecord || undefined, currentRecord || undefined)
-  const manualInPeriod = manualActions.map(action => (
-    applyActionPublication(action, publicationPolicy)
-  )).filter(action => {
-    const date = shanghaiDateOnly(new Date(action.occurredAt))
-    return (
-      action.visibility === "client"
-      && date >= input.profile.startDate
-      && date >= input.period.start
-      && date <= input.period.end
-    )
+  const actions = collectClientFeedbackPeriodActions({
+    manualActions,
+    history,
+    publicationPolicy,
+    period: input.period,
   })
-  const historyInPeriod = history.filter(record => {
-    const date = feedbackHistoryDate(record)
-    return date >= input.profile.startDate && date >= input.period.start && date <= input.period.end
-  })
-  const actions = [
-    ...manualInPeriod,
-    ...historyInPeriod.map(record => systemAction(record, publicationPolicy)),
-  ].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))
   const comparison = {
     baseline: baselineMetric,
     current: currentMetric,

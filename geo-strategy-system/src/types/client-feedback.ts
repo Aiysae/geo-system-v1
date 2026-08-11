@@ -267,7 +267,9 @@ export interface ClientFeedbackReport {
   version: number
   snapshot: ClientFeedbackReportSnapshot
   shareTokenHash?: string
+  shareRevision?: number
   shareEnabled: boolean
+  sharePath?: string
   publishedAt?: string
   publishedByUserId?: string
   createdAt: string
@@ -285,8 +287,17 @@ export interface ClientFeedbackPeriod {
 
 export interface ClientFeedbackReportOptions {
   period: ClientFeedbackPeriod
+  actionCount: number
+  actionDays: ClientFeedbackActionDaySummary[]
   metrics: ClientFeedbackMetricOption[]
   suggestedBaselineHistoryRecordId?: string
   suggestedCurrentHistoryRecordId?: string
   truncated: boolean
+}
+
+export interface ClientFeedbackActionDaySummary {
+  date: string
+  count: number
+  completedCount: number
+  plannedCount: number
 }

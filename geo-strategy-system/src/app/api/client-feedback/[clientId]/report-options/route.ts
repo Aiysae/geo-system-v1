@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
+  collectClientFeedbackPeriodActions,
+  summarizeClientFeedbackPeriodActions,
+} from "@/lib/client-feedback/builder"
+import {
   feedbackHistoryDate,
   listClientFeedbackHistory,
   metricOption,
@@ -9,8 +13,10 @@ import {
 import {
   feedbackPeriodForDate,
   getClientExecutionProfile,
+  listClientExecutionActions,
   shanghaiDateOnly,
 } from "@/lib/client-feedback/store"
+import { getClientExecutionPublicationPolicy } from "@/lib/client-feedback/publication"
 import { requireOperationAccess } from "@/lib/team-access"
 import { requireUserId } from "@/lib/with-credits"
 import type {
@@ -41,16 +47,27 @@ export async function GET(
     })
     const profile = await getClientExecutionProfile(access.dataOwnerUserId, access.clientId)
     const period = feedbackPeriodForDate(profile, type, targetDate)
-    if (period.end !== targetDate) throw new Error("报告截止日期不能早于正式执行日期")
     if (period.end > shanghaiDateOnly()) throw new Error("报告截止日期不能晚于今天")
 
-    const history = await listClientFeedbackHistory(access.dataOwnerUserId, access.clientId)
+    const [history, manualActions, publicationPolicy] = await Promise.all([
+      listClientFeedbackHistory(access.dataOwnerUserId, access.clientId),
+      listClientExecutionActions(access.dataOwnerUserId, access.clientId),
+      getClientExecutionPublicationPolicy(access.dataOwnerUserId, access.clientId),
+    ])
     const metricHistory = history.items
       .filter(usableFeedbackMetricRecord)
       .filter(record => feedbackHistoryDate(record) <= period.end)
     const selected = selectFeedbackMetricRecords({ history: metricHistory, period })
+    const periodActions = collectClientFeedbackPeriodActions({
+      manualActions,
+      history: history.items,
+      publicationPolicy,
+      period,
+    })
     const response: ClientFeedbackReportOptions = {
       period,
+      actionCount: periodActions.length,
+      actionDays: summarizeClientFeedbackPeriodActions(periodActions, period),
       metrics: metricHistory.map(metricOption).reverse(),
       suggestedBaselineHistoryRecordId: selected.baseline?.id,
       suggestedCurrentHistoryRecordId: selected.current?.id,

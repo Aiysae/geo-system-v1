@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { listSystemClientExecutionActions } from "@/lib/client-feedback/builder"
 import {
+  clientFeedbackReportSharePath,
   executionCounters,
   feedbackPeriodForDate,
   getClientExecutionProfile,
@@ -110,7 +111,10 @@ export async function GET(
                 "view",
               ),
             })
-          : report),
+          : {
+              ...report,
+              sharePath: clientFeedbackReportSharePath(report),
+            }),
     }))
   } catch (error) {
     return noStore(NextResponse.json({

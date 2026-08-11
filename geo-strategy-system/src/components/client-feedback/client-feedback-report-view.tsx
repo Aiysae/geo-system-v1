@@ -341,10 +341,10 @@ export default function ClientFeedbackReportView({
           </div>
           <div className={`mt-4 grid gap-2 ${report.type === "weekly" ? "grid-cols-2 sm:grid-cols-4 lg:grid-cols-7" : "grid-cols-4 sm:grid-cols-6 lg:grid-cols-10"}`}>
             {timeline.map(day => (
-              <div key={day.date} data-feedback-day={day.date} className={`min-h-20 rounded-lg border px-2.5 py-2.5 ${day.beforeProject ? "border-slate-200 bg-slate-50" : day.actions.length > 0 ? "border-[#91CAFF] bg-[#EFF8FF]" : "border-[#E3EDF6] bg-white"}`}>
+              <div key={day.date} data-feedback-day={day.date} className={`min-h-20 rounded-lg border px-2.5 py-2.5 ${day.actions.length > 0 ? "border-[#91CAFF] bg-[#EFF8FF]" : day.beforeProject ? "border-slate-200 bg-slate-50" : "border-[#E3EDF6] bg-white"}`}>
                 <p className={`text-[10px] font-semibold ${day.actions.length > 0 ? "text-[#0958D9]" : "text-[#7E91A7]"}`}>{shortDate(day.date)}</p>
-                <p className={`mt-2 text-xs font-bold ${day.beforeProject ? "text-slate-400" : day.actions.length > 0 ? "text-[#102A43]" : "text-[#A0B1C1]"}`}>
-                  {day.beforeProject ? "尚未开始" : day.actions.length > 0 ? `${day.actions.length} 项动作` : "暂无动作"}
+                <p className={`mt-2 text-xs font-bold ${day.actions.length > 0 ? "text-[#102A43]" : day.beforeProject ? "text-slate-400" : "text-[#A0B1C1]"}`}>
+                  {day.actions.length > 0 ? `${day.actions.length} 项动作` : day.beforeProject ? "正式执行前" : "暂无动作"}
                 </p>
                 <div className={`mt-2 h-1 rounded-full ${day.actions.length > 0 ? "bg-gradient-to-r from-[#1677FF] to-[#13C2C2]" : "bg-[#E8F0F7]"}`} />
               </div>
