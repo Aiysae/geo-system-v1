@@ -11,6 +11,7 @@ process.env.PENETRATION_HISTORY_STORE = "file"
 process.env.PENETRATION_HISTORY_FILE = path.join(directory, "penetration-history.json")
 process.env.WORKSPACE_STORE = "file"
 process.env.WORKSPACE_FILE = path.join(directory, "workspaces.json")
+process.env.AUTH_SECRET = "client-feedback-test-secret"
 
 const {
   inferEvidencePlatform,
@@ -18,6 +19,7 @@ const {
   parseEvidenceImportText,
 } = await import("../src/lib/client-feedback/evidence-import")
 const {
+  clientFeedbackReportSharePath,
   deleteClientExecutionActionBatch,
   deleteClientFeedbackReport,
   executionCounters,
@@ -132,6 +134,101 @@ try {
       / 86_400_000,
     ) + 1,
     30,
+  )
+
+  const lateStartClient: Client = {
+    ...client,
+    id: "feedback-late-start-client",
+    name: "晚设置执行日期客户",
+  }
+  await createWorkspaceClient(ownerUserId, lateStartClient)
+  const lateStartProfile = await saveClientExecutionProfile({
+    ownerUserId,
+    clientId: lateStartClient.id,
+    updatedByUserId: actorUserId,
+    patch: {
+      startDate: "2026-03-01",
+      periodMode: "service",
+    },
+  })
+  await saveClientExecutionAction({
+    ownerUserId,
+    clientId: lateStartClient.id,
+    actorUserId,
+    value: {
+      category: "self_media_publish",
+      status: "completed",
+      visibility: "client",
+      title: "周报窗口内的前置执行动作",
+      occurredAt: "2026-02-24T12:00:00+08:00",
+    },
+  })
+  await saveClientExecutionAction({
+    ownerUserId,
+    clientId: lateStartClient.id,
+    actorUserId,
+    value: {
+      category: "authority_media_publish",
+      status: "completed",
+      visibility: "client",
+      title: "月报窗口内的前置执行动作",
+      occurredAt: "2026-02-05T12:00:00+08:00",
+    },
+  })
+  await saveClientExecutionAction({
+    ownerUserId,
+    clientId: lateStartClient.id,
+    actorUserId,
+    value: {
+      category: "strategy_adjustment",
+      status: "completed",
+      visibility: "internal",
+      title: "不能进入客户报告的内部动作",
+      occurredAt: "2026-02-25T12:00:00+08:00",
+    },
+  })
+  const lateWeekReport = await buildClientFeedbackReport({
+    ownerUserId,
+    actorUserId,
+    client: lateStartClient,
+    profile: lateStartProfile,
+    period: feedbackPeriodForDate(lateStartProfile, "weekly", "2026-03-01"),
+  })
+  assert.equal(
+    lateWeekReport.snapshot.actions.some(action => action.title === "周报窗口内的前置执行动作"),
+    true,
+    "a rolling weekly report must include real actions before a later formal start date",
+  )
+  assert.equal(
+    lateWeekReport.snapshot.actions.some(action => action.visibility === "internal"),
+    false,
+    "internal actions must remain excluded from rolling reports",
+  )
+  const lateMonthReport = await buildClientFeedbackReport({
+    ownerUserId,
+    actorUserId,
+    client: lateStartClient,
+    profile: lateStartProfile,
+    period: feedbackPeriodForDate(lateStartProfile, "monthly", "2026-03-01"),
+  })
+  assert.equal(
+    lateMonthReport.snapshot.actions.some(action => action.title === "月报窗口内的前置执行动作"),
+    true,
+    "a rolling monthly report must include all real actions in its 30-day window",
+  )
+  const lateWeekReportV2 = await buildClientFeedbackReport({
+    ownerUserId,
+    actorUserId,
+    client: lateStartClient,
+    profile: lateStartProfile,
+    period: feedbackPeriodForDate(lateStartProfile, "weekly", "2026-03-01"),
+  })
+  assert.equal(lateWeekReportV2.version, lateWeekReport.version + 1)
+  assert.equal(
+    (await listClientFeedbackReports(ownerUserId, lateStartClient.id))
+      .some(item => item.id === lateWeekReport.id),
+    true,
+    "regenerating a period must preserve the earlier report version",
   )
 
   const metricRecord = (
@@ -518,6 +615,18 @@ try {
   const shared = await getSharedClientFeedbackReport(published.shareToken)
   assert.equal(shared?.id, report.id)
   assert.equal(shared?.status, "published")
+  assert.equal(clientFeedbackReportSharePath(published.report), published.sharePath)
+  const repeatedPublish = await publishClientFeedbackReport({
+    ownerUserId,
+    clientId: client.id,
+    reportId: report.id,
+    actorUserId,
+  })
+  assert.equal(
+    repeatedPublish.shareToken,
+    published.shareToken,
+    "publishing the same report twice must preserve its customer URL",
+  )
 
   const reports = await listClientFeedbackReports(ownerUserId, client.id)
   assert.equal(reports.length, 1)
@@ -529,6 +638,19 @@ try {
     reportId: report.id,
   })
   assert.equal(await getSharedClientFeedbackReport(published.shareToken), null)
+  const republished = await publishClientFeedbackReport({
+    ownerUserId,
+    clientId: client.id,
+    reportId: report.id,
+    actorUserId,
+  })
+  assert.notEqual(
+    republished.shareToken,
+    published.shareToken,
+    "re-enabling a revoked share must issue a new URL",
+  )
+  assert.equal(await getSharedClientFeedbackReport(published.shareToken), null)
+  assert.equal((await getSharedClientFeedbackReport(republished.shareToken))?.id, report.id)
 
   assert.equal(await deleteClientFeedbackReport({
     ownerUserId,

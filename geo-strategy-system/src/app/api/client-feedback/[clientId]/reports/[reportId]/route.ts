@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
+  clientFeedbackReportSharePath,
   deleteClientFeedbackReport,
   getClientFeedbackReport,
   publishClientFeedbackReport,
@@ -54,7 +55,12 @@ export async function GET(
           },
         )
       : report
-    return NextResponse.json({ report: responseReport })
+    return NextResponse.json({
+      report: {
+        ...responseReport,
+        sharePath: clientFeedbackReportSharePath(report),
+      },
+    })
   } catch (error) {
     return NextResponse.json({
       error: error instanceof Error ? error.message : "反馈报告读取失败",
@@ -93,7 +99,7 @@ export async function PATCH(
     })
     return NextResponse.json({
       report: result.report,
-      sharePath: `/feedback/share/${encodeURIComponent(result.shareToken)}`,
+      sharePath: result.sharePath,
     })
   } catch (error) {
     return NextResponse.json({

@@ -15,14 +15,15 @@ import {
   Eye,
   EyeOff,
   FileBarChart2,
+  FileDown,
   FileSearch2,
   FileUp,
+  Link2,
   LoaderCircle,
   LockKeyhole,
   Plus,
   RefreshCw,
   Save,
-  Send,
   Settings2,
   Trash2,
   X,
@@ -187,6 +188,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
   const [selectedDate, setSelectedDate] = useState(today())
   const [reportTargetDate, setReportTargetDate] = useState(today())
   const [reportDialogType, setReportDialogType] = useState<ClientFeedbackReportType | null>(null)
+  const [reportDialogSource, setReportDialogSource] = useState<ClientFeedbackReport | null>(null)
   const [reportOptions, setReportOptions] = useState<ClientFeedbackReportOptions | null>(null)
   const [reportOptionsLoading, setReportOptionsLoading] = useState(false)
   const [reportOptionsError, setReportOptionsError] = useState("")
@@ -247,8 +249,18 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
           if (controller.signal.aborted) return
           const options = body as ClientFeedbackReportOptions
           setReportOptions(options)
-          setBaselineHistoryRecordId(options.suggestedBaselineHistoryRecordId || "")
-          setCurrentHistoryRecordId(options.suggestedCurrentHistoryRecordId || "")
+          const sourceBaselineId = reportDialogSource?.snapshot.comparison.baseline?.historyRecordId || ""
+          const sourceCurrentId = reportDialogSource?.snapshot.comparison.current?.historyRecordId || ""
+          setBaselineHistoryRecordId(
+            options.metrics.some(item => item.historyRecordId === sourceBaselineId)
+              ? sourceBaselineId
+              : options.suggestedBaselineHistoryRecordId || "",
+          )
+          setCurrentHistoryRecordId(
+            options.metrics.some(item => item.historyRecordId === sourceCurrentId)
+              ? sourceCurrentId
+              : options.suggestedCurrentHistoryRecordId || "",
+          )
         } catch (caught) {
           if (!controller.signal.aborted) {
             setReportOptions(null)
@@ -266,7 +278,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [endpoint, reportDialogType, reportOptionsReloadKey, reportTargetDate])
+  }, [endpoint, reportDialogSource, reportDialogType, reportOptionsReloadKey, reportTargetDate])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -515,8 +527,50 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     void load(true)
   }
 
-  async function generateReport(type: ClientFeedbackReportType) {
-    setPending(`generate:${type}`)
+  function openReportDialog(type: ClientFeedbackReportType, source: ClientFeedbackReport | null = null) {
+    setReportOptions(null)
+    setReportOptionsError("")
+    setReportDialogSource(source)
+    if (source) setReportTargetDate(source.periodEnd)
+    setReportDialogType(type)
+  }
+
+  function closeReportDialog() {
+    setReportDialogType(null)
+    setReportDialogSource(null)
+  }
+
+  function absoluteShareUrl(path: string): string {
+    return new URL(path, window.location.origin).toString()
+  }
+
+  async function copyReportShareUrl(report: ClientFeedbackReport): Promise<boolean> {
+    if (!report.sharePath) return false
+    const url = absoluteShareUrl(report.sharePath)
+    setShareUrl(url)
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedReportId(report.id)
+      setNotice("私密报告链接已复制")
+      window.setTimeout(() => setCopiedReportId(""), 2_000)
+      return true
+    } catch {
+      setNotice("请从上方链接框手动复制")
+      return false
+    }
+  }
+
+  function openReportShareUrl(report: ClientFeedbackReport, print = false) {
+    if (!report.sharePath) return
+    const url = new URL(absoluteShareUrl(report.sharePath))
+    if (print) url.searchParams.set("print", "1")
+    window.open(url.toString(), "_blank", "noopener,noreferrer")
+  }
+
+  async function generateReport(type: ClientFeedbackReportType, publish: boolean) {
+    const pendingKey = `generate:${type}:${publish ? "publish" : "draft"}`
+    const isRegeneration = Boolean(reportDialogSource)
+    setPending(pendingKey)
     setError("")
     setNotice("")
     try {
@@ -528,13 +582,23 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
           targetDate: reportTargetDate,
           baselineHistoryRecordId: baselineHistoryRecordId || undefined,
           currentHistoryRecordId: currentHistoryRecordId || undefined,
+          publish,
         }),
       })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "反馈报告生成失败，请稍后重试。", subject: "反馈报告" }))
-      setPreviewReport(body.report as ClientFeedbackReport)
-      setReportDialogType(null)
-      setNotice("报告草稿已生成，确认后可发布给客户")
+      const report = {
+        ...body.report as ClientFeedbackReport,
+        sharePath: typeof body.sharePath === "string" ? body.sharePath : body.report?.sharePath,
+      }
+      setPreviewReport(report)
+      closeReportDialog()
+      if (publish && report.sharePath) {
+        await copyReportShareUrl(report)
+        setNotice("报告已生成并创建私密链接")
+      } else {
+        setNotice(isRegeneration ? "报告新版草稿已生成" : "报告草稿已生成，确认后可发布给客户")
+      }
       await load(true)
     } catch (caught) {
       setError(toUserFacingError(caught, { fallback: "反馈报告生成失败，请稍后重试。", subject: "反馈报告" }))
@@ -554,19 +618,13 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
       })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(toUserFacingError(body?.error, { status: response.status, fallback: "报告发布失败，请稍后重试。", subject: "报告发布" }))
-      const url = new URL(body.sharePath, window.location.origin).toString()
-      setShareUrl(url)
-      let copied = false
-      try {
-        await navigator.clipboard.writeText(url)
-        copied = true
-      } catch {
-        copied = false
+      const publishedReport = {
+        ...body.report as ClientFeedbackReport,
+        sharePath: body.sharePath as string,
       }
-      setCopiedReportId(copied ? report.id : "")
-      setPreviewReport(body.report as ClientFeedbackReport)
-      setNotice(copied ? "报告已发布，私密链接已复制" : "报告已发布，请从下方复制私密链接")
-      if (copied) window.setTimeout(() => setCopiedReportId(""), 2_000)
+      setPreviewReport(publishedReport)
+      await copyReportShareUrl(publishedReport)
+      setNotice("报告已发布，私密链接可跨设备重复使用")
       await load(true)
     } catch (caught) {
       setError(toUserFacingError(caught, { fallback: "报告发布失败，请稍后重试。", subject: "报告发布" }))
@@ -904,11 +962,11 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
           </div>
           {payload.canManage ? (
             <div className="flex flex-wrap items-center gap-2">
-              <input type="date" value={reportTargetDate} min={payload.profile.startDate} max={today()} onChange={event => setReportTargetDate(event.target.value)} className="h-9 rounded-lg border border-[#C8D9E8] px-3 text-xs outline-none focus:border-[#1677FF]" aria-label="反馈报告截止日期" />
-              <button type="button" onClick={() => { setReportOptions(null); setReportDialogType("weekly") }} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#91CAFF] px-3 text-xs font-semibold text-[#0958D9] disabled:opacity-50">
+              <input type="date" value={reportTargetDate} max={today()} onChange={event => setReportTargetDate(event.target.value)} className="h-9 rounded-lg border border-[#C8D9E8] px-3 text-xs outline-none focus:border-[#1677FF]" aria-label="反馈报告截止日期" />
+              <button type="button" onClick={() => openReportDialog("weekly")} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#91CAFF] px-3 text-xs font-semibold text-[#0958D9] disabled:opacity-50">
                 <FileBarChart2 className="h-3.5 w-3.5" />生成周报
               </button>
-              <button type="button" onClick={() => { setReportOptions(null); setReportDialogType("monthly") }} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#6C5CE7] px-3 text-xs font-semibold text-white disabled:opacity-50">
+              <button type="button" onClick={() => openReportDialog("monthly")} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#6C5CE7] px-3 text-xs font-semibold text-white disabled:opacity-50">
                 <FileBarChart2 className="h-3.5 w-3.5" />生成月报
               </button>
             </div>
@@ -925,30 +983,55 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             {visibleReports.map(report => (
               <article key={report.id} className="rounded-lg border border-[#DCE8F4] bg-[#F9FCFF] p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${report.type === "weekly" ? "bg-cyan-50 text-cyan-700" : "bg-indigo-50 text-indigo-700"}`}>{report.type === "weekly" ? "周报" : "月报"}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${report.type === "weekly" ? "bg-cyan-50 text-cyan-700" : "bg-indigo-50 text-indigo-700"}`}>{report.type === "weekly" ? "周报" : "月报"}</span>
+                    <span className="text-[10px] font-semibold text-[#7E91A7]">V{report.version}</span>
+                  </div>
                   <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${report.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{report.status === "published" ? "已发布" : "草稿"}</span>
                 </div>
                 <h4 className="mt-3 break-words text-sm font-semibold">{report.snapshot.reportTitle}</h4>
                 <p className="mt-1 text-[11px] text-[#7E91A7]">{report.periodStart} 至 {report.periodEnd}</p>
-                <div className="mt-4 flex items-center gap-2">
-                  <button type="button" onClick={() => setPreviewReport(report)} className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-[#C8D9E8] bg-white text-xs font-semibold text-[#38536E] hover:border-[#91CAFF]">
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setPreviewReport(report)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[#C8D9E8] bg-white text-xs font-semibold text-[#38536E] hover:border-[#91CAFF]">
                     <ExternalLink className="h-3.5 w-3.5" />查看
                   </button>
                   {payload.canManage ? (
                     <>
+                      <button type="button" onClick={() => openReportDialog(report.type, report)} disabled={pending.startsWith("generate:")} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[#C8D9E8] bg-white text-xs font-semibold text-[#38536E] hover:border-[#91CAFF] disabled:opacity-50">
+                        <RefreshCw className="h-3.5 w-3.5" />生成新版
+                      </button>
                       {report.status === "draft" ? (
-                        <button type="button" onClick={() => void deleteReport(report)} disabled={pending === `delete-report:${report.id}`} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 disabled:opacity-50" aria-label="删除报告草稿" title="删除草稿">
-                          {pending === `delete-report:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        <button type="button" onClick={() => void publishReport(report)} disabled={pending === `publish:${report.id}`} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] text-xs font-semibold text-white disabled:opacity-50">
+                          {pending === `publish:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+                          创建链接
                         </button>
                       ) : report.shareEnabled ? (
-                        <button type="button" onClick={() => void revokeReportShare(report)} disabled={pending === `revoke:${report.id}`} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#C8D9E8] bg-white text-[#5E738A] hover:border-rose-200 hover:text-rose-600 disabled:opacity-50" aria-label="停止分享报告" title="停止分享">
-                          {pending === `revoke:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <LockKeyhole className="h-3.5 w-3.5" />}
+                        <button type="button" onClick={() => openReportShareUrl(report)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] text-xs font-semibold text-white">
+                          <Link2 className="h-3.5 w-3.5" />网页报告
                         </button>
+                      ) : (
+                        <button type="button" onClick={() => void publishReport(report)} disabled={pending === `publish:${report.id}`} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] text-xs font-semibold text-white disabled:opacity-50">
+                          {pending === `publish:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+                          恢复分享
+                        </button>
+                      )}
+                      {report.status === "draft" ? (
+                        <button type="button" onClick={() => void deleteReport(report)} disabled={pending === `delete-report:${report.id}`} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-rose-200 bg-white text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50">
+                          {pending === `delete-report:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}删除草稿
+                        </button>
+                      ) : report.shareEnabled ? (
+                        <>
+                          <button type="button" onClick={() => void copyReportShareUrl(report)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[#91CAFF] bg-white text-xs font-semibold text-[#0958D9]">
+                            {copiedReportId === report.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copiedReportId === report.id ? "已复制" : "复制链接"}
+                          </button>
+                          <button type="button" onClick={() => openReportShareUrl(report, true)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[#C8D9E8] bg-white text-xs font-semibold text-[#38536E]">
+                            <FileDown className="h-3.5 w-3.5" />导出 PDF
+                          </button>
+                          <button type="button" onClick={() => void revokeReportShare(report)} disabled={pending === `revoke:${report.id}`} className="col-span-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[#C8D9E8] bg-white text-xs font-semibold text-[#5E738A] hover:border-rose-200 hover:text-rose-600 disabled:opacity-50">
+                            {pending === `revoke:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <LockKeyhole className="h-3.5 w-3.5" />}停止分享
+                          </button>
+                        </>
                       ) : null}
-                      <button type="button" onClick={() => void publishReport(report)} disabled={pending === `publish:${report.id}`} className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] text-xs font-semibold text-white disabled:opacity-50">
-                        {pending === `publish:${report.id}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : copiedReportId === report.id ? <Check className="h-3.5 w-3.5" /> : report.status === "published" ? <Copy className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
-                        {copiedReportId === report.id ? "已复制" : report.status === "published" ? report.shareEnabled ? "更新链接" : "重新分享" : "发布"}
-                      </button>
                     </>
                   ) : null}
                 </div>
@@ -965,15 +1048,15 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 id="feedback-report-dialog-title" className="text-base font-semibold">
-                    生成{reportDialogType === "weekly" ? "周反馈" : "月反馈"}
+                    {reportDialogSource ? "重新生成" : "生成"}{reportDialogType === "weekly" ? "周反馈" : "月反馈"}
                   </h3>
                   <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-[10px] font-semibold text-[#0958D9]">
                     {reportDialogType === "weekly" ? "连续 7 天" : "连续 30 天"}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-[#7E91A7]">确认动作范围，并选择用于效果对比的两次真实检测记录</p>
+                <p className="mt-1 text-xs text-[#7E91A7]">{reportDialogSource ? `原 V${reportDialogSource.version} 会保留，本次生成一份新版本。` : "确认动作范围，并选择用于效果对比的两次真实检测记录。"}</p>
               </div>
-              <button type="button" onClick={() => setReportDialogType(null)} disabled={pending.startsWith("generate:")} className="rounded-md p-2 hover:bg-[#EEF5FC] disabled:opacity-50" aria-label="关闭"><X className="h-4 w-4" /></button>
+              <button type="button" onClick={closeReportDialog} disabled={pending.startsWith("generate:")} className="rounded-md p-2 hover:bg-[#EEF5FC] disabled:opacity-50" aria-label="关闭"><X className="h-4 w-4" /></button>
             </header>
 
             <div className="space-y-5 p-5">
@@ -983,7 +1066,6 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                   <input
                     type="date"
                     value={reportTargetDate}
-                    min={payload.profile.startDate}
                     max={today()}
                     onChange={event => setReportTargetDate(event.target.value)}
                     className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]"
@@ -1011,6 +1093,29 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                 </div>
               ) : reportOptions ? (
                 <>
+                  <section aria-labelledby="feedback-action-preview-title">
+                    <div className="flex flex-wrap items-end justify-between gap-2">
+                      <div>
+                        <h4 id="feedback-action-preview-title" className="text-xs font-semibold text-[#102A43]">报告动作预览</h4>
+                        <p className="mt-1 text-[10px] text-[#7E91A7]">本次将收录 {reportOptions.actionCount} 项客户可见动作</p>
+                      </div>
+                      <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-[10px] font-semibold text-[#0958D9]">
+                        {reportOptions.actionDays.filter(day => day.count > 0).length} 个日期有记录
+                      </span>
+                    </div>
+                    <div className={`mt-3 grid gap-2 ${reportDialogType === "weekly" ? "grid-cols-2 sm:grid-cols-4 lg:grid-cols-7" : "grid-cols-4 sm:grid-cols-6 lg:grid-cols-10"}`}>
+                      {reportOptions.actionDays.map(day => (
+                        <div key={day.date} className={`min-h-16 rounded-lg border px-2 py-2 ${day.count > 0 ? "border-[#91CAFF] bg-[#EFF8FF]" : "border-[#E3EDF6] bg-white"}`}>
+                          <p className={`text-[9px] font-semibold ${day.count > 0 ? "text-[#0958D9]" : "text-[#8AA0B5]"}`}>{day.date.slice(5)}</p>
+                          <p className={`mt-2 text-xs font-bold ${day.count > 0 ? "text-[#102A43]" : "text-[#A0B1C1]"}`}>{day.count > 0 ? `${day.count} 项` : "无动作"}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {reportOptions.actionCount === 0 ? (
+                      <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">该周期没有可向客户展示的动作，仍可生成只包含阶段进度和效果对比的报告。</p>
+                    ) : null}
+                  </section>
+
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="space-y-1.5 text-xs font-semibold">
                       起始检测
@@ -1075,15 +1180,24 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             </div>
 
             <footer className="flex flex-wrap justify-end gap-2 border-t border-[#E3EDF6] px-5 py-4">
-              <button type="button" onClick={() => setReportDialogType(null)} disabled={pending.startsWith("generate:")} className="h-9 rounded-lg border border-[#C8D9E8] px-4 text-xs font-semibold disabled:opacity-50">取消</button>
+              <button type="button" onClick={closeReportDialog} disabled={pending.startsWith("generate:")} className="h-9 rounded-lg border border-[#C8D9E8] px-4 text-xs font-semibold disabled:opacity-50">取消</button>
               <button
                 type="button"
-                onClick={() => void generateReport(reportDialogType)}
+                onClick={() => void generateReport(reportDialogType, false)}
+                disabled={reportOptionsLoading || Boolean(reportOptionsError) || !reportOptions || pending.startsWith("generate:")}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#91CAFF] bg-white px-4 text-xs font-semibold text-[#0958D9] disabled:opacity-50"
+              >
+                {pending === `generate:${reportDialogType}:draft` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                保存草稿
+              </button>
+              <button
+                type="button"
+                onClick={() => void generateReport(reportDialogType, true)}
                 disabled={reportOptionsLoading || Boolean(reportOptionsError) || !reportOptions || pending.startsWith("generate:")}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#6C5CE7] px-4 text-xs font-semibold text-white disabled:opacity-50"
               >
-                {pending === `generate:${reportDialogType}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <FileBarChart2 className="h-3.5 w-3.5" />}
-                生成报告草稿
+                {pending === `generate:${reportDialogType}:publish` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+                生成并创建链接
               </button>
             </footer>
           </div>
@@ -1149,15 +1263,24 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             <button type="button" onClick={() => setPreviewReport(null)} className="inline-flex h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold hover:bg-white/10"><ArrowLeft className="h-4 w-4" />返回执行中心</button>
             {payload.canManage ? (
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <button type="button" onClick={() => openReportDialog(previewReport.type, previewReport)} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10 disabled:opacity-50"><RefreshCw className="h-4 w-4" />生成新版</button>
                 {previewReport.status === "draft" ? (
                   <button type="button" onClick={() => void deleteReport(previewReport)} disabled={pending === `delete-report:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10 disabled:opacity-50"><Trash2 className="h-4 w-4" />删除草稿</button>
                 ) : previewReport.shareEnabled ? (
                   <button type="button" onClick={() => void revokeReportShare(previewReport)} disabled={pending === `revoke:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10 disabled:opacity-50"><LockKeyhole className="h-4 w-4" />停止分享</button>
                 ) : null}
-                <button type="button" onClick={() => void publishReport(previewReport)} disabled={pending === `publish:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold disabled:opacity-50">
-                  {pending === `publish:${previewReport.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  {previewReport.status === "published" ? previewReport.shareEnabled ? "更新并复制链接" : "重新分享并复制链接" : "确认发布并复制链接"}
-                </button>
+                {previewReport.status === "published" && previewReport.shareEnabled ? (
+                  <>
+                    <button type="button" onClick={() => openReportShareUrl(previewReport)} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold"><ExternalLink className="h-4 w-4" />打开网页</button>
+                    <button type="button" onClick={() => void copyReportShareUrl(previewReport)} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10">{copiedReportId === previewReport.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copiedReportId === previewReport.id ? "已复制" : "复制链接"}</button>
+                    <button type="button" onClick={() => openReportShareUrl(previewReport, true)} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10"><FileDown className="h-4 w-4" />导出 PDF</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => void publishReport(previewReport)} disabled={pending === `publish:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold disabled:opacity-50">
+                    {pending === `publish:${previewReport.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                    {previewReport.status === "published" ? "恢复分享并复制链接" : "创建链接并复制"}
+                  </button>
+                )}
               </div>
             ) : null}
           </div>

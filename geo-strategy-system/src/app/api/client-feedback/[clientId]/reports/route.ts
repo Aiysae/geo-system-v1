@@ -4,9 +4,11 @@ import { buildClientFeedbackReport } from "@/lib/client-feedback/builder"
 import { buildFeedbackReportSystemOutputRecord } from "@/lib/system-output/builders"
 import { saveSystemOutputRecord } from "@/lib/system-output/store"
 import {
+  clientFeedbackReportSharePath,
   feedbackPeriodForDate,
   getClientExecutionProfile,
   listClientFeedbackReports,
+  publishClientFeedbackReport,
   shanghaiDateOnly,
 } from "@/lib/client-feedback/store"
 import { requireOperationAccess } from "@/lib/team-access"
@@ -53,7 +55,10 @@ export async function GET(
                 "view",
               ),
             })
-          : report),
+          : {
+              ...report,
+              sharePath: clientFeedbackReportSharePath(report),
+            }),
     })
   } catch (error) {
     return NextResponse.json({
@@ -77,12 +82,13 @@ export async function POST(
       requestId?: unknown
       baselineHistoryRecordId?: unknown
       currentHistoryRecordId?: unknown
+      publish?: unknown
     }
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
       module: "feedback",
-      action: "edit",
+      action: body.publish === true ? "manage" : "edit",
       teamId: typeof body.teamId === "string" ? body.teamId : undefined,
     })
     const type: ClientFeedbackReportType = body.type === "monthly" ? "monthly" : "weekly"
@@ -92,7 +98,6 @@ export async function POST(
     if (!client) throw new Error("客户面板不存在")
     const targetDate = typeof body.targetDate === "string" ? body.targetDate : undefined
     const period = feedbackPeriodForDate(profile, type, targetDate)
-    if (targetDate && period.end !== targetDate) throw new Error("报告截止日期不能早于正式执行日期")
     if (period.end > shanghaiDateOnly()) throw new Error("报告截止日期不能晚于今天")
     const requestId = typeof body.requestId === "string" && /^[A-Za-z0-9_-]{16,160}$/.test(body.requestId)
       ? body.requestId
@@ -103,7 +108,7 @@ export async function POST(
           .digest("hex")
           .slice(0, 32)}`
       : undefined
-    const report = await buildClientFeedbackReport({
+    const draft = await buildClientFeedbackReport({
       ownerUserId: access.dataOwnerUserId,
       actorUserId: auth.userId,
       client,
@@ -117,6 +122,15 @@ export async function POST(
         : undefined,
       reportId,
     })
+    const published = body.publish === true
+      ? await publishClientFeedbackReport({
+          ownerUserId: access.dataOwnerUserId,
+          clientId: access.clientId,
+          reportId: draft.id,
+          actorUserId: auth.userId,
+        })
+      : null
+    const report = published?.report || draft
     await saveSystemOutputRecord(
       access.dataOwnerUserId,
       buildFeedbackReportSystemOutputRecord({
@@ -128,7 +142,10 @@ export async function POST(
     ).catch(error => {
       console.warn("[client-feedback] system output save failed", report.id, error instanceof Error ? error.message : error)
     })
-    return NextResponse.json({ report }, { status: 201 })
+    return NextResponse.json({
+      report,
+      sharePath: published?.sharePath,
+    }, { status: 201 })
   } catch (error) {
     return NextResponse.json({
       error: error instanceof Error ? error.message : "反馈报告生成失败",

@@ -1,13 +1,21 @@
 "use client"
 
 import { Copy, Printer } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 export default function PublicReportActions() {
   const [copied, setCopied] = useState(false)
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("print") !== "1") return
+    const timer = window.setTimeout(() => window.print(), 450)
+    return () => window.clearTimeout(timer)
+  }, [])
+
   async function copyLink() {
-    await navigator.clipboard.writeText(window.location.href)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("print")
+    await navigator.clipboard.writeText(url.toString())
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1_600)
   }

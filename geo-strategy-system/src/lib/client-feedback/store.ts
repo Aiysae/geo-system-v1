@@ -1,6 +1,6 @@
 import "server-only"
 
-import { createHash, randomBytes, randomUUID } from "crypto"
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "crypto"
 import { kv, setKvValues } from "@/lib/kv"
 import {
   inferEvidencePlatform,
@@ -322,7 +322,7 @@ export function feedbackPeriodForDate(
   targetDate = shanghaiDateOnly(),
 ): ClientFeedbackPeriod {
   const normalizedTarget = validDateOnly(targetDate)
-  const safeTarget = normalizedTarget < profile.startDate ? profile.startDate : normalizedTarget
+  const safeTarget = normalizedTarget
   const start = addDays(safeTarget, type === "weekly" ? -6 : -29)
   if (profile.periodMode === "calendar") {
     if (type === "weekly") {
@@ -773,34 +773,70 @@ function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("base64url")
 }
 
+function feedbackShareSecret(): string {
+  const secret = process.env.FEEDBACK_SHARE_SECRET
+    || process.env.AUTH_SECRET
+    || process.env.SESSION_SECRET
+  if (secret) return secret
+  if (process.env.NODE_ENV !== "production") return "dev-only-feedback-share-secret"
+  throw new Error("反馈报告分享密钥未配置")
+}
+
+function feedbackShareRevision(report: ClientFeedbackReport): number {
+  const value = Math.floor(Number(report.shareRevision || 1))
+  return Number.isFinite(value) && value > 0 ? value : 1
+}
+
+function feedbackShareSignature(report: ClientFeedbackReport, revision: number): string {
+  return createHmac("sha256", feedbackShareSecret())
+    .update(`feedback-report:${report.id}:${report.ownerUserId}:${report.clientId}:${revision}`)
+    .digest("base64url")
+}
+
+function equalSignature(actual: string, expected: string): boolean {
+  const left = Buffer.from(actual)
+  const right = Buffer.from(expected)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
+export function clientFeedbackReportSharePath(report: ClientFeedbackReport): string | undefined {
+  if (report.status !== "published" || !report.shareEnabled) return undefined
+  const revision = feedbackShareRevision(report)
+  const token = [
+    "v1",
+    report.id,
+    String(revision),
+    feedbackShareSignature(report, revision),
+  ].join(".")
+  return `/feedback/share/${encodeURIComponent(token)}`
+}
+
 export async function publishClientFeedbackReport(input: {
   ownerUserId: string
   clientId: string
   reportId: string
   actorUserId: string
-}): Promise<{ report: ClientFeedbackReport; shareToken: string }> {
+}): Promise<{ report: ClientFeedbackReport; shareToken: string; sharePath: string }> {
   const report = await getClientFeedbackReport(input.ownerUserId, input.reportId)
   if (!report || report.clientId !== input.clientId) throw new Error("反馈报告不存在")
-  const rawToken = randomBytes(32).toString("base64url")
-  const hash = tokenHash(rawToken)
   const now = new Date().toISOString()
   const next: ClientFeedbackReport = {
     ...report,
     status: "published",
     shareEnabled: true,
-    shareTokenHash: hash,
+    shareRevision: feedbackShareRevision(report),
     publishedAt: report.publishedAt || now,
     publishedByUserId: report.publishedByUserId || input.actorUserId,
     updatedAt: now,
   }
-  if (report.shareTokenHash) await kv.del(shareKey(report.shareTokenHash))
-  await kv.set(shareKey(hash), {
-    ownerUserId: report.ownerUserId,
-    clientId: report.clientId,
-    reportId: report.id,
-  })
   await saveClientFeedbackReport(next)
-  return { report: next, shareToken: rawToken }
+  const sharePath = clientFeedbackReportSharePath(next)
+  if (!sharePath) throw new Error("反馈报告链接生成失败")
+  return {
+    report: { ...next, sharePath },
+    shareToken: decodeURIComponent(sharePath.split("/").at(-1) || ""),
+    sharePath,
+  }
 }
 
 export async function revokeClientFeedbackShare(input: {
@@ -815,12 +851,38 @@ export async function revokeClientFeedbackShare(input: {
     ...report,
     shareEnabled: false,
     shareTokenHash: undefined,
+    shareRevision: feedbackShareRevision(report) + 1,
+    sharePath: undefined,
     updatedAt: new Date().toISOString(),
   }
   return saveClientFeedbackReport(next)
 }
 
 export async function getSharedClientFeedbackReport(token: string): Promise<ClientFeedbackReport | null> {
+  const [version, reportId, revisionValue, signature, ...extra] = token.split(".")
+  if (
+    version === "v1"
+    && /^cfr_[A-Za-z0-9_-]{8,180}$/.test(reportId || "")
+    && /^\d{1,9}$/.test(revisionValue || "")
+    && /^[A-Za-z0-9_-]{32,128}$/.test(signature || "")
+    && extra.length === 0
+  ) {
+    const report = await kv.get<ClientFeedbackReport>(reportKey(reportId))
+    const revision = Number(revisionValue)
+    if (
+      !report
+      || report.status !== "published"
+      || !report.shareEnabled
+      || feedbackShareRevision(report) !== revision
+      || !equalSignature(signature, feedbackShareSignature(report, revision))
+    ) {
+      return null
+    }
+    const policy = await getClientExecutionPublicationPolicy(report.ownerUserId, report.clientId)
+    return sanitizeFeedbackReportForClient(report, policy, {
+      allowPenetrationResults: false,
+    })
+  }
   if (!/^[A-Za-z0-9_-]{32,200}$/.test(token)) return null
   const ref = await kv.get<{ ownerUserId: string; clientId: string; reportId: string }>(
     shareKey(tokenHash(token)),
