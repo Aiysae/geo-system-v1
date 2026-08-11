@@ -323,27 +323,22 @@ export function feedbackPeriodForDate(
 ): ClientFeedbackPeriod {
   const normalizedTarget = validDateOnly(targetDate)
   const safeTarget = normalizedTarget < profile.startDate ? profile.startDate : normalizedTarget
+  const start = addDays(safeTarget, type === "weekly" ? -6 : -29)
   if (profile.periodMode === "calendar") {
     if (type === "weekly") {
       const naturalStart = mondayOf(safeTarget)
-      const start = naturalStart < profile.startDate ? profile.startDate : naturalStart
-      const end = addDays(naturalStart, 6)
       const index = Math.max(1, Math.floor(daysBetween(mondayOf(profile.startDate), naturalStart) / 7) + 1)
-      return { type, index, start, end, label: `第 ${index} 周` }
+      return { type, index, start, end: safeTarget, label: `第 ${index} 周` }
     }
     const [year, month] = safeTarget.split("-").map(Number)
-    const naturalStart = `${year}-${String(month).padStart(2, "0")}-01`
-    const start = naturalStart < profile.startDate ? profile.startDate : naturalStart
-    const end = addDays(addAnchoredMonths(naturalStart, 1), -1)
     const startMonth = dateOnlyToUtc(profile.startDate)
     const index = (year - startMonth.getUTCFullYear()) * 12 + month - startMonth.getUTCMonth()
-    return { type, index: Math.max(1, index), start, end, label: `第 ${Math.max(1, index)} 月` }
+    return { type, index: Math.max(1, index), start, end: safeTarget, label: `第 ${Math.max(1, index)} 月` }
   }
 
   if (type === "weekly") {
     const index = Math.floor(Math.max(0, daysBetween(profile.startDate, safeTarget)) / 7) + 1
-    const start = addDays(profile.startDate, (index - 1) * 7)
-    return { type, index, start, end: addDays(start, 6), label: `服务第 ${index} 周` }
+    return { type, index, start, end: safeTarget, label: `服务第 ${index} 周` }
   }
 
   let index = 1
@@ -351,9 +346,7 @@ export function feedbackPeriodForDate(
     if (addAnchoredMonths(profile.startDate, cursor) > safeTarget) break
     index = cursor + 1
   }
-  const start = addAnchoredMonths(profile.startDate, index - 1)
-  const end = addDays(addAnchoredMonths(profile.startDate, index), -1)
-  return { type, index, start, end, label: `服务第 ${index} 月` }
+  return { type, index, start, end: safeTarget, label: `服务第 ${index} 月` }
 }
 
 export async function listClientExecutionActions(

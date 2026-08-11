@@ -1,10 +1,7 @@
 import "server-only"
 
 import { randomUUID } from "crypto"
-import {
-  getPenetrationHistoryRecord,
-  listPenetrationHistoryRecords,
-} from "@/lib/penetration/history-store"
+import { getPenetrationHistoryRecord } from "@/lib/penetration/history-store"
 import {
   executionCounters,
   getClientFeedbackReport,
@@ -18,7 +15,13 @@ import {
   getClientExecutionPublicationPolicy,
   penetrationHistoryActionId,
 } from "@/lib/client-feedback/publication"
-import type { Client, PenetrationHistoryRecord } from "@/types"
+import {
+  feedbackHistoryDate,
+  listClientFeedbackHistory,
+  selectFeedbackMetricRecords,
+  usableFeedbackMetricRecord,
+} from "@/lib/client-feedback/metrics"
+import type { Client, PenetrationHistoryListItem, PenetrationHistoryRecord } from "@/types"
 import type {
   ClientExecutionAction,
   ClientExecutionProfile,
@@ -28,31 +31,7 @@ import type {
   ClientFeedbackReport,
 } from "@/types/client-feedback"
 
-function recordDate(record: PenetrationHistoryRecord): string {
-  return shanghaiDateOnly(new Date(record.completedAt || record.updatedAt || record.createdAt))
-}
-
-async function listAllHistory(ownerUserId: string, clientId: string): Promise<PenetrationHistoryRecord[]> {
-  const items = [] as Awaited<ReturnType<typeof listPenetrationHistoryRecords>>["items"]
-  for (let page = 1; page <= 20; page += 1) {
-    const result = await listPenetrationHistoryRecords(ownerUserId, {
-      clientId,
-      page,
-      pageSize: 50,
-    })
-    items.push(...result.items)
-    if (!result.hasMore) break
-  }
-  const records = await Promise.all(items.map(item => getPenetrationHistoryRecord(ownerUserId, item.id)))
-  return records
-    .filter((record): record is PenetrationHistoryRecord => Boolean(record))
-    .filter(record => (record.status === "succeeded" || record.status === "partial") && record.summary.completedSlots > 0)
-    .sort((left, right) => (
-      (left.completedAt || left.updatedAt).localeCompare(right.completedAt || right.updatedAt)
-    ))
-}
-
-function metricSnapshot(record: PenetrationHistoryRecord | undefined): ClientFeedbackMetricSnapshot | null {
+function metricSnapshot(record: PenetrationHistoryListItem | undefined): ClientFeedbackMetricSnapshot | null {
   if (!record) return null
   return {
     penetrationRate: record.summary.penetrationRate,
@@ -100,9 +79,11 @@ function comparability(
   const currentQuestions = normalizedSet(current.request.questions)
   const modelsMatch = sameSet(baselineModels, currentModels)
   const questionOverlap = overlapRate(baselineQuestions, currentQuestions)
-  const comparable = modelsMatch && questionOverlap >= 0.8
+  const recordsComplete = baseline.status === "succeeded" && current.status === "succeeded"
+  const comparable = recordsComplete && modelsMatch && questionOverlap >= 0.8
   if (comparable) return { comparable: true, note: "前后检测模型一致，疑问句样本重合度达到可比标准" }
   const reasons = []
+  if (!recordsComplete) reasons.push("至少一次检测为部分完成")
   if (!modelsMatch) reasons.push("检测模型不同")
   if (questionOverlap < 0.8) reasons.push(`疑问句样本重合度仅 ${Math.round(questionOverlap * 100)}%`)
   return { comparable: false, note: `${reasons.join("、")}，变化值仅作观察，不作为严格结论` }
@@ -114,7 +95,7 @@ function delta(current: number | null | undefined, baseline: number | null | und
 }
 
 function systemAction(
-  record: PenetrationHistoryRecord,
+  record: PenetrationHistoryListItem,
   policy: Awaited<ReturnType<typeof getClientExecutionPublicationPolicy>>,
 ): ClientExecutionAction {
   const when = record.completedAt || record.updatedAt
@@ -152,10 +133,10 @@ export async function listSystemClientExecutionActions(
   clientId: string,
 ): Promise<ClientExecutionAction[]> {
   const [history, policy] = await Promise.all([
-    listAllHistory(ownerUserId, clientId),
+    listClientFeedbackHistory(ownerUserId, clientId),
     getClientExecutionPublicationPolicy(ownerUserId, clientId),
   ])
-  return history.map(record => systemAction(record, policy))
+  return history.items.map(record => systemAction(record, policy))
 }
 
 function percentage(value: number | null | undefined): string {
@@ -204,38 +185,59 @@ export async function buildClientFeedbackReport(input: {
   client: Client
   profile: ClientExecutionProfile
   period: ClientFeedbackPeriod
+  baselineHistoryRecordId?: string
+  currentHistoryRecordId?: string
   reportId?: string
 }): Promise<ClientFeedbackReport> {
   if (input.reportId) {
     const existing = await getClientFeedbackReport(input.ownerUserId, input.reportId)
     if (existing?.clientId === input.client.id) return existing
   }
-  const [history, manualActions, previousReports, publicationPolicy] = await Promise.all([
-    listAllHistory(input.ownerUserId, input.client.id),
+  const [historyResult, manualActions, previousReports, publicationPolicy] = await Promise.all([
+    listClientFeedbackHistory(input.ownerUserId, input.client.id),
     listClientExecutionActions(input.ownerUserId, input.client.id),
     listClientFeedbackReports(input.ownerUserId, input.client.id),
     getClientExecutionPublicationPolicy(input.ownerUserId, input.client.id),
   ])
-  const eligible = history.filter(record => {
-    const date = recordDate(record)
-    return date >= input.profile.startDate && date <= input.period.end
+  const history = historyResult.items
+  const metricHistory = history.filter(usableFeedbackMetricRecord)
+  const selected = selectFeedbackMetricRecords({
+    history: metricHistory,
+    period: input.period,
+    baselineHistoryRecordId: input.baselineHistoryRecordId,
+    currentHistoryRecordId: input.currentHistoryRecordId,
   })
-  const projectBaseline = eligible[0]
-  const beforePeriod = eligible.filter(record => recordDate(record) < input.period.start)
-  const periodBaseline = beforePeriod.at(-1) || projectBaseline
-  const current = eligible.at(-1)
-  const baselineMetric = metricSnapshot(periodBaseline)
-  const currentMetric = metricSnapshot(current)
-  const quality = comparability(periodBaseline, current)
+  const [baselineRecord, currentRecord] = await Promise.all([
+    selected.baseline
+      ? getPenetrationHistoryRecord(input.ownerUserId, selected.baseline.id)
+      : Promise.resolve(null),
+    selected.current
+      ? getPenetrationHistoryRecord(input.ownerUserId, selected.current.id)
+      : Promise.resolve(null),
+  ])
+  if (selected.baseline && (!baselineRecord || baselineRecord.clientId !== input.client.id)) {
+    throw new Error("所选起始检测记录不存在或不属于当前客户")
+  }
+  if (selected.current && (!currentRecord || currentRecord.clientId !== input.client.id)) {
+    throw new Error("所选当前检测记录不存在或不属于当前客户")
+  }
+  const baselineMetric = metricSnapshot(selected.baseline)
+  const currentMetric = metricSnapshot(selected.current)
+  const quality = comparability(baselineRecord || undefined, currentRecord || undefined)
   const manualInPeriod = manualActions.map(action => (
     applyActionPublication(action, publicationPolicy)
   )).filter(action => {
     const date = shanghaiDateOnly(new Date(action.occurredAt))
-    return action.visibility === "client" && date >= input.period.start && date <= input.period.end
+    return (
+      action.visibility === "client"
+      && date >= input.profile.startDate
+      && date >= input.period.start
+      && date <= input.period.end
+    )
   })
-  const historyInPeriod = eligible.filter(record => {
-    const date = recordDate(record)
-    return date >= input.period.start && date <= input.period.end
+  const historyInPeriod = history.filter(record => {
+    const date = feedbackHistoryDate(record)
+    return date >= input.profile.startDate && date >= input.period.start && date <= input.period.end
   })
   const actions = [
     ...manualInPeriod,
@@ -244,6 +246,8 @@ export async function buildClientFeedbackReport(input: {
   const comparison = {
     baseline: baselineMetric,
     current: currentMetric,
+    baselineSelectionMode: selected.baselineSelectionMode,
+    currentSelectionMode: selected.currentSelectionMode,
     comparable: quality.comparable,
     comparabilityNote: quality.note,
     penetrationDelta: delta(currentMetric?.penetrationRate, baselineMetric?.penetrationRate),
@@ -260,7 +264,7 @@ export async function buildClientFeedbackReport(input: {
       ? [`本期完成 ${contentSummary.generatedArticleCount} 篇内容，覆盖 ${contentSummary.coveredQuestionCount} 个用户问题。`]
       : []),
     currentMetric
-      ? `最新有效检测渗透率为 ${percentage(currentMetric.penetrationRate)}，覆盖 ${currentMetric.modelCount} 个模型。`
+      ? `当前对比检测渗透率为 ${percentage(currentMetric.penetrationRate)}，覆盖 ${currentMetric.modelCount} 个模型。`
       : "当前周期尚未形成有效渗透率检测，建议补充一次标准化基线检测。",
     currentMetric
       ? `联网信源共 ${currentMetric.sourceCount} 次引用，覆盖 ${currentMetric.uniqueDomainCount} 个独立域名。`
@@ -268,7 +272,11 @@ export async function buildClientFeedbackReport(input: {
     quality.note,
   ]
   const versions = previousReports
-    .filter(report => report.type === input.period.type && report.periodIndex === input.period.index)
+    .filter(report => (
+      report.type === input.period.type
+      && report.periodStart === input.period.start
+      && report.periodEnd === input.period.end
+    ))
     .map(report => report.version)
   const version = Math.max(0, ...versions) + 1
   const generatedAt = new Date()
@@ -296,6 +304,7 @@ export async function buildClientFeedbackReport(input: {
       clientName: input.client.name,
       subjectName,
       industry: input.client.industry,
+      projectStartDate: input.profile.startDate,
       reportTitle: `${input.period.label} GEO 执行反馈`,
       generatedAt: now,
       dataCutoffAt,

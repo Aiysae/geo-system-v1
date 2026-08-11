@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import type { Client } from "../src/types"
+import type { Client, PenetrationHistoryListItem, PenetrationHistoryRecord } from "../src/types"
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "geo-client-feedback-"))
 process.env.KV_BACKEND = "file"
@@ -34,6 +34,8 @@ const {
   saveClientExecutionProfile,
 } = await import("../src/lib/client-feedback/store")
 const { buildClientFeedbackReport } = await import("../src/lib/client-feedback/builder")
+const { selectFeedbackMetricRecords } = await import("../src/lib/client-feedback/metrics")
+const { savePenetrationHistoryRecord } = await import("../src/lib/penetration/history-store")
 const {
   recordArticleGenerationAttribution,
 } = await import("../src/lib/geo-methodology/attribution")
@@ -105,18 +107,91 @@ try {
   assert.deepEqual(week, {
     type: "weekly",
     index: 5,
-    start: "2026-02-28",
-    end: "2026-03-06",
+    start: "2026-02-23",
+    end: "2026-03-01",
     label: "服务第 5 周",
   })
   const month = feedbackPeriodForDate(profile, "monthly", "2026-03-01")
   assert.deepEqual(month, {
     type: "monthly",
     index: 2,
-    start: "2026-02-28",
-    end: "2026-03-30",
+    start: "2026-01-31",
+    end: "2026-03-01",
     label: "服务第 2 月",
   })
+  assert.equal(
+    Math.round(
+      (Date.parse(`${week.end}T00:00:00Z`) - Date.parse(`${week.start}T00:00:00Z`))
+      / 86_400_000,
+    ) + 1,
+    7,
+  )
+  assert.equal(
+    Math.round(
+      (Date.parse(`${month.end}T00:00:00Z`) - Date.parse(`${month.start}T00:00:00Z`))
+      / 86_400_000,
+    ) + 1,
+    30,
+  )
+
+  const metricRecord = (
+    id: string,
+    completedAt: string,
+    penetrationRate: number,
+  ): PenetrationHistoryListItem => ({
+    id,
+    clientId: client.id,
+    clientName: client.name,
+    operation: "replace",
+    status: "succeeded",
+    source: "job",
+    summary: {
+      ourBrand: client.ourBrand,
+      industry: client.industry,
+      questionCount: 10,
+      modelCount: 2,
+      completedSlots: 20,
+      totalSlots: 20,
+      penetrationRate,
+      balancedPenetrationRate: penetrationRate,
+      sourceCount: 12,
+      uniqueSourceCount: 8,
+      uniqueDomainCount: 5,
+      sampleConfidence: "high",
+    },
+    createdAt: completedAt,
+    completedAt,
+    updatedAt: completedAt,
+  })
+  const metricHistory = [
+    metricRecord("history-project-baseline", "2026-01-30T08:00:00.000Z", 0.1),
+    metricRecord("history-in-period", "2026-02-25T08:00:00.000Z", 0.2),
+    metricRecord("history-current", "2026-03-01T08:00:00.000Z", 0.35),
+    metricRecord("history-after-report", "2026-03-02T08:00:00.000Z", 0.5),
+  ]
+  const automaticSelection = selectFeedbackMetricRecords({ history: metricHistory, period: week })
+  assert.equal(automaticSelection.baseline?.id, "history-project-baseline")
+  assert.equal(automaticSelection.current?.id, "history-current")
+  assert.equal(automaticSelection.baselineSelectionMode, "automatic")
+  const manualSelection = selectFeedbackMetricRecords({
+    history: metricHistory,
+    period: week,
+    baselineHistoryRecordId: "history-in-period",
+    currentHistoryRecordId: "history-current",
+  })
+  assert.equal(manualSelection.baseline?.id, "history-in-period")
+  assert.equal(manualSelection.baselineSelectionMode, "manual")
+  assert.throws(() => selectFeedbackMetricRecords({
+    history: metricHistory,
+    period: week,
+    baselineHistoryRecordId: "history-current",
+    currentHistoryRecordId: "history-in-period",
+  }), /起始检测时间必须早于当前检测时间/)
+  assert.throws(() => selectFeedbackMetricRecords({
+    history: metricHistory,
+    period: week,
+    currentHistoryRecordId: "history-after-report",
+  }), /晚于报告截止日期/)
 
   await saveClientExecutionAction({
     ownerUserId,
@@ -461,13 +536,46 @@ try {
     reportId: report.id,
   }), "published", "published reports must remain as delivery records")
 
+  const storedMetricRecord = (item: PenetrationHistoryListItem): PenetrationHistoryRecord => ({
+    ...item,
+    request: {
+      clientId: client.id,
+      clientName: client.name,
+      subjectType: client.subjectType,
+      ourBrand: client.ourBrand,
+      brandAliases: client.brandAliases || [],
+      industry: client.industry,
+      website: client.website,
+      questions: Array.from({ length: 10 }, (_, index) => `标准问题 ${index + 1}`),
+      competitors: [],
+      models: ["qwen"],
+      activeModels: ["qwen"],
+      skippedModels: [],
+      operation: "replace",
+    },
+    dashboard: { brandVoice: [], keywordCompetition: [] },
+    schemaVersion: 3,
+  })
+  await savePenetrationHistoryRecord(ownerUserId, storedMetricRecord(metricHistory[0]!))
+  await savePenetrationHistoryRecord(ownerUserId, storedMetricRecord(metricHistory[2]!))
+
   const draft = await buildClientFeedbackReport({
     ownerUserId,
     actorUserId,
     client,
     profile,
     period: week,
+    baselineHistoryRecordId: "history-project-baseline",
+    currentHistoryRecordId: "history-current",
   })
+  assert.equal(draft.periodStart, "2026-02-23")
+  assert.equal(draft.periodEnd, "2026-03-01")
+  assert.equal(draft.snapshot.projectStartDate, profile.startDate)
+  assert.equal(draft.snapshot.comparison.baseline?.historyRecordId, "history-project-baseline")
+  assert.equal(draft.snapshot.comparison.current?.historyRecordId, "history-current")
+  assert.equal(draft.snapshot.comparison.baselineSelectionMode, "manual")
+  assert.equal(draft.snapshot.comparison.currentSelectionMode, "manual")
+  assert.equal(draft.snapshot.comparison.comparable, true)
   assert.equal(await deleteClientFeedbackReport({
     ownerUserId,
     clientId: "another-client",

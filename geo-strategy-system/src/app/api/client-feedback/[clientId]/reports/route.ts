@@ -7,6 +7,7 @@ import {
   feedbackPeriodForDate,
   getClientExecutionProfile,
   listClientFeedbackReports,
+  shanghaiDateOnly,
 } from "@/lib/client-feedback/store"
 import { requireOperationAccess } from "@/lib/team-access"
 import { hasTeamPermission } from "@/lib/team-permissions"
@@ -74,6 +75,8 @@ export async function POST(
       targetDate?: unknown
       teamId?: unknown
       requestId?: unknown
+      baselineHistoryRecordId?: unknown
+      currentHistoryRecordId?: unknown
     }
     const access = await requireOperationAccess({
       userId: auth.userId,
@@ -89,6 +92,8 @@ export async function POST(
     if (!client) throw new Error("客户面板不存在")
     const targetDate = typeof body.targetDate === "string" ? body.targetDate : undefined
     const period = feedbackPeriodForDate(profile, type, targetDate)
+    if (targetDate && period.end !== targetDate) throw new Error("报告截止日期不能早于正式执行日期")
+    if (period.end > shanghaiDateOnly()) throw new Error("报告截止日期不能晚于今天")
     const requestId = typeof body.requestId === "string" && /^[A-Za-z0-9_-]{16,160}$/.test(body.requestId)
       ? body.requestId
       : ""
@@ -104,6 +109,12 @@ export async function POST(
       client,
       profile,
       period,
+      baselineHistoryRecordId: typeof body.baselineHistoryRecordId === "string"
+        ? body.baselineHistoryRecordId
+        : undefined,
+      currentHistoryRecordId: typeof body.currentHistoryRecordId === "string"
+        ? body.currentHistoryRecordId
+        : undefined,
       reportId,
     })
     await saveSystemOutputRecord(

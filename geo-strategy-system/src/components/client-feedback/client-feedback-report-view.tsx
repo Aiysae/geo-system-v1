@@ -51,6 +51,36 @@ function formatDate(value: string): string {
   })
 }
 
+function dateOnly(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10)
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date)
+}
+
+function addDays(value: string, count: number): string {
+  const [year, month, day] = value.split("-").map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + count))
+  return date.toISOString().slice(0, 10)
+}
+
+function dateRange(start: string, end: string): string[] {
+  const dates: string[] = []
+  for (let cursor = start, guard = 0; cursor <= end && guard < 370; cursor = addDays(cursor, 1), guard += 1) {
+    dates.push(cursor)
+  }
+  return dates
+}
+
+function shortDate(value: string): string {
+  const [, month, day] = value.split("-")
+  return `${Number(month)}月${Number(day)}日`
+}
+
 function percent(value: number | null | undefined): string {
   return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "暂无"
 }
@@ -76,6 +106,17 @@ export default function ClientFeedbackReportView({
   const { snapshot } = report
   const current = snapshot.comparison.current
   const baseline = snapshot.comparison.baseline
+  const actionsByDate = new Map<string, ClientExecutionAction[]>()
+  for (const action of snapshot.actions) {
+    const day = dateOnly(action.occurredAt)
+    actionsByDate.set(day, [...(actionsByDate.get(day) || []), action])
+  }
+  const timeline = dateRange(report.periodStart, report.periodEnd).map(date => ({
+    date,
+    actions: actionsByDate.get(date) || [],
+    beforeProject: Boolean(snapshot.projectStartDate && date < snapshot.projectStartDate),
+  }))
+  const actionDays = timeline.filter(day => day.actions.length > 0)
   const metrics = [
     {
       label: "品牌渗透率",
@@ -237,6 +278,41 @@ export default function ClientFeedbackReportView({
               {snapshot.comparison.comparable ? "可直接对比" : "仅供参考"}
             </span>
           </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                label: "起始检测",
+                metric: baseline,
+                mode: snapshot.comparison.baselineSelectionMode,
+              },
+              {
+                label: "当前检测",
+                metric: current,
+                mode: snapshot.comparison.currentSelectionMode,
+              },
+            ].map(entry => (
+              <div key={entry.label} className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[#DCE8F4] bg-[#F8FBFF] px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold text-[#6B8299]">{entry.label}</p>
+                  <p className="mt-1 break-words text-xs font-semibold text-[#102A43]">
+                    {entry.metric?.completedAt ? formatDate(entry.metric.completedAt) : "未选择有效检测"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {entry.metric ? (
+                    <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-[9px] font-semibold text-[#0958D9]">
+                      {entry.mode === "manual" ? "人工选择" : "系统推荐"}
+                    </span>
+                  ) : null}
+                  {!publicView && entry.metric?.historyRecordId ? (
+                    <Link href={`/workspace/results/penetration/${encodeURIComponent(entry.metric.historyRecordId)}`} className="text-[10px] font-semibold text-[#1677FF] hover:underline">
+                      查看记录
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {metrics.map(item => (
               <div key={item.label} className="rounded-lg border border-[#DCE8F4] bg-white p-4">
@@ -253,66 +329,82 @@ export default function ClientFeedbackReportView({
         </section>
 
         <section>
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-[#13C2C2]" />
-            <h2 className="text-base font-bold">本期动作记录</h2>
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-[#13C2C2]" />
+                <h2 className="text-base font-bold">{report.type === "weekly" ? "近 7 天" : "近 30 天"}动作记录</h2>
+              </div>
+              <p className="mt-1 text-xs text-[#7E91A7]">完整覆盖 {report.periodStart} 至 {report.periodEnd}</p>
+            </div>
+            <span className="text-[10px] font-semibold text-[#526A83]">共 {snapshot.actions.length} 项动作</span>
           </div>
-          {snapshot.actions.length === 0 ? (
+          <div className={`mt-4 grid gap-2 ${report.type === "weekly" ? "grid-cols-2 sm:grid-cols-4 lg:grid-cols-7" : "grid-cols-4 sm:grid-cols-6 lg:grid-cols-10"}`}>
+            {timeline.map(day => (
+              <div key={day.date} data-feedback-day={day.date} className={`min-h-20 rounded-lg border px-2.5 py-2.5 ${day.beforeProject ? "border-slate-200 bg-slate-50" : day.actions.length > 0 ? "border-[#91CAFF] bg-[#EFF8FF]" : "border-[#E3EDF6] bg-white"}`}>
+                <p className={`text-[10px] font-semibold ${day.actions.length > 0 ? "text-[#0958D9]" : "text-[#7E91A7]"}`}>{shortDate(day.date)}</p>
+                <p className={`mt-2 text-xs font-bold ${day.beforeProject ? "text-slate-400" : day.actions.length > 0 ? "text-[#102A43]" : "text-[#A0B1C1]"}`}>
+                  {day.beforeProject ? "尚未开始" : day.actions.length > 0 ? `${day.actions.length} 项动作` : "暂无动作"}
+                </p>
+                <div className={`mt-2 h-1 rounded-full ${day.actions.length > 0 ? "bg-gradient-to-r from-[#1677FF] to-[#13C2C2]" : "bg-[#E8F0F7]"}`} />
+              </div>
+            ))}
+          </div>
+
+          {actionDays.length === 0 ? (
             <div className="mt-4 rounded-lg border border-dashed border-[#C8D9E8] bg-[#F8FBFD] px-4 py-10 text-center text-sm text-[#7E91A7]">
-              当前周期尚未记录可向客户展示的执行动作
+              该反馈周期尚未记录可向客户展示的执行动作
             </div>
           ) : (
-            <div className="mt-4 overflow-hidden rounded-lg border border-[#DCE8F4]">
-              {snapshot.actions.map((action, index) => (
-                <div key={action.id} className="grid gap-3 border-b border-[#E9F0F6] px-4 py-4 last:border-b-0 sm:grid-cols-[34px_1fr_auto]">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00AEEA] font-mono text-xs font-bold text-white">{index + 1}</span>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="break-words text-sm font-semibold">{action.title}</h3>
-                      <span className="rounded-md bg-[#EDF5FF] px-2 py-0.5 text-[10px] font-semibold text-[#0958D9]">{CATEGORY_LABELS[action.category]}</span>
-                    </div>
-                    {action.description ? <p className="mt-1 break-words text-xs leading-5 text-[#6B8299]">{action.description}</p> : null}
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-[#8AA0B5]">
-                      <span>{formatDate(action.occurredAt)}</span>
-                      {action.platform ? <span>平台：{action.platform}</span> : null}
-                      {typeof action.quantity === "number" ? <span>{action.quantity} {action.unit || ""}</span> : null}
-                    </div>
-                    {action.evidence.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {action.evidence.map(evidence => (
-                          <a key={evidence.url} href={evidence.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1677FF] hover:underline">
-                            <Link2 className="h-3 w-3" />{evidence.label}
-                          </a>
-                        ))}
-                      </div>
-                    ) : null}
-                    {!publicView
-                      && action.publication === "full"
-                      && (action.resultRef?.resourceId || action.sourceRecordId)
-                      && action.category === "penetration_check" ? (
-                        <Link
-                          href={`/workspace/results/penetration/${encodeURIComponent(action.resultRef?.resourceId || action.sourceRecordId || "")}`}
-                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1677FF] hover:underline"
-                        >
-                          <FileCheck2 className="h-3.5 w-3.5" />
-                          查看当次检测报告
-                        </Link>
-                      ) : null}
-                    {!publicView
-                      && action.publication === "full"
-                      && action.category !== "penetration_check" ? (
-                        <Link
-                          href={`/workspace/actions/${encodeURIComponent(action.id)}?clientId=${encodeURIComponent(report.clientId)}`}
-                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1677FF] hover:underline"
-                        >
-                          <FileCheck2 className="h-3.5 w-3.5" />
-                          查看动作详情
-                        </Link>
-                      ) : null}
+            <div className="mt-4 space-y-4">
+              {actionDays.map(day => (
+                <div key={day.date} className="overflow-hidden rounded-lg border border-[#DCE8F4]">
+                  <div className="flex items-center justify-between gap-3 border-b border-[#E9F0F6] bg-[#F8FBFF] px-4 py-2.5">
+                    <h3 className="text-xs font-bold text-[#102A43]">{day.date} · {shortDate(day.date)}</h3>
+                    <span className="text-[10px] font-semibold text-[#1677FF]">{day.actions.length} 项</span>
                   </div>
-                  <span className={`h-fit rounded-md px-2 py-1 text-[10px] font-semibold ${action.status === "completed" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                    {action.status === "completed" ? "已完成" : "计划中"}
-                  </span>
+                  {day.actions.map((action, index) => (
+                    <div key={action.id} className="grid gap-3 border-b border-[#E9F0F6] px-4 py-4 last:border-b-0 sm:grid-cols-[34px_1fr_auto]">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00AEEA] font-mono text-xs font-bold text-white">{index + 1}</span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="break-words text-sm font-semibold">{action.title}</h3>
+                          <span className="rounded-md bg-[#EDF5FF] px-2 py-0.5 text-[10px] font-semibold text-[#0958D9]">{CATEGORY_LABELS[action.category]}</span>
+                        </div>
+                        {action.description ? <p className="mt-1 break-words text-xs leading-5 text-[#6B8299]">{action.description}</p> : null}
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-[#8AA0B5]">
+                          <span>{formatDate(action.occurredAt)}</span>
+                          {action.platform ? <span>平台：{action.platform}</span> : null}
+                          {typeof action.quantity === "number" ? <span>{action.quantity} {action.unit || ""}</span> : null}
+                        </div>
+                        {action.evidence.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {action.evidence.map(evidence => (
+                              <a key={evidence.url} href={evidence.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1677FF] hover:underline">
+                                <Link2 className="h-3 w-3" />{evidence.label}
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
+                        {!publicView
+                          && action.publication === "full"
+                          && (action.resultRef?.resourceId || action.sourceRecordId)
+                          && action.category === "penetration_check" ? (
+                            <Link href={`/workspace/results/penetration/${encodeURIComponent(action.resultRef?.resourceId || action.sourceRecordId || "")}`} className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1677FF] hover:underline">
+                              <FileCheck2 className="h-3.5 w-3.5" />查看当次检测报告
+                            </Link>
+                          ) : null}
+                        {!publicView && action.publication === "full" && action.category !== "penetration_check" ? (
+                          <Link href={`/workspace/actions/${encodeURIComponent(action.id)}?clientId=${encodeURIComponent(report.clientId)}`} className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1677FF] hover:underline">
+                            <FileCheck2 className="h-3.5 w-3.5" />查看动作详情
+                          </Link>
+                        ) : null}
+                      </div>
+                      <span className={`h-fit rounded-md px-2 py-1 text-[10px] font-semibold ${action.status === "completed" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                        {action.status === "completed" ? "已完成" : "计划中"}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
