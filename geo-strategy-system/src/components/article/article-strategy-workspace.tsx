@@ -342,7 +342,13 @@ export default function ArticleStrategyWorkspace({
                           />
                           <span className="min-w-0">
                             <span className="block text-xs leading-5 text-slate-700">{question.question}</span>
-                            <span className="mt-0.5 block text-[10px] text-slate-400">{question.intent || question.keyword}</span>
+                            <span className={`mt-0.5 block text-[10px] leading-4 ${
+                              question.matchedAdvantage ? "text-emerald-700" : "text-slate-400"
+                            }`}>
+                              {question.matchedAdvantage
+                                ? `优势：${question.matchedAdvantage}`
+                                : question.intent || question.keyword || "暂未匹配优势"}
+                            </span>
                           </span>
                         </label>
                       ))}
@@ -399,7 +405,7 @@ export default function ArticleStrategyWorkspace({
                 <div className="mb-2 text-xs font-semibold text-slate-700">任务分配预览</div>
                 <div className="max-h-[300px] divide-y divide-slate-100 overflow-y-auto border-y border-slate-100">
                   {plan.map((task, index) => (
-                    <div key={task.questionId || index} className="grid gap-1.5 py-2.5 sm:grid-cols-[minmax(0,1fr)_180px]">
+                    <div key={task.questionId || task.materialId || index} className="grid gap-1.5 py-2.5 sm:grid-cols-[minmax(0,1fr)_180px]">
                       <div className="min-w-0">
                         <div className="text-xs leading-5 text-slate-700">{task.question}</div>
                         <div className="mt-1 text-[10px] leading-4 text-emerald-700">

@@ -7,14 +7,8 @@ export const MAX_ARTICLE_QUESTION_IMPORT_ROWS = 1_000
 export const MAX_ARTICLE_QUESTION_IMPORT_FILE_BYTES = 5 * 1024 * 1024
 
 export const ARTICLE_QUESTION_TEMPLATE_HEADERS = [
-  "序号",
-  "对应核心关键词",
-  "七类主意图",
-  "决策维度",
-  "用户高频问题",
-  "内容方向建议",
-  "GEO收录优化要点",
-  "匹配优势",
+  "疑问句",
+  "优势",
 ] as const
 
 export type ArticleQuestionImportPreview = {
@@ -149,6 +143,22 @@ export function normalizeArticleQuestionKey(value: unknown): string {
     .replace(/[\s\u3000，。！？、；：,.!?;:'"“”‘’（）()【】[\]《》<>·•—–_-]+/g, "")
 }
 
+export function normalizeArticleAdvantageKey(value: unknown): string {
+  return cellText(value, 3_000)
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-CN")
+    .replace(/[\s\u3000，。！？、；：,.!?;:'"“”‘’（）()【】[\]《》<>·•—–_-]+/g, "")
+}
+
+export function normalizeArticleQuestionMaterialKey(
+  question: unknown,
+  matchedAdvantage: unknown,
+): string {
+  const questionKey = normalizeArticleQuestionKey(question)
+  if (!questionKey) return ""
+  return `${questionKey}\u0000${normalizeArticleAdvantageKey(matchedAdvantage)}`
+}
+
 export function parseArticleQuestionMatrix(
   matrix: unknown[][],
   options: { sheetName?: string } = {},
@@ -198,7 +208,8 @@ export function parseArticleQuestionMatrix(
       })
       continue
     }
-    const key = normalizeArticleQuestionKey(question)
+    const matchedAdvantage = valueFor("matchedAdvantage")
+    const key = normalizeArticleQuestionMaterialKey(question, matchedAdvantage)
     if (!key) {
       skipped.push({
         rowNumber: item.rowNumber,
@@ -214,13 +225,12 @@ export function parseArticleQuestionMatrix(
         rowNumber: item.rowNumber,
         question,
         reason: "duplicate_batch",
-        message: `与第 ${duplicateRow} 行疑问句重复`,
+        message: `与第 ${duplicateRow} 行的疑问句与优势组合重复`,
       })
       continue
     }
     seen.set(key, item.rowNumber)
 
-    const matchedAdvantage = valueFor("matchedAdvantage")
     if (!matchedAdvantage) warningCount += 1
     const category = valueFor("category")
     rows.push({

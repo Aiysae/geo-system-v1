@@ -6,6 +6,10 @@ import {
 } from "@/lib/article-question-materials"
 import { MAX_ARTICLE_QUESTION_IMPORT_ROWS } from "@/lib/article-question-import"
 import {
+  extractQuestionAdvantages,
+  resolveQuestionAdvantage,
+} from "@/lib/geo-strategy/question-advantages"
+import {
   isOperationAccessError,
   requireOperationAccess,
 } from "@/lib/team-access"
@@ -117,6 +121,9 @@ export async function POST(request: NextRequest) {
       .find(item => item.client.id === access.clientId)?.client
     if (!client) return noStore({ error: "客户档案不存在" }, { status: 404 })
 
+    const keywordAdvantages = extractQuestionAdvantages(
+      client.keywordStrategy?.strategyPlan,
+    )
     const result = await importArticleQuestionMaterials({
       ownerUserId: access.dataOwnerUserId,
       clientId: access.clientId,
@@ -124,8 +131,12 @@ export async function POST(request: NextRequest) {
       importBatchId: text(body.importBatchId, 120),
       sourceFileName: text(body.sourceFileName, 180),
       rows,
-      existingQuestionTexts: (client.keywordStrategy?.questions || [])
-        .map(item => item.question),
+      existingQuestionMaterials: (client.keywordStrategy?.questions || []).map(item => ({
+        question: item.question,
+        matchedAdvantage: item.matched_advantage?.trim()
+          || resolveQuestionAdvantage(item, keywordAdvantages)
+          || undefined,
+      })),
     })
     return noStore(result, { status: 201 })
   } catch (error) {
