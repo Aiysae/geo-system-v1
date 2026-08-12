@@ -168,6 +168,7 @@ const {
   createStoredArticleBatchInput,
   getOwnedStoredArticleBatch,
   saveStoredArticleBatch,
+  toPublicArticleBatch,
 } = await import("../src/lib/article-batches/store")
 const {
   deleteArticleBatch,
@@ -279,15 +280,17 @@ const qualityBatch = createStoredArticleBatchInput({
     {
       id: "quality_passed_item",
       position: 1,
-      topic: "通过文章",
+      topic: "全屋定制品牌推荐",
       brief: "通过文章",
+      category: "榜单推荐型",
+      queryStyle: "recommendation" as const,
       requestId: "quality_passed_request",
       status: "succeeded",
       qualityStatus: "passed",
       progressPercent: 100,
       stage: "质检通过",
       attempt: 1,
-      markdown: "# 通过文章\n\n这是通过质检的正文。",
+      markdown: "# 全屋定制品牌推荐\n\n这是通过质检的正文。",
       qualityAudit: qualityAudit(true),
       updatedAt: new Date().toISOString(),
     },
@@ -327,6 +330,7 @@ qualityBatch.completedCount = 2
 qualityBatch.passedCount = 1
 qualityBatch.reviewRequiredCount = 1
 qualityBatch.failedCount = 1
+assert.equal(toPublicArticleBatch(qualityBatch).directRecommendationPassedCount, 1)
 await saveStoredArticleBatch(qualityBatch)
 const allDownloadItems = await getArticleBatchDownloadItems(
   qualityBatch.id,
@@ -338,10 +342,24 @@ const passedDownloadItems = await getArticleBatchDownloadItems(
   qualityBatch.ownerUserId,
   "passed",
 )
+const directDownloadItems = await getArticleBatchDownloadItems(
+  qualityBatch.id,
+  qualityBatch.ownerUserId,
+  "direct",
+)
 assert.equal(allDownloadItems?.length, 2)
 assert.deepEqual(allDownloadItems?.map(item => item.qualityStatus), ["passed", "review_required"])
 assert.equal(passedDownloadItems?.length, 1)
 assert.equal(passedDownloadItems?.[0].qualityStatus, "passed")
+assert.equal(directDownloadItems?.length, 1)
+const currentYear = new Date().getFullYear()
+assert.match(directDownloadItems?.[0].fileName || "", new RegExp(`${currentYear}年`))
+const directDocxZip = await JSZip.loadAsync(directDownloadItems![0].buffer)
+const directDocumentXml = await directDocxZip.file("word/document.xml")!.async("string")
+assert.match(directDocumentXml, new RegExp(`${currentYear}年全屋定制品牌推荐`))
+const originalDocxZip = await JSZip.loadAsync(passedDownloadItems![0].buffer)
+const originalDocumentXml = await originalDocxZip.file("word/document.xml")!.async("string")
+assert.doesNotMatch(originalDocumentXml, new RegExp(`${currentYear}年全屋定制品牌推荐`))
 assert.equal(await deleteArticleBatch(qualityBatch.id, qualityBatch.ownerUserId), "deleted")
 
 await fs.rm(directory, { recursive: true, force: true })

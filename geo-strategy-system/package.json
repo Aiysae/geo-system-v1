@@ -31,6 +31,8 @@
     "test:article-content-pipeline": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-content-pipeline.mts",
     "test:article-stage-budget": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-stage-budget.mts",
     "test:article-strategy-routing": "tsx scripts/test-article-strategy-routing.mts",
+    "test:article-question-selection": "tsx scripts/test-article-question-selection.mts",
+    "test:article-strategy-filter": "NODE_ENV=test tsx scripts/test-article-strategy-filter.mts",
     "test:article-question-import": "tsx scripts/test-article-question-import.mts",
     "test:article-media": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-media.mts",
     "test:article-question-materials": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-question-materials.mts",

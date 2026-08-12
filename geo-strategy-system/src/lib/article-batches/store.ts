@@ -10,6 +10,10 @@ import {
   hasArticleBatchDraft,
   resolveArticleBatchQualityStatus,
 } from "@/lib/article-batches/quality"
+import {
+  isDirectRecommendationQuestionType,
+  resolveArticleQuestionSelection,
+} from "@/lib/article-question-selection"
 import type {
   AnalysisSubjectType,
   ArticleBatchItemRecord,
@@ -147,6 +151,7 @@ function normalizeStoredBatch(value: unknown): StoredArticleBatch | null {
 
 function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
   const hasDraft = hasArticleBatchDraft(item)
+  const selection = resolveArticleQuestionSelection(item)
   return {
     id: item.id,
     position: item.position,
@@ -183,6 +188,10 @@ function toPublicItem(item: StoredArticleBatchItem): ArticleBatchItemRecord {
     routeConfidence: item.routeConfidence,
     routeReason: item.routeReason,
     missingEvidence: item.missingEvidence,
+    questionSelectionType: selection.type,
+    questionSelectionConfidence: selection.confidence,
+    questionSelectionReason: selection.reason,
+    questionSelectionVersion: selection.version,
     status: item.status,
     progressPercent: item.progressPercent,
     stage: item.stage,
@@ -205,6 +214,10 @@ export function toPublicArticleBatch(batch: StoredArticleBatch): ArticleBatchRec
     .sort((a, b) => a.position - b.position)
     .map(toPublicItem)
   const passedCount = publicItems.filter(item => item.qualityStatus === "passed").length
+  const directRecommendationPassedCount = publicItems.filter(item => (
+    item.qualityStatus === "passed"
+    && isDirectRecommendationQuestionType(item.questionSelectionType)
+  )).length
   const reviewRequiredCount = publicItems.filter(item => item.qualityStatus === "review_required").length
   return {
     id: batch.id,
@@ -222,6 +235,7 @@ export function toPublicArticleBatch(batch: StoredArticleBatch): ArticleBatchRec
     requestedCount: batch.requestedCount,
     completedCount: batch.completedCount,
     passedCount,
+    directRecommendationPassedCount,
     reviewRequiredCount,
     failedCount: batch.failedCount,
     cancelledCount: batch.cancelledCount,

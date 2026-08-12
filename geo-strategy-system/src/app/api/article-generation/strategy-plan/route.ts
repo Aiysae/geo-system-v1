@@ -13,6 +13,7 @@ import { listWorkspaceClients } from "@/lib/workspace-store"
 import type { ArticleBatchQuestionTask, ArticleModelProviderKey } from "@/types"
 import { normalizeArticleMethodologySelection } from "@/lib/geo-methodology/compiler"
 import { GEO_METHODOLOGY_VERSION } from "@/lib/geo-methodology/registry"
+import { classifyArticleQuestionSelection } from "@/lib/article-question-selection"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -100,6 +101,12 @@ export async function POST(req: NextRequest) {
         suppliedTitleStrategies: question.titleStrategyCandidates,
         suppliedPlatforms: question.platformCandidates,
       })
+      const questionSelection = classifyArticleQuestionSelection({
+        question: question.question,
+        category: question.category,
+        intent: question.intent,
+        queryStyle: questionMethodology.queryStyle,
+      })
       return [{
         questionId: question.id,
         questionSource: "keyword_strategy" as const,
@@ -127,6 +134,10 @@ export async function POST(req: NextRequest) {
           ? questionMethodology.titleStrategyCandidates[0] || "auto"
           : methodology.titleStrategy,
         methodologyVersion: GEO_METHODOLOGY_VERSION,
+        questionSelectionType: questionSelection.type,
+        questionSelectionConfidence: questionSelection.confidence,
+        questionSelectionReason: questionSelection.reason,
+        questionSelectionVersion: questionSelection.version,
       }]
     })
     const importedById = new Map(importedMaterials.map(material => [material.id, material]))
@@ -137,6 +148,12 @@ export async function POST(req: NextRequest) {
         category: material.category || "痛点解决型",
         question: material.question,
         intent: material.intent,
+      })
+      const questionSelection = classifyArticleQuestionSelection({
+        question: material.question,
+        category: material.category,
+        intent: material.intent,
+        queryStyle: questionMethodology.queryStyle,
       })
       return [{
         materialId: material.id,
@@ -166,6 +183,10 @@ export async function POST(req: NextRequest) {
           ? questionMethodology.titleStrategyCandidates[0] || "auto"
           : methodology.titleStrategy,
         methodologyVersion: GEO_METHODOLOGY_VERSION,
+        questionSelectionType: questionSelection.type,
+        questionSelectionConfidence: questionSelection.confidence,
+        questionSelectionReason: questionSelection.reason,
+        questionSelectionVersion: questionSelection.version,
       }]
     })
     const tasks = [...keywordTasks, ...importedTasks]

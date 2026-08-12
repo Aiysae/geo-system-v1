@@ -35,6 +35,7 @@ import {
   articleFormatForArticlePrompt,
   methodologyForArticlePrompt,
 } from "@/lib/geo-methodology/registry"
+import { classifyArticleQuestionSelection } from "@/lib/article-question-selection"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -66,6 +67,16 @@ function questionTasks(value: unknown): ArticleBatchQuestionTask[] {
   return value.slice(0, 50).map(raw => {
     const item = record(raw)
     const promptKey = text(item.promptKey, 80) as ArticlePromptKey
+    const question = text(item.question, 500)
+    const category = text(item.category, 120) || undefined
+    const intent = text(item.intent, 300) || undefined
+    const queryStyle = item.queryStyle as ArticleBatchQuestionTask["queryStyle"]
+    const selection = classifyArticleQuestionSelection({
+      question,
+      category,
+      intent,
+      queryStyle,
+    })
     return {
       questionId: text(item.questionId, 200) || undefined,
       materialId: text(item.materialId, 200) || undefined,
@@ -74,16 +85,16 @@ function questionTasks(value: unknown): ArticleBatchQuestionTask[] {
         : item.questionSource === "keyword_strategy"
           ? "keyword_strategy"
           : undefined as ArticleBatchQuestionTask["questionSource"],
-      question: text(item.question, 500),
-      intent: text(item.intent, 300) || undefined,
-      category: text(item.category, 120) || undefined,
+      question,
+      intent,
+      category,
       keyword: text(item.keyword, 200) || undefined,
       decisionDimension: text(item.decisionDimension, 200) || undefined,
       contentAngle: text(item.contentAngle, 500) || undefined,
       geoOptimizationText: text(item.geoOptimizationText, 2_000) || undefined,
       matchedAdvantage: text(item.matchedAdvantage, 3_000) || undefined,
       subIntent: text(item.subIntent, 300) || undefined,
-      queryStyle: item.queryStyle as ArticleBatchQuestionTask["queryStyle"],
+      queryStyle,
       methodologyCandidates: stringList(item.methodologyCandidates, 7, 80) as ArticleBatchQuestionTask["methodologyCandidates"],
       platformCandidates: stringList(item.platformCandidates, 10, 80) as ArticleBatchQuestionTask["platformCandidates"],
       targetPlatform: text(item.targetPlatform, 80) as ArticleBatchQuestionTask["targetPlatform"],
@@ -101,6 +112,10 @@ function questionTasks(value: unknown): ArticleBatchQuestionTask[] {
         : undefined,
       routeReason: text(item.routeReason, 500) || undefined,
       missingEvidence: stringList(item.missingEvidence, 12, 300),
+      questionSelectionType: selection.type,
+      questionSelectionConfidence: selection.confidence,
+      questionSelectionReason: selection.reason,
+      questionSelectionVersion: selection.version,
     }
   }).filter(item => Boolean(item.question))
 }
@@ -252,6 +267,12 @@ export async function POST(req: NextRequest) {
             : sourceMethodology.articleFormatCandidates?.[0] || "auto",
           promptFormat: articleFormatForArticlePrompt(task.promptKey),
         }).articleFormat
+        const questionSelection = classifyArticleQuestionSelection({
+          question: sourceQuestion,
+          category: sourceCategory,
+          intent: sourceIntent,
+          queryStyle: sourceMethodology.queryStyle,
+        })
         return [{
           ...task,
           questionId: question?.id,
@@ -280,6 +301,10 @@ export async function POST(req: NextRequest) {
             ? task.titleStrategy
             : sourceMethodology.titleStrategyCandidates?.[0] || "auto",
           promptTitle: getArticlePromptOption(task.promptKey)?.title,
+          questionSelectionType: questionSelection.type,
+          questionSelectionConfidence: questionSelection.confidence,
+          questionSelectionReason: questionSelection.reason,
+          questionSelectionVersion: questionSelection.version,
         }]
       })
       if (parsedQuestionTasks.length !== count) {
