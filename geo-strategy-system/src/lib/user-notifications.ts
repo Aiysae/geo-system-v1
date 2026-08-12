@@ -33,6 +33,13 @@ function feedbackReminderNotificationId(userId: string, date: string): string {
   return `notice_feedback_action_reminder_${digest}`
 }
 
+function penetrationAutomationNotificationId(
+  type: "penetration_automation_alert" | "penetration_automation_attention",
+  executionId: string,
+): string {
+  return `notice_${type}_${executionId}`.slice(0, 220)
+}
+
 export async function notifyPaymentRequestCreated(
   request: AdminPaymentRequest,
 ): Promise<UserNotification> {
@@ -156,6 +163,62 @@ export async function notifyFeedbackActionReminder(input: {
       clientIds: input.clients.map(client => client.clientId),
       dataOwnerUserIds: input.clients.map(client => client.dataOwnerUserId),
     },
+  })
+}
+
+export async function notifyPenetrationAutomationAlert(input: {
+  userId: string
+  executionId: string
+  clientId: string
+  clientName: string
+  historyRecordId: string
+  baselineRate: number
+  currentRate: number
+  relativeDropPct: number
+  absoluteDropPoints: number
+}): Promise<UserNotification> {
+  return await saveUserNotification({
+    id: penetrationAutomationNotificationId("penetration_automation_alert", input.executionId),
+    userId: input.userId,
+    type: "penetration_automation_alert",
+    title: `${input.clientName}渗透率下降提醒`,
+    body: `由 ${(input.baselineRate * 100).toFixed(1)}% 降至 ${(input.currentRate * 100).toFixed(1)}%，相对下降 ${input.relativeDropPct.toFixed(1)}%。`,
+    actionUrl: `/workspace/results/penetration/${encodeURIComponent(input.historyRecordId)}`,
+    entityType: "penetration_automation_execution",
+    entityId: input.executionId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 180 * 24 * 60 * 60 * 1000,
+    metadata: {
+      clientId: input.clientId,
+      historyRecordId: input.historyRecordId,
+      baselineRate: input.baselineRate,
+      currentRate: input.currentRate,
+      relativeDropPct: input.relativeDropPct,
+      absoluteDropPoints: input.absoluteDropPoints,
+    },
+  })
+}
+
+export async function notifyPenetrationAutomationAttention(input: {
+  userId: string
+  executionId: string
+  clientId: string
+  clientName: string
+  message: string
+}): Promise<UserNotification> {
+  const params = new URLSearchParams({ clientId: input.clientId, module: "penetration" })
+  return await saveUserNotification({
+    id: penetrationAutomationNotificationId("penetration_automation_attention", input.executionId),
+    userId: input.userId,
+    type: "penetration_automation_attention",
+    title: `${input.clientName}自动检测需要处理`,
+    body: input.message,
+    actionUrl: `/workspace?${params.toString()}`,
+    entityType: "penetration_automation_execution",
+    entityId: input.executionId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 90 * 24 * 60 * 60 * 1000,
+    metadata: { clientId: input.clientId },
   })
 }
 

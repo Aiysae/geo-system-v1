@@ -10,6 +10,7 @@ import IndustryShareChart from "./industry-share-chart"
 import BrandRankingCard from "./brand-ranking-card"
 import ModelRateTrend from "./model-rate-trend"
 import PenetrationSampleQualityPanel from "./sample-quality-panel"
+import PenetrationAutomationPanel from "./automation-panel"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
@@ -382,8 +383,11 @@ export default function PenetrationModule({
               <div className="text-sm font-semibold text-slate-900">检测配置</div>
               <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围，完成后将在下方展示结果和来源</div>
             </div>
-            <div className="rounded-md bg-[#001D66] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
-              可审计联网 · 纯净盲测
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <PenetrationAutomationPanel key={client.id} client={client} canExecute={canExecute} />
+              <div className="rounded-md bg-[#001D66] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
+                可审计联网 · 纯净盲测
+              </div>
             </div>
           </div>
             <BatchInputPanel

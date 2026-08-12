@@ -108,7 +108,14 @@ CREATE INDEX IF NOT EXISTS geo_admin_payment_requests_status_created_idx
 CREATE TABLE IF NOT EXISTS geo_user_notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('payment_request', 'payment_request_credited', 'payment_request_canceled', 'feedback_action_reminder')),
+  type TEXT NOT NULL CHECK (type IN (
+    'payment_request',
+    'payment_request_credited',
+    'payment_request_canceled',
+    'feedback_action_reminder',
+    'penetration_automation_alert',
+    'penetration_automation_attention'
+  )),
   title TEXT NOT NULL,
   body TEXT NOT NULL,
   action_url TEXT,
@@ -131,7 +138,10 @@ BEGIN
      AND conname = 'geo_user_notifications_type_check';
 
   IF current_definition IS NOT NULL
-     AND current_definition NOT LIKE '%feedback_action_reminder%' THEN
+     AND (
+       current_definition NOT LIKE '%penetration_automation_alert%'
+       OR current_definition NOT LIKE '%penetration_automation_attention%'
+     ) THEN
     ALTER TABLE geo_user_notifications
       DROP CONSTRAINT geo_user_notifications_type_check;
     ALTER TABLE geo_user_notifications
@@ -140,7 +150,9 @@ BEGIN
         'payment_request',
         'payment_request_credited',
         'payment_request_canceled',
-        'feedback_action_reminder'
+        'feedback_action_reminder',
+        'penetration_automation_alert',
+        'penetration_automation_attention'
       ));
   END IF;
 END $$;

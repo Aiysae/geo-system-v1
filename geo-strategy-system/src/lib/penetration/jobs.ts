@@ -77,6 +77,10 @@ export interface PenetrationJobRequest {
     model: ModelKey
     questionIndex: number
   }>
+  origin?: "manual" | "automation"
+  automationScheduleId?: string
+  automationExecutionId?: string
+  automationTrigger?: "scheduled" | "manual"
 }
 
 type StoredPenetrationJob = PenetrationJobRecord & {
@@ -676,6 +680,10 @@ async function persistTerminalHistory(args: {
         activeModels: args.job.request.models,
         skippedModels: args.job.skipped,
         operation: args.job.request.operation,
+        origin: args.job.request.origin,
+        automationScheduleId: args.job.request.automationScheduleId,
+        automationExecutionId: args.job.request.automationExecutionId,
+        automationTrigger: args.job.request.automationTrigger,
       },
       status: args.status,
       result: args.job.result,

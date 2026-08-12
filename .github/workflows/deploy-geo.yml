@@ -176,6 +176,7 @@ jobs:
 
             if [ -n "${DATABASE_URL:-}" ]; then
               npm run db:migrate:system-outputs
+              npm run db:migrate:penetration-automation
             fi
 
             GEO_LOW_MEMORY_BUILD=1 \

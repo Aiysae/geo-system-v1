@@ -25,6 +25,7 @@ Initialize or update the PostgreSQL tables before starting a production release:
 ```bash
 npm run db:migrate:workspace
 npm run db:migrate:penetration-history
+npm run db:migrate:penetration-automation
 npm run db:migrate:system-outputs
 ```
 
@@ -64,6 +65,16 @@ unfinished work after restart. Per-lane concurrency can be tuned with
 `TASK_WORKER_UTILITY_CONCURRENCY`. Use
 `pm2 startOrReload ecosystem.config.cjs --update-env` to run both services.
 Local development defaults to the in-process fallback.
+
+Penetration automation stores one schedule per customer and immutable execution
+records in PostgreSQL. The independent worker checks due schedules every minute,
+uses the customer's latest saved questions and models, and submits the same
+strict web-search job used by manual detection. Only complete results with an
+identical question/model/subject signature are compared; configurable in-app
+and verified-email alerts fire when both the relative and absolute decline
+thresholds are met. Three consecutive execution failures pause the schedule,
+while insufficient credits and monthly-limit skips remain visible without
+creating a false decline alert.
 
 Penetration scheduler V3 routes strict web sampling only to an account whose
 exact model has passed auditable web verification. It reserves independent API

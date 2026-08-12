@@ -5,11 +5,13 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   CalendarCheck2,
+  BellRing,
   CheckCheck,
   CheckCircle2,
   ChevronRight,
   Inbox,
   ReceiptText,
+  TriangleAlert,
   X,
 } from "lucide-react"
 import type {
@@ -21,6 +23,20 @@ import type {
 const POLL_INTERVAL_MS = 20_000
 
 function notificationMeta(type: UserNotificationType) {
+  if (type === "penetration_automation_alert") {
+    return {
+      Icon: TriangleAlert,
+      iconClass: "bg-rose-50 text-rose-700 ring-rose-200",
+      actionLabel: "查看报告",
+    }
+  }
+  if (type === "penetration_automation_attention") {
+    return {
+      Icon: BellRing,
+      iconClass: "bg-amber-50 text-amber-700 ring-amber-200",
+      actionLabel: "去处理",
+    }
+  }
   if (type === "feedback_action_reminder") {
     return {
       Icon: CalendarCheck2,
