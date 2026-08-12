@@ -133,6 +133,9 @@ export async function syncPenetrationJobTask(job: CommonJob & {
   request: {
     clientName?: string
     ourBrand: string
+    origin?: "manual" | "automation"
+    automationScheduleId?: string
+    automationExecutionId?: string
   }
   totalSlots: number
   completedSlots: number
@@ -178,7 +181,9 @@ export async function syncPenetrationJobTask(job: CommonJob & {
     workspaceOwnerUserId: job.workspaceOwnerUserId,
     clientId: job.clientId,
     clientName: job.request.clientName,
-    title: `${job.request.ourBrand || "当前主体"} · 疑问句检测`,
+    title: `${job.request.ourBrand || "当前主体"} · ${
+      job.request.origin === "automation" ? "自动检测" : "疑问句检测"
+    }`,
     status,
     progressPercent: ratioProgress(job.completedSlots, job.totalSlots),
     stage: queueStage || phaseStage || (
@@ -202,6 +207,9 @@ export async function syncPenetrationJobTask(job: CommonJob & {
       activeSlots: job.activeSlots || 0,
       waitingSlots: job.waitingSlots || 0,
       teamId: job.teamId,
+      origin: job.request.origin || "manual",
+      automationScheduleId: job.request.automationScheduleId,
+      automationExecutionId: job.request.automationExecutionId,
     },
   })
 }

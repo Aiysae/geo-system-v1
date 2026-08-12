@@ -1169,6 +1169,10 @@ export interface PenetrationHistoryRequestSnapshot {
   activeModels: ModelKey[]
   skippedModels: string[]
   operation: PenetrationJobOperation
+  origin?: "manual" | "automation"
+  automationScheduleId?: string
+  automationExecutionId?: string
+  automationTrigger?: "scheduled" | "manual"
 }
 
 export interface PenetrationHistoryBrandVoiceItem {

@@ -279,6 +279,40 @@ export async function getPenetrationHistoryRecord(
   })
 }
 
+export async function listPenetrationHistoryComparisonRecords(input: {
+  ownerUserId: string
+  clientId: string
+  limit?: number
+}): Promise<PenetrationHistoryRecord[]> {
+  const limit = Math.max(1, Math.min(200, Math.floor(input.limit || 80)))
+  if (backend() === "postgres") {
+    await ensurePenetrationHistorySchema()
+    const result = await pool().query<HistoryRow>(
+      `SELECT id, actor_user_id, client_id, client_name, operation, status, source,
+              request_snapshot, summary, dashboard_snapshot, error,
+              schema_version, created_at, completed_at, updated_at
+       FROM geo_penetration_history_v1
+       WHERE owner_user_id = $1 AND client_id = $2 AND deleted_at IS NULL
+       ORDER BY COALESCE(completed_at, created_at) DESC, id DESC
+       LIMIT $3`,
+      [input.ownerUserId, input.clientId, limit],
+    )
+    return result.rows.map(fullRecordFromRow)
+  }
+  return withFileState(state => Object.values(state.records)
+    .filter(record => (
+      record.ownerUserId === input.ownerUserId
+      && record.clientId === input.clientId
+      && !record.deletedAt
+    ))
+    .sort((left, right) => historyTime(right).localeCompare(historyTime(left)))
+    .slice(0, limit)
+    .map(record => {
+      const publicRecord = stripStoredFields(record)
+      return { ...publicRecord, result: undefined }
+    }))
+}
+
 export async function getPenetrationHistoryOverviewRecord(
   ownerUserId: string,
   id: string,

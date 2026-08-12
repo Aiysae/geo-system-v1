@@ -60,6 +60,8 @@ export type UserNotificationType =
   | "payment_request_credited"
   | "payment_request_canceled"
   | "feedback_action_reminder"
+  | "penetration_automation_alert"
+  | "penetration_automation_attention"
 
 export type UserNotification = {
   id: string
@@ -68,7 +70,10 @@ export type UserNotification = {
   title: string
   body: string
   actionUrl?: string
-  entityType?: "admin_payment_request" | "client_feedback_reminder"
+  entityType?:
+    | "admin_payment_request"
+    | "client_feedback_reminder"
+    | "penetration_automation_execution"
   entityId?: string
   createdAt: number
   readAt?: number

@@ -25,6 +25,13 @@ import {
   enqueueActionReminderCatchup,
   registerActionReminderScheduler,
 } from "@/lib/action-reminders/scheduler"
+import {
+  closePenetrationAutomationQueue,
+  createPenetrationAutomationWorker,
+  enqueuePenetrationAutomationCatchup,
+  penetrationAutomationQueueName,
+  registerPenetrationAutomationScheduler,
+} from "@/lib/penetration/automation-scheduler"
 
 function workerConcurrency(name: string, fallback: number): number {
   return Math.max(
@@ -63,6 +70,7 @@ const workerDefinitions = [
   },
 ] as const
 const actionReminderWorker = createActionReminderWorker()
+const penetrationAutomationWorker = createPenetrationAutomationWorker()
 const prefix = String(process.env.TASK_QUEUE_PREFIX || "geo:bull")
 
 const workerStartedAt = new Date().toISOString()
@@ -92,6 +100,14 @@ async function writeWorkerHeartbeat(): Promise<void> {
         concurrency: Math.max(
           1,
           Math.min(4, Number(process.env.ACTION_REMINDER_CONCURRENCY) || 2),
+        ),
+      },
+      {
+        lane: "notifications" as const,
+        queueName: penetrationAutomationQueueName(),
+        concurrency: Math.max(
+          1,
+          Math.min(4, Number(process.env.PENETRATION_AUTOMATION_WORKER_CONCURRENCY) || 2),
         ),
       },
     ],
@@ -315,13 +331,17 @@ async function startWorker(): Promise<void> {
   await waitForWebProcess()
   await registerActionReminderScheduler()
   await enqueueActionReminderCatchup()
+  await registerPenetrationAutomationScheduler()
+  await enqueuePenetrationAutomationCatchup()
   const runPromises = [
     ...workers.map(worker => worker.run()),
     actionReminderWorker.run(),
+    penetrationAutomationWorker.run(),
   ]
   await Promise.all([
     ...workers.map(worker => worker.waitUntilReady()),
     actionReminderWorker.waitUntilReady(),
+    penetrationAutomationWorker.waitUntilReady(),
   ])
   startWorkerHeartbeat()
   await recoverPendingTasks()
@@ -349,6 +369,8 @@ async function shutdown(signal: string): Promise<void> {
       ...workers.map(worker => worker.close()),
       actionReminderWorker.close(),
       closeActionReminderQueue(),
+      penetrationAutomationWorker.close(),
+      closePenetrationAutomationQueue(),
     ])
     clearTimeout(forceTimer)
     process.exit(0)
