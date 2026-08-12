@@ -28,6 +28,10 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { resolveArticleBatchQuestionTasks } from "@/lib/article-batch-question-tasks"
+import {
+  articleQuestionSelectionLabel,
+  isDirectRecommendationQuestionType,
+} from "@/lib/article-question-selection"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
@@ -74,6 +78,7 @@ interface BatchArticleDetail {
 }
 
 const TERMINAL_BATCH = new Set(["succeeded", "partial", "failed", "cancelled"])
+type ArticleBatchResultFilter = "all" | "passed" | "direct" | "review" | "failed"
 
 function statusLabel(item: ArticleBatchItemRecord): string {
   if (item.status === "queued") return "排队中"
@@ -142,6 +147,7 @@ export default function ArticleBatchWorkspace({
   const [previewError, setPreviewError] = useState("")
   const [previewVariant, setPreviewVariant] = useState<"original" | "media">("original")
   const [mediaOpen, setMediaOpen] = useState(false)
+  const [resultFilter, setResultFilter] = useState<ArticleBatchResultFilter>("all")
   const previousStatuses = useRef<Map<string, ArticleBatchRecord["status"]>>(new Map())
   const initialized = useRef(false)
 
@@ -204,6 +210,33 @@ export default function ArticleBatchWorkspace({
   const reviewRequiredCount = selectedBatch?.reviewRequiredCount
     ?? selectedBatch?.items.filter(item => item.qualityStatus === "review_required").length
     ?? 0
+  const directRecommendationPassedCount = selectedBatch?.directRecommendationPassedCount
+    ?? selectedBatch?.items.filter(item => (
+      item.qualityStatus === "passed"
+      && isDirectRecommendationQuestionType(item.questionSelectionType)
+    )).length
+    ?? 0
+  const resultFilterCounts = useMemo(() => ({
+    all: selectedBatch?.items.length || 0,
+    passed: passedCount,
+    direct: directRecommendationPassedCount,
+    review: reviewRequiredCount,
+    failed: selectedBatch?.items.filter(item => (
+      item.status === "failed" || item.status === "cancelled"
+    )).length || 0,
+  }), [directRecommendationPassedCount, passedCount, reviewRequiredCount, selectedBatch])
+  const visibleItems = useMemo(() => (selectedBatch?.items || []).filter(item => {
+    if (resultFilter === "passed") return item.qualityStatus === "passed"
+    if (resultFilter === "direct") {
+      return item.qualityStatus === "passed"
+        && isDirectRecommendationQuestionType(item.questionSelectionType)
+    }
+    if (resultFilter === "review") return item.qualityStatus === "review_required"
+    if (resultFilter === "failed") {
+      return item.status === "failed" || item.status === "cancelled"
+    }
+    return true
+  }), [resultFilter, selectedBatch])
   const previewAudit = previewDetail?.qualityAudit || previewItem?.qualityAudit
   const previewNeedsReview = (
     previewDetail?.qualityStatus || previewItem?.qualityStatus
@@ -717,12 +750,49 @@ export default function ArticleBatchWorkspace({
                       仅下载质检通过 {passedCount} 篇
                     </a>
                   )}
+                  {directRecommendationPassedCount > 0 && (
+                    <a
+                      href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=direct`}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#0B5CFF] to-[#00A8C8] px-3 font-semibold text-white transition hover:brightness-105"
+                      title="下载质检通过的直接推荐与直接榜单文章；标题会自动补充当前年份"
+                    >
+                      <FileDown className="h-3.5 w-3.5" />
+                      下载直推榜单 {directRecommendationPassedCount} 篇
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
 
+            <div className="mb-3 flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
+              {([
+                ["all", "全部结果"],
+                ["passed", "质检通过"],
+                ["direct", "直推榜单"],
+                ["review", "待人工复核"],
+                ["failed", "失败/停止"],
+              ] as Array<[ArticleBatchResultFilter, string]>).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setResultFilter(value)}
+                  className={`h-8 rounded-md px-3 text-[11px] font-semibold transition ${
+                    resultFilter === value
+                      ? "bg-white text-[#0958D9] shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {label} {resultFilterCounts[value]}
+                </button>
+              ))}
+            </div>
+
             <div className="min-h-0 flex-1 overflow-y-auto border-y border-slate-100">
-              {selectedBatch.items.map(item => (
+              {visibleItems.length === 0 ? (
+                <div className="flex min-h-40 items-center justify-center px-5 text-center text-xs text-slate-400">
+                  当前筛选下没有文章，切换其他分类即可继续查看。
+                </div>
+              ) : visibleItems.map(item => (
                 <div key={item.id} className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-100 px-1 py-3 last:border-b-0">
                   <span className="text-center text-[11px] font-semibold text-slate-400">{String(item.position).padStart(2, "0")}</span>
                   <div className="min-w-0">
@@ -744,6 +814,20 @@ export default function ArticleBatchWorkspace({
                       {item.promptTitle && (
                         <span className="hidden shrink-0 rounded bg-blue-50 px-1.5 py-0.5 font-medium text-[#0958D9] sm:inline">
                           {item.promptTitle}
+                        </span>
+                      )}
+                      {(item.questionSource || selectedBatch.mode === "strategy") && (
+                        <span
+                          className={`hidden shrink-0 rounded px-1.5 py-0.5 font-medium sm:inline ${
+                            isDirectRecommendationQuestionType(item.questionSelectionType)
+                              ? "bg-cyan-50 text-cyan-700"
+                              : item.questionSelectionType === "conditional_recommendation"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-slate-100 text-slate-500"
+                          }`}
+                          title={item.questionSelectionReason}
+                        >
+                          {articleQuestionSelectionLabel(item.questionSelectionType)}
                         </span>
                       )}
                       {item.hasMediaVersion && (

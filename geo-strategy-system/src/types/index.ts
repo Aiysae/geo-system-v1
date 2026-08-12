@@ -269,6 +269,13 @@ export interface ArticleQuestionMaterialImportResult {
   warningCount: number
 }
 
+export type ArticleQuestionSelectionType =
+  | "direct_ranking"
+  | "direct_recommendation"
+  | "conditional_recommendation"
+  | "long_tail"
+  | "non_recommendation"
+
 export interface ArticleBatchQuestionTask {
   questionId?: string
   materialId?: string
@@ -296,6 +303,10 @@ export interface ArticleBatchQuestionTask {
   routeConfidence?: number
   routeReason?: string
   missingEvidence?: string[]
+  questionSelectionType?: ArticleQuestionSelectionType
+  questionSelectionConfidence?: number
+  questionSelectionReason?: string
+  questionSelectionVersion?: string
 }
 
 export type BackgroundJobKind =
@@ -562,6 +573,10 @@ export interface ArticleBatchItemRecord {
   routeConfidence?: number
   routeReason?: string
   missingEvidence?: string[]
+  questionSelectionType?: ArticleQuestionSelectionType
+  questionSelectionConfidence?: number
+  questionSelectionReason?: string
+  questionSelectionVersion?: string
   status: ArticleBatchItemStatus
   progressPercent: number
   stage: string
@@ -591,6 +606,7 @@ export interface ArticleBatchRecord {
   requestedCount: number
   completedCount: number
   passedCount?: number
+  directRecommendationPassedCount?: number
   reviewRequiredCount?: number
   failedCount: number
   cancelledCount: number

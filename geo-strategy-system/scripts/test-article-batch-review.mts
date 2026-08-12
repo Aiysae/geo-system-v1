@@ -44,6 +44,7 @@ const batch = {
   requestedCount: 3,
   completedCount: 2,
   passedCount: 1,
+  directRecommendationPassedCount: 1,
   reviewRequiredCount: 1,
   failedCount: 1,
   cancelledCount: 0,
@@ -59,6 +60,9 @@ const batch = {
       brief: "通过文章",
       status: "succeeded",
       qualityStatus: "passed",
+      questionSource: "keyword_strategy",
+      questionSelectionType: "direct_recommendation",
+      questionSelectionReason: "问题直接询问推荐对象",
       hasDraft: true,
       progressPercent: 100,
       stage: "质检通过",
@@ -72,6 +76,8 @@ const batch = {
       brief: "待复核文章",
       status: "succeeded",
       qualityStatus: "review_required",
+      questionSource: "keyword_strategy",
+      questionSelectionType: "long_tail",
       hasDraft: true,
       qualityAudit: audit,
       progressPercent: 100,
@@ -148,6 +154,7 @@ await waitFor(
   "未显示全部文章下载按钮",
 )
 assert.match(container.textContent || "", /仅下载质检通过 1 篇/)
+assert.match(container.textContent || "", /下载直推榜单 1 篇/)
 assert.match(container.textContent || "", /待人工复核/)
 assert.equal(
   container.querySelector('a[href$="download?scope=all"]')?.textContent?.includes("下载全部"),
@@ -157,6 +164,21 @@ assert.equal(
   container.querySelector('a[href$="download?scope=passed"]')?.textContent?.includes("质检通过"),
   true,
 )
+assert.equal(
+  container.querySelector('a[href$="download?scope=direct"]')?.textContent?.includes("直推榜单"),
+  true,
+)
+
+const filterButtons = [...container.querySelectorAll("button")]
+const directFilter = filterButtons.find(button => button.textContent?.includes("直推榜单 1")) as HTMLButtonElement | undefined
+assert.ok(directFilter)
+await act(async () => directFilter.click())
+assert.ok(container.querySelector('button[aria-label="查看第 1 篇文章"]'))
+assert.equal(container.querySelector('button[aria-label="查看第 2 篇文章"]'), null)
+const allFilter = [...container.querySelectorAll("button")]
+  .find(button => button.textContent?.includes("全部结果 3")) as HTMLButtonElement | undefined
+assert.ok(allFilter)
+await act(async () => allFilter.click())
 
 const reviewButton = container.querySelector(
   'button[aria-label="查看第 2 篇文章"]',

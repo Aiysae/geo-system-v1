@@ -1,4 +1,5 @@
 import type { ArticleBatchQuestionTask, ArticleBatchTopicMode } from "@/types"
+import { resolveArticleQuestionSelection } from "@/lib/article-question-selection"
 
 const SAFE_WRITING_FOCUSES = [
   ["决策标准", "重点解释用户应该依据哪些可核验条件作出判断"],
@@ -58,6 +59,10 @@ export interface PlannedArticleItem {
   routeConfidence?: number
   routeReason?: string
   missingEvidence?: string[]
+  questionSelectionType?: ArticleBatchQuestionTask["questionSelectionType"]
+  questionSelectionConfidence?: number
+  questionSelectionReason?: string
+  questionSelectionVersion?: string
 }
 
 function clean(value: unknown, max: number): string {
@@ -98,11 +103,18 @@ function normalizeQuestionTasks(value: ArticleBatchQuestionTask[] | undefined): 
       missingEvidence: Array.isArray(task.missingEvidence)
         ? task.missingEvidence.map(item => clean(item, 300)).filter(Boolean).slice(0, 12)
         : undefined,
+      questionSelectionType: task.questionSelectionType,
+      questionSelectionConfidence: Number.isFinite(task.questionSelectionConfidence)
+        ? Math.max(0, Math.min(1, Number(task.questionSelectionConfidence)))
+        : undefined,
+      questionSelectionReason: clean(task.questionSelectionReason, 300) || undefined,
+      questionSelectionVersion: clean(task.questionSelectionVersion, 120) || undefined,
     }))
     .filter(task => Boolean(task.question))
 }
 
 function plannedQuestionTask(task: ArticleBatchQuestionTask, position: number): PlannedArticleItem {
+  const selection = resolveArticleQuestionSelection(task)
   return {
     position,
     topic: task.question,
@@ -141,6 +153,10 @@ function plannedQuestionTask(task: ArticleBatchQuestionTask, position: number): 
     routeConfidence: task.routeConfidence,
     routeReason: task.routeReason,
     missingEvidence: task.missingEvidence,
+    questionSelectionType: selection.type,
+    questionSelectionConfidence: selection.confidence,
+    questionSelectionReason: selection.reason,
+    questionSelectionVersion: selection.version,
   }
 }
 

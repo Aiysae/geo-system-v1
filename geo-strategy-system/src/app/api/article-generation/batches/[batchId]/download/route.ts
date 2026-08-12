@@ -16,6 +16,12 @@ import {
   requireArticleBatchAccess,
 } from "@/lib/article-batches/access"
 import { requireUserId } from "@/lib/with-credits"
+import {
+  articleQuestionSelectionLabel,
+  ensureTimelyArticleMarkdown,
+  isDirectRecommendationQuestion,
+} from "@/lib/article-question-selection"
+import type { ArticleBatchDownloadScope } from "@/lib/article-batches/manager"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -44,7 +50,12 @@ export async function GET(
   if (!auth.ok) return auth.response
   try {
     const { batchId } = await context.params
-    const scope = req.nextUrl.searchParams.get("scope") === "all" ? "all" : "passed"
+    const requestedScope = req.nextUrl.searchParams.get("scope")
+    const scope: ArticleBatchDownloadScope = requestedScope === "all"
+      ? "all"
+      : requestedScope === "direct"
+        ? "direct"
+        : "passed"
     const variant = req.nextUrl.searchParams.get("variant") === "media" ? "media" : "original"
     const authorized = await requireArticleBatchAccess({
       batchId,
@@ -58,31 +69,46 @@ export async function GET(
     ])
     if (!batch || !files) return NextResponse.json({ error: "批量任务不存在" }, { status: 404 })
     if (files.length === 0) {
-      return NextResponse.json({ error: variant === "media" ? "当前还没有可下载的图文版本" : "当前还没有可下载的 Word 文档" }, { status: 409 })
+      return NextResponse.json({
+        error: scope === "direct"
+          ? "当前没有质检通过的直推榜单文章"
+          : variant === "media"
+            ? "当前还没有可下载的图文版本"
+            : "当前还没有可下载的 Word 文档",
+      }, { status: 409 })
     }
 
     const zip = new JSZip()
     for (const file of files) {
-      const folder = file.qualityStatus === "review_required" ? "待人工复核" : "质检通过"
+      const folder = scope === "direct"
+        ? "直推榜单"
+        : file.qualityStatus === "review_required"
+          ? "待人工复核"
+          : "质检通过"
       zip.file(`${variant === "media" ? "Word图文成品/" : ""}${folder}/${file.fileName}`, file.buffer)
     }
-    const manifestItems = scope === "all"
-      ? batch.items
-      : batch.items.filter(item => item.qualityStatus === "passed")
+    const exportedFiles = new Map(files.map(file => [file.itemId, file]))
+    const manifestItems = batch.items.filter(item => exportedFiles.has(item.id))
     const manifestRows = [
-      ["序号", "标题", "状态", "Prompt", "模型", "质量分", "质检说明", "插图数", "文件名"],
+      ["序号", "标题", "状态", "疑问句类型", "分类置信度", "分类依据", "Prompt", "模型", "质量分", "质检说明", "插图数", "文件名"],
       ...manifestItems.map(item => {
         const score = item.qualityAudit?.semanticScore ?? item.qualityAudit?.deterministicScore
+        const exported = exportedFiles.get(item.id)
         return [
           item.position,
-          item.title || item.topic,
+          exported?.title || item.title || item.topic,
           qualityLabel(item.qualityStatus),
+          articleQuestionSelectionLabel(item.questionSelectionType),
+          item.questionSelectionConfidence === undefined
+            ? ""
+            : `${Math.round(item.questionSelectionConfidence * 100)}%`,
+          item.questionSelectionReason || "",
           item.promptTitle || batch.promptTitle,
           batch.model || batch.modelProvider,
           score === undefined ? "" : score,
           item.qualityAudit?.issues.join("；") || item.error || "",
           item.mediaImageCount || 0,
-          item.fileName || "",
+          exported?.fileName || item.fileName || "",
         ]
       }),
     ]
@@ -95,6 +121,7 @@ export async function GET(
       const storedItems = authorized.batch.items.filter(item => (
         Boolean(item.mediaRevision?.markdown)
         && (scope === "all" || item.qualityStatus === "passed")
+        && (scope !== "direct" || isDirectRecommendationQuestion(item))
       ))
       const assetIds = [...new Set(storedItems.flatMap(item => (
         articleMediaAssetIds(item.mediaRevision?.markdown || "")
@@ -108,14 +135,24 @@ export async function GET(
         zip.file(relativePath, await readArticleMediaAssetBuffer(asset))
       }
       for (const item of storedItems) {
-        const baseName = `${String(item.position).padStart(2, "0")}_${sanitizeArticleFileName(item.title || item.topic)}`
+        const sourceMarkdown = item.mediaRevision?.markdown || ""
+        const exportArticle = scope === "direct"
+          ? ensureTimelyArticleMarkdown({
+              markdown: sourceMarkdown,
+              title: item.title || item.topic,
+            })
+          : {
+              markdown: sourceMarkdown,
+              title: item.title || item.topic,
+            }
+        const baseName = `${String(item.position).padStart(2, "0")}_${sanitizeArticleFileName(exportArticle.title)}`
         const offlineMarkdown = replaceArticleMediaUrls(
-          item.mediaRevision?.markdown || "",
+          exportArticle.markdown,
           assetId => `../${assetPaths.get(assetId) || `images/${assetId}.jpg`}`,
         )
         zip.file(`Markdown图文成品/${baseName}.md`, offlineMarkdown)
         zip.file(`HTML图文成品/${baseName}.html`, renderStandaloneArticleHtml({
-          title: item.title || item.topic,
+          title: exportArticle.title,
           markdown: offlineMarkdown,
         }))
       }
@@ -125,7 +162,11 @@ export async function GET(
       )
     }
     const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
-    const scopeLabel = `${scope === "all" ? "全部已生成" : "质检通过"}${variant === "media" ? "_图文成品" : ""}`
+    const scopeLabel = `${scope === "all"
+      ? "全部已生成"
+      : scope === "direct"
+        ? "直推榜单_已补当年标题"
+        : "质检通过"}${variant === "media" ? "_图文成品" : ""}`
     const fileName = `${sanitizeArticleFileName(batch.promptTitle)}_${scopeLabel}${files.length}篇_${new Date().toISOString().slice(0, 10)}.zip`
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

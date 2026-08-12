@@ -14,12 +14,18 @@ import { BillingLink } from "@/components/billing/billing-link"
 import { Button } from "@/components/ui/button"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
+import {
+  articleQuestionSelectionLabel,
+  classifyArticleQuestionSelection,
+  isDirectRecommendationQuestionType,
+} from "@/lib/article-question-selection"
 import { ARTICLE_PROMPT_PRICE_KEYS, estimateFeatureCredits } from "@/lib/pricing"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   ArticleBatchQuestionTask,
   ArticleBatchRecord,
   ArticleComparisonBrand,
+  ArticleQuestionSelectionType,
   ArticleQuestionMaterial,
 } from "@/types"
 import type { QuestionItem } from "@/types/geo-strategy"
@@ -43,7 +49,11 @@ type StrategyQuestionOption = {
   intent?: string
   keyword?: string
   matchedAdvantage?: string
+  questionSelectionType: ArticleQuestionSelectionType
+  questionSelectionReason: string
 }
+
+type StrategyQuestionFilter = "all" | "direct" | "conditional" | "long_tail_other"
 
 const MAX_STRATEGY_SELECTION = 300
 
@@ -67,26 +77,45 @@ export default function ArticleStrategyWorkspace({
   onStarted,
 }: Props) {
   const availableQuestions = useMemo<StrategyQuestionOption[]>(() => [
-    ...questions.map(question => ({
-      selectionKey: `keyword:${question.id}`,
-      source: "keyword_strategy" as const,
-      sourceId: question.id,
-      question: question.question,
-      category: question.category,
-      intent: question.intent,
-      keyword: question.keyword,
-      matchedAdvantage: question.matched_advantage,
-    })),
-    ...importedMaterials.map(material => ({
-      selectionKey: `excel:${material.id}`,
-      source: "excel" as const,
-      sourceId: material.id,
-      question: material.question,
-      category: material.category,
-      intent: material.intent,
-      keyword: material.keyword,
-      matchedAdvantage: material.matchedAdvantage,
-    })),
+    ...questions.map(question => {
+      const selection = classifyArticleQuestionSelection({
+        question: question.question,
+        category: question.category,
+        intent: question.intent,
+        queryStyle: question.queryStyle,
+      })
+      return {
+        selectionKey: `keyword:${question.id}`,
+        source: "keyword_strategy" as const,
+        sourceId: question.id,
+        question: question.question,
+        category: question.category,
+        intent: question.intent,
+        keyword: question.keyword,
+        matchedAdvantage: question.matched_advantage,
+        questionSelectionType: selection.type,
+        questionSelectionReason: selection.reason,
+      }
+    }),
+    ...importedMaterials.map(material => {
+      const selection = classifyArticleQuestionSelection({
+        question: material.question,
+        category: material.category,
+        intent: material.intent,
+      })
+      return {
+        selectionKey: `excel:${material.id}`,
+        source: "excel" as const,
+        sourceId: material.id,
+        question: material.question,
+        category: material.category,
+        intent: material.intent,
+        keyword: material.keyword,
+        matchedAdvantage: material.matchedAdvantage,
+        questionSelectionType: selection.type,
+        questionSelectionReason: selection.reason,
+      }
+    }),
   ], [importedMaterials, questions])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     () => new Set(availableQuestions
@@ -100,17 +129,48 @@ export default function ArticleStrategyWorkspace({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
+  const [questionFilter, setQuestionFilter] = useState<StrategyQuestionFilter>("all")
+
+  const questionFilterCounts = useMemo(() => ({
+    all: availableQuestions.length,
+    direct: availableQuestions.filter(item => (
+      isDirectRecommendationQuestionType(item.questionSelectionType)
+    )).length,
+    conditional: availableQuestions.filter(item => (
+      item.questionSelectionType === "conditional_recommendation"
+    )).length,
+    long_tail_other: availableQuestions.filter(item => (
+      item.questionSelectionType === "long_tail"
+      || item.questionSelectionType === "non_recommendation"
+    )).length,
+  }), [availableQuestions])
+  const filteredQuestions = useMemo(() => availableQuestions.filter(item => {
+    if (questionFilter === "direct") {
+      return isDirectRecommendationQuestionType(item.questionSelectionType)
+    }
+    if (questionFilter === "conditional") {
+      return item.questionSelectionType === "conditional_recommendation"
+    }
+    if (questionFilter === "long_tail_other") {
+      return item.questionSelectionType === "long_tail"
+        || item.questionSelectionType === "non_recommendation"
+    }
+    return true
+  }), [availableQuestions, questionFilter])
 
   const groups = useMemo(() => {
     const grouped = new Map<string, StrategyQuestionOption[]>()
-    for (const question of availableQuestions) {
+    for (const question of filteredQuestions) {
       const sourceLabel = question.source === "excel" ? "Excel 导入" : "关键词策略"
       const key = `${sourceLabel} · ${question.category || question.intent || "其他问题"}`
       grouped.set(key, [...(grouped.get(key) || []), question])
     }
     return [...grouped.entries()]
-  }, [availableQuestions])
+  }, [filteredQuestions])
   const selectedCount = selectedIds.size
+  const filteredSelectedCount = filteredQuestions.filter(item => (
+    selectedIds.has(item.selectionKey)
+  )).length
   const comparisonBrandCount = Array.isArray(basePayload.comparisonBrands)
     ? (basePayload.comparisonBrands as ArticleComparisonBrand[]).filter(item => item.name).length
     : 0
@@ -133,10 +193,12 @@ export default function ArticleStrategyWorkspace({
   }
 
   function toggleAll() {
-    const selectableCount = Math.min(availableQuestions.length, MAX_STRATEGY_SELECTION)
-    updateSelection(selectedCount === selectableCount
+    const onlyCurrentFilterSelected = filteredQuestions.length > 0
+      && selectedCount === filteredSelectedCount
+      && filteredSelectedCount === filteredQuestions.length
+    updateSelection(onlyCurrentFilterSelected
       ? new Set()
-      : new Set(availableQuestions
+      : new Set(filteredQuestions
         .slice(0, MAX_STRATEGY_SELECTION)
         .map(item => item.selectionKey)))
   }
@@ -312,14 +374,42 @@ export default function ArticleStrategyWorkspace({
                 </div>
               </div>
               <Button type="button" size="sm" variant="outline" onClick={toggleAll}>
-                {selectedCount === Math.min(availableQuestions.length, MAX_STRATEGY_SELECTION)
+                {filteredQuestions.length > 0
+                  && selectedCount === filteredSelectedCount
+                  && filteredSelectedCount === filteredQuestions.length
                   ? "取消全选"
-                  : "选择本次可生成问题"}
+                  : "只选当前筛选"}
               </Button>
             </div>
 
+            <div className="mt-3 flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
+              {([
+                ["all", "全部"],
+                ["direct", "直推榜单"],
+                ["conditional", "条件推荐"],
+                ["long_tail_other", "长尾与其他"],
+              ] as Array<[StrategyQuestionFilter, string]>).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setQuestionFilter(value)}
+                  className={`h-8 rounded-md px-3 text-[11px] font-semibold transition ${
+                    questionFilter === value
+                      ? "bg-white text-[#0958D9] shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {label} {questionFilterCounts[value]}
+                </button>
+              ))}
+            </div>
+
             <div className="mt-3 max-h-[360px] space-y-3 overflow-y-auto pr-1">
-              {groups.map(([category, items]) => {
+              {groups.length === 0 ? (
+                <div className="border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-xs text-slate-400">
+                  当前分类下没有可选疑问句
+                </div>
+              ) : groups.map(([category, items]) => {
                 const checkedCount = items.filter(item => selectedIds.has(item.selectionKey)).length
                 return (
                   <div key={category} className="rounded-lg border border-slate-200">
@@ -341,7 +431,15 @@ export default function ArticleStrategyWorkspace({
                             className="mt-0.5 h-4 w-4 accent-[#1677FF]"
                           />
                           <span className="min-w-0">
-                            <span className="block text-xs leading-5 text-slate-700">{question.question}</span>
+                            <span className="flex flex-wrap items-start gap-1.5 text-xs leading-5 text-slate-700">
+                              <span>{question.question}</span>
+                              <span
+                                className="shrink-0 rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-cyan-700"
+                                title={question.questionSelectionReason}
+                              >
+                                {articleQuestionSelectionLabel(question.questionSelectionType)}
+                              </span>
+                            </span>
                             <span className={`mt-0.5 block text-[10px] leading-4 ${
                               question.matchedAdvantage ? "text-emerald-700" : "text-slate-400"
                             }`}>
@@ -410,6 +508,9 @@ export default function ArticleStrategyWorkspace({
                         <div className="text-xs leading-5 text-slate-700">{task.question}</div>
                         <div className="mt-1 text-[10px] leading-4 text-emerald-700">
                           匹配优势：{task.matchedAdvantage || "暂无可核验优势资料"}
+                        </div>
+                        <div className="mt-1 text-[10px] leading-4 text-cyan-700">
+                          疑问句类型：{articleQuestionSelectionLabel(task.questionSelectionType)}
                         </div>
                       </div>
                       <div className="sm:text-right">

@@ -19,10 +19,12 @@ import {
   getBackgroundJobByRequest,
 } from "@/lib/background-jobs"
 import {
+  buildArticleDocxBuffer,
   cleanupArticleArtifacts,
   deleteArticleBatchArtifacts,
   extractArticleTitle,
   readArticleDocxArtifact,
+  sanitizeArticleFileName,
   writeArticleDocxArtifact,
 } from "@/lib/article-batches/docx"
 import {
@@ -55,6 +57,10 @@ import {
   type StoredArticleBatchItem,
 } from "@/lib/article-batches/store"
 import { recordArticleGenerationAttribution } from "@/lib/geo-methodology/attribution"
+import {
+  ensureTimelyArticleMarkdown,
+  isDirectRecommendationQuestion,
+} from "@/lib/article-question-selection"
 import type {
   ArticleGenerationConnectivity,
   ArticleGenerationLineage,
@@ -539,6 +545,10 @@ export async function createArticleBatch(
     routeConfidence: plan.routeConfidence,
     routeReason: plan.routeReason,
     missingEvidence: plan.missingEvidence,
+    questionSelectionType: plan.questionSelectionType,
+    questionSelectionConfidence: plan.questionSelectionConfidence,
+    questionSelectionReason: plan.questionSelectionReason,
+    questionSelectionVersion: plan.questionSelectionVersion,
     requestId: itemRequestId(batchId, plan.position, 1),
     status: "queued",
     qualityStatus: "pending",
@@ -902,10 +912,50 @@ type ArticleBatchDownloadItem = {
   qualityStatus: "passed" | "review_required"
 }
 
+export type ArticleBatchDownloadScope = "all" | "passed" | "direct"
+
+async function buildDirectRecommendationDownload(args: {
+  item: StoredArticleBatchItem
+  ownerUserId: string
+  variant: "original" | "media"
+}): Promise<{ buffer: Buffer; fileName: string; title: string } | null> {
+  const useMedia = args.variant === "media"
+  const sourceMarkdown = useMedia
+    ? args.item.mediaRevision?.markdown
+    : args.item.markdown
+  if (!sourceMarkdown) return null
+  const transformed = ensureTimelyArticleMarkdown({
+    markdown: sourceMarkdown,
+    title: args.item.title || args.item.topic,
+  })
+  const resolveImage = useMedia ? async (source: string) => {
+    const match = source.match(/\/api\/article-generation\/assets\/([A-Za-z0-9_-]+)\/content/)
+    if (!match) return null
+    const asset = await getOwnedArticleMediaAsset(match[1], args.ownerUserId)
+    if (!asset) return null
+    return {
+      data: await readArticleMediaAssetBuffer(asset),
+      type: asset.mimeType === "image/png" ? "png" as const : "jpg" as const,
+      width: asset.width,
+      height: asset.height,
+    }
+  } : undefined
+  const suffix = useMedia ? "_图文版" : ""
+  return {
+    buffer: await buildArticleDocxBuffer(
+      transformed.markdown,
+      transformed.title,
+      resolveImage,
+    ),
+    fileName: `${String(args.item.position).padStart(2, "0")}_${sanitizeArticleFileName(transformed.title)}${suffix}.docx`,
+    title: transformed.title,
+  }
+}
+
 export async function getArticleBatchDownloadItems(
   batchId: string,
   ownerUserId: string,
-  scope: "all" | "passed" = "passed",
+  scope: ArticleBatchDownloadScope = "passed",
   variant: "original" | "media" = "original",
 ): Promise<ArticleBatchDownloadItem[] | null> {
   const batch = await getOwnedStoredArticleBatch(batchId, ownerUserId)
@@ -915,9 +965,27 @@ export async function getArticleBatchDownloadItems(
     && item.markdown
     && (variant === "original" || Boolean(item.mediaRevision?.markdown))
     && (scope === "all" || isArticleBatchQualityPassed(item))
+    && (scope !== "direct" || isDirectRecommendationQuestion(item))
   ))
   const files: ArticleBatchDownloadItem[] = []
   for (const item of completed) {
+    if (scope === "direct") {
+      const directFile = await buildDirectRecommendationDownload({
+        item,
+        ownerUserId,
+        variant,
+      })
+      if (!directFile) continue
+      files.push({
+        itemId: item.id,
+        position: item.position,
+        title: directFile.title,
+        buffer: directFile.buffer,
+        fileName: directFile.fileName,
+        qualityStatus: "passed",
+      })
+      continue
+    }
     const file = await getArticleBatchDocx({ batchId, itemId: item.id, ownerUserId, variant })
     if (!file) continue
     files.push({
