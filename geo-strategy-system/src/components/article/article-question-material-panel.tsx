@@ -112,9 +112,9 @@ export default function ArticleQuestionMaterialPanel({
       const totalSkipped = preview.skipped.length + result.skippedCount
       setLastImportBatchId(result.importBatchId)
       setNotice(
-        `已导入 ${result.createdCount} 条`
-        + (totalSkipped > 0 ? `，跳过 ${totalSkipped} 条` : "")
-        + (result.warningCount > 0 ? `；${result.warningCount} 条暂未填写匹配优势` : ""),
+        `已导入 ${result.createdCount} 组疑问句与优势`
+        + (totalSkipped > 0 ? `，跳过 ${totalSkipped} 组` : "")
+        + (result.warningCount > 0 ? `；${result.warningCount} 组暂未填写优势` : ""),
       )
       setFile(null)
       setPreview(null)
@@ -171,7 +171,7 @@ export default function ArticleQuestionMaterialPanel({
             Excel 疑问句与优势
           </div>
           <div className="mt-1 text-[11px] leading-4 text-slate-500">
-            每行保持“一条疑问句 + 一条匹配优势”，导入后可跨设备使用
+            模板只需填疑问句和优势；同一疑问句可重复填写不同优势，每行形成一篇独立任务
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -212,9 +212,9 @@ export default function ArticleQuestionMaterialPanel({
                 {file.name}
               </div>
               <div className="mt-1 text-[11px] text-slate-500">
-                识别 {preview.totalDataRows} 行 · 可导入 {preview.rows.length} 条
-                {preview.skipped.length > 0 ? ` · 文件内跳过 ${preview.skipped.length} 条` : ""}
-                {preview.warningCount > 0 ? ` · ${preview.warningCount} 条缺少优势` : ""}
+                识别 {preview.totalDataRows} 行 · 可导入 {preview.rows.length} 组
+                {preview.skipped.length > 0 ? ` · 文件内跳过 ${preview.skipped.length} 组` : ""}
+                {preview.warningCount > 0 ? ` · ${preview.warningCount} 组缺少优势` : ""}
               </div>
             </div>
             <Button
@@ -225,7 +225,7 @@ export default function ArticleQuestionMaterialPanel({
               className="h-8 shrink-0 gap-1.5 bg-gradient-to-r from-[#1677FF] to-[#00B8D9] text-white"
             >
               {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Cloud className="h-3.5 w-3.5" />}
-              一键导入 {preview.rows.length} 条
+              一键导入 {preview.rows.length} 组
             </Button>
           </div>
           <div className="mt-2 max-h-32 divide-y divide-blue-100 overflow-y-auto border-y border-blue-100">

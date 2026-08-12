@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { resolveArticleBatchQuestionTasks } from "@/lib/article-batch-question-tasks"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
@@ -99,10 +100,6 @@ function topicLines(value: string): number {
   return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).length
 }
 
-function normalizedQuestion(value: string): string {
-  return value.trim().replace(/\s+/g, "").toLocaleLowerCase("zh-CN")
-}
-
 function startBlockReason(args: {
   count: number
   coreQuestion: string
@@ -129,6 +126,7 @@ export default function ArticleBatchWorkspace({
   const [count, setCount] = useState(10)
   const [topicMode, setTopicMode] = useState<ArticleBatchTopicMode>("auto")
   const [customTopics, setCustomTopics] = useState("")
+  const [preferredQuestionTasks, setPreferredQuestionTasks] = useState<ArticleBatchQuestionTask[]>([])
   const [similarityRetry, setSimilarityRetry] = useState(true)
   const [batches, setBatches] = useState<ArticleBatchRecord[]>([])
   const [selectedBatchId, setSelectedBatchId] = useState("")
@@ -282,29 +280,18 @@ export default function ArticleBatchWorkspace({
   function fillQuestionTasks(tasks: ArticleBatchQuestionTask[]) {
     const selected = tasks.slice(0, count)
     setCustomTopics(selected.map(item => item.question).join("\n"))
+    setPreferredQuestionTasks(selected)
     setTopicMode("questions")
   }
 
   function questionTasksForRequest(): ArticleBatchQuestionTask[] | undefined {
     if (topicMode !== "questions") return undefined
-    const byQuestion = new Map(
-      availableQuestionTasks.map(task => [
-        normalizedQuestion(task.question),
-        task,
-      ]),
-    )
-    return customTopics
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(Boolean)
-      .slice(0, count)
-      .map(questionText => {
-        const known = byQuestion.get(normalizedQuestion(questionText))
-        return {
-          ...known,
-          question: questionText,
-        }
-      })
+    return resolveArticleBatchQuestionTasks({
+      topicText: customTopics,
+      count,
+      availableTasks: availableQuestionTasks,
+      preferredTasks: preferredQuestionTasks,
+    })
   }
 
   async function startBatch() {
@@ -470,7 +457,10 @@ export default function ArticleBatchWorkspace({
                 <button
                   key={mode}
                   type="button"
-                  onClick={() => setTopicMode(mode)}
+                  onClick={() => {
+                    setTopicMode(mode)
+                    if (mode !== "questions") setPreferredQuestionTasks([])
+                  }}
                   className={`h-8 rounded-md text-[11px] font-semibold transition ${
                     topicMode === mode ? "bg-white text-[#0958D9] shadow-sm" : "text-slate-500 hover:text-slate-800"
                   }`}
@@ -513,7 +503,7 @@ export default function ArticleBatchWorkspace({
                     onClick={() => fillQuestionTasks(importedQuestionTasks)}
                     className="text-[11px] font-medium text-cyan-700 hover:text-cyan-600"
                   >
-                    填入 Excel 前 {Math.min(count, importedQuestionTasks.length)} 条并保留逐条优势
+                    填入 Excel 前 {Math.min(count, importedQuestionTasks.length)} 组并按原行保留优势
                   </button>
                 )}
               </div>

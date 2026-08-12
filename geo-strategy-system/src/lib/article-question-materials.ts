@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "crypto"
 import { kv, setKvValues } from "@/lib/kv"
 import {
   MAX_ARTICLE_QUESTION_IMPORT_ROWS,
-  normalizeArticleQuestionKey,
+  normalizeArticleQuestionMaterialKey,
 } from "@/lib/article-question-import"
 import type {
   ArticleQuestionMaterial,
@@ -53,6 +53,7 @@ function materialId(input: {
   importBatchId: string
   rowNumber: number
   question: string
+  matchedAdvantage?: string
 }): string {
   const digest = createHash("sha256")
     .update([
@@ -60,7 +61,7 @@ function materialId(input: {
       input.clientId,
       input.importBatchId,
       String(input.rowNumber),
-      normalizeArticleQuestionKey(input.question),
+      normalizeArticleQuestionMaterialKey(input.question, input.matchedAdvantage),
     ].join("\u0000"))
     .digest("hex")
     .slice(0, 32)
@@ -157,6 +158,11 @@ export async function importArticleQuestionMaterials(input: {
   importBatchId: string
   sourceFileName: string
   rows: ArticleQuestionMaterialInput[]
+  existingQuestionMaterials?: Array<Pick<
+    ArticleQuestionMaterialInput,
+    "question" | "matchedAdvantage"
+  >>
+  /** @deprecated Use existingQuestionMaterials so distinct advantages remain importable. */
   existingQuestionTexts?: string[]
 }): Promise<ArticleQuestionMaterialImportResult> {
   const ownerUserId = cleanId(input.ownerUserId, "客户所有者")
@@ -181,8 +187,16 @@ export async function importArticleQuestionMaterials(input: {
     if (lockedCached) return lockedCached
     const existing = await listArticleQuestionMaterials(ownerUserId, clientId)
     const existingKeys = new Set([
-      ...existing.map(item => normalizeArticleQuestionKey(item.question)),
-      ...(input.existingQuestionTexts || []).map(normalizeArticleQuestionKey),
+      ...existing.map(item => normalizeArticleQuestionMaterialKey(
+        item.question,
+        item.matchedAdvantage,
+      )),
+      ...(input.existingQuestionMaterials || []).map(item => (
+        normalizeArticleQuestionMaterialKey(item.question, item.matchedAdvantage)
+      )),
+      ...(input.existingQuestionTexts || []).map(question => (
+        normalizeArticleQuestionMaterialKey(question, undefined)
+      )),
     ].filter(Boolean))
     const batchKeys = new Set<string>()
     const created: ArticleQuestionMaterial[] = []
@@ -192,7 +206,10 @@ export async function importArticleQuestionMaterials(input: {
 
     for (const raw of input.rows) {
       const row = normalizeRow(raw)
-      const key = normalizeArticleQuestionKey(row.question)
+      const key = normalizeArticleQuestionMaterialKey(
+        row.question,
+        row.matchedAdvantage,
+      )
       if (!key) {
         skipped.push({
           rowNumber: row.rowNumber,
@@ -207,7 +224,7 @@ export async function importArticleQuestionMaterials(input: {
           rowNumber: row.rowNumber,
           question: row.question,
           reason: "duplicate_batch",
-          message: "与本次文件中的其他疑问句重复",
+          message: "与本次文件中的疑问句与优势组合重复",
         })
         continue
       }
@@ -217,7 +234,7 @@ export async function importArticleQuestionMaterials(input: {
           rowNumber: row.rowNumber,
           question: row.question,
           reason: "duplicate_existing",
-          message: "关键词策略或文章素材池中已有相同疑问句",
+          message: "关键词策略或文章素材池中已有相同的疑问句与优势组合",
         })
         continue
       }
@@ -239,6 +256,7 @@ export async function importArticleQuestionMaterials(input: {
           importBatchId,
           rowNumber: row.rowNumber,
           question: row.question,
+          matchedAdvantage: row.matchedAdvantage,
         }),
         clientId,
         source: "excel",
