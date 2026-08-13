@@ -11,6 +11,8 @@ process.env.WORKSPACE_STORE = "file"
 process.env.WORKSPACE_FILE = path.join(directory, "workspaces.json")
 process.env.AGENT_STORE = "file"
 process.env.AGENT_FILE = path.join(directory, "agents.json")
+process.env.PENETRATION_AUTOMATION_STORE = "file"
+process.env.PENETRATION_AUTOMATION_FILE = path.join(directory, "penetration-automations.json")
 process.env.AUTH_SECRET = "agent-test-secret-with-at-least-thirty-two-characters"
 process.env.ADMIN_EMAILS = "agent-admin@example.com"
 process.env.AGENT_API_ENABLED = "true"
@@ -51,6 +53,7 @@ try {
   } = await import("../src/lib/agent/store")
   const { AGENT_SCOPE_PRESETS } = await import("../src/lib/agent/scopes")
   const { readAgentJson, reserveAgentCreditBudget } = await import("../src/lib/agent/api")
+  const { AGENT_ACTIONS } = await import("../src/lib/agent/action-catalog")
   const { buildAgentSubmittedTask, dispatchAgentAction } = await import("../src/lib/agent/action-dispatch")
 
   const user = await createUser({
@@ -142,6 +145,12 @@ try {
     statusUrl: "https://shitugeo.top/api/agent/v1/tasks/task_penetration_pjob_agent_contract",
     resultUrl: "https://shitugeo.top/api/agent/v1/tasks/task_penetration_pjob_agent_contract/result",
   })
+  const mediaTask = buildAgentSubmittedTask(
+    "article.media.run",
+    { job: { id: "amjob_agent_contract" } },
+    "https://shitugeo.top/api/agent/v1/actions/article.media.run",
+  )
+  assert.equal(mediaTask?.taskId, "task_articleMedia_amjob_agent_contract")
 
   const budgetAuth = {
     token: created.record,
@@ -199,10 +208,50 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.2")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.3")
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
+  for (const actionName of [
+    "penetration.questions.generate",
+    "penetration.automation.get",
+    "penetration.automation.save",
+    "penetration.automation.set-status",
+    "penetration.automation.run",
+    "penetration.automation.delete",
+    "article.strategy.plan",
+    "article.source.extract",
+    "article.brands.analyze",
+    "article.materials.list",
+    "article.materials.import",
+    "article.materials.delete",
+    "article.media.upload",
+    "article.media.run",
+    "feedback.report.options",
+    "feedback.report.manage",
+    "feedback.profile.update",
+    "feedback.visibility.update",
+  ]) {
+    assert.ok(
+      AGENT_ACTIONS.some(action => action.name === actionName),
+      `${actionName} should be exposed by Agent capabilities`,
+    )
+  }
+  assert.equal(
+    capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.report.manage"),
+    false,
+    "operator tokens must not receive feedback.manage actions",
+  )
+
+  const articleSettingsRoute = await import("../src/app/api/agent/v1/articles/settings/route")
+  const articleSettings = await articleSettingsRoute.GET(new Request(
+    "http://localhost/api/agent/v1/articles/settings",
+    { headers: { Authorization: `Bearer ${created.token}` } },
+  ))
+  assert.equal(articleSettings.status, 200)
+  const articleSettingsBody = await articleSettings.json()
+  assert.ok(Array.isArray(articleSettingsBody.data.prompts))
+  assert.doesNotMatch(JSON.stringify(articleSettingsBody), /agent-test-doubao-key/)
 
   const clientsRoute = await import("../src/app/api/agent/v1/clients/route")
   const clients = await clientsRoute.GET(new Request("http://localhost/api/agent/v1/clients", {
@@ -267,6 +316,18 @@ try {
   assert.equal(mcpInitializeBody.result.serverInfo.name, "shitu-geo")
 
   const actionRoute = await import("../src/app/api/agent/v1/actions/[action]/route")
+  const callAgentAction = (
+    action: string,
+    payload: Record<string, unknown>,
+    token = created.token,
+  ) => actionRoute.POST(new NextRequest(
+    `http://localhost/api/agent/v1/actions/${action}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  ), { params: Promise.resolve({ action }) })
   const dryRunRequest = new NextRequest("http://localhost/api/agent/v1/actions/difficulty.run", {
     method: "POST",
     headers: {
@@ -332,6 +393,45 @@ try {
   assert.equal(feedbackDryRun.status, 200)
   assert.equal((await feedbackDryRun.json()).data.estimate.scope, "feedback.edit")
 
+  const generatedQuestionDryRun = await callAgentAction("penetration.questions.generate", {
+    clientId: "client-agent-test",
+    requestId: "agent_penetration_questions_0001",
+    industry: "企业服务",
+    brand: "测试品牌",
+    count: 14,
+    categories: ["recommendation", "comparison"],
+    dryRun: true,
+  })
+  assert.equal(generatedQuestionDryRun.status, 200)
+  assert.equal((await generatedQuestionDryRun.json()).data.estimate.units, 14)
+
+  const automationSave = await callAgentAction("penetration.automation.save", {
+    clientId: "client-agent-test",
+    requestId: "agent_automation_save_0001",
+    intervalDays: 3,
+    timeLocal: "22:00",
+    startDate: "2026-08-13",
+    relativeDropThresholdPct: 15,
+    minimumAbsoluteDropPoints: 3,
+  })
+  assert.equal(automationSave.status, 201)
+  const automationSchedule = (await automationSave.json()).data.result.schedule
+  assert.equal(automationSchedule.intervalDays, 3)
+  const automationGet = await callAgentAction("penetration.automation.get", {
+    clientId: "client-agent-test",
+    requestId: "agent_automation_get_0001",
+  })
+  assert.equal(automationGet.status, 200)
+  assert.equal((await automationGet.json()).data.result.schedule.id, automationSchedule.id)
+  const automationPause = await callAgentAction("penetration.automation.set-status", {
+    clientId: "client-agent-test",
+    requestId: "agent_automation_pause_0001",
+    scheduleId: automationSchedule.id,
+    status: "paused",
+  })
+  assert.equal(automationPause.status, 200)
+  assert.equal((await automationPause.json()).data.result.schedule.status, "paused")
+
   const feedbackRequestId = "agent_feedback_idempotency_0001"
   const feedbackPayload = {
     clientId: "client-agent-test",
@@ -363,10 +463,120 @@ try {
     secondFeedbackBody.data.result.action.id,
     "同一 requestId 重放时必须复用同一条执行反馈记录",
   )
+  assert.equal(secondFeedbackBody.data.replayed, true)
+  const conflictingFeedback = await actionRoute.POST(new NextRequest(
+    "http://localhost/api/agent/v1/actions/feedback.action.create",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${created.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...feedbackPayload,
+        action: { ...feedbackPayload.action, title: "错误复用相同 requestId" },
+      }),
+    },
+  ), { params: Promise.resolve({ action: "feedback.action.create" }) })
+  assert.equal(conflictingFeedback.status, 409)
+  assert.equal((await conflictingFeedback.json()).error.code, "IDEMPOTENCY_CONFLICT")
   const { listClientExecutionActions } = await import("../src/lib/client-feedback/store")
   const storedFeedback = (await listClientExecutionActions(user.id, "client-agent-test"))
     .filter(action => action.title === "验证 Agent 幂等写入")
   assert.equal(storedFeedback.length, 1)
+
+  const materialImport = await callAgentAction("article.materials.import", {
+    clientId: "client-agent-test",
+    requestId: "agent_material_import_0001",
+    sourceFileName: "agent-materials.xlsx",
+    rows: [
+      { rowNumber: 1, question: "测试品牌适合哪些企业？", matchedAdvantage: "优势甲" },
+      { rowNumber: 2, question: "测试品牌适合哪些企业？", matchedAdvantage: "优势乙" },
+    ],
+  })
+  const materialImportBody = await materialImport.json()
+  assert.equal(materialImport.status, 201, JSON.stringify(materialImportBody))
+  const materialList = await callAgentAction("article.materials.list", {
+    clientId: "client-agent-test",
+    requestId: "agent_material_list_0001",
+  })
+  assert.equal(materialList.status, 200)
+  const materials = (await materialList.json()).data.result.materials as Array<{ id: string }>
+  assert.equal(materials.length, 2, "一问多优势必须保留为两条素材")
+  const materialDelete = await callAgentAction("article.materials.delete", {
+    clientId: "client-agent-test",
+    requestId: "agent_material_delete_0001",
+    ids: materials.map(item => item.id),
+  })
+  assert.equal(materialDelete.status, 200)
+  assert.equal((await materialDelete.json()).data.result.deletedCount, 2)
+
+  const reportOptions = await callAgentAction("feedback.report.options", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_options_0001",
+    type: "weekly",
+    targetDate: new Date().toISOString().slice(0, 10),
+  })
+  assert.equal(reportOptions.status, 200)
+  assert.ok(Array.isArray((await reportOptions.json()).data.result.actionDays))
+  const profileUpdate = await callAgentAction("feedback.profile.update", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_profile_0001",
+    patch: {
+      startDate: "2026-08-01",
+      currentStage: "coverage_growth",
+      stageProgress: 45,
+      projectOwner: "Agent 项目负责人",
+      nextPlan: ["继续扩大稳定提及"],
+    },
+  })
+  assert.equal(profileUpdate.status, 200)
+  assert.equal((await profileUpdate.json()).data.result.profile.stageProgress, 45)
+
+  const fullToken = await createAgentToken({
+    ownerUserId: user.id,
+    name: "完整 Agent 测试",
+    scopes: [...AGENT_SCOPE_PRESETS.full],
+    clientMode: "selected",
+    clientGrants: [{ clientId: "client-agent-test" }],
+    dailyCreditLimit: 500,
+    maxTaskCredits: 500,
+  })
+  const visibilityUpdate = await callAgentAction("feedback.visibility.update", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_visibility_0001",
+    mode: "actions",
+    actionIds: [storedFeedback[0]!.id],
+    publication: "full",
+  }, fullToken.token)
+  assert.equal(visibilityUpdate.status, 200)
+  const draftReport = await callAgentAction("feedback.report.create", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_report_0001",
+    type: "weekly",
+    targetDate: new Date().toISOString().slice(0, 10),
+  }, fullToken.token)
+  assert.equal(draftReport.status, 201)
+  const reportId = (await draftReport.json()).data.result.report.id as string
+  const reportPublish = await callAgentAction("feedback.report.manage", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_publish_0001",
+    reportId,
+    operation: "publish",
+  }, fullToken.token)
+  assert.equal(reportPublish.status, 200)
+  assert.ok((await reportPublish.json()).data.result.sharePath)
+  const reportRevoke = await callAgentAction("feedback.report.manage", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_revoke_0001",
+    reportId,
+    operation: "revoke-share",
+  }, fullToken.token)
+  assert.equal(reportRevoke.status, 200)
+
+  const automationDelete = await callAgentAction("penetration.automation.delete", {
+    clientId: "client-agent-test",
+    requestId: "agent_automation_delete_0001",
+    scheduleId: automationSchedule.id,
+  })
+  assert.equal(automationDelete.status, 200)
 
   const { estimateAgentAction, parseAgentActionInput } = await import("../src/lib/agent/action-catalog")
   assert.equal(estimateAgentAction("background.run", {
@@ -453,20 +663,27 @@ try {
   }
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
+  assert.ok(openapi.paths["/actions/penetration.automation.save"])
   assert.ok(openapi.paths["/actions/article.batch.run"])
+  assert.ok(openapi.paths["/actions/article.strategy.plan"])
+  assert.ok(openapi.paths["/actions/article.media.run"])
+  assert.ok(openapi.paths["/actions/feedback.report.manage"])
   assert.ok(openapi.paths["/actions/keyword.questions.run"])
   assert.ok(openapi.paths["/tasks/{taskId}/result"])
   assert.ok(openapi.paths["/tasks/{taskId}/cancel"])
   assert.ok(openapi.paths["/articles/batches/{batchId}/download"])
+  assert.ok(openapi.paths["/articles/settings"])
   assert.ok(openapi.paths["/feedback/{clientId}"])
   assert.ok(openapi.paths["/knowledge/imports/{importId}"])
   assert.equal(openapi.externalDocs.url, "https://shitugeo.top/agent")
   assert.ok(openapi.components.schemas.AgentScope.enum.includes("knowledge.view"))
+  assert.ok(openapi.components.schemas.AgentScope.enum.includes("feedback.manage"))
   const openapiRoute = await import("../src/app/api/agent/v1/openapi.json/route")
   const trustedOpenapi = await openapiRoute.GET(new Request("https://malicious-host.example/api/agent/v1/openapi.json"))
   assert.equal((await trustedOpenapi.json()).externalDocs.url, "https://shitugeo.top/agent")
 
   await revokeAgentToken({ ownerUserId: user.id, tokenId: created.record.id })
+  await revokeAgentToken({ ownerUserId: user.id, tokenId: fullToken.record.id })
   await revokeAgentToken({ ownerUserId: clientUser.id, tokenId: linkedToken.record.id })
   assert.equal(await authenticateAgentToken(created.token), null)
   console.log("Agent store and REST contract tests passed.")

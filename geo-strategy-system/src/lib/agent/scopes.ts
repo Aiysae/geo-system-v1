@@ -29,6 +29,7 @@ export const AGENT_CALLABLE_MODULE_SCOPES = [
   "article.export",
   "feedback.view",
   "feedback.edit",
+  "feedback.manage",
   "report.view",
   "report.execute",
   "report.export",

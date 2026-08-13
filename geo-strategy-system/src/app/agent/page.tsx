@@ -23,9 +23,9 @@ export const metadata: Metadata = {
 }
 
 const CAPABILITIES = [
-  { icon: CircleGauge, title: "执行四类分析", detail: "渗透率、独立调研、AI 诊断与难度测评" },
-  { icon: Layers3, title: "生成策略与文章", detail: "关键词、疑问句、单篇、改写与批量文章" },
-  { icon: FileText, title: "管理资料与交付", detail: "资料审核、执行反馈、历史产出与专业报告" },
+  { icon: CircleGauge, title: "分析与自动监测", detail: "渗透率、定时检测、独立调研、AI 诊断与难度测评" },
+  { icon: Layers3, title: "策略与内容生产", detail: "关键词、AI 裁判选稿、改写、批量文章与自动配图" },
+  { icon: FileText, title: "资料与客户交付", detail: "资料审核、执行反馈、分享链接、历史产出与专业报告" },
   { icon: Route, title: "后台持续执行", detail: "切换页面或设备不中断任务" },
 ] as const
 

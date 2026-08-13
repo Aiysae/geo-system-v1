@@ -160,6 +160,15 @@ export async function checkAgentActionReadiness(
     return complete(checks)
   }
 
+  if (action === "penetration.questions.generate") {
+    return complete([await pooledOrLegacy({
+      vendor: "doubao",
+      module: "question",
+      capabilities: ["json"],
+      label: "豆包智能检测问题模型",
+    })])
+  }
+
   if (action === "difficulty.run") {
     const selected = String(payload.model || "auto")
     const configured = await configuredDifficultyModels(
@@ -233,7 +242,13 @@ export async function checkAgentActionReadiness(
     })])
   }
 
-  if (action === "article.generate" || action === "article.rewrite" || action === "article.batch.run") {
+  if (
+    action === "article.generate"
+    || action === "article.rewrite"
+    || action === "article.batch.run"
+    || action === "article.strategy.plan"
+    || action === "article.brands.analyze"
+  ) {
     return complete([await articleReadiness(payload)])
   }
 

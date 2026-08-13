@@ -18,7 +18,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ clientId: string; reportId: string }> },
 ) {
   const auth = await requireUserId()
@@ -28,6 +28,7 @@ export async function GET(
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
+      teamId: String(request.nextUrl.searchParams.get("teamId") || "").trim() || undefined,
       module: "feedback",
       action: "view",
     })
@@ -76,13 +77,14 @@ export async function PATCH(
   if (!auth.ok) return auth.response
   try {
     const { clientId, reportId } = await context.params
+    const body = await request.json() as { action?: unknown; teamId?: unknown }
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
+      teamId: typeof body.teamId === "string" ? body.teamId : undefined,
       module: "feedback",
       action: "manage",
     })
-    const body = await request.json() as { action?: unknown }
     if (body.action === "revoke-share") {
       const report = await revokeClientFeedbackShare({
         ownerUserId: access.dataOwnerUserId,
@@ -109,7 +111,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ clientId: string; reportId: string }> },
 ) {
   const auth = await requireUserId()
@@ -119,6 +121,7 @@ export async function DELETE(
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
+      teamId: String(request.nextUrl.searchParams.get("teamId") || "").trim() || undefined,
       module: "feedback",
       action: "manage",
     })

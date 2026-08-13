@@ -34,6 +34,9 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
         responses: { 200: success, 201: success, 202: success, 400: error, 401: error, 403: error, 409: error, 429: error },
         "x-required-scope": action.requiredScope,
         "x-task-source": action.taskSource,
+        "x-mcp-tool": action.mcpTool,
+        "x-read-only": action.readOnly === true,
+        "x-destructive": action.destructive === true,
       },
     },
   ]))
@@ -42,7 +45,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
     openapi: "3.1.0",
     info: {
       title: "势途 GEO Agent API",
-      version: "1.2.0",
+      version: "1.3.0",
       description: "供 CLI、MCP 和自动化 Agent 安全调用势途 GEO 现有业务能力。耗时操作进入后台任务；资料审核与动作记录等轻量写操作同步完成。所有操作沿用网页端权限、积分、联网与质量规则。",
     },
     externalDocs: {
@@ -193,6 +196,14 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
           responses: { 200: success, 400: error, 401: error, 403: error },
         },
       },
+      "/articles/settings": {
+        get: {
+          tags: ["Article"],
+          operationId: "getArticleSettings",
+          description: "读取当前可用的文章 Prompt、模型服务商、中转站和默认模型。",
+          responses: { 200: success, 401: error, 403: error },
+        },
+      },
       "/articles/batches/{batchId}": {
         get: {
           tags: ["Article"],
@@ -207,7 +218,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
           operationId: "downloadArticleBatch",
           parameters: [
             { $ref: "#/components/parameters/BatchId" },
-            { name: "scope", in: "query", schema: { type: "string", enum: ["passed", "all"], default: "passed" } },
+            { name: "scope", in: "query", schema: { type: "string", enum: ["passed", "all", "direct"], default: "passed" } },
             { name: "variant", in: "query", schema: { type: "string", enum: ["original", "media"], default: "original" } },
           ],
           responses: {

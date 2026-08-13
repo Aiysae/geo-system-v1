@@ -1,6 +1,12 @@
 import { NextRequest } from "next/server"
 import { AGENT_ACTION_REGISTRY, estimateAgentAction, isAgentActionName, parseAgentActionInput } from "@/lib/agent/action-catalog"
 import { dispatchAgentAction } from "@/lib/agent/action-dispatch"
+import {
+  acquireAgentActionRequest,
+  commitAgentActionRequest,
+  releaseAgentActionRequest,
+  type AgentActionRequestClaim,
+} from "@/lib/agent/action-idempotency"
 import { checkAgentActionReadiness } from "@/lib/agent/readiness"
 import {
   AgentApiError,
@@ -19,7 +25,7 @@ import type { TeamModuleKey, TeamPermissionAction } from "@/lib/team-permissions
 import type { AgentAuthContext } from "@/types/agent"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
 async function audit(input: {
@@ -63,6 +69,8 @@ export async function POST(
   let teamId: string | undefined
   let estimatedCredits = 0
   let releaseBudget: (() => Promise<void>) | undefined
+  let actionClaim: AgentActionRequestClaim | undefined
+  let actionPayloadHash = ""
   const path = request.nextUrl.pathname
   let actionName = "unknown"
   try {
@@ -72,7 +80,10 @@ export async function POST(
       throw new AgentApiError({ code: "NOT_FOUND", message: "Agent 动作不存在", status: 404 })
     }
     auth = await requireAgentAuth(request)
-    const body = await readAgentJson(request)
+    const body = await readAgentJson(
+      request,
+      actionName === "article.media.upload" ? 55 * 1024 * 1024 : undefined,
+    )
     const parsed = parseAgentActionInput(actionName, body)
     const dryRun = parsed.dryRun === true
     const payload = { ...parsed }
@@ -142,6 +153,51 @@ export async function POST(
       return agentSuccess({ action: actionName, dryRun: true, estimate, readiness }, auth.traceId, requestId)
     }
 
+    const acquired = await acquireAgentActionRequest({
+      tokenId: auth.token.id,
+      action: actionName,
+      requestId: estimate.requestId,
+      payload,
+    })
+    if (acquired.status === "conflict") {
+      throw new AgentApiError({
+        code: "IDEMPOTENCY_CONFLICT",
+        message: "相同 requestId 已用于不同参数，请为新操作生成新的 requestId",
+        status: 409,
+      })
+    }
+    if (acquired.status === "pending") {
+      throw new AgentApiError({
+        code: "REQUEST_IN_PROGRESS",
+        message: "相同 requestId 的操作仍在处理中，请稍后使用相同 requestId 重试",
+        status: 409,
+        retryable: true,
+      })
+    }
+    if (acquired.status === "existing") {
+      await audit({
+        auth,
+        action: actionName,
+        path,
+        requestId,
+        clientId,
+        teamId,
+        status: "succeeded",
+        httpStatus: acquired.result.status,
+        estimatedCredits,
+        metadata: { replayed: true, units: estimate.units, label: estimate.label },
+      })
+      return agentSuccess({
+        action: actionName,
+        estimate,
+        task: acquired.result.task,
+        result: acquired.result.data,
+        replayed: true,
+      }, auth.traceId, requestId, acquired.result.status)
+    }
+    actionClaim = acquired.claim
+    actionPayloadHash = acquired.payloadHash
+
     const budget = await reserveAgentCreditBudget(
       auth,
       estimate.credits,
@@ -166,6 +222,18 @@ export async function POST(
       auth,
       origin: request.url,
     })
+    await commitAgentActionRequest({
+      tokenId: auth.token.id,
+      action: actionName,
+      requestId: estimate.requestId,
+      payloadHash: actionPayloadHash,
+      claim: actionClaim,
+      result: dispatched,
+    }).catch(async error => {
+      console.error("[agent-idempotency] result write failed", error)
+      await releaseAgentActionRequest(actionClaim).catch(() => undefined)
+    })
+    actionClaim = undefined
     await budget.commit()
     releaseBudget = undefined
     await audit({
@@ -187,6 +255,7 @@ export async function POST(
       result: dispatched.data,
     }, auth.traceId, requestId, dispatched.status)
   } catch (error) {
+    if (actionClaim) await releaseAgentActionRequest(actionClaim).catch(() => undefined)
     if (releaseBudget) await releaseBudget().catch(() => undefined)
     const response = agentError(error, auth?.traceId, requestId)
     if (auth) {

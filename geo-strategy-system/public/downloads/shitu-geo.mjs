@@ -151,18 +151,23 @@ function help() {
   reports download <jobId> --out report.pdf
   articles list --client-id id [--team-id id]
   articles get <batchId>
-  articles download <batchId> [--scope passed|all] [--variant original|media] --out articles.zip
+  articles settings
+  articles download <batchId> [--scope passed|all|direct] [--variant original|media] --out articles.zip
   feedback get <clientId> [--team-id id]
   knowledge list --client-id id [--team-id id]
   knowledge get <importId> --client-id id [--team-id id]
 
 执行
   actions run <action> --file payload.json [--dry-run]
+  penetration questions --file payload.json [--dry-run]
+  automation get|save|status|run|delete --file payload.json [--dry-run]
   research run|compare --file payload.json [--dry-run]
   diagnosis run --file payload.json [--dry-run]
   keywords extract|advantages|strategy|website-prompt|questions --file payload.json [--dry-run]
-  articles generate|rewrite|batch --file payload.json [--dry-run]
-  feedback action|import|report --file payload.json [--dry-run]
+  articles generate|rewrite|batch|plan|extract|analyze-brands --file payload.json [--dry-run]
+  articles materials-list|materials-import|materials-delete --file payload.json [--dry-run]
+  articles media-upload|media-run --file payload.json [--dry-run]
+  feedback action|import|report|report-options|report-manage|profile|visibility --file payload.json [--dry-run]
   knowledge import|commit --file payload.json [--dry-run]
   capabilities
 
@@ -173,6 +178,12 @@ const ACTION_COMMANDS = new Map([
   ["research:run", "research.run"],
   ["research:compare", "research.compare"],
   ["diagnosis:run", "diagnosis.run"],
+  ["penetration:questions", "penetration.questions.generate"],
+  ["automation:get", "penetration.automation.get"],
+  ["automation:save", "penetration.automation.save"],
+  ["automation:status", "penetration.automation.set-status"],
+  ["automation:run", "penetration.automation.run"],
+  ["automation:delete", "penetration.automation.delete"],
   ["keywords:extract", "keyword.extract"],
   ["keywords:advantages", "keyword.advantages"],
   ["keywords:strategy", "keyword.strategy.run"],
@@ -181,9 +192,21 @@ const ACTION_COMMANDS = new Map([
   ["articles:generate", "article.generate"],
   ["articles:rewrite", "article.rewrite"],
   ["articles:batch", "article.batch.run"],
+  ["articles:plan", "article.strategy.plan"],
+  ["articles:extract", "article.source.extract"],
+  ["articles:analyze-brands", "article.brands.analyze"],
+  ["articles:materials-list", "article.materials.list"],
+  ["articles:materials-import", "article.materials.import"],
+  ["articles:materials-delete", "article.materials.delete"],
+  ["articles:media-upload", "article.media.upload"],
+  ["articles:media-run", "article.media.run"],
   ["feedback:action", "feedback.action.create"],
   ["feedback:import", "feedback.actions.import"],
   ["feedback:report", "feedback.report.create"],
+  ["feedback:report-options", "feedback.report.options"],
+  ["feedback:report-manage", "feedback.report.manage"],
+  ["feedback:profile", "feedback.profile.update"],
+  ["feedback:visibility", "feedback.visibility.update"],
   ["knowledge:import", "knowledge.import"],
   ["knowledge:commit", "knowledge.commit"],
   ["reports:create", "report.create"],
@@ -304,8 +327,12 @@ async function main() {
     const result = await apiRequest(`/articles/batches/${encodeURIComponent(id)}`, { flags })
     return print(result.data, flags)
   }
+  if (group === "articles" && command === "settings") {
+    const result = await apiRequest("/articles/settings", { flags })
+    return print(result.data, flags)
+  }
   if (group === "articles" && command === "download" && id) {
-    const scope = flags.scope === "all" ? "all" : "passed"
+    const scope = flags.scope === "all" || flags.scope === "direct" ? flags.scope : "passed"
     const variant = flags.variant === "media" ? "media" : "original"
     const target = path.resolve(String(flags.out || `geo-articles-${id}-${scope}-${variant}.zip`))
     const query = queryString({ scope, variant })
