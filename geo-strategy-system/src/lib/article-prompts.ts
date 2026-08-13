@@ -13,6 +13,7 @@ import {
   TOP_BRAND_RANKING_PROMPT,
 } from "@/lib/geo-article-prompts"
 import { isGeoMethodologyEnabled } from "@/lib/geo-methodology/registry"
+import { BRAND_SINGLE_QUESTION_VIDEO_SCRIPT_PROMPT } from "@/lib/brand-video-script-prompt"
 import type { ArticlePromptKey } from "@/types"
 
 export interface ArticlePromptTemplate {
@@ -177,6 +178,12 @@ const TEMPLATES: Record<ArticlePromptKey, ArticlePromptTemplate> = {
     template: SHORT_VIDEO_SCRIPT_PROMPT,
     maxTokens: 4096,
     temperature: 0.65,
+  },
+  brandSingleQuestionVideoScript: {
+    key: "brandSingleQuestionVideoScript",
+    template: BRAND_SINGLE_QUESTION_VIDEO_SCRIPT_PROMPT,
+    maxTokens: 4096,
+    temperature: 0.55,
   },
   rewrite: {
     key: "rewrite",

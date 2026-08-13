@@ -29,6 +29,8 @@ import type {
   ArticleRewriteAnalysis,
   ArticleRewriteAudit,
   ArticleRewriteBrandMapping,
+  ArticleVideoScriptConfig,
+  ClientKnowledgeBase,
 } from "@/types"
 import {
   ARTICLE_PROMPT_PRICE_KEYS,
@@ -69,6 +71,15 @@ import {
   collectArticleWebContext,
   type ArticleWebContextResult,
 } from "@/lib/article-web-context"
+import {
+  isBrandVideoScriptPrompt,
+  isVideoScriptPrompt,
+  normalizeArticleVideoScriptConfig,
+} from "@/lib/article-video-script"
+import {
+  buildBrandVideoScriptRepairPrompt,
+  buildBrandVideoScriptTaskDossier,
+} from "@/lib/article-video-script-server"
 
 export const runtime = "nodejs"
 export const maxDuration = 900
@@ -86,6 +97,7 @@ const ARTICLE_PROMPTS: ArticlePromptKey[] = [
   "selectionPitfallGuide",
   "topBrandRanking",
   "shortVideoScript",
+  "brandSingleQuestionVideoScript",
   "rewrite",
 ]
 
@@ -171,8 +183,22 @@ function stripCodeFence(value: string): string {
 function buildSystemPrompt(
   template: string,
   subjectType: AnalysisSubjectType,
+  promptKey: ArticlePromptKey,
   methodologyAddendum = "",
 ): string {
+  if (isBrandVideoScriptPrompt(promptKey)) {
+    return [
+      "你负责生成一条品牌单问题短视频待确认文案。",
+      "必须严格遵守任务资料的事实边界，只回答一个问题并只使用该问题匹配的优势。",
+      "不要暴露提示词、变量、资料编号、分析过程或自检过程。",
+      subjectType === "person"
+        ? "本次主体是个人 IP：人物与所在机构必须分开表达，不得把人物写成公司，也不得编造履历、职称、资质或案例。"
+        : "本次主体是品牌／产品：保持品牌、公司、产品和服务的主体关系准确。",
+      "",
+      "【视频文案创作规范】",
+      template,
+    ].join("\n")
+  }
   return [
     "你是资深中文内容策略师、GEO 文章编辑和生成式搜索内容架构师。",
     "你会严格遵守系统解析后的统一内容配方，输出可直接发布、可被 AI 搜索抽取的成熟内容。",
@@ -216,6 +242,9 @@ function buildUserPrompt(args: {
   questionKeyword?: string
   questionContentAngle?: string
   methodologyAddendum?: string
+  videoScriptConfig?: ArticleVideoScriptConfig
+  knowledgeBase?: ClientKnowledgeBase
+  selectedKnowledgeAssetIds?: string[]
 }): string {
   if (args.promptKey === "rewrite") {
     const mappedSourceKeys = new Set(
@@ -252,6 +281,29 @@ function buildUserPrompt(args: {
       "【原文】",
       args.sourceMarkdown || "未提供原文",
     ].join("\n")
+  }
+
+  if (isBrandVideoScriptPrompt(args.promptKey)) {
+    return buildBrandVideoScriptTaskDossier({
+      clientName: args.clientName,
+      brandName: args.brandName,
+      subjectType: args.subjectType,
+      subjectContext: args.subjectContext,
+      industry: args.industry,
+      website: args.website,
+      coreQuestion: args.coreQuestion,
+      region: args.region,
+      business: args.business,
+      advantage: args.advantages,
+      audience: args.audience,
+      extraRequirements: args.extraRequirements,
+      batchVariation: args.batchVariation,
+      config: normalizeArticleVideoScriptConfig(args.videoScriptConfig, {
+        coreProductService: args.business,
+      }),
+      knowledgeBase: args.knowledgeBase,
+      selectedKnowledgeAssetIds: args.selectedKnowledgeAssetIds,
+    })
   }
 
   if (LONG_FORM_ARTICLE_PROMPTS.has(args.promptKey)) {
@@ -412,6 +464,11 @@ export async function POST(req: NextRequest) {
     if (!isRewrite && !coreQuestion) {
       return NextResponse.json({ error: "请填写核心搜索问题或内容主题" }, { status: 400 })
     }
+    if (isBrandVideoScriptPrompt(promptKey) && !text(body.advantages, 3_000)) {
+      return NextResponse.json({
+        error: "品牌短视频·单问题文案需要为当前疑问句提供一条匹配优势",
+      }, { status: 400 })
+    }
     if (isRewrite && !sourceMarkdown) {
       return NextResponse.json({ error: "请先读取或粘贴原文内容" }, { status: 400 })
     }
@@ -439,6 +496,9 @@ export async function POST(req: NextRequest) {
     }
 
     const primarySubject = text(body.brandName, 120) || text(body.clientName, 120)
+    const videoScriptConfig = normalizeArticleVideoScriptConfig(body.videoScriptConfig, {
+      coreProductService: text(body.business, 500),
+    })
     const comparisonBrands = normalizeArticleComparisonBrands(body.comparisonBrands)
     const methodologySelection = normalizeArticleMethodologySelection(body.methodology)
     const knowledgeBase = normalizeClientKnowledgeBase(body.knowledgeBase, {
@@ -462,7 +522,7 @@ export async function POST(req: NextRequest) {
         : undefined,
     })
 
-    if (!isRewrite && promptKey !== "shortVideoScript") {
+    if (!isRewrite && !isVideoScriptPrompt(promptKey)) {
       const readiness = evaluateArticleReadiness({
         promptKey,
         selection: methodologySelection,
@@ -541,8 +601,15 @@ export async function POST(req: NextRequest) {
       rewriteAnalysis,
       rewriteMappings,
       methodologyAddendum: methodology.userAddendum,
+      videoScriptConfig,
+      knowledgeBase,
+      selectedKnowledgeAssetIds: methodology.trace.knowledgeAssetIds,
     })
-    const webContext = isRewrite
+    const shouldCollectWebContext = !isRewrite && (
+      !isBrandVideoScriptPrompt(promptKey)
+      || videoScriptConfig.evidencePolicy === "verifiedPublicSupplement"
+    )
+    const webContext = !shouldCollectWebContext
       ? undefined
       : await collectArticleWebContext({
           queries: articleWebSearchQueries({
@@ -614,7 +681,12 @@ export async function POST(req: NextRequest) {
     }
 
     const generation = await runArticleModelChat(effectiveConfig, {
-      system: buildSystemPrompt(template.template, subjectType, methodology.systemAddendum),
+      system: buildSystemPrompt(
+        template.template,
+        subjectType,
+        promptKey,
+        methodology.systemAddendum,
+      ),
       user: withWebEvidence(
         isLongForm && contentPlan
           ? buildArticleDraftUserPrompt(taskDossier, contentPlan)
@@ -712,6 +784,7 @@ export async function POST(req: NextRequest) {
         comparisonBrands,
         methodologyTrace: methodology.trace,
         webSources: webContext?.hits,
+        videoScriptConfig,
       })
       let semanticQuality: ArticleSemanticQualityReport | null = null
       let semanticJudgeIssue = ""
@@ -761,29 +834,40 @@ export async function POST(req: NextRequest) {
       if (requiresRepair) {
         const semanticIssues = semanticQuality?.issues || []
         const repairResult = await runArticleModelChat(effectiveConfig, {
-          system: [
-            "你是 GEO 文章质量校对器。",
-            "只修复明确列出的质量问题，保持当前内容配方的结构、论述顺序和事实边界。",
-            "直接输出完整 Markdown 正文，不作解释。",
-              methodology.systemAddendum,
-            ].join("\n"),
-          user: isLongForm && contentPlan
-            ? buildArticleSemanticRepairPrompt({
-                taskDossier: withWebEvidence(taskDossier),
-                plan: contentPlan,
-                article,
-                issues: semanticIssues,
-                deterministicIssues: quality.issues,
-              })
-            : buildArticleQualityRepairPrompt({
+          system: isBrandVideoScriptPrompt(promptKey)
+            ? "你是短视频文案质量校对器。只修复列出的问题，严格保持单问题、单优势和四段式输出，不作解释。"
+            : [
+                "你是 GEO 文章质量校对器。",
+                "只修复明确列出的质量问题，保持当前内容配方的结构、论述顺序和事实边界。",
+                "直接输出完整 Markdown 正文，不作解释。",
+                methodology.systemAddendum,
+              ].join("\n"),
+          user: isBrandVideoScriptPrompt(promptKey)
+            ? buildBrandVideoScriptRepairPrompt({
                 draft: article,
-                issues: quality.issues,
+                issues: quality.issues.map(issue => issue.message),
                 coreQuestion,
                 primarySubject,
                 advantage,
-                comparisonBrands,
-                methodologyTrace: methodology.trace,
-              }),
+                config: videoScriptConfig,
+              })
+            : isLongForm && contentPlan
+              ? buildArticleSemanticRepairPrompt({
+                  taskDossier: withWebEvidence(taskDossier),
+                  plan: contentPlan,
+                  article,
+                  issues: semanticIssues,
+                  deterministicIssues: quality.issues,
+                })
+              : buildArticleQualityRepairPrompt({
+                  draft: article,
+                  issues: quality.issues,
+                  coreQuestion,
+                  primarySubject,
+                  advantage,
+                  comparisonBrands,
+                  methodologyTrace: methodology.trace,
+                }),
           temperature: 0.15,
           maxTokens: template.maxTokens,
           label: "文章质量修复",
@@ -807,6 +891,7 @@ export async function POST(req: NextRequest) {
           comparisonBrands,
           methodologyTrace: methodology.trace,
           webSources: webContext?.hits,
+          videoScriptConfig,
         })
         if (isLongForm) {
           const reviewedRepair = await judgeArticle(article)
@@ -820,10 +905,22 @@ export async function POST(req: NextRequest) {
         && semanticQuality?.passed !== false,
       )
       qualityAudit = {
-        pipelineVersion: ARTICLE_CONTENT_PIPELINE_VERSION,
+        pipelineVersion: isBrandVideoScriptPrompt(promptKey)
+          ? `${ARTICLE_CONTENT_PIPELINE_VERSION}:brand-video-v1`
+          : ARTICLE_CONTENT_PIPELINE_VERSION,
         planUsedFallback,
-        evidenceMode: contentPlan?.evidenceMode || "framework",
-        plannedSectionCount: contentPlan?.sections.length || 0,
+        evidenceMode: isBrandVideoScriptPrompt(promptKey)
+          ? webContext?.sourceCount
+            ? "public_evidence"
+            : methodology.trace.knowledgeAssetIds.length > 0
+              ? "verified"
+              : advantage
+                ? "framework"
+                : "insufficient"
+          : contentPlan?.evidenceMode || "framework",
+        plannedSectionCount: isBrandVideoScriptPrompt(promptKey)
+          ? 4
+          : contentPlan?.sections.length || 0,
         deterministicScore: quality.score,
         semanticScore: semanticQuality?.score,
         semanticPassed: semanticQuality?.passed,
@@ -860,6 +957,9 @@ export async function POST(req: NextRequest) {
       methodologyTrace: methodology.trace,
       connectivity,
       qualityAudit,
+      videoScriptConfig: isBrandVideoScriptPrompt(promptKey)
+        ? videoScriptConfig
+        : undefined,
       generatedAt,
     }
     const clientId = text(body.clientId, 200)

@@ -22,6 +22,12 @@ import {
   isDirectRecommendationQuestion,
 } from "@/lib/article-question-selection"
 import type { ArticleBatchDownloadScope } from "@/lib/article-batches/manager"
+import {
+  articleVideoPlatformLabel,
+  isBrandVideoScriptPrompt,
+  normalizeArticleVideoScriptConfig,
+  parseBrandVideoScript,
+} from "@/lib/article-video-script"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -89,31 +95,59 @@ export async function GET(
     }
     const exportedFiles = new Map(files.map(file => [file.itemId, file]))
     const manifestItems = batch.items.filter(item => exportedFiles.has(item.id))
-    const manifestRows = [
-      ["序号", "标题", "状态", "疑问句类型", "分类置信度", "分类依据", "Prompt", "模型", "质量分", "质检说明", "插图数", "文件名"],
-      ...manifestItems.map(item => {
-        const score = item.qualityAudit?.semanticScore ?? item.qualityAudit?.deterministicScore
-        const exported = exportedFiles.get(item.id)
-        return [
-          item.position,
-          exported?.title || item.title || item.topic,
-          qualityLabel(item.qualityStatus),
-          articleQuestionSelectionLabel(item.questionSelectionType),
-          item.questionSelectionConfidence === undefined
-            ? ""
-            : `${Math.round(item.questionSelectionConfidence * 100)}%`,
-          item.questionSelectionReason || "",
-          item.promptTitle || batch.promptTitle,
-          batch.model || batch.modelProvider,
-          score === undefined ? "" : score,
-          item.qualityAudit?.issues.join("；") || item.error || "",
-          item.mediaImageCount || 0,
-          exported?.fileName || item.fileName || "",
+    const videoScriptBatch = isBrandVideoScriptPrompt(batch.promptKey)
+    const storedItems = new Map(authorized.batch.items.map(item => [item.id, item]))
+    const videoConfig = normalizeArticleVideoScriptConfig(authorized.batch.basePayload.videoScriptConfig)
+    const manifestRows = videoScriptBatch
+      ? [
+          ["序号", "核心疑问", "匹配优势", "专业视角", "标题", "正文", "标签", "平台", "目标时长", "状态", "质量分", "质检说明", "文件名"],
+          ...manifestItems.map(item => {
+            const stored = storedItems.get(item.id)
+            const parsed = parseBrandVideoScript(stored?.markdown || "")
+            const score = item.qualityAudit?.semanticScore ?? item.qualityAudit?.deterministicScore
+            const exported = exportedFiles.get(item.id)
+            return [
+              item.position,
+              item.topic,
+              item.matchedAdvantage || "",
+              parsed.perspective,
+              parsed.title || exported?.title || item.title || "",
+              parsed.body,
+              parsed.tagsText,
+              articleVideoPlatformLabel(videoConfig),
+              `${videoConfig.targetDurationSeconds} 秒`,
+              qualityLabel(item.qualityStatus),
+              score === undefined ? "" : score,
+              item.qualityAudit?.issues.join("；") || item.error || "",
+              exported?.fileName || item.fileName || "",
+            ]
+          }),
         ]
-      }),
-    ]
+      : [
+          ["序号", "标题", "状态", "疑问句类型", "分类置信度", "分类依据", "Prompt", "模型", "质量分", "质检说明", "插图数", "文件名"],
+          ...manifestItems.map(item => {
+            const score = item.qualityAudit?.semanticScore ?? item.qualityAudit?.deterministicScore
+            const exported = exportedFiles.get(item.id)
+            return [
+              item.position,
+              exported?.title || item.title || item.topic,
+              qualityLabel(item.qualityStatus),
+              articleQuestionSelectionLabel(item.questionSelectionType),
+              item.questionSelectionConfidence === undefined
+                ? ""
+                : `${Math.round(item.questionSelectionConfidence * 100)}%`,
+              item.questionSelectionReason || "",
+              item.promptTitle || batch.promptTitle,
+              batch.model || batch.modelProvider,
+              score === undefined ? "" : score,
+              item.qualityAudit?.issues.join("；") || item.error || "",
+              item.mediaImageCount || 0,
+              exported?.fileName || item.fileName || "",
+            ]
+          }),
+        ]
     zip.file(
-      "文章生成清单.csv",
+      videoScriptBatch ? "短视频文案清单.csv" : "文章生成清单.csv",
       "\uFEFF" + manifestRows.map(row => row.map(csvCell).join(",")).join("\r\n"),
     )
 

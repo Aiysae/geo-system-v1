@@ -24,6 +24,7 @@ import ArticleComparisonBrandPanel from "@/components/article/article-comparison
 import ArticleMethodologyPanel from "@/components/article/article-methodology-panel"
 import ArticleQuestionMaterialPanel from "@/components/article/article-question-material-panel"
 import ArticleReadiness from "@/components/article/article-readiness"
+import ArticleVideoScriptSettings from "@/components/article/article-video-script-settings"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import {
   fingerprintRewriteSource,
@@ -50,6 +51,11 @@ import {
 import { cancelBackgroundJob, createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { toUserFacingError } from "@/lib/user-facing-errors"
+import {
+  DEFAULT_ARTICLE_VIDEO_SCRIPT_CONFIG,
+  isBrandVideoScriptPrompt,
+  normalizeArticleVideoScriptConfig,
+} from "@/lib/article-video-script"
 import type { AiProviderPublicSetting } from "@/types/ai-settings"
 import type { AiGatewayArticleOption, AiGatewayModelFamily } from "@/types/ai-gateway"
 import type {
@@ -282,6 +288,10 @@ function createInitialArticle(client: Client): ArticleGenerationState {
     },
     audience: "",
     extraRequirements: "",
+    videoScriptConfig: {
+      ...DEFAULT_ARTICLE_VIDEO_SCRIPT_CONFIG,
+      coreProductService: client.industry || "",
+    },
     output: "",
     status: "idle",
     ...(saved ?? {}),
@@ -295,6 +305,9 @@ function createInitialArticle(client: Client): ArticleGenerationState {
   initial.modelSelectionSource = saved && hasExplicitArticleModelSelection(saved)
     ? "user"
     : "default"
+  initial.videoScriptConfig = normalizeArticleVideoScriptConfig(initial.videoScriptConfig, {
+    coreProductService: initial.business || client.industry || "",
+  })
   const savedMappings = normalizeRewriteMappings(initial.rewriteMappings)
   initial.rewriteMappings = savedMappings.length > 0
     ? savedMappings
@@ -370,6 +383,9 @@ function buildArticleJobPayload(client: Client, article: ArticleGenerationState)
     questionContentAngle: selectedQuestionTask?.contentAngle || matchedQuestion?.content_angle,
     audience: article.audience,
     extraRequirements: article.extraRequirements,
+    videoScriptConfig: normalizeArticleVideoScriptConfig(article.videoScriptConfig, {
+      coreProductService: article.business,
+    }),
   }
 }
 
@@ -524,6 +540,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const hasKeywordQuickFill = keywordQuestions.length > 0 || keywordAdvantages.length > 0
 
   const isRewrite = article.promptKey === "rewrite"
+  const isBrandVideoScript = isBrandVideoScriptPrompt(article.promptKey)
   const isBatch = workspaceMode === "batch" && !isRewrite
   const isStrategy = workspaceMode === "strategy" && !isRewrite
   const isBulkWorkspace = isBatch || isStrategy
@@ -554,7 +571,10 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         && rewriteMappings.length > 0
         && rewriteMappingIssues.length === 0,
       ) && !isGenerating && !isExtracting && !analyzingBrands
-    : Boolean(article.coreQuestion.trim()) && !isGenerating
+    : Boolean(
+        article.coreQuestion.trim()
+        && (!isBrandVideoScript || article.advantages.trim()),
+      ) && !isGenerating
   const hasOutput = Boolean(article.output.trim())
   const articleFeatureKey = ARTICLE_PROMPT_PRICE_KEYS[article.promptKey || "thirdPartyObservation"]
   const visiblePrompts = isRewrite
@@ -688,6 +708,11 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     persist({
       ...article,
       promptKey: key,
+      videoScriptConfig: isBrandVideoScriptPrompt(key)
+        ? normalizeArticleVideoScriptConfig(article.videoScriptConfig, {
+            coreProductService: article.business,
+          })
+        : article.videoScriptConfig,
       status: article.status === "error" ? "idle" : article.status,
       error: undefined,
     })
@@ -1528,14 +1553,21 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                   className="min-h-[95px] rounded-lg bg-white"
                 />
               </Label>
-              <ArticleMethodologyPanel
+              {isBrandVideoScript && (
+                <ArticleVideoScriptSettings
+                  value={article.videoScriptConfig}
+                  businessFallback={article.business || client.industry}
+                  onChange={value => updateField("videoScriptConfig", value)}
+                />
+              )}
+              {!isBrandVideoScript && <ArticleMethodologyPanel
                 value={article.methodology}
                 knowledgeAssetCount={client.knowledgeBase?.assets.length || 0}
                 sourceLinkedAssetCount={(client.knowledgeBase?.assets || [])
                   .filter(asset => asset.sourceUrls.length > 0).length}
                 onChange={value => updateField("methodology", value)}
-              />
-              <ArticleReadiness
+              />}
+              {!isBrandVideoScript && <ArticleReadiness
                 promptKey={article.promptKey}
                 methodology={article.methodology}
                 coreQuestion={article.coreQuestion}
@@ -1545,8 +1577,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 advantages={article.advantages}
                 comparisonBrands={article.comparisonBrands || []}
                 knowledgeBase={client.knowledgeBase}
-              />
-              {(supportsArticleComparisonBrands(article.promptKey) || isStrategy || usesMultiSubjectFormat) && (
+              />}
+              {!isBrandVideoScript && (supportsArticleComparisonBrands(article.promptKey) || isStrategy || usesMultiSubjectFormat) && (
                 <ArticleComparisonBrandPanel
                   primaryBrand={client.ourBrand || client.name}
                   suggestedBrands={client.competitors || []}
@@ -1555,7 +1587,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 />
               )}
               <Label className="text-xs">
-                <span className="mb-1.5 block font-medium text-slate-500">目标读者 / 补充要求</span>
+                <span className="mb-1.5 block font-medium text-slate-500">
+                  {isBrandVideoScript ? "目标受众 / 补充要求" : "目标读者 / 补充要求"}
+                </span>
                 <Textarea
                   value={[article.audience, article.extraRequirements].filter(Boolean).join("\n---\n")}
                   onChange={event => {
@@ -1612,10 +1646,10 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               {isGenerating
                 ? articleJobState.currentJob?.status === "queued"
                   ? "正在排队..."
-                  : isRewrite ? "改写中..." : "生成中..."
+                  : isRewrite ? "改写中..." : isBrandVideoScript ? "文案生成中..." : "生成中..."
                 : hasOutput
-                  ? isRewrite ? "重新改写文章" : "重新生成文章"
-                  : isRewrite ? "开始改写文章" : "生成文章"}
+                  ? isRewrite ? "重新改写文章" : isBrandVideoScript ? "重新生成文案" : "重新生成文章"
+                  : isRewrite ? "开始改写文章" : isBrandVideoScript ? "生成视频文案" : "生成文章"}
             </Button>
             {isGenerating && articleJobRef?.jobId && (
               <Button
@@ -1664,6 +1698,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               knowledgeBase: client.knowledgeBase,
               audience: article.audience,
               extraRequirements: article.extraRequirements,
+              videoScriptConfig: normalizeArticleVideoScriptConfig(article.videoScriptConfig, {
+                coreProductService: article.business,
+              }),
             }}
             onStarted={() => setWorkspaceMode("batch")}
           />
@@ -1694,6 +1731,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               knowledgeBase: client.knowledgeBase,
               audience: article.audience,
               extraRequirements: article.extraRequirements,
+              videoScriptConfig: normalizeArticleVideoScriptConfig(article.videoScriptConfig, {
+                coreProductService: article.business,
+              }),
             }}
             keywordQuestions={keywordQuestions}
             keywordAdvantages={keywordAdvantages}
@@ -1706,7 +1746,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
                 <div className="flex items-center gap-2 font-semibold">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
-                  文章已生成，系统建议人工复核
+                  {isBrandVideoScript ? "视频文案" : "文章"}已生成，系统建议人工复核
                 </div>
                 <div className="mt-1 text-xs text-amber-700">
                   {article.qualityAudit.issues.length > 0
@@ -1723,9 +1763,20 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               statusText={article.status === "done"
                 ? article.qualityAudit?.finalPassed === false
                   ? "已生成，等待人工复核；仍可编辑、预览和导出"
-                  : "已生成，可编辑、预览、导出或发布"
-                : isRewrite ? "等待改写" : "等待生成"}
-              placeholder={isGenerating ? (isRewrite ? "模型正在改写文章..." : "模型正在生成文章...") : "生成后的 Markdown 内容会显示在这里"}
+                  : isBrandVideoScript
+                    ? "已生成，可编辑、预览或导出"
+                    : "已生成，可编辑、预览、导出或发布"
+                : isRewrite ? "等待改写" : isBrandVideoScript ? "等待生成视频文案" : "等待生成"}
+              placeholder={isGenerating
+                ? isRewrite
+                  ? "模型正在改写文章..."
+                  : isBrandVideoScript
+                    ? "模型正在生成视频文案..."
+                    : "模型正在生成文章..."
+                : isBrandVideoScript
+                  ? "生成后的专业视角、标题、正文和标签会显示在这里"
+                  : "生成后的 Markdown 内容会显示在这里"}
+              contentKind={isBrandVideoScript ? "video_script" : "article"}
               publishing={article.publishing}
               onPublishingChange={updatePublishing}
             />

@@ -164,6 +164,7 @@ const PROMPT_METHOD_MAP: Record<ArticlePromptKey, GeoMethodologyKey> = {
   selectionPitfallGuide: "problemSolution",
   topBrandRanking: "recommendationComparison",
   shortVideoScript: "problemSolution",
+  brandSingleQuestionVideoScript: "problemSolution",
   rewrite: "entityKnowledge",
 }
 
@@ -182,6 +183,7 @@ const PROMPT_ARTICLE_FORMAT_MAP: Record<
   selectionPitfallGuide: "localPitfallGuide",
   topBrandRanking: "recommendationRoundup",
   shortVideoScript: "directAnswerGuide",
+  brandSingleQuestionVideoScript: "directAnswerGuide",
   rewrite: "entityKnowledgeProfile",
 }
 

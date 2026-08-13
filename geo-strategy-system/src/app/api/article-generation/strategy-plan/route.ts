@@ -14,6 +14,9 @@ import type { ArticleBatchQuestionTask, ArticleModelProviderKey } from "@/types"
 import { normalizeArticleMethodologySelection } from "@/lib/geo-methodology/compiler"
 import { GEO_METHODOLOGY_VERSION } from "@/lib/geo-methodology/registry"
 import { classifyArticleQuestionSelection } from "@/lib/article-question-selection"
+import { getArticlePromptOption } from "@/lib/article-prompt-meta"
+import { BRAND_VIDEO_SCRIPT_PROMPT_KEY } from "@/lib/article-video-script"
+import type { ArticleStrategyOutputTrack } from "@/types"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -34,6 +37,9 @@ export async function POST(req: NextRequest) {
     const auth = await requireUserId()
     if (!auth.ok) return auth.response
     const body = record(await req.json())
+    const outputTrack: ArticleStrategyOutputTrack = body.outputTrack === "video_script"
+      ? "video_script"
+      : "article"
     const clientId = text(body.clientId, 200)
     const teamId = text(body.teamId, 200) || undefined
     const selectedIds = Array.isArray(body.questionIds)
@@ -206,6 +212,30 @@ export async function POST(req: NextRequest) {
       0,
       Math.min(9, Math.floor(Number(body.comparisonBrandCount) || 0)),
     )
+    if (outputTrack === "video_script") {
+      const prompt = getArticlePromptOption(BRAND_VIDEO_SCRIPT_PROMPT_KEY)
+      const videoTasks = tasks.map(task => ({
+        ...task,
+        promptKey: BRAND_VIDEO_SCRIPT_PROMPT_KEY,
+        promptTitle: prompt?.title || "品牌短视频 · 单问题文案",
+        methodologyCandidates: [
+          "problemSolution" as const,
+          ...(task.methodologyCandidates || []).filter(method => method !== "problemSolution"),
+        ],
+        articleFormat: "directAnswerGuide" as const,
+        brandLayout: "singlePrimary" as const,
+        routeConfidence: 1,
+        routeReason: "已选择视频文案轨道，每条疑问句独立生成一条单问题、单优势口播文案。",
+        missingEvidence: task.matchedAdvantage ? [] : ["当前疑问句匹配优势"],
+      }))
+      return NextResponse.json({
+        tasks: videoTasks,
+        membership,
+        modelProvider: model.providerKey,
+        model: model.model,
+        outputTrack,
+      }, { headers: { "Cache-Control": "private, no-store" } })
+    }
     const routed = await routeArticleStrategyTasks({
       tasks,
       model,

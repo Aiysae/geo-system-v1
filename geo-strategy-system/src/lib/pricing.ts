@@ -121,6 +121,11 @@ export const FEATURE_PRICES = {
     credits: 2,
     unitLabel: "篇",
   },
+  articleBrandSingleQuestionVideoScript: {
+    label: "文章生成 · 品牌单问题视频文案",
+    credits: 2,
+    unitLabel: "条",
+  },
   articleRewrite: {
     label: "文章生成 · 文章改写",
     credits: 8,
@@ -156,6 +161,7 @@ export const ARTICLE_PROMPT_PRICE_KEYS = {
   selectionPitfallGuide: "articleSelectionPitfallGuide",
   topBrandRanking: "articleTopBrandRanking",
   shortVideoScript: "articleShortVideoScript",
+  brandSingleQuestionVideoScript: "articleBrandSingleQuestionVideoScript",
   rewrite: "articleRewrite",
 } as const
 

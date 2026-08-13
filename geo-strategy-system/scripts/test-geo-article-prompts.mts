@@ -5,6 +5,7 @@ import type * as ArticlePromptMetaModule from "../src/lib/article-prompt-meta"
 import type * as ArticlePromptsModule from "../src/lib/article-prompts"
 import type * as GeoArticlePromptsModule from "../src/lib/geo-article-prompts"
 import type * as PricingModule from "../src/lib/pricing"
+import type * as BrandVideoPromptModule from "../src/lib/brand-video-script-prompt"
 import type { ArticlePromptKey } from "../src/types"
 
 const require = createRequire(import.meta.url)
@@ -26,6 +27,7 @@ const {
   TOP_BRAND_RANKING_PROMPT,
 } = require("../src/lib/geo-article-prompts.ts") as typeof GeoArticlePromptsModule
 const { ARTICLE_PROMPT_PRICE_KEYS, getFeaturePrice } = require("../src/lib/pricing.ts") as typeof PricingModule
+const { BRAND_SINGLE_QUESTION_VIDEO_SCRIPT_PROMPT } = require("../src/lib/brand-video-script-prompt.ts") as typeof BrandVideoPromptModule
 
 const fixtures: Array<{
   key: ArticlePromptKey
@@ -144,12 +146,28 @@ if (previousMethodologyVersion === undefined) delete process.env.GEO_METHODOLOGY
 else process.env.GEO_METHODOLOGY_VERSION = previousMethodologyVersion
 
 const generationPrompts = ARTICLE_PROMPT_OPTIONS.filter(option => option.key !== "rewrite")
-assert.equal(generationPrompts.length, 11)
-assert.equal(generationPrompts.at(-1)?.key, "shortVideoScript")
+assert.equal(generationPrompts.length, 12)
+assert.ok(generationPrompts.some(option => option.key === "shortVideoScript"))
 assert.equal(
   createHash("sha256").update(getArticlePromptTemplate("shortVideoScript")?.template || "").digest("hex"),
   "4f94970dc9a38db530b20a01f6711e73cbfe1f6bb9b65a9ffa73a81f0873ea04",
   "short-video prompt must remain unchanged",
 )
 
-console.log("All 10 long-form prompts combine a dedicated contract with the unified compiler; legacy rollback and short-video remain intact")
+const brandVideoTemplate = getArticlePromptTemplate("brandSingleQuestionVideoScript")
+const brandVideoOption = ARTICLE_PROMPT_OPTIONS.find(
+  option => option.key === "brandSingleQuestionVideoScript",
+)
+assert.equal(brandVideoTemplate?.template, BRAND_SINGLE_QUESTION_VIDEO_SCRIPT_PROMPT)
+assert.equal(brandVideoTemplate?.maxTokens, 4096)
+assert.equal(brandVideoOption?.contentKind, "video_script")
+assert.deepEqual(brandVideoOption?.supportedModes, ["single", "batch", "strategy"])
+assert.equal(
+  getFeaturePrice(ARTICLE_PROMPT_PRICE_KEYS.brandSingleQuestionVideoScript).credits,
+  2,
+)
+assert.match(BRAND_SINGLE_QUESTION_VIDEO_SCRIPT_PROMPT, /一条视频只解决一个核心疑问/)
+assert.match(BRAND_SINGLE_QUESTION_VIDEO_SCRIPT_PROMPT, /【本条采用的专业视角】/)
+assert.match(BRAND_SINGLE_QUESTION_VIDEO_SCRIPT_PROMPT, /【标签】/)
+
+console.log("All article prompts are registered; long-form rollback and the original short-video prompt remain intact")

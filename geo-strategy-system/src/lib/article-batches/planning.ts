@@ -1,5 +1,6 @@
 import type { ArticleBatchQuestionTask, ArticleBatchTopicMode } from "@/types"
 import { resolveArticleQuestionSelection } from "@/lib/article-question-selection"
+import { isBrandVideoScriptPrompt } from "@/lib/article-video-script"
 
 const SAFE_WRITING_FOCUSES = [
   ["决策标准", "重点解释用户应该依据哪些可核验条件作出判断"],
@@ -15,6 +16,16 @@ const OPENING_VARIANTS = [
   "开头先给出判断标准，再逐项说明",
   "开头先澄清一个常见误解，再回答问题",
   "开头先给出行动方向，再解释为什么",
+] as const
+
+const VIDEO_SCRIPT_ANGLES = [
+  ["误区提醒", "从常见误解切入，先纠正判断方向，再给出可执行验证方法"],
+  ["风险后果", "从错误选择可能带来的后果切入，用克制表达说明判断依据"],
+  ["决策清单", "把答案组织成适合口播的精简判断清单，不机械堆叠编号"],
+  ["成本拆解", "从时间、沟通、采购或使用成本切入，不虚构具体金额"],
+  ["场景判断", "从目标受众的真实使用场景切入，不虚构客户案例或现场经历"],
+  ["流程拆解", "用简短流程说明问题如何判断、验证和处理"],
+  ["专家判断", "用一个明确专业视角解释底层逻辑、适用条件和边界"],
 ] as const
 
 function uniqueLines(value: string): string[] {
@@ -115,6 +126,7 @@ function normalizeQuestionTasks(value: ArticleBatchQuestionTask[] | undefined): 
 
 function plannedQuestionTask(task: ArticleBatchQuestionTask, position: number): PlannedArticleItem {
   const selection = resolveArticleQuestionSelection(task)
+  const videoScript = isBrandVideoScriptPrompt(task.promptKey)
   return {
     position,
     topic: task.question,
@@ -126,7 +138,9 @@ function plannedQuestionTask(task: ArticleBatchQuestionTask, position: number): 
       task.contentAngle ? `内容切入：${task.contentAngle}` : "",
       task.geoOptimizationText ? `GEO 收录要点：${task.geoOptimizationText}` : "",
       task.matchedAdvantage ? `本篇唯一匹配优势：${task.matchedAdvantage}` : "本篇未匹配到优势，不得挪用其他问题的优势。",
-      "严格执行本篇分配的文章模板；不得读取、引用或假设存在其他批次文章。",
+      videoScript
+        ? "严格执行品牌单问题视频文案规范；只输出专业视角、标题、正文和标签，不得读取或假设存在其他批次结果。"
+        : "严格执行本篇分配的文章模板；不得读取、引用或假设存在其他批次文章。",
     ].filter(Boolean).join("\n"),
     questionId: task.questionId,
     materialId: task.materialId,
@@ -167,6 +181,7 @@ export function planArticleBatch(args: {
   keywords: string
   customTopics?: string
   questionTasks?: ArticleBatchQuestionTask[]
+  promptKey?: string
 }): PlannedArticleItem[] {
   const count = Math.max(
     args.topicMode === "strategy" ? 1 : 2,
@@ -193,15 +208,17 @@ export function planArticleBatch(args: {
     throw new Error("请先填写核心搜索问题或内容主题")
   }
   const topics = args.topicMode === "auto" ? automaticTopics : providedTopics
+  const videoScript = isBrandVideoScriptPrompt(args.promptKey)
 
   return Array.from({ length: count }, (_, rawIndex) => {
     const position = rawIndex + 1
     const topic = topics[rawIndex % topics.length]
-    const [focusName, focus] = SAFE_WRITING_FOCUSES[rawIndex % SAFE_WRITING_FOCUSES.length]
+    const focusOptions = videoScript ? VIDEO_SCRIPT_ANGLES : SAFE_WRITING_FOCUSES
+    const [focusName, focus] = focusOptions[rawIndex % focusOptions.length]
     const opening = OPENING_VARIANTS[Math.floor(rawIndex / SAFE_WRITING_FOCUSES.length + rawIndex) % OPENING_VARIANTS.length]
     const cycle = Math.floor(rawIndex / SAFE_WRITING_FOCUSES.length)
     const cycleNote = cycle > 0
-      ? `本轮进一步聚焦“${["执行细节", "验证证据", "决策边界", "适用条件"][cycle % 4]}”，但不得改变所选模板规定的章节和输出格式。`
+      ? `本轮进一步聚焦“${["执行细节", "验证证据", "决策边界", "适用条件"][cycle % 4]}”，但不得改变所选模板规定的输出格式。`
       : ""
     return {
       position,
@@ -211,7 +228,9 @@ export function planArticleBatch(args: {
         `差异化重点：${focusName}。${focus}。`,
         `开篇方式：${opening}。`,
         cycleNote,
-        "严格保留所选模板要求的章节和结构；标题与开头应独立表达，禁止批量编号、虚构案例或挪用其他主题资料。",
+        videoScript
+          ? "只回答本条核心疑问并只使用其匹配优势；专业视角、标题、开场、结尾和 CTA 必须独立表达，禁止批量编号或虚构经历。"
+          : "严格保留所选模板要求的章节和结构；标题与开头应独立表达，禁止批量编号、虚构案例或挪用其他主题资料。",
       ].filter(Boolean).join("\n"),
     }
   })

@@ -1,10 +1,17 @@
 import { supportsArticleComparisonBrands } from "@/lib/article-comparison-brands"
+import {
+  estimateVideoScriptDurationSeconds,
+  isBrandVideoScriptPrompt,
+  normalizeArticleVideoScriptConfig,
+  parseBrandVideoScript,
+} from "@/lib/article-video-script"
 import { getGeoArticleFormat } from "@/lib/geo-methodology/article-formats"
 import { articleFormatForArticlePrompt } from "@/lib/geo-methodology/registry"
 import type {
   ArticleComparisonBrand,
   ArticleMethodologyTrace,
   ArticlePromptKey,
+  ArticleVideoScriptConfig,
   GeoArticleFormatKey,
 } from "@/types"
 
@@ -43,6 +50,16 @@ export interface ArticleQualityIssue {
     | "insufficient_sections"
     | "opening_does_not_answer"
     | "web_evidence_unused"
+    | "video_missing_section"
+    | "video_duplicate_section"
+    | "video_invalid_section_order"
+    | "video_invalid_perspective"
+    | "video_tag_count_mismatch"
+    | "video_duplicate_tags"
+    | "video_tags_not_single_line"
+    | "video_duration_mismatch"
+    | "video_opening_drift"
+    | "video_cta_mismatch"
   message: string
   blocking: boolean
 }
@@ -92,6 +109,150 @@ function openingDecisionBlock(article: string): string {
   const h2Matches = [...withoutH1.matchAll(/^##\s+/gm)]
   const end = h2Matches[1]?.index ?? Math.min(withoutH1.length, 1_600)
   return withoutH1.slice(0, Math.min(end, 1_600)).trim()
+}
+
+function validateBrandVideoScript(args: {
+  article: string
+  coreQuestion: string
+  primarySubject: string
+  advantage?: string
+  videoScriptConfig?: ArticleVideoScriptConfig
+}): ArticleQualityReport {
+  const config = normalizeArticleVideoScriptConfig(args.videoScriptConfig)
+  const parsed = parseBrandVideoScript(args.article)
+  const issues: ArticleQualityIssue[] = []
+  if (parsed.missingSections.length > 0) {
+    issues.push({
+      code: "video_missing_section",
+      message: `缺少固定输出区块：${parsed.missingSections.join("、")}`,
+      blocking: true,
+    })
+  }
+  if (parsed.duplicateSections.length > 0) {
+    issues.push({
+      code: "video_duplicate_section",
+      message: `以下输出区块重复出现：${parsed.duplicateSections.join("、")}`,
+      blocking: true,
+    })
+  }
+  if (!parsed.sectionOrderValid) {
+    issues.push({
+      code: "video_invalid_section_order",
+      message: "必须依次只输出专业视角、标题、正文和标签四个区块",
+      blocking: true,
+    })
+  }
+  if (!parsed.perspective || parsed.perspective.length > 40 || /[、，,／/].+[、，,／/]/.test(parsed.perspective)) {
+    issues.push({
+      code: "video_invalid_perspective",
+      message: "专业视角必须是一个简洁、单一的角色名称",
+      blocking: true,
+    })
+  }
+  if (parsed.tags.length !== config.tagCount) {
+    issues.push({
+      code: "video_tag_count_mismatch",
+      message: `标签数量应为 ${config.tagCount} 个，当前为 ${parsed.tags.length} 个`,
+      blocking: true,
+    })
+  }
+  const normalizedTags = parsed.tags.map(tag => normalized(tag))
+  if (new Set(normalizedTags).size !== normalizedTags.length) {
+    issues.push({
+      code: "video_duplicate_tags",
+      message: "标签存在重复或仅有细微字面差异的项目",
+      blocking: true,
+    })
+  }
+  if (/\r?\n/.test(parsed.tagsText.trim())) {
+    issues.push({
+      code: "video_tags_not_single_line",
+      message: "所有标签必须放在同一行，便于直接复制发布",
+      blocking: true,
+    })
+  }
+  const duration = estimateVideoScriptDurationSeconds(parsed.body)
+  const minimumDuration = Math.max(10, Math.floor(config.targetDurationSeconds * 0.72))
+  const maximumDuration = Math.ceil(config.targetDurationSeconds * 1.3)
+  if (duration < minimumDuration || duration > maximumDuration) {
+    issues.push({
+      code: "video_duration_mismatch",
+      message: `按口播语速估算约 ${duration} 秒，与目标 ${config.targetDurationSeconds} 秒偏差较大`,
+      blocking: true,
+    })
+  }
+  if (parsed.body.length < 80) {
+    issues.push({
+      code: "too_short",
+      message: "正文过短，尚未形成完整的单问题口播回答",
+      blocking: true,
+    })
+  }
+  if (args.coreQuestion && overlapCount(parsed.body, args.coreQuestion) < 2) {
+    issues.push({
+      code: "question_drift",
+      message: "正文与本条核心疑问的语义关联不足",
+      blocking: true,
+    })
+  }
+  if (args.coreQuestion && overlapCount(parsed.body.slice(0, 140), args.coreQuestion) < 1) {
+    issues.push({
+      code: "video_opening_drift",
+      message: "开头没有在前几句话内清楚呈现并回答核心疑问",
+      blocking: true,
+    })
+  }
+  if (args.primarySubject && !normalized(`${parsed.title}${parsed.body}${parsed.tagsText}`).includes(normalized(args.primarySubject))) {
+    issues.push({
+      code: "primary_subject_missing",
+      message: `文案没有自然呈现主品牌或主体“${args.primarySubject}”`,
+      blocking: true,
+    })
+  }
+  if (args.advantage && overlapCount(parsed.body, args.advantage) < 1) {
+    issues.push({
+      code: "advantage_missing",
+      message: "正文没有体现当前疑问句唯一匹配的优势资料",
+      blocking: true,
+    })
+  }
+  const ctaPattern = /(?:私信|联系我们|聯絡我們|咨询我们|諮詢我們|点击链接|點擊連結|立即购买|立即購買|关注我们|關注我們|下单|下單)/
+  if (config.ctaMode === "disabled" && ctaPattern.test(parsed.body)) {
+    issues.push({
+      code: "video_cta_mismatch",
+      message: "当前设置为不需要行动引导，正文仍包含营销式 CTA",
+      blocking: true,
+    })
+  }
+  if (config.ctaMode === "required" && !ctaPattern.test(parsed.body)) {
+    issues.push({
+      code: "video_cta_mismatch",
+      message: "当前设置需要行动引导，但正文未包含与问题相关的 CTA",
+      blocking: true,
+    })
+  }
+  if (PLACEHOLDER.test(args.article)) {
+    issues.push({
+      code: "unresolved_placeholder",
+      message: "文案仍有未替换的模板占位符",
+      blocking: true,
+    })
+  }
+  if (/(?:本次任务配置|事实分级|生成前自检|提示词|Prompt|asset_[a-z0-9_]+)/i.test(args.article)) {
+    issues.push({
+      code: "internal_instruction_leak",
+      message: "文案泄露了内部任务参数、资料编号或生成说明",
+      blocking: true,
+    })
+  }
+  const score = Math.max(0, 100 - issues.reduce((sum, issue) => (
+    sum + (issue.blocking ? 16 : 7)
+  ), 0))
+  return {
+    score,
+    passed: issues.every(issue => !issue.blocking),
+    issues,
+  }
 }
 
 const ARTICLE_FORMAT_SIGNALS: Record<
@@ -171,8 +332,18 @@ export function validateGeneratedArticle(args: {
   comparisonBrands?: ArticleComparisonBrand[]
   methodologyTrace?: ArticleMethodologyTrace
   webSources?: Array<{ title: string; url: string }>
+  videoScriptConfig?: ArticleVideoScriptConfig
 }): ArticleQualityReport {
   const article = String(args.article || "").trim()
+  if (isBrandVideoScriptPrompt(args.promptKey)) {
+    return validateBrandVideoScript({
+      article,
+      coreQuestion: args.coreQuestion,
+      primarySubject: args.primarySubject,
+      advantage: args.advantage,
+      videoScriptConfig: args.videoScriptConfig,
+    })
+  }
   const issues: ArticleQualityIssue[] = []
   const longForm = LONG_FORM_PROMPTS.has(args.promptKey)
   const articleFormat = args.methodologyTrace?.articleFormat

@@ -98,6 +98,14 @@ try {
     tools.tools.find(tool => tool.name === "shitu_delete_penetration_automation")?.annotations?.destructiveHint,
     true,
   )
+  const articleToolSchema = tools.tools.find(
+    tool => tool.name === "shitu_generate_article",
+  )?.inputSchema as { properties?: Record<string, unknown> } | undefined
+  const strategyToolSchema = tools.tools.find(
+    tool => tool.name === "shitu_plan_strategy_articles",
+  )?.inputSchema as { properties?: Record<string, unknown> } | undefined
+  assert.ok(articleToolSchema?.properties?.videoScriptConfig)
+  assert.ok(strategyToolSchema?.properties?.outputTrack)
 
   const listed = await client.callTool({ name: "shitu_list_clients", arguments: {} })
   assert.equal(listed.isError, undefined)
@@ -147,6 +155,31 @@ try {
   })
   assert.equal(websitePrompt.isError, undefined)
   assert.ok(requests.some(item => item.url.endsWith("/actions/keyword.website-prompt.run")))
+
+  const videoScript = await client.callTool({
+    name: "shitu_generate_article",
+    arguments: {
+      clientId: "client-mcp",
+      requestId: "agent_mcp_video_script_0001",
+      promptKey: "brandSingleQuestionVideoScript",
+      brandName: "测试品牌",
+      coreQuestion: "选择这类产品时应该先看什么？",
+      advantages: "服务流程和验收标准公开透明",
+      videoScriptConfig: {
+        platform: "douyin",
+        targetDurationSeconds: 60,
+        tagCount: 15,
+      },
+      dryRun: true,
+    },
+  })
+  assert.equal(videoScript.isError, undefined)
+  const videoRequest = requests.find(item => item.url.endsWith("/actions/article.generate"))
+  assert.equal(
+    (videoRequest?.body as { videoScriptConfig?: { targetDurationSeconds?: number } })
+      .videoScriptConfig?.targetDurationSeconds,
+    60,
+  )
 
   const taskResult = await client.callTool({
     name: "shitu_get_task_result",
