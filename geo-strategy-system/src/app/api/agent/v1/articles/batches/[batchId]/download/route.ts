@@ -24,7 +24,10 @@ export async function GET(
     const batch = await getOwnedStoredArticleBatch(batchId, auth.userId)
     if (!batch) throw new AgentApiError({ code: "NOT_FOUND", message: "批量文章任务不存在", status: 404 })
     assertAgentClientGrant(auth, batch.clientId, batch.teamId)
-    const scope = request.nextUrl.searchParams.get("scope") === "all" ? "all" : "passed"
+    const requestedScope = request.nextUrl.searchParams.get("scope")
+    const scope = requestedScope === "all" || requestedScope === "direct"
+      ? requestedScope
+      : "passed"
     const variant = request.nextUrl.searchParams.get("variant") === "media" ? "media" : "original"
     const route = await import("@/app/api/article-generation/batches/[batchId]/download/route")
     const result = await invokeAgentBusinessRoute({

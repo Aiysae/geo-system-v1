@@ -69,7 +69,7 @@ Claude Code 可使用 `claude mcp add --transport http`；Cursor 和其他 MCP A
 7. 完成后读取 `task.resultUrl`，或从不可变历史产出中读取结果。
 8. PDF 和文章 ZIP 使用下载端点或 MCP 受保护资源，不嵌入普通 JSON。
 
-相同 `requestId` 重试会返回原任务，不会重复创建业务任务或重复占用 Agent 日预算。
+相同 `requestId` 重试会返回原任务或原同步结果，不会重复创建业务任务、重复调用 AI 或重复占用 Agent 日预算。同一 `requestId` 携带不同参数会返回 `IDEMPOTENCY_CONFLICT`；仍在处理时返回可重试的 `REQUEST_IN_PROGRESS`。
 CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频率，有新进度后立即恢复，避免多 Agent 同时等待时挤占服务。
 
 ## 渗透率检测示例
@@ -119,28 +119,68 @@ CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频�
 
 ## 专用动作
 
-Agent 1.2 已将旧版 `background.run` 拆成可发现、可校验的专用动作：
+Agent 1.3 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
 
 | 模块 | 动作 |
 | --- | --- |
-| 渗透率情报 | `penetration.run` |
+| 渗透率情报 | `penetration.run`、`penetration.questions.generate`、`penetration.automation.get`、`penetration.automation.save`、`penetration.automation.set-status`、`penetration.automation.run`、`penetration.automation.delete` |
 | 独立调研 | `research.run`、`research.compare` |
 | AI 诊断 | `diagnosis.run` |
 | 难度测评 | `difficulty.run` |
 | 关键词策略 | `keyword.extract`、`keyword.advantages`、`keyword.strategy.run`、`keyword.website-prompt.run`、`keyword.questions.run` |
-| 文章生成 | `article.generate`、`article.rewrite`、`article.batch.run` |
-| 执行反馈 | `feedback.action.create`、`feedback.actions.import`、`feedback.report.create` |
+| 文章生成 | `article.generate`、`article.rewrite`、`article.batch.run`、`article.strategy.plan`、`article.source.extract`、`article.brands.analyze`、`article.materials.list`、`article.materials.import`、`article.materials.delete`、`article.media.upload`、`article.media.run` |
+| 执行反馈 | `feedback.action.create`、`feedback.actions.import`、`feedback.report.create`、`feedback.report.options`、`feedback.report.manage`、`feedback.profile.update`、`feedback.visibility.update` |
 | 客户资料库 | `knowledge.import`、`knowledge.commit` |
 | 专业报告 | `report.create` |
 
 每个动作在 OpenAPI 和 MCP 中都有独立 Schema。`background.run` 仅用于兼容旧 Agent，不建议新流程继续使用。
+
+## 完整工作流
+
+### 自动渗透率监测
+
+1. `penetration.automation.get` 读取当前计划和最近 12 次执行。
+2. `penetration.automation.save` 创建或更新 1–7 天间隔、执行时间、下降阈值、消息与邮件提醒。
+3. `penetration.automation.set-status` 暂停或恢复计划。
+4. `penetration.automation.run` 立即触发一次；之后通过 `penetration.automation.get` 查看执行记录，并从任务中心读取实际检测任务。
+5. `penetration.automation.delete` 只删除计划，不删除历史报告。
+
+### 关键词策略自动成文
+
+1. `article.materials.list` 分页读取 Excel 导入的疑问句与优势；关键词策略内置疑问句可从客户资料的 `keywordStrategy` 区段读取。
+2. `article.strategy.plan` 让系统 AI 裁判按每条疑问句、优势和方法论选择 Prompt。
+3. 将返回的 `tasks` 原样作为 `article.batch.run.questionTasks`，使用 `topicMode: "strategy"` 创建批量任务。
+4. 轮询任务，随后下载 `passed`、`all` 或 `direct` 范围的 ZIP。
+
+### 链接文章改写
+
+1. `article.source.extract` 将链接正文提取为 Markdown。
+2. `article.brands.analyze` 判断主要品牌、介绍篇幅和别名。
+3. 用户确认品牌映射和真实资料后调用 `article.rewrite`。
+
+### 批量文章配图
+
+1. `article.media.upload` 上传图片；JSON 模式单次最多 3 张，较多图片分批上传。
+2. `article.media.run` 选择文章、素材、插图模板和映射方式，返回后台任务。
+3. 任务完成后使用 `variant=media` 下载带图 Markdown 和 Word 文件。
+
+### 客户反馈交付
+
+1. `feedback.report.options` 获取完整周/月周期和可选历史渗透率基线。
+2. `feedback.report.create` 创建草稿，或由拥有 `feedback.manage` 权限的 Token 使用 `publish: true` 直接发布。
+3. `feedback.report.manage` 发布、停止分享或删除未发布草稿。
+4. `feedback.visibility.update` 控制客户能看到动作摘要还是完整检测报告。
+
+生成文章前可调用 `GET /articles/settings` 或 MCP 工具 `shitu_get_article_settings`，读取当前实际可用的 Prompt、官方模型、中转站模型和默认模型，避免硬编码过期型号。
+
+Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，升级前创建的密钥不会自动获得该权限；需要发布链接或管理客户可见范围时，请在账号中心重新创建“完整授权”密钥。
 
 ## 结果与文件
 
 - `GET /tasks/{taskId}/result`：读取后台任务的真实业务结果。
 - `POST /tasks/{taskId}/restore`：任务完成但工作区未显示时恢复结果。
 - `GET /outputs`：按客户和模块分页读取不可变云端产出，模块覆盖 `penetration`、`research`、`diagnosis`、`difficulty`、`keyword`、`article`、`feedback`。
-- `GET /articles/batches/{batchId}/download?scope=passed|all&variant=original|media`：下载文章 ZIP。
+- `GET /articles/batches/{batchId}/download?scope=passed|all|direct&variant=original|media`：下载质量通过、全部或直推榜单文章 ZIP。
 - `GET /reports/{jobId}/download`：下载专业报告 PDF。
 - `GET /knowledge/imports/{importId}`：读取待人工审核的资料候选项；确认后调用 `knowledge.commit`。
 

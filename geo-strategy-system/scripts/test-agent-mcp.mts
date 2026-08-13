@@ -41,6 +41,7 @@ try {
   ])
   const tools = await client.listTools()
   const names = new Set(tools.tools.map(tool => tool.name))
+  assert.equal(names.size, tools.tools.length, "MCP tool names must be unique")
   assert.ok(names.has("shitu_list_clients"))
   assert.ok(names.has("shitu_run_penetration"))
   assert.ok(names.has("shitu_run_difficulty"))
@@ -65,11 +66,38 @@ try {
     "shitu_import_feedback_actions",
     "shitu_create_feedback_report",
     "shitu_create_professional_report",
+    "shitu_generate_penetration_questions",
+    "shitu_get_penetration_automation",
+    "shitu_save_penetration_automation",
+    "shitu_set_penetration_automation_status",
+    "shitu_run_penetration_automation",
+    "shitu_delete_penetration_automation",
+    "shitu_plan_strategy_articles",
+    "shitu_extract_article_source",
+    "shitu_analyze_article_brands",
+    "shitu_list_article_materials",
+    "shitu_import_article_materials",
+    "shitu_delete_article_materials",
+    "shitu_upload_article_media",
+    "shitu_run_article_media",
+    "shitu_get_feedback_report_options",
+    "shitu_manage_feedback_report",
+    "shitu_update_feedback_profile",
+    "shitu_update_feedback_visibility",
+    "shitu_get_article_settings",
     "shitu_list_article_batches",
     "shitu_get_article_batch_zip",
     "shitu_get_feedback",
     "shitu_list_knowledge_imports",
   ]) assert.ok(names.has(name), `${name} should be registered`)
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_get_penetration_automation")?.annotations?.readOnlyHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_delete_penetration_automation")?.annotations?.destructiveHint,
+    true,
+  )
 
   const listed = await client.callTool({ name: "shitu_list_clients", arguments: {} })
   assert.equal(listed.isError, undefined)
@@ -133,6 +161,11 @@ try {
   const pdf = await client.readResource({ uri: "shitu://reports/report-mcp/download.pdf" })
   assert.equal(pdf.contents[0]?.mimeType, "application/pdf")
   assert.ok("blob" in (pdf.contents[0] || {}))
+  const directZip = await client.readResource({
+    uri: "shitu://article-batches/batch-mcp/direct/original.zip",
+  })
+  assert.equal(directZip.contents[0]?.mimeType, "application/zip")
+  assert.ok(requests.some(item => item.url.includes("/download?scope=direct&variant=original")))
   console.log("Agent MCP contract tests passed.")
 } finally {
   globalThis.fetch = originalFetch

@@ -35,6 +35,7 @@ export async function GET(
   if (!auth.ok) return auth.response
   try {
     const { clientId } = await context.params
+    const teamId = String(request.nextUrl.searchParams.get("teamId") || "").trim() || undefined
     const type: ClientFeedbackReportType = request.nextUrl.searchParams.get("type") === "monthly"
       ? "monthly"
       : "weekly"
@@ -42,6 +43,7 @@ export async function GET(
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
+      teamId,
       module: "feedback",
       action: "edit",
     })

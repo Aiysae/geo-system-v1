@@ -51,12 +51,16 @@ export async function POST(
     const authorized = await requireArticleBatchAccess({ batchId, userId: auth.userId, action: "edit" })
     if (!authorized) return NextResponse.json({ error: "文章批次不存在" }, { status: 404 })
     const body = await req.json().catch(() => ({})) as {
+      clientId?: string
       requestId?: string
       itemIds?: string[]
       assetIds?: string[]
       itemAssetMap?: Record<string, string[]>
       template?: ArticleMediaTemplateKey
       mappingMode?: ArticleMediaMappingMode
+    }
+    if (body.clientId && authorized.batch.clientId !== String(body.clientId).trim()) {
+      return NextResponse.json({ error: "文章批次与当前客户不一致" }, { status: 400 })
     }
     const template = String(body.template || "standard") as ArticleMediaTemplateKey
     const mappingMode = String(body.mappingMode || "round_robin") as ArticleMediaMappingMode

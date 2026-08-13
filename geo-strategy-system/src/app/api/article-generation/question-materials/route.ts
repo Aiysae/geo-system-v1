@@ -79,7 +79,21 @@ export async function GET(request: NextRequest) {
       access.dataOwnerUserId,
       access.clientId,
     )
-    return noStore({ materials })
+    const requestedPage = Number(request.nextUrl.searchParams.get("page"))
+    const requestedPageSize = Number(request.nextUrl.searchParams.get("pageSize"))
+    if (Number.isFinite(requestedPage) || Number.isFinite(requestedPageSize)) {
+      const page = Math.max(1, Math.floor(requestedPage) || 1)
+      const pageSize = Math.max(1, Math.min(500, Math.floor(requestedPageSize) || 100))
+      const offset = (page - 1) * pageSize
+      return noStore({
+        materials: materials.slice(offset, offset + pageSize),
+        page,
+        pageSize,
+        total: materials.length,
+        hasMore: offset + pageSize < materials.length,
+      })
+    }
+    return noStore({ materials, total: materials.length })
   } catch (error) {
     return noStore(
       { error: error instanceof Error ? error.message : "读取文章素材失败" },

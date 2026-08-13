@@ -31,17 +31,19 @@ export async function PATCH(
   if (!auth.ok) return auth.response
   try {
     const { clientId } = await context.params
-    const access = await requireOperationAccess({
-      userId: auth.userId,
-      clientId,
-      module: "feedback",
-      action: "manage",
-    })
     const body = await request.json() as {
+      teamId?: unknown
       action?: unknown
       actionIds?: unknown
       publication?: unknown
     }
+    const access = await requireOperationAccess({
+      userId: auth.userId,
+      clientId,
+      teamId: typeof body.teamId === "string" ? body.teamId : undefined,
+      module: "feedback",
+      action: "manage",
+    })
     const publication = String(body.publication || "") as ClientExecutionActionPublication
     if (!PUBLICATIONS.has(publication)) throw new Error("请选择有效的客户展示范围")
 

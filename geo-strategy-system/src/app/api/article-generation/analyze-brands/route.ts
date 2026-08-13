@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
     await requireOperationAccess({
       userId: userGuard.userId,
       clientId: text(body.clientId, 200),
+      teamId: text(body.teamId, 200) || undefined,
       module: "article",
       action: "execute",
     })

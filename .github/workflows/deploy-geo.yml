@@ -38,6 +38,9 @@ jobs:
         run: |
           npm ci --include=dev
           npx tsc --noEmit
+          npm run test:agent-api
+          npm run test:agent-mcp
+          npm run test:agent-cli
 
       - name: Upload source to ECS
         env:

@@ -131,13 +131,17 @@ export async function PATCH(
   if (!auth.ok) return auth.response
   try {
     const { clientId } = await context.params
+    const body = await request.json() as {
+      teamId?: unknown
+      patch?: Partial<ClientExecutionProfile>
+    }
     const access = await requireOperationAccess({
       userId: auth.userId,
       clientId,
+      teamId: typeof body.teamId === "string" ? body.teamId : undefined,
       module: "feedback",
       action: "edit",
     })
-    const body = await request.json() as { patch?: Partial<ClientExecutionProfile> }
     const profile = await saveClientExecutionProfile({
       ownerUserId: access.dataOwnerUserId,
       clientId: access.clientId,

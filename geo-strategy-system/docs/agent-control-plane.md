@@ -31,15 +31,18 @@ Initial read operations:
 
 Current typed execution operations:
 
-- Analysis: `penetration.run`, `research.run`, `research.compare`,
+- Analysis: `penetration.run`, `penetration.questions.generate`, the complete
+  penetration-automation lifecycle, `research.run`, `research.compare`,
   `diagnosis.run`, and `difficulty.run`.
 - Keyword strategy: `keyword.extract`, `keyword.advantages`,
   `keyword.strategy.run`, `keyword.website-prompt.run`, and
   `keyword.questions.run`.
-- Content: `article.generate`, `article.rewrite`, and
-  `article.batch.run`.
-- Delivery: `feedback.action.create`, `feedback.actions.import`,
-  `feedback.report.create`, and `report.create`.
+- Content: `article.generate`, `article.rewrite`, `article.batch.run`, strategy
+  planning, source extraction, brand analysis, question-material management,
+  media upload, and background media insertion.
+- Delivery: feedback action creation/import, report options, report creation,
+  publish/share management, execution-profile and visibility management, plus
+  `report.create`.
 - Knowledge: `knowledge.import` followed by human-reviewed
   `knowledge.commit`.
 
@@ -82,9 +85,12 @@ The same flow applies to PDF and article ZIP resources. MCP exposes protected
 resource templates, while REST and CLI stream the binary response only when it
 is explicitly requested.
 
-MCP marks cancellation as destructive and execution tools as non-read-only, so
-compatible Agent hosts can show their native confirmation UI. Replaying an
-approved `requestId` is idempotent and does not create a second business task.
+MCP marks cancellation and deletion as destructive and labels actual read tools
+as read-only, so compatible Agent hosts can show their native confirmation UI.
+Replaying an approved `requestId` returns the original task or synchronous
+result. The control plane holds a distributed creation claim, rejects payload
+changes under the same id, and never starts a second model call while the first
+request is still running.
 
 ## Authorization model
 
@@ -103,8 +109,9 @@ previously issued token is still cryptographically valid.
 ## Compatibility policy
 
 - `/api/agent/v1` is additive and versioned.
-- Action definitions, OpenAPI request schemas, MCP tools, and server-side
-  dispatch all derive from the same action registry.
+- Action definitions, OpenAPI request schemas, and MCP tools derive from the
+  same action registry. Server-side dispatch is an exhaustive TypeScript switch,
+  so adding an action without a business route fails compilation.
 - Machine errors include stable codes and retryability.
 - Large results are returned as protected resource links, not embedded blobs.
 - CLI and MCP are thin clients over the Agent REST contract.

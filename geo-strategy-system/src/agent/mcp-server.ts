@@ -58,34 +58,21 @@ function readOnlyAnnotations() {
   return { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 }
 
-function actionAnnotations() {
-  return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+function actionAnnotations(input?: { readOnly?: boolean; destructive?: boolean }) {
+  return {
+    readOnlyHint: input?.readOnly === true,
+    destructiveHint: input?.destructive === true,
+    idempotentHint: true,
+    openWorldHint: input?.readOnly !== true,
+  }
 }
 
 const ACTION_TOOLS: ReadonlyArray<{
   tool: string
   action: AgentActionName
-}> = [
-  { tool: "shitu_run_penetration", action: "penetration.run" },
-  { tool: "shitu_run_difficulty", action: "difficulty.run" },
-  { tool: "shitu_run_research", action: "research.run" },
-  { tool: "shitu_compare_competitors", action: "research.compare" },
-  { tool: "shitu_run_ai_diagnosis", action: "diagnosis.run" },
-  { tool: "shitu_extract_keyword_profile", action: "keyword.extract" },
-  { tool: "shitu_generate_advantages", action: "keyword.advantages" },
-  { tool: "shitu_generate_keyword_strategy", action: "keyword.strategy.run" },
-  { tool: "shitu_generate_website_prompt", action: "keyword.website-prompt.run" },
-  { tool: "shitu_generate_questions", action: "keyword.questions.run" },
-  { tool: "shitu_generate_article", action: "article.generate" },
-  { tool: "shitu_rewrite_article", action: "article.rewrite" },
-  { tool: "shitu_generate_article_batch", action: "article.batch.run" },
-  { tool: "shitu_import_knowledge", action: "knowledge.import" },
-  { tool: "shitu_commit_knowledge", action: "knowledge.commit" },
-  { tool: "shitu_create_feedback_action", action: "feedback.action.create" },
-  { tool: "shitu_import_feedback_actions", action: "feedback.actions.import" },
-  { tool: "shitu_create_feedback_report", action: "feedback.report.create" },
-  { tool: "shitu_create_professional_report", action: "report.create" },
-]
+}> = AGENT_ACTIONS.flatMap(definition => definition.mcpTool
+  ? [{ tool: definition.mcpTool, action: definition.name }]
+  : [])
 
 function actionMeta(action: AgentActionName) {
   const definition = AGENT_ACTIONS.find(item => item.name === action)
@@ -99,9 +86,11 @@ function registerActionTools(server: McpServer, api: ShituAgentApiClient): void 
     const schema = agentActionInputSchema(item.action) as z.ZodType<Record<string, unknown>>
     server.registerTool(item.tool, {
       title: definition.title,
-      description: `${definition.description} 写操作必须提供稳定 requestId；首次执行建议先将 dryRun 设为 true。`,
+      description: definition.readOnly
+        ? definition.description
+        : `${definition.description} 写操作必须提供稳定 requestId；首次执行建议先将 dryRun 设为 true。`,
       inputSchema: schema,
-      annotations: actionAnnotations(),
+      annotations: actionAnnotations(definition),
     }, async args => {
       try {
         return success(await api.request(`/actions/${encodeURIComponent(item.action)}`, {
@@ -123,7 +112,7 @@ export function createShituGeoMcpServer(input: {
   forwardedIp?: string
 }): McpServer {
   const api = new ShituAgentApiClient(input)
-  const server = new McpServer({ name: "shitu-geo", version: "1.2.0" })
+  const server = new McpServer({ name: "shitu-geo", version: "1.3.0" })
 
   server.registerTool("shitu_list_clients", {
     title: "查看势途 GEO 客户",
@@ -261,6 +250,14 @@ export function createShituGeoMcpServer(input: {
     try { return success(await api.request(`/articles/batches${agentQuery(args)}`) as ToolValue) } catch (error) { return failure(error) }
   })
 
+  server.registerTool("shitu_get_article_settings", {
+    title: "读取文章 Prompt 与模型目录",
+    description: "读取当前系统实际可用的文章 Prompt、模型服务商、中转站和默认模型；生成前先调用，避免使用过期名称。",
+    annotations: readOnlyAnnotations(),
+  }, async () => {
+    try { return success(await api.request("/articles/settings") as ToolValue) } catch (error) { return failure(error) }
+  })
+
   server.registerTool("shitu_get_article_batch", {
     title: "读取批量文章结果",
     description: "读取批次进度、每篇文章质量状态及可下载范围。",
@@ -275,14 +272,18 @@ export function createShituGeoMcpServer(input: {
     description: "返回受保护的 MCP ZIP 资源链接，可下载全部文章或仅质量通过的文章。",
     inputSchema: {
       batchId: z.string().min(1),
-      scope: z.enum(["all", "passed"]).default("passed"),
+      scope: z.enum(["all", "passed", "direct"]).default("passed"),
       variant: z.enum(["original", "media"]).default("original"),
     },
     annotations: readOnlyAnnotations(),
   }, async ({ batchId, scope, variant }) => resourceLink({
     uri: `shitu://article-batches/${encodeURIComponent(batchId)}/${scope}/${variant}.zip`,
     name: `geo-articles-${batchId}-${scope}-${variant}.zip`,
-    description: scope === "all" ? "全部批量文章" : "质量通过的批量文章",
+    description: scope === "all"
+      ? "全部批量文章"
+      : scope === "direct"
+        ? "直推榜单型优质文章"
+        : "质量通过的批量文章",
     mimeType: "application/zip",
   }))
 
@@ -371,7 +372,10 @@ export function createShituGeoMcpServer(input: {
     { title: "势途 GEO 批量文章", description: "按批次读取受保护的文章 ZIP", mimeType: "application/zip" },
     async (uri, variables) => {
       const batchId = variable(variables.batchId)
-      const scope = variable(variables.scope) === "all" ? "all" : "passed"
+      const requestedScope = variable(variables.scope)
+      const scope = requestedScope === "all" || requestedScope === "direct"
+        ? requestedScope
+        : "passed"
       const variant = variable(variables.variant) === "media" ? "media" : "original"
       const file = await api.requestBinary(`/articles/batches/${encodeURIComponent(batchId)}/download${agentQuery({ scope, variant })}`)
       return {
