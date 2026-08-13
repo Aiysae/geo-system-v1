@@ -36,6 +36,10 @@ import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { resolveQuestionAdvantage } from "@/lib/geo-strategy/question-advantages"
 import { classifyQuestionMethodology } from "@/lib/geo-strategy/question-methodology"
 import { toUserFacingError } from "@/lib/user-facing-errors"
+import {
+  isBrandVideoScriptPrompt,
+  parseBrandVideoScript,
+} from "@/lib/article-video-script"
 import type {
   ArticleBatchItemRecord,
   ArticleBatchQuestionTask,
@@ -105,6 +109,29 @@ function topicLines(value: string): number {
   return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).length
 }
 
+function BatchVideoScriptPreview({ value }: { value: string }) {
+  const parsed = parseBrandVideoScript(value)
+  return (
+    <div className="space-y-3">
+      {[
+        ["专业视角", parsed.perspective],
+        ["标题", parsed.title],
+        ["正文", parsed.body],
+        ["标签", parsed.tagsText],
+      ].map(([label, content]) => (
+        <section key={label} className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="text-[11px] font-semibold text-[#0958D9]">{label}</div>
+          <div className={`mt-1.5 whitespace-pre-wrap break-words text-slate-700 ${
+            label === "标题" ? "text-lg font-bold leading-7" : "text-sm leading-7"
+          }`}>
+            {content || "该部分尚未生成"}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
 function startBlockReason(args: {
   count: number
   coreQuestion: string
@@ -128,6 +155,7 @@ export default function ArticleBatchWorkspace({
   importedMaterials = [],
   perArticleCredits,
 }: Props) {
+  const videoScriptBatch = isBrandVideoScriptPrompt(basePayload.promptKey)
   const [count, setCount] = useState(10)
   const [topicMode, setTopicMode] = useState<ArticleBatchTopicMode>("auto")
   const [customTopics, setCustomTopics] = useState("")
@@ -156,10 +184,11 @@ export default function ArticleBatchWorkspace({
       for (const batch of next) {
         const previous = previousStatuses.current.get(batch.id)
         if (previous && !TERMINAL_BATCH.has(previous) && TERMINAL_BATCH.has(batch.status)) {
+          const completedVideoScriptBatch = isBrandVideoScriptPrompt(batch.promptKey)
           setCompletionNotice(
             batch.status === "succeeded"
-              ? `批量文章已完成：${batch.completedCount} 篇 Word 文档可以下载。`
-              : `批量文章已结束：质检通过 ${batch.passedCount || 0} 篇，待人工复核 ${batch.reviewRequiredCount || 0} 篇，未生成 ${batch.failedCount + batch.cancelledCount} 篇。`,
+              ? `批量${completedVideoScriptBatch ? "视频文案" : "文章"}已完成：${batch.completedCount} ${completedVideoScriptBatch ? "条" : "篇"} Word 文档可以下载。`
+              : `批量任务已结束：质检通过 ${batch.passedCount || 0} ${completedVideoScriptBatch ? "条" : "篇"}，待人工复核 ${batch.reviewRequiredCount || 0} ${completedVideoScriptBatch ? "条" : "篇"}，未生成 ${batch.failedCount + batch.cancelledCount} ${completedVideoScriptBatch ? "条" : "篇"}。`,
           )
         }
       }
@@ -202,6 +231,10 @@ export default function ArticleBatchWorkspace({
   }, [hasActiveBatch, loadBatches])
 
   const selectedBatch = batches.find(batch => batch.id === selectedBatchId) || batches[0]
+  const selectedBatchVideoScript = isBrandVideoScriptPrompt(selectedBatch?.promptKey)
+  const activeResultFilter = selectedBatchVideoScript && resultFilter === "direct"
+    ? "all"
+    : resultFilter
   const generatedCount = selectedBatch?.items.filter(item => item.hasDraft).length || 0
   const mediaGeneratedCount = selectedBatch?.items.filter(item => item.hasMediaVersion).length || 0
   const passedCount = selectedBatch?.passedCount
@@ -226,17 +259,17 @@ export default function ArticleBatchWorkspace({
     )).length || 0,
   }), [directRecommendationPassedCount, passedCount, reviewRequiredCount, selectedBatch])
   const visibleItems = useMemo(() => (selectedBatch?.items || []).filter(item => {
-    if (resultFilter === "passed") return item.qualityStatus === "passed"
-    if (resultFilter === "direct") {
+    if (activeResultFilter === "passed") return item.qualityStatus === "passed"
+    if (activeResultFilter === "direct") {
       return item.qualityStatus === "passed"
         && isDirectRecommendationQuestionType(item.questionSelectionType)
     }
-    if (resultFilter === "review") return item.qualityStatus === "review_required"
-    if (resultFilter === "failed") {
+    if (activeResultFilter === "review") return item.qualityStatus === "review_required"
+    if (activeResultFilter === "failed") {
       return item.status === "failed" || item.status === "cancelled"
     }
     return true
-  }), [resultFilter, selectedBatch])
+  }), [activeResultFilter, selectedBatch])
   const previewAudit = previewDetail?.qualityAudit || previewItem?.qualityAudit
   const previewNeedsReview = (
     previewDetail?.qualityStatus || previewItem?.qualityStatus
@@ -386,7 +419,7 @@ export default function ArticleBatchWorkspace({
 
   async function deleteBatch() {
     if (!selectedBatch || acting || !TERMINAL_BATCH.has(selectedBatch.status)) return
-    if (!window.confirm(`确认删除这次批量任务吗？对应的 ${selectedBatch.completedCount} 篇 Word 文件也会一并清理。`)) return
+    if (!window.confirm(`确认删除这次批量任务吗？对应的 ${selectedBatch.completedCount} ${selectedBatchVideoScript ? "条" : "篇"} Word 文件也会一并清理。`)) return
     setActing(true)
     setError("")
     try {
@@ -446,10 +479,10 @@ export default function ArticleBatchWorkspace({
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-[#003EB3]">
               <Files className="h-4 w-4" />
-              批量文章
+              {videoScriptBatch ? "批量视频文案" : "批量文章"}
             </div>
             <div className="mt-1 text-[11px] leading-5 text-slate-500">
-              每篇文章独立生成，可以同时使用系统中的其他功能
+              每{videoScriptBatch ? "条文案" : "篇文章"}独立生成，可以同时使用系统中的其他功能
             </div>
           </div>
           <Button
@@ -516,7 +549,7 @@ export default function ArticleBatchWorkspace({
             <Textarea
               value={customTopics}
               onChange={event => setCustomTopics(event.target.value)}
-              placeholder="每行填写一篇文章的主题或疑问句"
+              placeholder={`每行填写一${videoScriptBatch ? "条文案" : "篇文章"}的主题或疑问句`}
               className="min-h-28 bg-white text-xs leading-5"
             />
             {availableQuestionTasks.length > 0 && (
@@ -553,7 +586,7 @@ export default function ArticleBatchWorkspace({
           />
           <span>
             <span className="block font-semibold text-slate-700">相似度过高时免费重试</span>
-            <span className="mt-0.5 block text-[11px] leading-4 text-slate-500">只重新生成重复度偏高的文章，不读取其他文章正文作为上下文。</span>
+            <span className="mt-0.5 block text-[11px] leading-4 text-slate-500">只重新生成重复度偏高的{videoScriptBatch ? "文案" : "文章"}，不读取其他完整正文作为上下文。</span>
           </span>
         </label>
 
@@ -574,11 +607,11 @@ export default function ArticleBatchWorkspace({
             type="button"
             onClick={() => void startBatch()}
             disabled={!canStart}
-            title={blockedReason || "开始批量生成文章"}
+            title={blockedReason || `开始批量生成${videoScriptBatch ? "视频文案" : "文章"}`}
             className="h-10 gap-2 bg-gradient-to-r from-[#1677FF] to-[#00B8D9] px-5 text-white shadow-sm hover:shadow-blue-200"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Files className="h-4 w-4" />}
-            {submitting ? "正在准备..." : `批量生成 ${count} 篇`}
+            {submitting ? "正在准备..." : `批量生成 ${count} ${videoScriptBatch ? "条" : "篇"}`}
           </Button>
         </div>
         {blockedReason && !submitting && (
@@ -672,8 +705,8 @@ export default function ArticleBatchWorkspace({
           <div className="flex flex-1 items-center justify-center border border-dashed border-slate-200 bg-slate-50/50 text-center">
             <div className="px-5">
               <Files className="mx-auto mb-3 h-8 w-8 text-blue-300" />
-              <div className="text-sm font-medium text-slate-500">还没有批量文章</div>
-              <div className="mt-1 text-xs leading-5 text-slate-400">设置数量并开始后，每篇文章会独立排队并自动生成 Word 文档。</div>
+              <div className="text-sm font-medium text-slate-500">还没有批量{videoScriptBatch ? "视频文案" : "文章"}</div>
+              <div className="mt-1 text-xs leading-5 text-slate-400">设置数量并开始后，每{videoScriptBatch ? "条文案" : "篇文章"}会独立排队并自动生成 Word 文档。</div>
             </div>
           </div>
         ) : (
@@ -708,7 +741,7 @@ export default function ArticleBatchWorkspace({
                   )}
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {generatedCount > 0 && (
+                  {generatedCount > 0 && !selectedBatchVideoScript && (
                     <Button
                       type="button"
                       size="sm"
@@ -720,7 +753,7 @@ export default function ArticleBatchWorkspace({
                       批量插入图片
                     </Button>
                   )}
-                  {mediaGeneratedCount > 0 && (
+                  {mediaGeneratedCount > 0 && !selectedBatchVideoScript && (
                     <a
                       href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=all&variant=media`}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 font-semibold text-white transition hover:brightness-105"
@@ -737,20 +770,20 @@ export default function ArticleBatchWorkspace({
                       title="下载全部已生成正文，包含待人工复核文章"
                     >
                       <FileDown className="h-3.5 w-3.5" />
-                      下载全部（含待复核）{generatedCount} 篇
+                      下载全部（含待复核）{generatedCount} {selectedBatchVideoScript ? "条" : "篇"}
                     </a>
                   )}
                   {passedCount > 0 && (
                     <a
                       href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=passed`}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 font-semibold text-[#0958D9] transition hover:bg-blue-50"
-                      title="只下载系统质检通过的文章"
+                      title={`只下载系统质检通过的${selectedBatchVideoScript ? "视频文案" : "文章"}`}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      仅下载质检通过 {passedCount} 篇
+                      仅下载质检通过 {passedCount} {selectedBatchVideoScript ? "条" : "篇"}
                     </a>
                   )}
-                  {directRecommendationPassedCount > 0 && (
+                  {directRecommendationPassedCount > 0 && !selectedBatchVideoScript && (
                     <a
                       href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=direct`}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#0B5CFF] to-[#00A8C8] px-3 font-semibold text-white transition hover:brightness-105"
@@ -771,13 +804,15 @@ export default function ArticleBatchWorkspace({
                 ["direct", "直推榜单"],
                 ["review", "待人工复核"],
                 ["failed", "失败/停止"],
-              ] as Array<[ArticleBatchResultFilter, string]>).map(([value, label]) => (
+              ] as Array<[ArticleBatchResultFilter, string]>).filter(([value]) => (
+                !selectedBatchVideoScript || value !== "direct"
+              )).map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setResultFilter(value)}
                   className={`h-8 rounded-md px-3 text-[11px] font-semibold transition ${
-                    resultFilter === value
+                    activeResultFilter === value
                       ? "bg-white text-[#0958D9] shadow-sm"
                       : "text-slate-500 hover:text-slate-800"
                   }`}
@@ -790,7 +825,7 @@ export default function ArticleBatchWorkspace({
             <div className="min-h-0 flex-1 overflow-y-auto border-y border-slate-100">
               {visibleItems.length === 0 ? (
                 <div className="flex min-h-40 items-center justify-center px-5 text-center text-xs text-slate-400">
-                  当前筛选下没有文章，切换其他分类即可继续查看。
+                  当前筛选下没有{selectedBatchVideoScript ? "视频文案" : "文章"}，切换其他分类即可继续查看。
                 </div>
               ) : visibleItems.map(item => (
                 <div key={item.id} className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-100 px-1 py-3 last:border-b-0">
@@ -830,7 +865,7 @@ export default function ArticleBatchWorkspace({
                           {articleQuestionSelectionLabel(item.questionSelectionType)}
                         </span>
                       )}
-                      {item.hasMediaVersion && (
+                      {item.hasMediaVersion && !selectedBatchVideoScript && (
                         <span className="hidden shrink-0 items-center gap-1 rounded bg-cyan-50 px-1.5 py-0.5 font-medium text-cyan-700 sm:inline-flex">
                           <ImagePlus className="h-3 w-3" />
                           图文 {item.mediaImageCount || 0} 图
@@ -859,8 +894,8 @@ export default function ArticleBatchWorkspace({
                         type="button"
                         onClick={() => void openPreview(item)}
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#0958D9]"
-                        title="查看文章正文和质检结果"
-                        aria-label={`查看第 ${item.position} 篇文章`}
+                        title={`查看${selectedBatchVideoScript ? "视频文案" : "文章正文"}和质检结果`}
+                        aria-label={`查看第 ${item.position} ${selectedBatchVideoScript ? "条视频文案" : "篇文章"}`}
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </button>
@@ -868,11 +903,11 @@ export default function ArticleBatchWorkspace({
                         href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/items/${encodeURIComponent(item.id)}/download`}
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 text-[#0958D9] transition hover:bg-blue-50"
                         title={`下载 ${item.fileName || "Word 文档"}`}
-                        aria-label={`下载第 ${item.position} 篇 Word 文档`}
+                        aria-label={`下载第 ${item.position} ${selectedBatchVideoScript ? "条视频文案" : "篇文章"} Word 文档`}
                       >
                         <Download className="h-3.5 w-3.5" />
                       </a>
-                      {item.hasMediaVersion && (
+                      {item.hasMediaVersion && !selectedBatchVideoScript && (
                         <a
                           href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/items/${encodeURIComponent(item.id)}/download?variant=media`}
                           className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-100 text-cyan-700 transition hover:bg-cyan-50"
@@ -898,13 +933,13 @@ export default function ArticleBatchWorkspace({
           className="fixed inset-0 z-[130] flex items-end justify-center bg-[#00133F]/60 p-0 backdrop-blur-sm sm:items-center sm:p-5"
           role="dialog"
           aria-modal="true"
-          aria-label="查看批量生成文章"
+          aria-label={`查看批量生成${selectedBatchVideoScript ? "视频文案" : "文章"}`}
         >
           <button
             type="button"
             className="absolute inset-0 cursor-default"
             onClick={closePreview}
-            aria-label="关闭文章预览"
+            aria-label={`关闭${selectedBatchVideoScript ? "视频文案" : "文章"}预览`}
           />
           <section className="relative flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden bg-white shadow-2xl sm:rounded-lg">
             <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-3 sm:px-6">
@@ -940,7 +975,7 @@ export default function ArticleBatchWorkspace({
                 onClick={closePreview}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
                 title="关闭"
-                aria-label="关闭文章预览"
+                aria-label={`关闭${selectedBatchVideoScript ? "视频文案" : "文章"}预览`}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -950,7 +985,7 @@ export default function ArticleBatchWorkspace({
               {previewLoading ? (
                 <div className="flex min-h-72 items-center justify-center text-sm text-slate-500">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  正在读取文章正文
+                  正在读取{selectedBatchVideoScript ? "视频文案" : "文章正文"}
                 </div>
               ) : previewError ? (
                 <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -987,9 +1022,13 @@ export default function ArticleBatchWorkspace({
                   )}
 
                   <article className="mx-auto max-w-3xl overflow-hidden bg-white px-5 py-6 text-[15px] leading-8 text-slate-700 shadow-sm ring-1 ring-slate-200 sm:px-9 [&_a]:break-all [&_a]:text-blue-600 [&_blockquote]:border-l-4 [&_blockquote]:border-blue-200 [&_blockquote]:bg-blue-50 [&_blockquote]:px-4 [&_blockquote]:py-2 [&_code]:break-words [&_h1]:mb-5 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-950 [&_h2]:mb-3 [&_h2]:mt-7 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-slate-900 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-base [&_h3]:font-bold [&_img]:mx-auto [&_img]:my-6 [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md [&_li]:my-1 [&_ol]:my-4 [&_ol]:pl-6 [&_p]:my-4 [&_pre]:overflow-x-auto [&_pre]:bg-slate-900 [&_pre]:p-4 [&_pre]:text-slate-100 [&_strong]:text-slate-950 [&_table]:my-5 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:p-2 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-blue-50 [&_th]:p-2 [&_ul]:my-4 [&_ul]:pl-6">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {previewMarkdown}
-                    </ReactMarkdown>
+                    {selectedBatchVideoScript ? (
+                      <BatchVideoScriptPreview value={previewMarkdown} />
+                    ) : (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {previewMarkdown}
+                      </ReactMarkdown>
+                    )}
                   </article>
                 </div>
               ) : null}
@@ -997,7 +1036,9 @@ export default function ArticleBatchWorkspace({
 
             <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
               <span className="text-[11px] text-slate-500">
-                {previewNeedsReview ? "请重点核对事实、品牌信息和发布适配性" : "文章已通过当前质量规则"}
+                {previewNeedsReview
+                  ? "请重点核对事实、品牌信息和发布适配性"
+                  : `${selectedBatchVideoScript ? "视频文案" : "文章"}已通过当前质量规则`}
               </span>
               {previewBatchId && previewItem.hasDraft && (
                 <a
@@ -1005,7 +1046,7 @@ export default function ArticleBatchWorkspace({
                   className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#003EB3] px-4 text-xs font-semibold text-white transition hover:bg-[#0958D9]"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  下载这篇{previewVariant === "media" ? "图文版" : ""} Word
+                  下载这{selectedBatchVideoScript ? "条" : "篇"}{previewVariant === "media" ? "图文版" : ""} Word
                 </a>
               )}
             </footer>
@@ -1014,7 +1055,7 @@ export default function ArticleBatchWorkspace({
         document.body,
       ) : null}
 
-      {selectedBatch && (
+      {selectedBatch && !selectedBatchVideoScript && (
         <ArticleMediaDialog
           open={mediaOpen}
           clientId={clientId}

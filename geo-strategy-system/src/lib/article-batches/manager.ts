@@ -61,6 +61,7 @@ import {
   ensureTimelyArticleMarkdown,
   isDirectRecommendationQuestion,
 } from "@/lib/article-question-selection"
+import { isBrandVideoScriptPrompt } from "@/lib/article-video-script"
 import type {
   ArticleGenerationConnectivity,
   ArticleGenerationLineage,
@@ -146,6 +147,7 @@ async function responseMessage(response: Response): Promise<string> {
 }
 
 function itemJobPayload(batch: StoredArticleBatch, item: StoredArticleBatchItem, retry = false) {
+  const videoScript = isBrandVideoScriptPrompt(item.promptKey || batch.basePayload.promptKey)
   return {
     ...batch.basePayload,
     clientId: batch.clientId,
@@ -185,7 +187,9 @@ function itemJobPayload(batch: StoredArticleBatch, item: StoredArticleBatchItem,
     batchVariation: [
       item.brief,
       retry
-        ? "首次结果与批次内其他文章相似度偏高。本次必须采用新的标题句式、开场表达和论证语言；仍须保留所选模板规定的章节、表格和输出格式，不得引用或描述其他文章。"
+        ? videoScript
+          ? "首次结果与批次内其他文案相似度偏高。本次必须更换专业视角、标题句式、开场、论证顺序和结尾；仍须保持单问题、单优势和四段式输出。"
+          : "首次结果与批次内其他文章相似度偏高。本次必须采用新的标题句式、开场表达和论证语言；仍须保留所选模板规定的章节、表格和输出格式，不得引用或描述其他文章。"
         : "",
     ].filter(Boolean).join("\n"),
   }
@@ -197,6 +201,9 @@ function itemRequestId(batchId: string, position: number, attempt: number): stri
 }
 
 function aggregateBatch(batch: StoredArticleBatch): void {
+  const videoScript = isBrandVideoScriptPrompt(batch.promptKey)
+  const unit = videoScript ? "条" : "篇"
+  const contentName = videoScript ? "视频文案" : "文章"
   batch.completedCount = batch.items.filter(item => item.status === "succeeded").length
   batch.passedCount = batch.items.filter(isArticleBatchQualityPassed).length
   batch.reviewRequiredCount = batch.items.filter(item => (
@@ -212,26 +219,26 @@ function aggregateBatch(batch: StoredArticleBatch): void {
     batch.finishedAt = batch.finishedAt || nowIso()
     if (batch.completedCount === batch.requestedCount && batch.reviewRequiredCount === 0) {
       batch.status = "succeeded"
-      batch.stage = `${batch.completedCount} 篇文章及 Word 文档已全部生成`
+      batch.stage = `${batch.completedCount} ${unit}${contentName}及 Word 文档已全部生成`
     } else if (batch.completedCount === batch.requestedCount) {
       batch.status = "partial"
-      batch.stage = `已生成 ${batch.completedCount} 篇，其中 ${batch.reviewRequiredCount} 篇待人工复核`
+      batch.stage = `已生成 ${batch.completedCount} ${unit}，其中 ${batch.reviewRequiredCount} ${unit}待人工复核`
     } else if (batch.completedCount > 0) {
       batch.status = "partial"
-      batch.stage = `已完成 ${batch.completedCount} 篇，${batch.failedCount + batch.cancelledCount} 篇未完成`
+      batch.stage = `已完成 ${batch.completedCount} ${unit}，${batch.failedCount + batch.cancelledCount} ${unit}未完成`
     } else if (batch.cancelledCount === batch.requestedCount) {
       batch.status = "cancelled"
       batch.stage = "批量生成已停止"
     } else {
       batch.status = "failed"
-      batch.stage = "本批次未生成有效文章"
+      batch.stage = `本批次未生成有效${contentName}`
     }
     return
   }
 
   batch.status = runningCount > 0 ? "running" : "queued"
   batch.stage = batch.cancelRequested
-    ? "正在停止未完成的文章任务"
+    ? `正在停止未完成的${contentName}任务`
     : `后台生成中：已完成 ${batch.completedCount}/${batch.requestedCount}`
 }
 
@@ -239,8 +246,10 @@ async function finalizeArticle(
   batch: StoredArticleBatch,
   item: StoredArticleBatchItem,
   markdown: string,
-  stage = "文章和 Word 文档已生成",
+  stage?: string,
 ): Promise<void> {
+  const videoScript = isBrandVideoScriptPrompt(item.promptKey || batch.promptKey)
+  const contentName = videoScript ? "视频文案" : "文章"
   const title = extractArticleTitle(markdown, `${batch.promptTitle}-${item.position}`)
   item.status = "word_processing"
   item.progressPercent = 92
@@ -268,8 +277,8 @@ async function finalizeArticle(
   item.progressPercent = 100
   item.qualityStatus = resolveArticleBatchQualityStatus(item)
   item.stage = item.qualityStatus === "review_required"
-    ? "文章和 Word 文档已生成，等待人工复核"
-    : stage
+    ? `${contentName}和 Word 文档已生成，等待人工复核`
+    : stage || `${contentName}和 Word 文档已生成`
   item.error = undefined
   item.updatedAt = nowIso()
   item.fallbackMarkdown = undefined
@@ -298,6 +307,9 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
       .map(item => ({ id: item.id, markdown: item.markdown || "" }))
 
     for (const item of batch.items.slice().sort((a, b) => a.position - b.position)) {
+      const videoScript = isBrandVideoScriptPrompt(item.promptKey || batch.promptKey)
+      const contentName = videoScript ? "视频文案" : "文章"
+      const unit = videoScript ? "条" : "篇"
       if (TERMINAL_ITEM_STATUSES.has(item.status)) continue
       if (!item.jobId) {
         const recovered = await getBackgroundJobByRequest(
@@ -311,7 +323,7 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
           item.status = "failed"
           item.progressPercent = 100
           item.stage = "任务创建失败"
-          item.error = "文章子任务编号缺失，请重试失败项。"
+          item.error = `${contentName}子任务编号缺失，请重试失败项。`
           item.updatedAt = nowIso()
           continue
         }
@@ -322,7 +334,7 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
         item.status = "failed"
         item.progressPercent = 100
         item.stage = "任务记录已失效"
-        item.error = "文章后台任务不存在或已过期，请重试失败项。"
+        item.error = `${contentName}后台任务不存在或已过期，请重试失败项。`
         item.updatedAt = nowIso()
         continue
       }
@@ -359,8 +371,8 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
         if (!markdown) {
           item.status = "failed"
           item.progressPercent = 100
-          item.stage = "文章内容无效"
-          item.error = "模型没有返回有效文章内容，请重试该篇。"
+          item.stage = `${contentName}内容无效`
+          item.error = `模型没有返回有效${contentName}内容，请重试该${unit}。`
           item.updatedAt = nowIso()
           continue
         }
@@ -414,7 +426,7 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
           item.status = "failed"
           item.progressPercent = 100
           item.stage = "生成失败"
-          item.error = job.error || "文章生成失败，请重试该篇。"
+          item.error = job.error || `${contentName}生成失败，请重试该${unit}。`
           item.updatedAt = nowIso()
         }
         continue
@@ -423,7 +435,7 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
       item.status = "cancelled"
       item.progressPercent = 100
       item.stage = "任务已停止"
-      item.error = "该篇文章已停止，预扣积分会自动退回。"
+      item.error = `该${unit}${contentName}已停止，预扣积分会自动退回。`
       item.updatedAt = nowIso()
     }
 
@@ -513,8 +525,10 @@ export async function createArticleBatch(
     keywords: input.basePayload.keywords,
     customTopics: input.customTopics,
     questionTasks: input.questionTasks,
+    promptKey: input.basePayload.promptKey,
   })
   const batchId = `abatch_${randomUUID().replace(/-/g, "")}`
+  const videoScriptBatch = isBrandVideoScriptPrompt(input.basePayload.promptKey)
   const items: StoredArticleBatchItem[] = planned.map(plan => ({
     id: `aitem_${randomUUID().replace(/-/g, "")}`,
     position: plan.position,
@@ -553,7 +567,7 @@ export async function createArticleBatch(
     status: "queued",
     qualityStatus: "pending",
     progressPercent: 0,
-    stage: "等待创建独立文章任务",
+    stage: `等待创建独立${videoScriptBatch ? "视频文案" : "文章"}任务`,
     attempt: 1,
     updatedAt: nowIso(),
   }))
@@ -567,7 +581,9 @@ export async function createArticleBatch(
     clientId: input.clientId,
     requestId: input.requestId,
     promptKey: input.basePayload.promptKey,
-    promptTitle: input.topicMode === "strategy" ? "关键词策略自动成文" : input.promptTitle,
+    promptTitle: input.topicMode === "strategy"
+      ? videoScriptBatch ? "关键词策略自动视频文案" : "关键词策略自动成文"
+      : input.promptTitle,
     modelProvider: input.basePayload.modelProvider,
     model: input.basePayload.model,
     topicMode: input.topicMode,
@@ -621,7 +637,7 @@ export async function createArticleBatch(
 
   const updated = await mutateStoredArticleBatch(batchId, batch => {
     batch.status = "queued"
-    batch.stage = "独立文章任务已进入后台队列"
+    batch.stage = `独立${videoScriptBatch ? "视频文案" : "文章"}任务已进入后台队列`
     batch.items.forEach((item, index) => {
       const job = created.jobs[index]
       item.jobId = job.id
@@ -825,11 +841,14 @@ export async function retryFailedArticleBatchItems(
   }
 
   const updated = await mutateStoredArticleBatch(id, current => {
+    const videoScriptBatch = isBrandVideoScriptPrompt(current.promptKey)
+    const unit = videoScriptBatch ? "条" : "篇"
+    const contentName = videoScriptBatch ? "视频文案" : "文章"
     current.cancelRequested = false
     current.finishedAt = undefined
     current.error = undefined
     current.status = "queued"
-    current.stage = `已重新提交 ${failed.length} 篇失败文章`
+    current.stage = `已重新提交 ${failed.length} ${unit}失败${contentName}`
     failed.forEach((failedItem, index) => {
       const item = current.items.find(candidate => candidate.id === failedItem.id)
       if (!item) return
@@ -839,7 +858,7 @@ export async function retryFailedArticleBatchItems(
       item.status = "queued"
       item.qualityStatus = "pending"
       item.progressPercent = 0
-      item.stage = "失败文章已重新进入队列"
+      item.stage = `失败${contentName}已重新进入队列`
       item.error = undefined
       item.fallbackMarkdown = undefined
       item.updatedAt = nowIso()

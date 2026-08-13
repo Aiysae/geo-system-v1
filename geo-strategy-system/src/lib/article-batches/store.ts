@@ -40,6 +40,7 @@ export type ArticleBatchBasePayload = Pick<
   | "methodology"
   | "audience"
   | "extraRequirements"
+  | "videoScriptConfig"
 > & {
   clientName: string
   brandName: string

@@ -208,7 +208,7 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.3")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.4")
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
@@ -237,6 +237,18 @@ try {
       `${actionName} should be exposed by Agent capabilities`,
     )
   }
+  const articleGenerateAction = capabilitiesBody.data.actions.find(
+    (action: { name?: string }) => action.name === "article.generate",
+  ) as { inputSchema?: { properties?: Record<string, unknown> } } | undefined
+  const articleBatchAction = capabilitiesBody.data.actions.find(
+    (action: { name?: string }) => action.name === "article.batch.run",
+  ) as { inputSchema?: { properties?: Record<string, { properties?: Record<string, unknown> }> } } | undefined
+  const articleStrategyAction = capabilitiesBody.data.actions.find(
+    (action: { name?: string }) => action.name === "article.strategy.plan",
+  ) as { inputSchema?: { properties?: Record<string, unknown> } } | undefined
+  assert.ok(articleGenerateAction?.inputSchema?.properties?.videoScriptConfig)
+  assert.ok(articleBatchAction?.inputSchema?.properties?.basePayload?.properties?.videoScriptConfig)
+  assert.ok(articleStrategyAction?.inputSchema?.properties?.outputTrack)
   assert.equal(
     capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.report.manage"),
     false,
@@ -657,10 +669,12 @@ try {
 
   const { agentOpenApiDocument } = await import("../src/lib/agent/openapi")
   const openapi = agentOpenApiDocument("https://shitugeo.top") as {
+    info: { version: string }
     paths: Record<string, unknown>
     externalDocs: { url: string }
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
+  assert.equal(openapi.info.version, "1.4.0")
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
   assert.ok(openapi.paths["/actions/penetration.automation.save"])

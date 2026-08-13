@@ -56,6 +56,11 @@ export function extractArticleTitle(markdown: string, fallback = "文章"): stri
   const lines = String(markdown || "").split(/\r?\n/)
   const heading = lines.find(line => /^#\s+\S/.test(line.trim()))
   if (heading) return sanitizeArticleFileName(heading.trim().replace(/^#\s+/, ""), fallback)
+  const videoTitleIndex = lines.findIndex(line => /^(?:#{1,3}\s*)?【标题】\s*$/.test(line.trim()))
+  const videoTitle = videoTitleIndex >= 0
+    ? lines.slice(videoTitleIndex + 1).find(line => line.trim() && !/^【/.test(line.trim()))
+    : ""
+  if (videoTitle) return sanitizeArticleFileName(videoTitle.trim(), fallback)
   const first = lines.find(line => line.trim() && !/^```/.test(line.trim()))
   return sanitizeArticleFileName(
     String(first || fallback).replace(/^#{1,6}\s+/, "").replace(/[*_`>#]/g, "").trim(),

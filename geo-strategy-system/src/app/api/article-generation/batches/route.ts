@@ -36,6 +36,10 @@ import {
   methodologyForArticlePrompt,
 } from "@/lib/geo-methodology/registry"
 import { classifyArticleQuestionSelection } from "@/lib/article-question-selection"
+import {
+  isBrandVideoScriptPrompt,
+  normalizeArticleVideoScriptConfig,
+} from "@/lib/article-video-script"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -221,8 +225,12 @@ export async function POST(req: NextRequest) {
       const byId = new Map(canonicalQuestions.map(question => [question.id, question]))
       const materialById = new Map(importedMaterials.map(material => [material.id, material]))
       const advantages = extractQuestionAdvantages(client?.keywordStrategy?.strategyPlan)
+      const videoScriptTrack = isBrandVideoScriptPrompt(promptKey)
       parsedQuestionTasks = parsedQuestionTasks.flatMap(task => {
-        if (!isRoutableArticlePrompt(task.promptKey)) return []
+        if (
+          !isRoutableArticlePrompt(task.promptKey)
+          && !(videoScriptTrack && isBrandVideoScriptPrompt(task.promptKey))
+        ) return []
         const question = task.questionId ? byId.get(task.questionId) : undefined
         const material = task.materialId ? materialById.get(task.materialId) : undefined
         if (!question && !material) return []
@@ -248,17 +256,19 @@ export async function POST(req: NextRequest) {
               question: sourceQuestion,
               intent: material?.intent,
             })
-        const candidates = articleStrategyPromptCandidates({
-          question: sourceQuestion,
-          intent: sourceIntent,
-          category: sourceCategory,
-          matchedAdvantage,
-          methodologyCandidates: task.methodologyCandidates?.length
-            ? task.methodologyCandidates
-            : sourceMethodology.methodologyCandidates,
-          comparisonBrandCount: parsedComparisonBrands.length,
-        })
-        if (!candidates.includes(task.promptKey)) return []
+        if (!videoScriptTrack) {
+          const candidates = articleStrategyPromptCandidates({
+            question: sourceQuestion,
+            intent: sourceIntent,
+            category: sourceCategory,
+            matchedAdvantage,
+            methodologyCandidates: task.methodologyCandidates?.length
+              ? task.methodologyCandidates
+              : sourceMethodology.methodologyCandidates,
+            comparisonBrandCount: parsedComparisonBrands.length,
+          })
+          if (!candidates.includes(task.promptKey)) return []
+        }
         const methodKey = methodologyForArticlePrompt(task.promptKey)
         const articleFormat = resolveGeoRecipeFormat({
           methodKey,
@@ -311,6 +321,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           error: "策略任务已更新或创作类型分配无效，请重新执行 AI 裁判分配",
         }, { status: 409 })
+      }
+    }
+    if (isBrandVideoScriptPrompt(promptKey)) {
+      const missingAdvantageCount = topicMode === "questions" || topicMode === "strategy"
+        ? parsedQuestionTasks.filter(task => !text(task.matchedAdvantage, 3_000)).length
+        : text(base.advantages, 12_000) ? 0 : count
+      if (missingAdvantageCount > 0) {
+        return NextResponse.json({
+          error: `有 ${missingAdvantageCount} 条视频文案任务未匹配优势，请补齐后再生成`,
+        }, { status: 400 })
       }
     }
     const resolvedModel = await resolveArticleModel(modelProvider, text(base.model, 200))
@@ -366,6 +386,9 @@ export async function POST(req: NextRequest) {
         }),
         audience: text(base.audience, 2_000),
         extraRequirements: text(base.extraRequirements, 5_000),
+        videoScriptConfig: normalizeArticleVideoScriptConfig(base.videoScriptConfig, {
+          coreProductService: text(base.business, 1_000),
+        }),
       },
     }, {
       actorUserId: access.actorUserId,

@@ -9,6 +9,7 @@ import {
   estimateFeatureCredits,
   type FeaturePriceKey,
 } from "@/lib/pricing"
+import { isBrandVideoScriptPrompt } from "@/lib/article-video-script"
 import type {
   AgentActionName,
   AgentModuleKey,
@@ -190,6 +191,32 @@ const articleQuestionTaskSchema = z.looseObject({
   promptKey: z.string().min(1),
 })
 
+const articleVideoScriptConfigSchema = z.looseObject({
+  coreProductService: z.string().max(1_000).optional().default(""),
+  outputLanguage: z.string().max(80).optional().default("中文"),
+  languageStyle: z.string().max(300).optional().default("自然口语化、专业但不生硬"),
+  platform: z.enum([
+    "douyin",
+    "wechatChannels",
+    "xiaohongshu",
+    "kuaishou",
+    "reels",
+    "tiktok",
+    "other",
+  ]).optional().default("douyin"),
+  customPlatform: z.string().max(120).optional().default(""),
+  targetDurationSeconds: z.number().int().min(15).max(180).optional().default(60),
+  tagCount: z.number().int().min(1).max(30).optional().default(15),
+  ctaMode: z.enum(["auto", "required", "disabled"]).optional().default("auto"),
+  requiredMaterials: z.string().max(8_000).optional().default(""),
+  priorContentSummary: z.string().max(12_000).optional().default(""),
+  complianceRequirements: z.string().max(4_000).optional().default(""),
+  evidencePolicy: z.enum([
+    "clientMaterialsOnly",
+    "verifiedPublicSupplement",
+  ]).optional().default("clientMaterialsOnly"),
+}).describe("品牌短视频·单问题文案配置；仅当 promptKey=brandSingleQuestionVideoScript 时使用")
+
 const articleBatchSchema = z.looseObject({
   ...clientContextShape,
   count: z.number().int().min(1).max(50),
@@ -214,7 +241,28 @@ const articleBatchSchema = z.looseObject({
     comparisonBrands: z.array(z.unknown()).optional(),
     audience: z.string().optional(),
     extraRequirements: z.string().optional(),
+    videoScriptConfig: articleVideoScriptConfigSchema.optional(),
   }),
+}).superRefine((value, context) => {
+  if (!isBrandVideoScriptPrompt(value.basePayload.promptKey)) return
+  const tasks = value.questionTasks || []
+  if (value.topicMode === "questions" || value.topicMode === "strategy") {
+    tasks.forEach((task, index) => {
+      if (!task.matchedAdvantage?.trim()) {
+        context.addIssue({
+          code: "custom",
+          path: ["questionTasks", index, "matchedAdvantage"],
+          message: "单问题视频文案的每个疑问句都必须有独立匹配优势",
+        })
+      }
+    })
+  } else if (!value.basePayload.advantages?.trim()) {
+    context.addIssue({
+      code: "custom",
+      path: ["basePayload", "advantages"],
+      message: "单问题视频文案必须提供匹配优势",
+    })
+  }
 })
 
 const reportSchema = z.looseObject({
@@ -403,6 +451,7 @@ const articleGenerationSchema = z.looseObject({
   knowledgeAssetIds: z.array(z.string().max(140)).max(30).optional(),
   audience: z.string().max(800).optional(),
   extraRequirements: z.string().max(2_000).optional(),
+  videoScriptConfig: articleVideoScriptConfigSchema.optional(),
 })
 
 const articleRewriteSchema = articleGenerationSchema.extend({
@@ -431,6 +480,8 @@ const articleStrategyPlanSchema = z.looseObject({
   modelProvider: z.string().min(1).max(100).optional().default("doubao"),
   model: z.string().max(200).optional(),
   comparisonBrandCount: z.number().int().min(0).max(9).optional().default(0),
+  outputTrack: z.enum(["article", "video_script"]).optional().default("article"),
+  videoScriptConfig: articleVideoScriptConfigSchema.optional(),
   methodology: z.unknown().optional(),
 }).refine(
   value => value.questionIds.length + value.materialIds.length > 0,
@@ -804,7 +855,7 @@ export const AGENT_ACTION_REGISTRY = {
   "article.generate": {
     mcpTool: "shitu_generate_article",
     title: "生成单篇文章",
-    description: "按选定 Prompt、疑问句、优势、客户知识库与质量门禁生成一篇文章。",
+    description: "按选定 Prompt、疑问句、优势、客户知识库与质量门禁生成一篇文章或一条品牌短视频文案。",
     module: "article",
     taskSource: "background",
     idempotent: true,
@@ -826,7 +877,7 @@ export const AGENT_ACTION_REGISTRY = {
   "article.strategy.plan": {
     mcpTool: "shitu_plan_strategy_articles",
     title: "规划关键词策略自动成文",
-    description: "读取已选疑问句和优势，由网页端同一 AI 裁判为每篇文章分配最合适的 Prompt。",
+    description: "读取已选疑问句和优势：文章轨道由 AI 裁判分配 Prompt，视频文案轨道为每个问题生成独立单问题任务。",
     module: "article",
     idempotent: true,
     requiredScope: "article.execute",
@@ -947,7 +998,7 @@ export const AGENT_ACTION_REGISTRY = {
   "article.batch.run": {
     mcpTool: "shitu_generate_article_batch",
     title: "批量生成文章",
-    description: "按网页端相同的内容方法论、知识库和质量门禁创建独立文章任务。",
+    description: "按网页端相同的内容方法论、知识库和质量门禁创建独立文章或品牌短视频文案任务。",
     module: "article",
     taskSource: "articleBatch",
     idempotent: true,
@@ -1159,6 +1210,7 @@ function estimateArticleBatch(input: Record<string, unknown>): {
       : "批量生成数量必须在 2 到 50 篇之间")
   }
   const questionTasks = Array.isArray(input.questionTasks) ? input.questionTasks.map(record) : []
+  const videoScriptBatch = isBrandVideoScriptPrompt(base.promptKey)
   if (!String(base.coreQuestion || "").trim() && !questionTasks.some(task => String(task.question || "").trim())) {
     throw new Error("批量生成必须提供核心问题或至少一个疑问句任务")
   }
@@ -1168,13 +1220,17 @@ function estimateArticleBatch(input: Record<string, unknown>): {
     const credits = tasks.reduce((sum, task) => (
       sum + estimateFeatureCredits(articlePriceKey(task.promptKey || base.promptKey))
     ), 0)
-    return { credits, units: count, label: `批量文章 × ${count}` }
+    return {
+      credits,
+      units: count,
+      label: videoScriptBatch ? `批量品牌短视频文案 × ${count}` : `批量文章 × ${count}`,
+    }
   }
   const featureKey = articlePriceKey(base.promptKey)
   return {
     credits: estimateFeatureCredits(featureKey, count),
     units: count,
-    label: `批量文章 × ${count}`,
+    label: videoScriptBatch ? `批量品牌短视频文案 × ${count}` : `批量文章 × ${count}`,
   }
 }
 
@@ -1256,10 +1312,23 @@ export function estimateAgentAction(
     case "keyword.website-prompt.run":
       return dedicatedBackgroundEstimate(context, input, "keywordWebsitePrompt", "keyword.execute")
     case "article.generate":
+      if (
+        isBrandVideoScriptPrompt(input.promptKey)
+        && !String(input.advantages || "").trim()
+      ) {
+        throw new Error("品牌短视频·单问题文案必须提供当前疑问句的匹配优势")
+      }
+      return dedicatedBackgroundEstimate(context, input, "articleGeneration", "article.execute")
     case "article.rewrite":
       return dedicatedBackgroundEstimate(context, input, "articleGeneration", "article.execute")
     case "article.strategy.plan":
-      return { ...context, scope: "article.execute", units: 1, credits: 0, label: "规划策略文章" }
+      return {
+        ...context,
+        scope: "article.execute",
+        units: 1,
+        credits: 0,
+        label: input.outputTrack === "video_script" ? "规划策略视频文案" : "规划策略文章",
+      }
     case "article.source.extract":
       return { ...context, scope: "article.execute", units: 1, credits: 0, label: "读取文章原文" }
     case "article.brands.analyze":

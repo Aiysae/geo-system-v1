@@ -267,7 +267,12 @@ export function compileGeoArticleMethodology(args: {
     compiledAt: new Date().toISOString(),
   }
 
-  if (!isGeoMethodologyEnabled() || args.promptKey === "shortVideoScript" || args.promptKey === "rewrite") {
+  if (
+    !isGeoMethodologyEnabled()
+    || args.promptKey === "shortVideoScript"
+    || args.promptKey === "brandSingleQuestionVideoScript"
+    || args.promptKey === "rewrite"
+  ) {
     return {
       enabled: false,
       systemAddendum: "",

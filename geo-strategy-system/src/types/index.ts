@@ -178,6 +178,7 @@ export type ArticlePromptKey =
   | "selectionPitfallGuide"
   | "topBrandRanking"
   | "shortVideoScript"
+  | "brandSingleQuestionVideoScript"
   | "rewrite"
 
 export type ArticleModelProviderKey = ModelKey | "article" | `gateway:${string}`
@@ -385,12 +386,43 @@ export interface ArticleGenerationState {
   advantages: string
   audience: string
   extraRequirements: string
+  videoScriptConfig?: ArticleVideoScriptConfig
   selectedQuestionTask?: ArticleBatchQuestionTask
   output: string
   publishing?: ArticlePublishingSettings
   status: GenerationStatus
   error?: string
   generatedAt?: string
+}
+
+export type ArticleVideoPlatform =
+  | "douyin"
+  | "wechatChannels"
+  | "xiaohongshu"
+  | "kuaishou"
+  | "reels"
+  | "tiktok"
+  | "other"
+
+export type ArticleVideoCtaMode = "auto" | "required" | "disabled"
+
+export type ArticleVideoEvidencePolicy =
+  | "clientMaterialsOnly"
+  | "verifiedPublicSupplement"
+
+export interface ArticleVideoScriptConfig {
+  coreProductService: string
+  outputLanguage: string
+  languageStyle: string
+  platform: ArticleVideoPlatform
+  customPlatform?: string
+  targetDurationSeconds: number
+  tagCount: number
+  ctaMode: ArticleVideoCtaMode
+  requiredMaterials: string
+  priorContentSummary: string
+  complianceRequirements: string
+  evidencePolicy: ArticleVideoEvidencePolicy
 }
 
 export type ArticleGenerationMode = "web" | "standard_fallback"
@@ -444,10 +476,12 @@ export interface ArticleGenerationLineage {
   methodologyTrace: ArticleMethodologyTrace
   connectivity?: ArticleGenerationConnectivity
   qualityAudit?: ArticleGenerationQualityAudit
+  videoScriptConfig?: ArticleVideoScriptConfig
   generatedAt: string
 }
 
 export type ArticleBatchTopicMode = "auto" | "questions" | "custom" | "strategy"
+export type ArticleStrategyOutputTrack = "article" | "video_script"
 
 export type ArticleBatchStatus =
   | "preparing"

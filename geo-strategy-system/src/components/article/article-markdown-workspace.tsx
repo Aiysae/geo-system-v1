@@ -20,10 +20,11 @@ import ArticlePublishPanel from "@/components/article/article-publish-panel"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import type { ArticlePublishingSettings } from "@/types"
+import { parseBrandVideoScript } from "@/lib/article-video-script"
 
 type WorkspaceTab = "edit" | "preview" | "export" | "publish"
 type ThemeKey = "default" | "wechat"
-type CopyState = "idle" | "markdown" | "html"
+type CopyState = "idle" | "markdown" | "html" | "body" | "tags"
 
 interface Props {
   value: string
@@ -32,6 +33,7 @@ interface Props {
   title: string
   statusText: string
   placeholder: string
+  contentKind?: "article" | "video_script"
   publishing?: ArticlePublishingSettings
   onPublishingChange: (patch: Partial<ArticlePublishingSettings>) => void
 }
@@ -318,6 +320,7 @@ export default function ArticleMarkdownWorkspace({
   title,
   statusText,
   placeholder,
+  contentKind = "article",
   publishing,
   onPublishingChange,
 }: Props) {
@@ -327,6 +330,8 @@ export default function ArticleMarkdownWorkspace({
   const [copyState, setCopyState] = useState<CopyState>("idle")
   const previewRef = useRef<HTMLDivElement | null>(null)
   const hasContent = value.trim().length > 0
+  const isVideoScript = contentKind === "video_script"
+  const videoScript = useMemo(() => parseBrandVideoScript(value), [value])
   const theme = MARKDOWN_THEMES[themeKey]
 
   const components = useMemo(() => createMarkdownComponents(theme), [theme])
@@ -360,6 +365,13 @@ export default function ArticleMarkdownWorkspace({
     }
   }
 
+  async function copyVideoSection(section: "body" | "tags") {
+    const content = section === "body" ? videoScript.body : videoScript.tagsText
+    if (!content) return
+    await navigator.clipboard.writeText(content)
+    flashCopyState(section)
+  }
+
   function exportMarkdown() {
     if (!hasContent) return
     downloadBlob(new Blob([value], { type: "text/markdown;charset=utf-8" }), `${fileBaseName}.md`)
@@ -389,23 +401,40 @@ export default function ArticleMarkdownWorkspace({
       <div className="flex flex-col gap-3 border-b border-slate-100 px-3 py-3 sm:px-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-slate-900">生成结果</div>
+            <div className="text-sm font-semibold text-slate-900">
+              {isVideoScript ? "视频文案结果" : "生成结果"}
+            </div>
             <div className="text-[11px] text-slate-500">{statusText}</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={copyMarkdown} disabled={!hasContent}>
               {copyState === "markdown" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copyState === "markdown" ? "已复制" : "复制文章"}
+              {copyState === "markdown" ? "已复制" : isVideoScript ? "复制全文" : "复制文章"}
             </Button>
-            <Button size="sm" variant="outline" onClick={copyFormattedHtml} disabled={!hasContent}>
-              {copyState === "html" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />}
-              {copyState === "html" ? "已复制" : "复制排版"}
-            </Button>
+            {isVideoScript ? (
+              <>
+                <Button size="sm" variant="outline" onClick={() => void copyVideoSection("body")} disabled={!videoScript.body}>
+                  {copyState === "body" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />}
+                  {copyState === "body" ? "已复制" : "复制正文"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => void copyVideoSection("tags")} disabled={!videoScript.tagsText}>
+                  {copyState === "tags" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />}
+                  {copyState === "tags" ? "已复制" : "复制标签"}
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" variant="outline" onClick={copyFormattedHtml} disabled={!hasContent}>
+                {copyState === "html" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />}
+                {copyState === "html" ? "已复制" : "复制排版"}
+              </Button>
+            )}
           </div>
         </div>
 
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1 text-xs font-semibold md:w-[440px]">
+          <div className={`grid gap-1 rounded-xl bg-slate-100 p-1 text-xs font-semibold ${
+            isVideoScript ? "grid-cols-3 md:w-[330px]" : "grid-cols-4 md:w-[440px]"
+          }`}>
             <button type="button" onClick={() => setActiveTab("edit")} className={tabClass(activeTab === "edit")}>
               <Code2 className="h-3.5 w-3.5" />
               编辑
@@ -418,21 +447,23 @@ export default function ArticleMarkdownWorkspace({
               <Download className="h-3.5 w-3.5" />
               导出
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPublishVisited(true)
-                setActiveTab("publish")
-              }}
-              disabled={!hasContent}
-              className={`${tabClass(activeTab === "publish")} disabled:cursor-not-allowed disabled:opacity-45`}
-            >
-              <Send className="h-3.5 w-3.5" />
-              发布
-            </button>
+            {!isVideoScript && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPublishVisited(true)
+                  setActiveTab("publish")
+                }}
+                disabled={!hasContent}
+                className={`${tabClass(activeTab === "publish")} disabled:cursor-not-allowed disabled:opacity-45`}
+              >
+                <Send className="h-3.5 w-3.5" />
+                发布
+              </button>
+            )}
           </div>
 
-          <label className="flex items-center gap-2 text-xs text-slate-500">
+          {!isVideoScript && <label className="flex items-center gap-2 text-xs text-slate-500">
             <Palette className="h-3.5 w-3.5 text-orange-500" />
             <select
               value={themeKey}
@@ -445,7 +476,7 @@ export default function ArticleMarkdownWorkspace({
                 </option>
               ))}
             </select>
-          </label>
+          </label>}
         </div>
       </div>
 
@@ -464,7 +495,9 @@ export default function ArticleMarkdownWorkspace({
         <div className={activeTab === "preview" ? "h-full overflow-auto p-4" : "hidden"}>
           <div style={theme.page}>
             <div ref={previewRef}>
-              <MarkdownPreview value={value} components={components} theme={theme} />
+              {isVideoScript
+                ? <VideoScriptPreview value={value} />
+                : <MarkdownPreview value={value} components={components} theme={theme} />}
             </div>
           </div>
         </div>
@@ -515,7 +548,7 @@ export default function ArticleMarkdownWorkspace({
 
         </div>
 
-        {publishVisited && (
+        {!isVideoScript && publishVisited && (
           <div className={activeTab === "publish" ? "h-full overflow-auto" : "hidden"}>
             <ArticlePublishPanel
               markdown={value}
@@ -553,6 +586,41 @@ function MarkdownPreview({
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {value}
       </ReactMarkdown>
+    </article>
+  )
+}
+
+function VideoScriptPreview({ value }: { value: string }) {
+  const parsed = parseBrandVideoScript(value)
+  if (!value.trim()) {
+    return (
+      <div className="mx-auto max-w-2xl border border-dashed border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-400">
+        生成后可在这里查看口播结构。
+      </div>
+    )
+  }
+  const sections = [
+    { label: "专业视角", value: parsed.perspective, tone: "text-cyan-700 bg-cyan-50 border-cyan-100" },
+    { label: "标题", value: parsed.title, tone: "text-blue-700 bg-blue-50 border-blue-100" },
+    { label: "正文", value: parsed.body, tone: "text-slate-700 bg-white border-slate-200" },
+    { label: "标签", value: parsed.tagsText, tone: "text-violet-700 bg-violet-50 border-violet-100" },
+  ]
+  return (
+    <article className="mx-auto max-w-2xl space-y-3 bg-slate-50 p-3 sm:p-4">
+      {sections.map(section => (
+        <section key={section.label} className={`rounded-lg border p-4 ${section.tone}`}>
+          <div className="text-[11px] font-semibold">{section.label}</div>
+          <div className={`mt-2 whitespace-pre-wrap break-words ${
+            section.label === "标题"
+              ? "text-lg font-bold leading-7"
+              : section.label === "正文"
+                ? "text-[15px] leading-8"
+                : "text-sm leading-7"
+          }`}>
+            {section.value || "该部分尚未生成"}
+          </div>
+        </section>
+      ))}
     </article>
   )
 }

@@ -119,7 +119,7 @@ CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频�
 
 ## 专用动作
 
-Agent 1.3 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
+Agent 1.4 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
 
 | 模块 | 动作 |
 | --- | --- |
@@ -152,6 +152,49 @@ Agent 1.3 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 3. 将返回的 `tasks` 原样作为 `article.batch.run.questionTasks`，使用 `topicMode: "strategy"` 创建批量任务。
 4. 轮询任务，随后下载 `passed`、`all` 或 `direct` 范围的 ZIP。
 
+### 品牌短视频·单问题文案
+
+先调用 `GET /articles/settings` 或 `shitu_get_article_settings` 确认当前 Prompt 中存在
+`brandSingleQuestionVideoScript`。这个 Prompt 强制“一个疑问句＋一条匹配优势＋一条独立文案”，
+输出固定为专业视角、标题、正文和标签四部分。默认仅使用客户资料；只有明确设置
+`evidencePolicy: "verifiedPublicSupplement"` 时才使用经核验的公开资料补充。
+
+```json
+{
+  "clientId": "client_xxx",
+  "requestId": "agent_video_script_20260813_001",
+  "promptKey": "brandSingleQuestionVideoScript",
+  "modelProvider": "doubao",
+  "brandName": "示例品牌",
+  "industry": "示例行业",
+  "coreQuestion": "选购这类产品时应该先看什么？",
+  "advantages": "与该问题直接对应的、可核验的单条优势",
+  "videoScriptConfig": {
+    "coreProductService": "示例产品",
+    "platform": "douyin",
+    "targetDurationSeconds": 60,
+    "tagCount": 15,
+    "ctaMode": "auto",
+    "evidencePolicy": "clientMaterialsOnly"
+  },
+  "dryRun": true
+}
+```
+
+单条调用 `article.generate`。批量调用 `article.batch.run`，并在每个
+`questionTasks` 中提供独立的 `question` 和 `matchedAdvantage`。从关键词策略自动生成时，
+先调用 `article.strategy.plan` 并设置 `outputTrack: "video_script"`，再将返回的 `tasks`
+原样交给批量动作。下载全部批次时，ZIP 同时包含 Word 文档和可用 Excel 打开的
+`短视频文案清单.csv`。
+
+CLI 不需要新的专用命令，使用同一类型化动作即可：
+
+```bash
+node shitu-geo.mjs articles generate --file brand-video-script.json
+node shitu-geo.mjs articles plan --file video-strategy-plan.json
+node shitu-geo.mjs articles batch --file video-batch.json
+```
+
 ### 链接文章改写
 
 1. `article.source.extract` 将链接正文提取为 Markdown。
@@ -173,7 +216,7 @@ Agent 1.3 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 
 生成文章前可调用 `GET /articles/settings` 或 MCP 工具 `shitu_get_article_settings`，读取当前实际可用的 Prompt、官方模型、中转站模型和默认模型，避免硬编码过期型号。
 
-Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，升级前创建的密钥不会自动获得该权限；需要发布链接或管理客户可见范围时，请在账号中心重新创建“完整授权”密钥。
+Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，升级前创建的密钥不会自动获得该权限；需要发布链接或管理客户可见范围时，请在账号中心重新创建“完整授权”密钥。Agent 1.4 没有增加新权限，原有 `article.execute` 密钥即可调用新视频文案类型。
 
 ## 结果与文件
 

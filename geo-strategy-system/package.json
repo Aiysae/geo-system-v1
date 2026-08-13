@@ -54,6 +54,7 @@
     "test:article-batch-restart": "NODE_ENV=test tsx scripts/test-article-batch-restart.mts",
     "test:article-batch-review": "NODE_ENV=test tsx scripts/test-article-batch-review.mts",
     "test:geo-article-prompts": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-geo-article-prompts.mts",
+    "test:article-video-script": "tsx scripts/test-article-video-script.mts",
     "test:geo-methodology": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-geo-methodology.mts",
     "test:knowledge-import": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-knowledge-import.mts",
     "test:material-template": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-material-template.mts",

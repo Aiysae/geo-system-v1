@@ -39,7 +39,10 @@ Current typed execution operations:
   `keyword.questions.run`.
 - Content: `article.generate`, `article.rewrite`, `article.batch.run`, strategy
   planning, source extraction, brand analysis, question-material management,
-  media upload, and background media insertion.
+  media upload, and background media insertion. The article actions also expose
+  the typed `brandSingleQuestionVideoScript` mode for one-question/one-advantage
+  video copy, including platform, duration, tag, CTA, and evidence-boundary
+  settings; batch downloads include Word files and an Excel-compatible manifest.
 - Delivery: feedback action creation/import, report options, report creation,
   publish/share management, execution-profile and visibility management, plus
   `report.create`.

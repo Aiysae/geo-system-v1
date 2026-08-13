@@ -45,7 +45,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
     openapi: "3.1.0",
     info: {
       title: "势途 GEO Agent API",
-      version: "1.3.0",
+      version: "1.4.0",
       description: "供 CLI、MCP 和自动化 Agent 安全调用势途 GEO 现有业务能力。耗时操作进入后台任务；资料审核与动作记录等轻量写操作同步完成。所有操作沿用网页端权限、积分、联网与质量规则。",
     },
     externalDocs: {
