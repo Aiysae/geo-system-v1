@@ -57,7 +57,7 @@ export const AI_CREDENTIAL_VENDOR_PRESETS: AiCredentialVendorPreset[] = [
     label: "腾讯混元",
     baseUrl: "https://tokenhub.tencentmaas.com",
     chatPath: "/v1/chat/completions",
-    defaultModels: ["hy3-preview"],
+    defaultModels: ["hy3"],
     allowedModules: [
       "article",
       "question",

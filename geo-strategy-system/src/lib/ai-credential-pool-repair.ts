@@ -10,7 +10,7 @@ export interface AiCredentialRepairPatch {
 
 const DOUBAO_WORKING_MODEL = "doubao-seed-2-0-lite-260215"
 const HUNYUAN_TOKENHUB_URL = "https://tokenhub.tencentmaas.com"
-const HUNYUAN_WORKING_MODEL = "hy3-preview"
+const HUNYUAN_WORKING_MODEL = "hy3"
 const KIMI_DOMESTIC_URL = "https://api.moonshot.cn/v1"
 
 function accountNumber(accountLabel: string): number | undefined {

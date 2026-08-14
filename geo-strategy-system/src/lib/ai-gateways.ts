@@ -150,7 +150,7 @@ export const AI_GATEWAY_PRESETS: AiGatewayPreset[] = [
     modelsPath: "/v1/models",
     protocol: "openai_chat",
     authType: "bearer",
-    defaultModel: "hy3-preview",
+    defaultModel: "hy3",
     timeout: 600,
     maxConcurrency: 3,
   },
