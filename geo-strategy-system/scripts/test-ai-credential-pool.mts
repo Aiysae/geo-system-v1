@@ -205,6 +205,37 @@ assert.deepEqual(
   "permanently unhealthy credentials must remain quarantined after cooldown expires",
 )
 
+await updateAiCredentialHealth(second.id, {
+  status: "degraded",
+  consecutiveFailures: 5,
+  cooldownUntil: new Date(Date.now() - 60_000).toISOString(),
+})
+await recordAiCredentialFailure(
+  await getAiCredentialRuntime(second.id),
+  new Error("HTTP 500 temporary upstream failure"),
+)
+const runtimeAfterRepeatedFailures = await getAiCredentialRuntime(second.id)
+assert.equal(runtimeAfterRepeatedFailures.healthStatus, "unhealthy")
+assert.equal(runtimeAfterRepeatedFailures.consecutiveFailures, 6)
+await updateAiCredentialHealth(second.id, {
+  status: "unhealthy",
+  cooldownUntil: new Date(Date.now() - 60_000).toISOString(),
+})
+assert.deepEqual(
+  await getAiCredentialPoolCapacity({
+    vendor: "qwen",
+    module: "penetration",
+    model: "qwen-plus",
+    requiredCapabilities: ["native_web", "auditable_sources"],
+  }),
+  {
+    candidateCount: 0,
+    maxConcurrency: 0,
+    quotaGroupCount: 0,
+  },
+  "repeated transient failures must eventually quarantine an unusable account",
+)
+
 await saveAiCredential({
   id: second.id,
   vendor: "qwen",

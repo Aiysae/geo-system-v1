@@ -22,6 +22,7 @@ interface AcquiredSlot {
 
 const DEFAULT_WAIT_TIMEOUT_MS = 30_000
 const DEFAULT_LEASE_SECONDS = 10 * 60
+const MAX_CONSECUTIVE_FAILURES_BEFORE_QUARANTINE = 6
 const lastSuccessWriteAt = new Map<string, number>()
 
 function isCoolingDown(credential: AiCredentialRuntime): boolean {
@@ -37,6 +38,7 @@ function satisfiesRequest(
     !credential.enabled
     || !credential.apiKey
     || credential.healthStatus === "unhealthy"
+    || credential.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES_BEFORE_QUARANTINE
     || isCoolingDown(credential)
   ) return false
   if (request.excludeCredentialIds?.includes(credential.id)) return false
@@ -537,14 +539,16 @@ export async function recordAiCredentialFailure(
 ): Promise<void> {
   const failures = credential.consecutiveFailures + 1
   const permanent = isPermanentAiCredentialFailure(error)
-  const cooldownMs = permanent
+  const quarantined = permanent
+    || failures >= MAX_CONSECUTIVE_FAILURES_BEFORE_QUARANTINE
+  const cooldownMs = quarantined
     ? 30 * 60_000
     : failures >= 3
       ? Math.min(10 * 60_000, 30_000 * 2 ** Math.min(5, failures - 3))
       : 0
   try {
     await updateAiCredentialHealth(credential.id, {
-      status: permanent ? "unhealthy" : failures >= 3 ? "degraded" : credential.healthStatus,
+      status: quarantined ? "unhealthy" : failures >= 3 ? "degraded" : credential.healthStatus,
       consecutiveFailures: failures,
       cooldownUntil: cooldownMs ? new Date(Date.now() + cooldownMs).toISOString() : undefined,
     })
