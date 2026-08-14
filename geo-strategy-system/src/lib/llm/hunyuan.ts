@@ -194,12 +194,21 @@ async function chatTokenHubNativeSearch(
   const timeoutMs = Math.max(30, args.timeoutSec ?? config.timeout) * 1000
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
-  const tools = [{ type: "web_search", search_context_size: "medium" }]
+  const tools = [{
+    type: "web_search",
+    search_source: "lite",
+    search_context_size: "medium",
+    user_location: {
+      type: "approximate",
+      country: "CN",
+      timezone: "Asia/Shanghai",
+    },
+  }]
   const payload = {
     model: config.model,
     input: args.user,
     tools,
-    tool_choice: "auto",
+    reasoning: { effort: "no_think" },
     max_output_tokens: args.maxTokens ?? 1200,
     stream: true,
   }
@@ -286,7 +295,7 @@ export async function chatHunyuan(args: ChatArgs): Promise<string> {
   const config = await getChatRuntimeSetting("hunyuan", args)
   if (args.forceWebSearch) {
     if (!isTokenHub(config.baseUrl)) {
-      throw new Error(`${LABEL} 严格联网需要切换到腾讯 TokenHub · HY3 Preview。`)
+      throw new Error(`${LABEL} 严格联网需要切换到腾讯 TokenHub · HY3。`)
     }
     return chatTokenHubNativeSearch(args, config)
   }

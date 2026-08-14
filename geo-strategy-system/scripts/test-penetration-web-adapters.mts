@@ -24,7 +24,7 @@ process.env.BAIDU_QIANFAN_BASE_URL = "https://qianfan.baidubce.com/v2"
 process.env.ARK_API_KEY = "test-ark-key"
 process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 process.env.TENCENT_HUNYUAN_API_KEY = "test-tokenhub-key"
-process.env.TENCENT_HUNYUAN_MODEL = "hy3-preview"
+process.env.TENCENT_HUNYUAN_MODEL = "hy3"
 process.env.TENCENT_HUNYUAN_CHAT_URL = "https://tokenhub.tencentmaas.com/v1/chat/completions"
 
 type CapturedRequest = { url: string; body: Record<string, unknown> }
@@ -433,8 +433,18 @@ try {
   assert.ok(hunyuanRequest)
   assert.ok(hunyuanRequest.url.endsWith("/v1/responses"))
   assert.equal(hunyuanRequest.body.input, question)
-  assert.deepEqual(hunyuanRequest.body.tools, [{ type: "web_search", search_context_size: "medium" }])
-  assert.equal(hunyuanRequest.body.tool_choice, "auto")
+  assert.deepEqual(hunyuanRequest.body.tools, [{
+    type: "web_search",
+    search_source: "lite",
+    search_context_size: "medium",
+    user_location: {
+      type: "approximate",
+      country: "CN",
+      timezone: "Asia/Shanghai",
+    },
+  }])
+  assert.deepEqual(hunyuanRequest.body.reasoning, { effort: "no_think" })
+  assert.equal("tool_choice" in hunyuanRequest.body, false)
   assert.equal(hunyuanRequest.body.stream, true)
   assert.equal("temperature" in hunyuanRequest.body, false)
   assert.equal(hunyuanEvents[0]?.searchExecuted, true)
