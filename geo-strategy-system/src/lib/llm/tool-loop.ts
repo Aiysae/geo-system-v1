@@ -119,7 +119,7 @@ async function chatWithPresearchedContext(args: ToolLoopArgs): Promise<string> {
     hits.length === 0 ? "本地公开网页预检索未返回可审计来源。" : undefined
   )
   console.log(
-    `[${args.label}·presearch] q="${args.user.slice(0, 80)}" hits=${hits.length} ${Date.now() - t0}ms`
+    `[${args.label}·presearch] queryLen=${args.user.length} hits=${hits.length} ${Date.now() - t0}ms`
   )
   if (args.requireWebEvidence && hits.length === 0) {
     throw new Error("联网搜索未返回可审计来源，已阻断模型自答。请稍后重试或换一个更具体的问题。")

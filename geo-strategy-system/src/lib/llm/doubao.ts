@@ -3,6 +3,7 @@ import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { extractSourcesFromUnknown } from "./source-extract"
 import { emitPenetrationRequestAudit } from "./blind-request-audit"
+import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 
 // 豆包 (Volcengine Ark) 适配器
 //
@@ -58,11 +59,7 @@ function arkResponseText(data: ArkResponsesPayload): string {
 }
 
 function safeError(text: string): string {
-  return text
-    .replace(/Bearer\s+[A-Za-z0-9._\-]{16,}/gi, "Bearer ***")
-    .replace(/sk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
-    .replace(/\s+/g, " ")
-    .slice(0, 260)
+  return sanitizeAiUpstreamMessage(text, 260)
 }
 
 async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string, timeoutSec: number): Promise<string> {

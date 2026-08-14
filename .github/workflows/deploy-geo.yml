@@ -41,6 +41,12 @@ jobs:
           npm run test:agent-api
           npm run test:agent-mcp
           npm run test:agent-cli
+          npm run test:ai-credential-pool
+          npm run test:ai-credential-adapter
+          npm run test:penetration-web
+          npm run test:penetration-blind-contract
+          npm run test:penetration-selective-retry
+          npm run test:penetration-v3
 
       - name: Upload source to ECS
         env:

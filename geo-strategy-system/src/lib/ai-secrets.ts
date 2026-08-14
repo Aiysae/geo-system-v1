@@ -50,10 +50,11 @@ export function maskAiSecret(value: string): string {
 
 export function sanitizeAiUpstreamMessage(value: unknown, max = 300): string {
   return String(value || "")
-    .replace(/sk-[A-Za-z0-9_.-]{6,}/g, "sk-***")
+    .replace(/\b(sk|ak)-[A-Za-z0-9._~+\-/]{6,}/gi, (_, prefix: string) => `${prefix.toLowerCase()}-***`)
+    .replace(/\bbce-v3\/[A-Za-z0-9._~+\-/]{8,}/gi, "bce-v3/***")
     .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, "Bearer ***")
     .replace(/x-api-key["':=\s]+[A-Za-z0-9._~-]+/gi, "x-api-key: ***")
-    .replace(/([?&]key=)[^&\s]+/gi, "$1***")
+    .replace(/([?&](?:key|api_key|access_token)=)[^&\s]+/gi, "$1***")
     .replace(/\s+/g, " ")
     .slice(0, max)
 }

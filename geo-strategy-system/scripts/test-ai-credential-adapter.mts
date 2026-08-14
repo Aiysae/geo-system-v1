@@ -9,6 +9,8 @@ delete process.env.DATABASE_URL
 process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = join(tempDir, "kv.json")
 process.env.AI_CONFIG_ENCRYPTION_KEY = "test-ai-adapter-encryption-key"
+process.env.ARK_API_KEY = "test-static-doubao-key"
+process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 
 const {
   getAiCredentialRuntime,
@@ -21,6 +23,8 @@ const {
   hasAdapterCredentialPoolCandidate,
   runAdapterCredentialPoolChat,
 } = await import("../src/lib/ai-credential-adapter")
+const { saveAiProviderSetting } = await import("../src/lib/ai-settings")
+const { getPenetrationModelReadiness } = await import("../src/lib/penetration/model-readiness")
 
 async function createCredential(args: {
   label: string
@@ -118,7 +122,7 @@ const deepSeekCredential = await saveAiCredential({
   chatPath: "/chat/completions",
   apiKey: deepSeekSecret,
   enabled: false,
-  priority: 1,
+  priority: 2,
   maxConcurrency: 1,
   quotaGroupMaxConcurrency: 1,
   allowedModels: ["deepseek-chat"],
@@ -132,6 +136,30 @@ await updateAiCredentialHealth(deepSeekCredential.id, {
   consecutiveFailures: 0,
 })
 await setAiCredentialEnabled(deepSeekCredential.id, true, "adapter-test")
+
+const incompatibleDeepSeekSecret = "test-deepseek-v4-only-account"
+const incompatibleDeepSeekCredential = await saveAiCredential({
+  vendor: "deepseek",
+  name: "DeepSeek V4 only",
+  accountLabel: "V4 专用账号",
+  quotaGroup: "deepseek-v4-account",
+  baseUrl: "https://api.deepseek.com",
+  chatPath: "/chat/completions",
+  apiKey: incompatibleDeepSeekSecret,
+  enabled: false,
+  priority: 1,
+  maxConcurrency: 1,
+  quotaGroupMaxConcurrency: 1,
+  allowedModels: ["deepseek-v4-pro"],
+  allowedModules: ["article", "judge"],
+  declaredCapabilities: ["chat", "json"],
+}, "adapter-test")
+await updateAiCredentialHealth(incompatibleDeepSeekCredential.id, {
+  status: "healthy",
+  verifiedCapabilities: ["chat", "json"],
+  consecutiveFailures: 0,
+})
+await setAiCredentialEnabled(incompatibleDeepSeekCredential.id, true, "adapter-test")
 
 const baiduSearchSecret = "test-baidu-search-account"
 const baiduSearchCredential = await saveAiCredential({
@@ -158,6 +186,37 @@ await updateAiCredentialHealth(baiduSearchCredential.id, {
 })
 await setAiCredentialEnabled(baiduSearchCredential.id, true, "adapter-test")
 
+await saveAiProviderSetting("hunyuan", {
+  baseUrl: "https://tokenhub.tencentmaas.com",
+  chatPath: "/v1/chat/completions",
+  model: "hy3-preview",
+  timeout: 300,
+  extra: {},
+}, "adapter-test")
+const hunyuanCredential = await saveAiCredential({
+  vendor: "hunyuan",
+  name: "混元已验证账号",
+  accountLabel: "1号联网账号",
+  quotaGroup: "hunyuan-account-1",
+  baseUrl: "https://tokenhub.tencentmaas.com",
+  chatPath: "/v1/chat/completions",
+  apiKey: "test-hunyuan-hy3-account",
+  enabled: false,
+  priority: 1,
+  maxConcurrency: 2,
+  quotaGroupMaxConcurrency: 2,
+  allowedModels: ["hy3"],
+  allowedModules: ["penetration"],
+  declaredCapabilities: ["chat", "native_web", "auditable_sources"],
+}, "adapter-test")
+await updateAiCredentialHealth(hunyuanCredential.id, {
+  status: "healthy",
+  verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+  verifiedWebModels: ["hy3"],
+  consecutiveFailures: 0,
+})
+await setAiCredentialEnabled(hunyuanCredential.id, true, "adapter-test")
+
 const strictArgs = {
   mode: "consumer" as const,
   forceWebSearch: true,
@@ -165,6 +224,30 @@ const strictArgs = {
   requireWebEvidence: true,
   officialWebOnly: true,
 }
+assert.deepEqual(
+  await getPenetrationModelReadiness("doubao"),
+  {
+    model: "doubao",
+    ready: false,
+    reason: "豆包暂无已启用且通过严格联网验证的账号",
+  },
+  "static provider configuration must not report ready when strict routing has no verified account",
+)
+assert.equal(
+  await hasAdapterCredentialPoolCandidate("hunyuan", "penetration", strictArgs),
+  true,
+  "strict routing must use the credential's verified web model when the saved default is stale",
+)
+assert.deepEqual(
+  await getAdapterCredentialPoolCapacity("hunyuan", "penetration", strictArgs),
+  {
+    vendor: "hunyuan",
+    candidateCount: 1,
+    maxConcurrency: 2,
+    quotaGroupCount: 1,
+    usesFallback: false,
+  },
+)
 assert.equal(
   await hasAdapterCredentialPoolCandidate("qwen", "penetration", strictArgs),
   true,

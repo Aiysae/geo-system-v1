@@ -61,6 +61,7 @@ const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "
 
 type InputMode = "manual" | "ai"
 type ModelReadiness = Partial<Record<ModelKey, { ready: boolean; reason?: string }>>
+type ReadinessStatus = "loading" | "ready" | "error"
 
 interface Props {
   client: Client
@@ -106,6 +107,8 @@ export default function BatchInputPanel({
   const [inputMode, setInputMode] = useState<InputMode>("manual")
   const [aiToast, setAiToast] = useState<string | null>(null)
   const [modelReadiness, setModelReadiness] = useState<ModelReadiness>({})
+  const [readinessStatus, setReadinessStatus] = useState<ReadinessStatus>("loading")
+  const [readinessAttempt, setReadinessAttempt] = useState(0)
   const subjectType = getClientSubjectType(client)
   const subjectCopy = getSubjectCopy(subjectType)
   const personProfile = normalizePersonSubjectProfile(client.personProfile)
@@ -239,13 +242,15 @@ export default function BatchInputPanel({
         const next: ModelReadiness = {}
         for (const item of data.readiness || []) next[item.model] = item
         setModelReadiness(next)
+        setReadinessStatus("ready")
       })
       .catch(error => {
         if (error instanceof DOMException && error.name === "AbortError") return
         console.warn("[penetration] model readiness check failed", error)
+        setReadinessStatus("error")
       })
     return () => controller.abort()
-  }, [])
+  }, [readinessAttempt])
 
   function parseLines(text: string): string[] {
     return text
@@ -342,7 +347,7 @@ export default function BatchInputPanel({
 
   function toggleModel(m: ModelKey) {
     if (questionReadOnly) return
-    if (modelReadiness[m]?.ready === false) return
+    if (readinessStatus !== "ready" || modelReadiness[m]?.ready !== true) return
     const set = new Set(client.selectedModels)
     if (set.has(m)) set.delete(m)
     else set.add(m)
@@ -422,9 +427,9 @@ export default function BatchInputPanel({
     ),
     [client.questionIntentHints, currentQuestions],
   )
-  const eligibleSelectedModels = client.selectedModels.filter(
-    model => modelReadiness[model]?.ready !== false,
-  )
+  const eligibleSelectedModels = readinessStatus === "ready"
+    ? client.selectedModels.filter(model => modelReadiness[model]?.ready === true)
+    : []
   const eligibleModelCount = eligibleSelectedModels.length
   const plannedSlots = questionCount * eligibleModelCount
   const sampleQuality = useMemo(
@@ -956,12 +961,20 @@ export default function BatchInputPanel({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
           {ALL_MODELS.map(m => {
             const readiness = modelReadiness[m]
-            const unavailable = readiness?.ready === false
+            const checking = readinessStatus === "loading"
+            const unavailable = readinessStatus !== "ready" || readiness?.ready !== true
             const checked = !unavailable && client.selectedModels.includes(m)
+            const statusLabel = checking
+              ? "检查中"
+              : readinessStatus === "error"
+                ? "状态异常"
+                : unavailable
+                  ? "暂不可用"
+                  : ""
             return (
               <label
                 key={m}
-                title={unavailable ? readiness.reason : undefined}
+                title={unavailable ? readiness?.reason || statusLabel : undefined}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition text-sm ${
                   unavailable
                     ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-75"
@@ -979,11 +992,24 @@ export default function BatchInputPanel({
                 />
                 <ModelAvatar model={m} size="xs" />
                 <span className="font-medium">{MODEL_LABELS[m]}</span>
-                {unavailable && <span className="ml-auto text-[10px]">暂不可用</span>}
+                {unavailable && <span className="ml-auto text-[10px]">{statusLabel}</span>}
               </label>
             )
           })}
         </div>
+        {readinessStatus === "error" && (
+          <button
+            type="button"
+            onClick={() => {
+              setReadinessStatus("loading")
+              setReadinessAttempt(value => value + 1)
+            }}
+            className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[#0958D9] hover:text-[#003EB3]"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            重新检查模型状态
+          </button>
+        )}
       </div>
 
       <div className="flex items-start gap-2 rounded-lg border border-cyan-200 bg-cyan-50/70 p-2.5 text-[11px] leading-relaxed text-cyan-900">

@@ -31,6 +31,7 @@ interface AdapterCredentialRoute {
   requiredCapabilities: AiCredentialCapability[]
   extra?: Record<string, string | boolean>
   exactModelRequired?: boolean
+  verifiedWebModelRequired?: boolean
 }
 
 function isStrictWebCall(module: AiCredentialModule, args: Partial<ChatArgs>): boolean {
@@ -71,15 +72,17 @@ async function resolveAdapterCredentialRoute(
 ): Promise<AdapterCredentialRoute> {
   const strictWeb = isStrictWebCall(module, args)
   const nativeWeb = strictWeb || requiresNativeWebCredential(model, args)
+  const strictNativeWeb = strictWeb && model !== "kimi" && model !== "deepseek"
   const vendor = strictWeb ? strictCredentialVendor(model) : model
   const config = await getAiProviderRuntimeSetting(vendor)
   let targetModel = config.model
   let selectionModel: string | undefined = targetModel
 
   if (strictWeb && model === "deepseek") {
-    targetModel = process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-chat"
-    selectionModel = undefined
+    targetModel = "deepseek-chat"
+    selectionModel = targetModel
   }
+  if (strictNativeWeb) selectionModel = undefined
 
   return {
     vendor,
@@ -98,7 +101,28 @@ async function resolveAdapterCredentialRoute(
         ? { botId: "" }
         : undefined,
     exactModelRequired: strictWeb,
+    verifiedWebModelRequired: strictNativeWeb,
   }
+}
+
+function resolveRouteCredentialModel(
+  route: AdapterCredentialRoute,
+  credential: AiCredentialLease["credential"],
+  selectedModel: string | undefined,
+): string {
+  if (route.verifiedWebModelRequired) {
+    const allowed = new Set(credential.allowedModels)
+    const verified = credential.verifiedWebModels.filter(model =>
+      allowed.size === 0 || allowed.has(model),
+    )
+    if (verified.includes(route.targetModel)) return route.targetModel
+    return verified[0] || ""
+  }
+  return resolveAiCredentialModel(
+    credential,
+    selectedModel || route.targetModel,
+    route.requiredCapabilities,
+  )
 }
 
 function selectionRequest(
@@ -476,7 +500,11 @@ export async function runAdapterCredentialPoolChat(
     && await hasAiCredentialCandidate(exactRequest)
     ? route.selectionModel
     : undefined
-  if (route.exactModelRequired && !selectionModel) {
+  if (
+    route.exactModelRequired
+    && !route.verifiedWebModelRequired
+    && !selectionModel
+  ) {
     throw new Error(`${ADAPTERS[model].label} 当前模型尚未通过严格联网验证`)
   }
   let lastError: unknown
@@ -507,10 +535,10 @@ export async function runAdapterCredentialPoolChat(
     excludedCredentialIds.push(lease.credential.id)
     const startedAt = Date.now()
     try {
-      const credentialModel = resolveAiCredentialModel(
+      const credentialModel = resolveRouteCredentialModel(
+        route,
         lease.credential,
-        selectionModel || route.targetModel,
-        route.requiredCapabilities,
+        selectionModel,
       )
       if (!credentialModel) throw new Error(`${ADAPTERS[model].label} 可用账号未配置模型`)
       const result = await ADAPTERS[model].chat({

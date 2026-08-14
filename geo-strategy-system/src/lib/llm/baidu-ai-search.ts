@@ -1,4 +1,5 @@
 import type { PenetrationSource } from "@/types"
+import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import type { ChatArgs } from "./openai-compat"
 import { emitPenetrationRequestAudit } from "./blind-request-audit"
 import {
@@ -65,11 +66,7 @@ export class BaiduWebSearchError extends Error {
 }
 
 function safeError(text: string): string {
-  return text
-    .replace(/bce-v3\/[A-Za-z0-9_\-/]+/g, "bce-v3/***")
-    .replace(/Bearer\s+[A-Za-z0-9._\-/]{16,}/gi, "Bearer ***")
-    .replace(/\s+/g, " ")
-    .slice(0, 260)
+  return sanitizeAiUpstreamMessage(text, 260)
 }
 
 function extractWebSources(
