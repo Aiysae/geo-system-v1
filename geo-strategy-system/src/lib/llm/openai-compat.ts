@@ -15,6 +15,7 @@ import type {
   PenetrationSource,
 } from "@/types"
 import type { AiCredentialVendor } from "@/types/ai-credentials"
+import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { extractSourcesFromUnknown, normalizeSourceDomain } from "./source-extract"
 import { withBeijingTime } from "./time-context"
 import { formatHitsForLLM, webSearch, type SearchHit } from "./web-search"
@@ -84,16 +85,8 @@ const WEB_EVIDENCE_RESULTS_PER_CALL = 12
 const WEB_EVIDENCE_STYLE_DIRECTIVE =
   "Final answer style: answer the user's question directly. Do not mention search tools, search results, retrieved pages, or whether the results directly contain the answer."
 
-function redactSecrets(text: string): string {
-  return text
-    .replace(/sk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
-    .replace(/Bearer\s+[A-Za-z0-9._\-]{16,}/gi, "Bearer ***")
-}
-
 function safeErrorSnippet(text: string, max = 500): string {
-  return redactSecrets(text)
-    .replace(/\s+/g, " ")
-    .slice(0, max)
+  return sanitizeAiUpstreamMessage(text, max)
 }
 
 function parseOnlyAllowedTemperature(message: string): number | null {
@@ -317,7 +310,7 @@ export async function openaiCompatRaw({
   for (let retry = 0; retry < 3 && retryableStatuses.has(res.status); retry++) {
     const status = res.status
     const rawTxt = await res.text().catch(() => "")
-    const txt = redactSecrets(rawTxt)
+    const txt = sanitizeAiUpstreamMessage(rawTxt, 5_000)
     const delay = retryDelayMs(res.headers, txt, retry)
     console.warn(
       `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`,
@@ -337,7 +330,7 @@ export async function openaiCompatRaw({
 
   if (!res.ok) {
     const rawTxt = await res.text().catch(() => "")
-    const txt = redactSecrets(rawTxt)
+    const txt = sanitizeAiUpstreamMessage(rawTxt, 5_000)
     const allowedTemperature = parseOnlyAllowedTemperature(txt)
     if (res.status === 400 && allowedTemperature !== null && payload.temperature !== allowedTemperature) {
       const retryPayload = { ...payload, temperature: allowedTemperature }

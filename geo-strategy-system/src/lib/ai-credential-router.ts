@@ -33,7 +33,12 @@ function satisfiesRequest(
   credential: AiCredentialRuntime,
   request: AiCredentialSelectionRequest,
 ): boolean {
-  if (!credential.enabled || !credential.apiKey || isCoolingDown(credential)) return false
+  if (
+    !credential.enabled
+    || !credential.apiKey
+    || credential.healthStatus === "unhealthy"
+    || isCoolingDown(credential)
+  ) return false
   if (request.excludeCredentialIds?.includes(credential.id)) return false
   const verified = new Set(credential.verifiedCapabilities)
   const strictWebRequest = request.module === "penetration"
@@ -138,13 +143,28 @@ async function releaseSlot(slot: AcquiredSlot | null): Promise<void> {
 
 async function withinCredentialRpmLimit(
   credential: AiCredentialRuntime,
+  request: AiCredentialSelectionRequest,
 ): Promise<boolean> {
-  if (!credential.rpmLimit) return true
+  const configuredKimiRpm = Math.floor(
+    Number(process.env.KIMI_PENETRATION_DEFAULT_RPM),
+  )
+  const defaultKimiRpm = Number.isFinite(configuredKimiRpm) && configuredKimiRpm > 0
+    ? Math.min(1_000, configuredKimiRpm)
+    : 3
+  const rpmLimit = credential.rpmLimit
+    || (credential.vendor === "kimi" && request.module === "penetration"
+      ? defaultKimiRpm
+      : undefined)
+  if (!rpmLimit) return true
+  const requestUnits = request.module === "penetration"
+    && (credential.vendor === "kimi" || credential.vendor === "deepseek")
+    ? 2
+    : 1
   const result = await reserveRateLimit(
     "ai-credential-rpm",
     credential.id,
-    1,
-    credential.rpmLimit,
+    requestUnits,
+    rpmLimit,
     60,
   )
   return result.ok
@@ -191,7 +211,7 @@ async function withinCredentialUsageLimits(
     )
     if (!budgetResult.ok) return false
   }
-  return withinCredentialRpmLimit(credential)
+  return withinCredentialRpmLimit(credential, request)
 }
 
 async function tryAcquireCredential(

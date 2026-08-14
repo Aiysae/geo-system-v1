@@ -49,6 +49,7 @@ import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
 import { requireOperationAccess, type OperationAccessContext } from "@/lib/team-access"
 import { hasTeamPermission } from "@/lib/team-permissions"
 import { listWorkspaceClients } from "@/lib/workspace-store"
+import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -607,7 +608,7 @@ async function blindQuery(
       answerReceived: true,
     })
     console.log(
-      `[penetration·blind] ✓ ${adapter.label} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | payloadVerified=${auditFields.requestAuditVerified} | webVerified=${auditFields.webVerified} | webExecuted=${auditFields.webExecutionVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | q="${question.slice(0, 30)}..."`
+      `[penetration·blind] ✓ ${adapter.label} | sample=${sampleId} | seed=${seed} | searchMode=${auditFields.searchMode} | promptPurity=${auditFields.promptPurity} | payloadVerified=${auditFields.requestAuditVerified} | webVerified=${auditFields.webVerified} | webExecuted=${auditFields.webExecutionVerified} | sources=${searchSources.length} | ${Date.now() - t0}ms | answerLen=${answer.length} | questionLen=${question.length}`
     )
     console.log(`[penetration·blind-answer] preservedLen=${answer.length}`)
     return {
@@ -618,7 +619,10 @@ async function blindQuery(
       auditFields,
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "未知错误"
+    const msg = sanitizeAiUpstreamMessage(
+      e instanceof Error ? e.message : "未知错误",
+      500,
+    )
     const searchSources = dedupeSources(collectedSources)
     const sourceDomains = summarizeSourceDomains(searchSources)
     const auditFields = buildAuditFields(auditProfile, searchSources, {
@@ -631,7 +635,7 @@ async function blindQuery(
       requestAudits,
       answerReceived: false,
     })
-    console.error(`[penetration·blind] ✗ ${adapter.label} | ${msg} | q="${question.slice(0, 30)}..."`)
+    console.error(`[penetration·blind] ✗ ${adapter.label} | sample=${sampleId} | ${msg} | questionLen=${question.length}`)
     return {
       answer: "",
       error: `${adapter.label} 接口调用失败：${msg}`,

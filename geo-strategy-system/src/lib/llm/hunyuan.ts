@@ -5,6 +5,7 @@ import { emitPenetrationRequestAudit } from "./blind-request-audit"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import type { AiProviderRuntimeSetting } from "@/types/ai-settings"
+import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 
 const LABEL = "腾讯元宝/混元"
 
@@ -68,11 +69,7 @@ function tokenHubResponsesUrl(chatUrl: string): string {
 }
 
 function safeError(text: string): string {
-  return text
-    .replace(/sk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
-    .replace(/Bearer\s+[A-Za-z0-9._\-]{16,}/gi, "Bearer ***")
-    .replace(/\s+/g, " ")
-    .slice(0, 240)
+  return sanitizeAiUpstreamMessage(text, 240)
 }
 
 function tokenHubErrorMessage(value: TokenHubResponse["error"] | TokenHubStreamEvent["error"]): string {

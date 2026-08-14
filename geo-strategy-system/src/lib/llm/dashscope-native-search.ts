@@ -1,4 +1,5 @@
 import type { PenetrationSource } from "@/types"
+import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import type { ChatArgs } from "./openai-compat"
 import {
   dedupePenetrationSources,
@@ -103,11 +104,7 @@ function extractSources(data: DashScopeResponse, query: string): PenetrationSour
 }
 
 function safeError(text: string): string {
-  return text
-    .replace(/sk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
-    .replace(/Bearer\s+[A-Za-z0-9._\-]{16,}/gi, "Bearer ***")
-    .replace(/\s+/g, " ")
-    .slice(0, 240)
+  return sanitizeAiUpstreamMessage(text, 240)
 }
 
 export async function chatDashScopeNativeSearch(

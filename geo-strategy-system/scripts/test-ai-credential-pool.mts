@@ -24,6 +24,13 @@ const {
   recordAiCredentialSuccess,
   resolveAiCredentialModel,
 } = await import("../src/lib/ai-credential-router")
+const { sanitizeAiUpstreamMessage } = await import("../src/lib/ai-secrets")
+
+const sanitizedUpstreamMessage = sanitizeAiUpstreamMessage(
+  '{"api_key":"ak-sensitive-upstream-key","credential":"bce-v3/very-sensitive-search-key"}',
+)
+assert.equal(sanitizedUpstreamMessage.includes("ak-sensitive-upstream-key"), false)
+assert.equal(sanitizedUpstreamMessage.includes("very-sensitive-search-key"), false)
 
 const firstSecret = "sk-test-account-one-secret"
 const secondSecret = "sk-test-account-two-secret"
@@ -179,6 +186,24 @@ await recordAiCredentialFailure(runtimeAfterSuccess, new Error("HTTP 401 invalid
 const runtimeAfterFailure = await getAiCredentialRuntime(second.id)
 assert.equal(runtimeAfterFailure.healthStatus, "unhealthy")
 assert.ok(runtimeAfterFailure.cooldownUntil)
+await updateAiCredentialHealth(second.id, {
+  status: "unhealthy",
+  cooldownUntil: new Date(Date.now() - 60_000).toISOString(),
+})
+assert.deepEqual(
+  await getAiCredentialPoolCapacity({
+    vendor: "qwen",
+    module: "penetration",
+    model: "qwen-plus",
+    requiredCapabilities: ["native_web", "auditable_sources"],
+  }),
+  {
+    candidateCount: 0,
+    maxConcurrency: 0,
+    quotaGroupCount: 0,
+  },
+  "permanently unhealthy credentials must remain quarantined after cooldown expires",
+)
 
 await saveAiCredential({
   id: second.id,
@@ -202,6 +227,57 @@ assert.equal(runtimeAfterKeyRotation.healthStatus, "unchecked")
 assert.deepEqual(runtimeAfterKeyRotation.verifiedWebModels, [])
 assert.equal(runtimeAfterKeyRotation.verifiedCapabilities.includes("native_web"), false)
 assert.equal(runtimeAfterKeyRotation.verifiedCapabilities.includes("auditable_sources"), false)
+
+async function createKimiAccount(label: string, secret: string) {
+  const saved = await saveAiCredential({
+    vendor: "kimi",
+    name: `Kimi ${label}`,
+    accountLabel: label,
+    quotaGroup: `kimi-${label}`,
+    baseUrl: "https://api.moonshot.cn/v1",
+    chatPath: "/chat/completions",
+    apiKey: secret,
+    enabled: false,
+    priority: label.startsWith("1") ? 1 : 2,
+    maxConcurrency: 1,
+    quotaGroupMaxConcurrency: 1,
+    allowedModels: ["kimi-k2.6"],
+    allowedModules: ["penetration"],
+    declaredCapabilities: ["chat"],
+  }, "admin-test")
+  await updateAiCredentialHealth(saved.id, {
+    status: "healthy",
+    verifiedCapabilities: ["chat"],
+    consecutiveFailures: 0,
+  })
+  await setAiCredentialEnabled(saved.id, true, "admin-test")
+  return saved
+}
+
+const kimiFirst = await createKimiAccount("1号账号", "sk-kimi-rate-account-one")
+const kimiSecond = await createKimiAccount("2号账号", "sk-kimi-rate-account-two")
+const kimiRequest = {
+  vendor: "kimi" as const,
+  module: "penetration" as const,
+  model: "kimi-k2.6",
+  requiredCapabilities: ["chat" as const],
+  waitTimeoutMs: 0,
+}
+const kimiFirstLease = await acquireAiCredential(kimiRequest)
+assert.equal(kimiFirstLease.credential.id, kimiFirst.id)
+await kimiFirstLease.release()
+const kimiSecondLease = await acquireAiCredential(kimiRequest)
+assert.equal(
+  kimiSecondLease.credential.id,
+  kimiSecond.id,
+  "a second independent Kimi account should run while the first account is rate limited",
+)
+await kimiSecondLease.release()
+await assert.rejects(
+  () => acquireAiCredential(kimiRequest),
+  /任务较多/,
+  "strict Kimi tasks must reserve two upstream calls per account",
+)
 
 rmSync(tempDir, { recursive: true, force: true })
 console.log("AI multi-account credential storage, encryption, routing and shared quota gates passed")
