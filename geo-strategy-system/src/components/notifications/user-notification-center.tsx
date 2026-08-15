@@ -22,7 +22,10 @@ import type {
 
 const POLL_INTERVAL_MS = 20_000
 
-function notificationMeta(type: UserNotificationType) {
+function notificationMeta(
+  type: UserNotificationType,
+  metadata?: Record<string, unknown>,
+) {
   if (type === "penetration_automation_alert") {
     return {
       Icon: TriangleAlert,
@@ -41,7 +44,7 @@ function notificationMeta(type: UserNotificationType) {
     return {
       Icon: CalendarCheck2,
       iconClass: "bg-cyan-50 text-cyan-700 ring-cyan-200",
-      actionLabel: "去录入",
+      actionLabel: metadata?.canEdit === false ? "查看进度" : "去录入",
     }
   }
   if (type === "payment_request_credited") {
@@ -185,7 +188,7 @@ export function UserNotificationCenter({
               ) : (
                 <div className="space-y-2">
                   {snapshot.notifications.map(item => {
-                    const meta = notificationMeta(item.type)
+                    const meta = notificationMeta(item.type, item.metadata)
                     const Icon = meta.Icon
                     return (
                       <Link
@@ -226,7 +229,7 @@ export function UserNotificationCenter({
           <div className="p-4">
             <div className="flex items-start gap-3">
               {(() => {
-                const meta = notificationMeta(toast.type)
+                const meta = notificationMeta(toast.type, toast.metadata)
                 const Icon = meta.Icon
                 return <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 ${meta.iconClass}`}><Icon className="h-5 w-5" /></span>
               })()}
@@ -238,7 +241,7 @@ export function UserNotificationCenter({
             </div>
             <div className="mt-3 flex justify-end gap-2">
               <button type="button" onClick={() => setToast(null)} className="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100">稍后查看</button>
-              <Link href={toast.actionUrl || "/account"} onClick={() => { void markRead([toast.id]); setToast(null) }} className="rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 py-2 text-xs font-semibold text-white">{notificationMeta(toast.type).actionLabel}</Link>
+              <Link href={toast.actionUrl || "/account"} onClick={() => { void markRead([toast.id]); setToast(null) }} className="rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 py-2 text-xs font-semibold text-white">{notificationMeta(toast.type, toast.metadata).actionLabel}</Link>
             </div>
           </div>
         </aside>

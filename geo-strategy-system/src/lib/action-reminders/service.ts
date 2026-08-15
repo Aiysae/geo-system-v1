@@ -4,8 +4,9 @@ import { createHash } from "crypto"
 import { getUserById } from "@/lib/auth"
 import {
   getClientAccountSourceState,
+  listClientAccountLinks,
   listClientAccountLinksForOwner,
-  listClientAccountParentIds,
+  type ClientAccountLink,
 } from "@/lib/client-accounts"
 import {
   hasClientExecutionActionOnDate,
@@ -14,6 +15,7 @@ import {
 import { kv } from "@/lib/kv"
 import { notifyFeedbackActionReminder } from "@/lib/user-notifications"
 import { sendActionReminderEmail } from "@/lib/action-reminders/email"
+import { listTeamActionReminderAccesses } from "@/lib/team-store"
 
 export type ActionReminderSettings = {
   version: 1
@@ -25,6 +27,10 @@ export type ActionReminderClient = {
   clientId: string
   clientName: string
   dataOwnerUserId: string
+  accessMode: "personal" | "team"
+  canEdit: boolean
+  teamId?: string
+  teamName?: string
 }
 
 export type ActionReminderCandidate = {
@@ -44,6 +50,8 @@ export type ActionReminderDispatchRecord = {
   inAppStatus: "pending" | "sent" | "disabled"
   emailStatus: "pending" | "sent" | "disabled" | "unverified" | "failed"
   missingClientCount: number
+  editableClientCount?: number
+  teamCount?: number
   attempts: number
   createdAt: string
   updatedAt: string
@@ -62,6 +70,38 @@ const LOCK_TTL_SECONDS = 5 * 60
 const settingsKey = (userId: string) => `geo:action-reminder:settings:${userId}`
 const recordKey = (userId: string, date: string) => `geo:action-reminder:record:${date}:${userId}`
 const lockKey = (userId: string, date: string) => `geo:action-reminder:lock:${date}:${userId}`
+
+function reminderClientKey(input: {
+  dataOwnerUserId: string
+  clientId: string
+}): string {
+  return `${input.dataOwnerUserId}\u0000${input.clientId}`
+}
+
+async function filterActiveReminderLinks(
+  links: ClientAccountLink[],
+): Promise<ClientAccountLink[]> {
+  const active = await Promise.all(links.map(async link => (
+    link.status === "active" && (await getClientAccountSourceState(link)).ok
+      ? link
+      : null
+  )))
+  return active.filter((link): link is ClientAccountLink => Boolean(link))
+}
+
+async function listActiveReminderLinks(): Promise<ClientAccountLink[]> {
+  return filterActiveReminderLinks(await listClientAccountLinks())
+}
+
+async function listActiveReminderLinksForParents(
+  parentUserIds: readonly string[],
+): Promise<ClientAccountLink[]> {
+  const uniqueParentIds = [...new Set(parentUserIds.map(String).filter(Boolean))]
+  const groups = await Promise.all(uniqueParentIds.map(listClientAccountLinksForOwner))
+  const uniqueLinks = new Map<string, ClientAccountLink>()
+  for (const link of groups.flat()) uniqueLinks.set(link.userId, link)
+  return filterActiveReminderLinks([...uniqueLinks.values()])
+}
 
 function cleanDate(value: string): string {
   const date = String(value || "").trim()
@@ -107,16 +147,27 @@ export async function saveActionReminderSettings(
   return next
 }
 
+export async function listEligibleActionReminderRecipientIds(): Promise<string[]> {
+  const [activeLinks, teamAccesses] = await Promise.all([
+    listActiveReminderLinks(),
+    listTeamActionReminderAccesses(),
+  ])
+  const activeClientKeys = new Set(activeLinks.map(reminderClientKey))
+  const recipientIds = new Set(activeLinks.map(link => link.parentUserId))
+  for (const access of teamAccesses) {
+    if (activeClientKeys.has(reminderClientKey({
+      dataOwnerUserId: access.clientOwnerUserId,
+      clientId: access.clientId,
+    }))) {
+      recipientIds.add(access.userId)
+    }
+  }
+  return [...recipientIds].filter(Boolean).sort()
+}
+
+/** @deprecated Use the recipient-based name; kept for queued-job compatibility. */
 export async function listEligibleActionReminderOwnerIds(): Promise<string[]> {
-  const parentIds = await listClientAccountParentIds()
-  const eligible = await Promise.all(parentIds.map(async parentUserId => {
-    const links = await listClientAccountLinksForOwner(parentUserId)
-    const active = await Promise.all(links.map(async link => (
-      link.status === "active" && (await getClientAccountSourceState(link)).ok
-    )))
-    return active.some(Boolean) ? parentUserId : ""
-  }))
-  return eligible.filter(Boolean).sort()
+  return listEligibleActionReminderRecipientIds()
 }
 
 export async function buildActionReminderCandidate(
@@ -124,32 +175,57 @@ export async function buildActionReminderCandidate(
   dateValue = shanghaiDateOnly(),
 ): Promise<ActionReminderCandidate | null> {
   const date = cleanDate(dateValue)
-  const [user, links] = await Promise.all([
+  const [user, teamAccesses] = await Promise.all([
     getUserById(userId),
-    listClientAccountLinksForOwner(userId),
+    listTeamActionReminderAccesses(userId),
   ])
   if (!user || user.status !== "active") return null
+  const activeLinks = await listActiveReminderLinksForParents([
+    userId,
+    ...teamAccesses.map(access => access.teamOwnerUserId),
+  ])
 
-  const activeLinks = (await Promise.all(links.map(async link => (
-    link.status === "active" && (await getClientAccountSourceState(link)).ok
-      ? link
-      : null
-  )))).filter((link): link is NonNullable<typeof link> => Boolean(link))
-
+  const activeClientKeys = new Set(activeLinks.map(reminderClientKey))
   const uniqueClients = new Map<string, ActionReminderClient>()
-  for (const link of activeLinks) {
-    const key = `${link.dataOwnerUserId}\u0000${link.clientId}`
+  for (const link of activeLinks.filter(item => item.parentUserId === userId)) {
+    const key = reminderClientKey(link)
     if (!uniqueClients.has(key)) {
       uniqueClients.set(key, {
         clientId: link.clientId,
         clientName: link.clientName,
         dataOwnerUserId: link.dataOwnerUserId,
+        accessMode: link.sourceType === "team" ? "team" : "personal",
+        canEdit: true,
+        teamId: link.teamId,
       })
     }
   }
+  for (const access of teamAccesses) {
+    const key = reminderClientKey({
+      dataOwnerUserId: access.clientOwnerUserId,
+      clientId: access.clientId,
+    })
+    if (!activeClientKeys.has(key)) continue
+    const existing = uniqueClients.get(key)
+    if (existing?.accessMode === "personal") continue
+    if (existing?.canEdit && !access.canEdit) continue
+    uniqueClients.set(key, {
+      clientId: access.clientId,
+      clientName: access.clientName || existing?.clientName || "客户档案",
+      dataOwnerUserId: access.clientOwnerUserId,
+      accessMode: "team",
+      canEdit: access.canEdit,
+      teamId: access.teamId,
+      teamName: access.teamName,
+    })
+  }
   if (uniqueClients.size === 0) return null
 
-  const clients = [...uniqueClients.values()]
+  const clients = [...uniqueClients.values()].sort((left, right) => (
+    Number(right.canEdit) - Number(left.canEdit)
+    || String(left.teamName || "").localeCompare(String(right.teamName || ""), "zh-CN")
+    || left.clientName.localeCompare(right.clientName, "zh-CN")
+  ))
   const recorded = await Promise.all(clients.map(client => (
     hasClientExecutionActionOnDate(client.dataOwnerUserId, client.clientId, date)
   )))
@@ -178,7 +254,7 @@ export async function getActionReminderDispatchRecord(
   return await kv.get<ActionReminderDispatchRecord>(recordKey(userId, cleanDate(date)))
 }
 
-export async function dispatchActionReminderForOwner(
+export async function dispatchActionReminderForRecipient(
   userId: string,
   dateValue = shanghaiDateOnly(),
 ): Promise<ActionReminderDispatchRecord> {
@@ -226,6 +302,8 @@ export async function dispatchActionReminderForOwner(
       inAppStatus: settings.inAppEnabled ? "pending" : "disabled",
       emailStatus: settings.emailEnabled ? "pending" : "disabled",
       missingClientCount: candidate?.missingClients.length || 0,
+      editableClientCount: candidate?.missingClients.filter(client => client.canEdit).length || 0,
+      teamCount: new Set(candidate?.missingClients.map(client => client.teamId).filter(Boolean)).size,
       attempts: 0,
       createdAt: now,
       updatedAt: now,
@@ -244,6 +322,8 @@ export async function dispatchActionReminderForOwner(
       ...base,
       status: "pending",
       missingClientCount: candidate.missingClients.length,
+      editableClientCount: candidate.missingClients.filter(client => client.canEdit).length,
+      teamCount: new Set(candidate.missingClients.map(client => client.teamId).filter(Boolean)).size,
       attempts: base.attempts + 1,
       updatedAt: now,
     })
@@ -299,4 +379,12 @@ export async function dispatchActionReminderForOwner(
       await kv.del(lockKey(userId, date))
     }
   }
+}
+
+/** @deprecated Use dispatchActionReminderForRecipient. */
+export async function dispatchActionReminderForOwner(
+  userId: string,
+  dateValue = shanghaiDateOnly(),
+): Promise<ActionReminderDispatchRecord> {
+  return dispatchActionReminderForRecipient(userId, dateValue)
 }

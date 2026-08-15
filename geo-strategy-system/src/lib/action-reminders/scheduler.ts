@@ -8,18 +8,19 @@ import {
 } from "@/lib/task-queue"
 import { shanghaiDateOnly } from "@/lib/client-feedback/store"
 import {
-  dispatchActionReminderForOwner,
-  listEligibleActionReminderOwnerIds,
+  dispatchActionReminderForRecipient,
+  listEligibleActionReminderRecipientIds,
 } from "@/lib/action-reminders/service"
 import { kv } from "@/lib/kv"
 
 type ActionReminderQueuePayload =
   | { kind: "sweep"; date?: string }
+  | { kind: "recipient"; date: string; userId: string }
   | { kind: "owner"; date: string; userId: string }
 
 const SCHEDULER_ID = "geo-action-reminder-daily-v1"
 const SWEEP_JOB_NAME = "daily-action-reminder-sweep"
-const OWNER_JOB_NAME = "daily-action-reminder-owner"
+const RECIPIENT_JOB_NAME = "daily-action-reminder-recipient"
 const SWEEP_COMPLETE_TTL_SECONDS = 60 * 60 * 48
 const SWEEP_LOCK_TTL_SECONDS = 15 * 60
 
@@ -71,12 +72,12 @@ function sweepLockKey(date: string): string {
   return `geo:action-reminder:sweep-lock:${date}`
 }
 
-function ownerJobId(userId: string, date: string): string {
+function recipientJobId(userId: string, date: string): string {
   const digest = createHash("sha256")
     .update(`${userId}\u0000${date}`)
     .digest("hex")
     .slice(0, 32)
-  return `action-reminder-owner-${date.replace(/-/g, "")}-${digest}`
+  return `action-reminder-recipient-${date.replace(/-/g, "")}-${digest}`
 }
 
 function sweepJobId(date: string): string {
@@ -138,15 +139,15 @@ async function runSweep(dateValue?: string): Promise<void> {
   if (!locked) return
 
   try {
-    const ownerIds = await listEligibleActionReminderOwnerIds()
+    const recipientIds = await listEligibleActionReminderRecipientIds()
     const targetQueue = actionReminderQueue()
-    for (let index = 0; index < ownerIds.length; index += 500) {
-      const chunk = ownerIds.slice(index, index + 500)
+    for (let index = 0; index < recipientIds.length; index += 500) {
+      const chunk = recipientIds.slice(index, index + 500)
       await targetQueue.addBulk(chunk.map(userId => ({
-        name: OWNER_JOB_NAME,
-        data: { kind: "owner" as const, date, userId },
+        name: RECIPIENT_JOB_NAME,
+        data: { kind: "recipient" as const, date, userId },
         opts: {
-          jobId: ownerJobId(userId, date),
+          jobId: recipientJobId(userId, date),
           attempts: 3,
           backoff: { type: "exponential" as const, delay: 60_000 },
         },
@@ -154,7 +155,7 @@ async function runSweep(dateValue?: string): Promise<void> {
     }
     await kv.set(sweepCompleteKey(date), {
       date,
-      ownerCount: ownerIds.length,
+      recipientCount: recipientIds.length,
       completedAt: new Date().toISOString(),
     }, { ex: SWEEP_COMPLETE_TTL_SECONDS })
   } finally {
@@ -171,7 +172,7 @@ async function processActionReminderJob(
     await runSweep(job.data.date)
     return
   }
-  await dispatchActionReminderForOwner(job.data.userId, job.data.date)
+  await dispatchActionReminderForRecipient(job.data.userId, job.data.date)
 }
 
 export function createActionReminderWorker(): Worker<ActionReminderQueuePayload> {

@@ -231,6 +231,8 @@ try {
     "feedback.report.manage",
     "feedback.profile.update",
     "feedback.visibility.update",
+    "feedback.reminder-settings.get",
+    "feedback.reminder-settings.update",
   ]) {
     assert.ok(
       AGENT_ACTIONS.some(action => action.name === actionName),
@@ -541,6 +543,29 @@ try {
   })
   assert.equal(profileUpdate.status, 200)
   assert.equal((await profileUpdate.json()).data.result.profile.stageProgress, 45)
+
+  const reminderSettingsUpdate = await callAgentAction("feedback.reminder-settings.update", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_reminder_update_0001",
+    emailEnabled: false,
+    inAppEnabled: true,
+  })
+  assert.equal(reminderSettingsUpdate.status, 200)
+  assert.deepEqual((await reminderSettingsUpdate.json()).data.result.settings, {
+    version: 1,
+    emailEnabled: false,
+    inAppEnabled: true,
+  })
+  const reminderSettingsGet = await callAgentAction("feedback.reminder-settings.get", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_reminder_get_0001",
+  })
+  assert.equal(reminderSettingsGet.status, 200)
+  assert.deepEqual((await reminderSettingsGet.json()).data.result.settings, {
+    version: 1,
+    emailEnabled: false,
+    inAppEnabled: true,
+  })
 
   const fullToken = await createAgentToken({
     ownerUserId: user.id,

@@ -113,6 +113,8 @@ export type AgentActionName =
   | "feedback.report.manage"
   | "feedback.profile.update"
   | "feedback.visibility.update"
+  | "feedback.reminder-settings.get"
+  | "feedback.reminder-settings.update"
   | "report.create"
 
 export type AgentAccessMode = "admin" | "vip4" | "all"

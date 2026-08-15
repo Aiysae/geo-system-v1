@@ -931,7 +931,7 @@ function SettingsTab({ user, setUser, isAdmin, showActionReminders }: {
 
       {showActionReminders ? (
         <section className="grid overflow-hidden rounded-lg border border-[#D8E7F7] bg-white shadow-sm lg:grid-cols-[240px_1fr]">
-          <SettingHeading icon={BellRing} title="动作录入提醒" detail="每天 22:00，仅在还有客户未录入当天动作时提醒。" />
+          <SettingHeading icon={BellRing} title="动作录入提醒" detail="每天 22:00，检查您负责或团队共享给您的客户当天是否已录入动作。" />
           <div className="divide-y divide-slate-100 border-t border-slate-100 lg:border-l lg:border-t-0">
             <NotificationSettingRow
               icon={Mail}
