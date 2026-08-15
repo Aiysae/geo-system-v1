@@ -6,6 +6,7 @@ import { createHash, randomBytes, randomUUID } from "crypto"
 import { Pool } from "pg"
 import {
   ALL_TEAM_PERMISSIONS,
+  hasTeamPermission,
   normalizeTeamPermissions,
   type TeamMemberStatus,
   type TeamPermissionKey,
@@ -17,6 +18,7 @@ import { TEAM_SCHEMA_SQL } from "@/lib/team-schema"
 import type {
   TeamAuditAction,
   TeamAuditRecord,
+  TeamActionReminderAccess,
   TeamClientAccess,
   TeamClientShareRecord,
   TeamInviteRecord,
@@ -92,6 +94,20 @@ type TeamAuditRow = {
   created_at: string | Date
 }
 
+type TeamActionReminderRow = {
+  team_id: string
+  team_name: string
+  team_owner_user_id: string
+  user_id: string
+  role: TeamRole
+  permission_keys: unknown
+  client_owner_user_id: string
+  client_id: string
+  client_name: string
+  scope: TeamShareScope
+  member_user_ids: unknown
+}
+
 const DEFAULT_FILE_PATH = process.env.NODE_ENV === "production"
   ? "/var/lib/geo-system/teams.json"
   : path.join(/* turbopackIgnore: true */ process.cwd(), ".data", "teams.json")
@@ -124,6 +140,13 @@ function pool(): Pool {
     console.error(`[team-db] ${error.message}`)
   })
   return teamGlobal.__geoTeamPool
+}
+
+export async function closeTeamStoreConnection(): Promise<void> {
+  const activePool = teamGlobal.__geoTeamPool
+  teamGlobal.__geoTeamPool = undefined
+  teamGlobal.__geoTeamSchemaPromise = undefined
+  if (activePool) await activePool.end()
 }
 
 export async function ensureTeamSchema(): Promise<void> {
@@ -938,6 +961,125 @@ function shareVisibleToMember(
 ): boolean {
   if (member.role === "owner") return true
   return share.scope === "all" || share.memberUserIds.includes(member.userId)
+}
+
+function actionReminderAccess(input: {
+  teamId: string
+  teamName: string
+  teamOwnerUserId: string
+  userId: string
+  role: TeamRole
+  permissionKeys: unknown
+  clientOwnerUserId: string
+  clientId: string
+  clientName: string
+  scope: TeamShareScope
+  memberUserIds: unknown
+}): TeamActionReminderAccess | null {
+  const memberUserIds = Array.isArray(input.memberUserIds)
+    ? input.memberUserIds.map(String).filter(Boolean)
+    : []
+  if (
+    input.role !== "owner"
+    && input.scope === "selected"
+    && !memberUserIds.includes(input.userId)
+  ) return null
+  const permissionKeys = input.role === "owner"
+    ? [...ALL_TEAM_PERMISSIONS]
+    : normalizeTeamPermissions(input.permissionKeys)
+  if (!hasTeamPermission(permissionKeys, "feedback", "view")) return null
+  return {
+    teamId: input.teamId,
+    teamName: input.teamName,
+    teamOwnerUserId: input.teamOwnerUserId,
+    userId: input.userId,
+    clientOwnerUserId: input.clientOwnerUserId,
+    clientId: input.clientId,
+    clientName: input.clientName,
+    permissionKeys,
+    canEdit: hasTeamPermission(permissionKeys, "feedback", "edit")
+      || hasTeamPermission(permissionKeys, "feedback", "manage"),
+  }
+}
+
+export async function listTeamActionReminderAccesses(
+  userId?: string,
+): Promise<TeamActionReminderAccess[]> {
+  const normalizedUserId = String(userId || "").trim()
+  if (backend() === "postgres") {
+    await ensureTeamSchema()
+    const result = await pool().query<TeamActionReminderRow>(
+      `SELECT
+         t.id AS team_id,
+         t.name AS team_name,
+         t.owner_user_id AS team_owner_user_id,
+         m.user_id,
+         m.role,
+         m.permission_keys,
+         s.client_owner_user_id,
+         s.client_id,
+         s.client_name,
+         s.scope,
+         s.member_user_ids
+       FROM geo_teams_v1 t
+       INNER JOIN geo_team_members_v1 m ON m.team_id = t.id
+       INNER JOIN geo_team_client_shares_v1 s ON s.team_id = t.id
+       WHERE t.status = 'active'
+         AND m.status = 'active'
+         AND ($1::text = '' OR m.user_id = $1)
+       ORDER BY m.user_id, t.updated_at DESC, s.updated_at DESC`,
+      [normalizedUserId],
+    )
+    return result.rows
+      .map(row => actionReminderAccess({
+        teamId: row.team_id,
+        teamName: row.team_name,
+        teamOwnerUserId: row.team_owner_user_id,
+        userId: row.user_id,
+        role: row.role,
+        permissionKeys: row.permission_keys,
+        clientOwnerUserId: row.client_owner_user_id,
+        clientId: row.client_id,
+        clientName: row.client_name,
+        scope: row.scope,
+        memberUserIds: row.member_user_ids,
+      }))
+      .filter((access): access is TeamActionReminderAccess => Boolean(access))
+  }
+
+  return withFileState(state => {
+    const results: TeamActionReminderAccess[] = []
+    for (const member of Object.values(state.members)) {
+      if (
+        member.status !== "active"
+        || (normalizedUserId && member.userId !== normalizedUserId)
+      ) continue
+      const team = state.teams[member.teamId]
+      if (!team || team.status !== "active") continue
+      const shares = Object.values(state.shares).filter(share => share.teamId === team.id)
+      for (const share of shares) {
+        const access = actionReminderAccess({
+          teamId: team.id,
+          teamName: team.name,
+          teamOwnerUserId: team.ownerUserId,
+          userId: member.userId,
+          role: member.role,
+          permissionKeys: member.permissionKeys,
+          clientOwnerUserId: share.clientOwnerUserId,
+          clientId: share.clientId,
+          clientName: share.clientName,
+          scope: share.scope,
+          memberUserIds: share.memberUserIds,
+        })
+        if (access) results.push(access)
+      }
+    }
+    return results.sort((left, right) => (
+      left.userId.localeCompare(right.userId)
+      || left.teamId.localeCompare(right.teamId)
+      || left.clientId.localeCompare(right.clientId)
+    ))
+  })
 }
 
 export async function listAccessibleTeamClientShares(

@@ -102,3 +102,15 @@ export type TeamClientAccess = {
   permissionKeys: TeamPermissionKey[]
   billingUserId: string
 }
+
+export type TeamActionReminderAccess = {
+  teamId: string
+  teamName: string
+  teamOwnerUserId: string
+  userId: string
+  clientOwnerUserId: string
+  clientId: string
+  clientName: string
+  permissionKeys: TeamPermissionKey[]
+  canEdit: boolean
+}

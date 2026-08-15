@@ -84,6 +84,8 @@ try {
     "shitu_manage_feedback_report",
     "shitu_update_feedback_profile",
     "shitu_update_feedback_visibility",
+    "shitu_get_feedback_reminder_settings",
+    "shitu_update_feedback_reminder_settings",
     "shitu_get_article_settings",
     "shitu_list_article_batches",
     "shitu_get_article_batch_zip",
@@ -96,6 +98,10 @@ try {
   )
   assert.equal(
     tools.tools.find(tool => tool.name === "shitu_delete_penetration_automation")?.annotations?.destructiveHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_get_feedback_reminder_settings")?.annotations?.readOnlyHint,
     true,
   )
   const articleToolSchema = tools.tools.find(

@@ -135,22 +135,30 @@ export async function notifyFeedbackActionReminder(input: {
     clientId: string
     clientName: string
     dataOwnerUserId: string
+    accessMode: "personal" | "team"
+    canEdit: boolean
+    teamId?: string
+    teamName?: string
   }>
 }): Promise<UserNotification> {
-  const first = input.clients[0]
+  const first = input.clients.find(client => client.canEdit) || input.clients[0]
   const names = input.clients.slice(0, 3).map(client => client.clientName)
   const remainder = Math.max(0, input.clients.length - names.length)
+  const canEdit = input.clients.some(client => client.canEdit)
   const body = input.clients.length === 1
-    ? `${names[0]}今天还没有动作记录，请及时完善执行反馈。`
-    : `今天还有 ${input.clients.length} 个客户待录入：${names.join("、")}${remainder > 0 ? `，另有 ${remainder} 个客户` : ""}。`
+    ? canEdit
+      ? `${names[0]}今天还没有动作记录，请及时完善执行反馈。`
+      : `${names[0]}今天还没有动作记录，可进入执行反馈查看当前进度。`
+    : `今天还有 ${input.clients.length} 个客户没有动作记录：${names.join("、")}${remainder > 0 ? `，另有 ${remainder} 个客户` : ""}。`
   const params = new URLSearchParams({ module: "feedback" })
   if (first?.clientId) params.set("clientId", first.clientId)
+  if (first?.teamId) params.set("teamId", first.teamId)
 
   return await saveUserNotification({
     id: feedbackReminderNotificationId(input.userId, input.date),
     userId: input.userId,
     type: "feedback_action_reminder",
-    title: "今晚的执行动作还未录完",
+    title: canEdit ? "今晚的执行动作还未录完" : "客户执行动作尚未录入",
     body,
     actionUrl: `/workspace?${params.toString()}`,
     entityType: "client_feedback_reminder",
@@ -162,6 +170,9 @@ export async function notifyFeedbackActionReminder(input: {
       missingClientCount: input.clients.length,
       clientIds: input.clients.map(client => client.clientId),
       dataOwnerUserIds: input.clients.map(client => client.dataOwnerUserId),
+      teamIds: [...new Set(input.clients.map(client => client.teamId).filter(Boolean))],
+      editableClientCount: input.clients.filter(client => client.canEdit).length,
+      canEdit,
     },
   })
 }

@@ -379,6 +379,26 @@ async function routeForAction(
       },
     }
   }
+  if (action === "feedback.reminder-settings.get") {
+    const route = await import("@/app/api/account/notification-settings/route")
+    return {
+      path: "/api/account/notification-settings",
+      handler: route.GET,
+      method: "GET",
+    }
+  }
+  if (action === "feedback.reminder-settings.update") {
+    const route = await import("@/app/api/account/notification-settings/route")
+    return {
+      path: "/api/account/notification-settings",
+      handler: route.PATCH,
+      method: "PATCH",
+      payload: {
+        emailEnabled: payload.emailEnabled,
+        inAppEnabled: payload.inAppEnabled,
+      },
+    }
+  }
   if (action === "report.create") {
     const route = await import("@/app/api/reports/jobs/route")
     return { path: "/api/reports/jobs", handler: route.POST, payload }

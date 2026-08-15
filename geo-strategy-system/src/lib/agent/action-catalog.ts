@@ -653,6 +653,19 @@ const feedbackVisibilityUpdateSchema = z.looseObject({
   { message: "请至少选择一条执行动作", path: ["actionIds"] },
 )
 
+const feedbackReminderSettingsGetSchema = z.looseObject({
+  ...clientContextShape,
+})
+
+const feedbackReminderSettingsUpdateSchema = z.looseObject({
+  ...clientContextShape,
+  emailEnabled: z.boolean().optional(),
+  inAppEnabled: z.boolean().optional(),
+}).refine(
+  value => value.emailEnabled !== undefined || value.inAppEnabled !== undefined,
+  { message: "请至少提供一项提醒设置", path: ["emailEnabled"] },
+)
+
 const knowledgeImportSchema = z.looseObject({
   ...clientContextShape,
   files: z.array(z.object({
@@ -1078,6 +1091,27 @@ export const AGENT_ACTION_REGISTRY = {
     billable: false,
     schema: feedbackVisibilityUpdateSchema,
   },
+  "feedback.reminder-settings.get": {
+    mcpTool: "shitu_get_feedback_reminder_settings",
+    title: "读取动作录入提醒设置",
+    description: "读取当前账号每天 22:00 的邮件和站内动作录入提醒开关。clientId 仅用于校验执行反馈查看权限。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.view",
+    billable: false,
+    readOnly: true,
+    schema: feedbackReminderSettingsGetSchema,
+  },
+  "feedback.reminder-settings.update": {
+    mcpTool: "shitu_update_feedback_reminder_settings",
+    title: "更新动作录入提醒设置",
+    description: "更新当前账号每天 22:00 的邮件或站内动作录入提醒开关。clientId 仅用于校验执行反馈编辑权限。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.edit",
+    billable: false,
+    schema: feedbackReminderSettingsUpdateSchema,
+  },
   "report.create": {
     mcpTool: "shitu_create_professional_report",
     title: "生成专业报告",
@@ -1387,6 +1421,10 @@ export function estimateAgentAction(
       return { ...context, scope: "feedback.edit", units: 1, credits: 0, label: "更新客户执行计划" }
     case "feedback.visibility.update":
       return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "更新客户动作可见范围" }
+    case "feedback.reminder-settings.get":
+      return { ...context, scope: "feedback.view", units: 1, credits: 0, label: "读取动作录入提醒设置" }
+    case "feedback.reminder-settings.update":
+      return { ...context, scope: "feedback.edit", units: 1, credits: 0, label: "更新动作录入提醒设置" }
     case "background.run": {
       const kind = input.kind
       if (!isBackgroundJobKind(kind)) throw new Error("后台任务 kind 无效")
