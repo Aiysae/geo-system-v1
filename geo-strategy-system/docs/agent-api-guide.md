@@ -119,7 +119,7 @@ CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频�
 
 ## 专用动作
 
-Agent 1.4 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
+Agent 1.5 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
 
 | 模块 | 动作 |
 | --- | --- |
@@ -129,7 +129,7 @@ Agent 1.4 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 | 难度测评 | `difficulty.run` |
 | 关键词策略 | `keyword.extract`、`keyword.advantages`、`keyword.strategy.run`、`keyword.website-prompt.run`、`keyword.questions.run` |
 | 文章生成 | `article.generate`、`article.rewrite`、`article.batch.run`、`article.strategy.plan`、`article.source.extract`、`article.brands.analyze`、`article.materials.list`、`article.materials.import`、`article.materials.delete`、`article.media.upload`、`article.media.run` |
-| 执行反馈 | `feedback.action.create`、`feedback.actions.import`、`feedback.report.create`、`feedback.report.options`、`feedback.report.manage`、`feedback.profile.update`、`feedback.visibility.update` |
+| 执行反馈 | `feedback.action.create`、`feedback.actions.import`、`feedback.report.create`、`feedback.report.options`、`feedback.report.manage`、`feedback.profile.update`、`feedback.visibility.update`、`feedback.automation.get`、`feedback.automation.save`、`feedback.automation.set-status`、`feedback.automation.run`、`feedback.automation.retry`、`feedback.automation.delete` |
 | 客户资料库 | `knowledge.import`、`knowledge.commit` |
 | 专业报告 | `report.create` |
 
@@ -214,9 +214,17 @@ node shitu-geo.mjs articles batch --file video-batch.json
 3. `feedback.report.manage` 发布、停止分享或删除未发布草稿。
 4. `feedback.visibility.update` 控制客户能看到动作摘要还是完整检测报告。
 
+### 周报与月报自动报送
+
+1. `feedback.automation.save` 设置项目起止日期、周报/月报开关、发送时间和 1–10 个收件邮箱。
+2. `feedback.automation.get` 读取当前计划与最近报送记录。
+3. `feedback.automation.run` 可立即生成当前周期的私密报告链接并发送邮件。
+4. `feedback.automation.retry` 只重试失败的收件人；`feedback.automation.set-status` 暂停或恢复计划。
+5. `feedback.automation.delete` 删除计划但不删除历史报告。
+
 生成文章前可调用 `GET /articles/settings` 或 MCP 工具 `shitu_get_article_settings`，读取当前实际可用的 Prompt、官方模型、中转站模型和默认模型，避免硬编码过期型号。
 
-Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，升级前创建的密钥不会自动获得该权限；需要发布链接或管理客户可见范围时，请在账号中心重新创建“完整授权”密钥。Agent 1.4 没有增加新权限，原有 `article.execute` 密钥即可调用新视频文案类型。
+Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，升级前创建的密钥不会自动获得该权限；需要发布链接、管理客户可见范围或配置自动报送时，请在账号中心重新创建“完整授权”密钥。Agent 1.4 和 1.5 没有增加新权限类型。
 
 ## 结果与文件
 

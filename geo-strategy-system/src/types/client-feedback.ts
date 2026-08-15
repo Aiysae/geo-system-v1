@@ -32,10 +32,11 @@ export type ClientExecutionActionCategory =
   | "other"
 
 export interface ClientExecutionProfile {
-  version: 1
+  version: 2
   ownerUserId: string
   clientId: string
   startDate: string
+  endDate?: string
   timezone: "Asia/Shanghai"
   periodMode: ClientExecutionPeriodMode
   currentStage: ClientExecutionStage
@@ -293,6 +294,98 @@ export interface ClientFeedbackReportOptions {
   suggestedBaselineHistoryRecordId?: string
   suggestedCurrentHistoryRecordId?: string
   truncated: boolean
+}
+
+export type ClientFeedbackAutomationStatus = "active" | "paused" | "completed"
+export type ClientFeedbackAutomationTrigger = "scheduled" | "manual"
+export type ClientFeedbackAutomationExecutionStatus =
+  | "pending"
+  | "running"
+  | "generated"
+  | "sent"
+  | "partial"
+  | "failed"
+  | "skipped"
+  | "cancelled"
+
+export interface ClientFeedbackAutomationPeriod extends ClientFeedbackPeriod {
+  dueAt: string
+  final: boolean
+}
+
+export interface ClientFeedbackAutomationSchedule {
+  id: string
+  ownerUserId: string
+  clientId: string
+  clientName: string
+  createdByUserId: string
+  actorUserId: string
+  teamId?: string
+  status: ClientFeedbackAutomationStatus
+  weeklyEnabled: boolean
+  monthlyEnabled: boolean
+  timeLocal: string
+  timezone: "Asia/Shanghai"
+  startDate: string
+  endDate: string
+  periodMode: ClientExecutionPeriodMode
+  recipientEmails: string[]
+  sendEmptyReports: boolean
+  finalReportEnabled: boolean
+  nextRunAt?: string
+  lastWeeklyPeriodEnd?: string
+  lastMonthlyPeriodEnd?: string
+  lastStartedAt?: string
+  lastCompletedAt?: string
+  lastExecutionId?: string
+  consecutiveFailures: number
+  lastError?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ClientFeedbackAutomationDeliveryResult {
+  email: string
+  status: "pending" | "sent" | "failed"
+  sentAt?: string
+  error?: string
+}
+
+export interface ClientFeedbackAutomationReportResult {
+  type: ClientFeedbackReportType
+  periodStart: string
+  periodEnd: string
+  label: string
+  reportId?: string
+  sharePath?: string
+}
+
+export interface ClientFeedbackAutomationExecution {
+  id: string
+  scheduleId: string
+  ownerUserId: string
+  clientId: string
+  clientName: string
+  actorUserId: string
+  teamId?: string
+  trigger: ClientFeedbackAutomationTrigger
+  scheduledFor: string
+  periods: ClientFeedbackAutomationPeriod[]
+  status: ClientFeedbackAutomationExecutionStatus
+  attemptCount: number
+  nextAttemptAt?: string
+  reports: ClientFeedbackAutomationReportResult[]
+  deliveries: ClientFeedbackAutomationDeliveryResult[]
+  error?: string
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
+  updatedAt: string
+}
+
+export interface ClientFeedbackAutomationSnapshot {
+  schedule: ClientFeedbackAutomationSchedule | null
+  executions: ClientFeedbackAutomationExecution[]
 }
 
 export interface ClientFeedbackActionDaySummary {

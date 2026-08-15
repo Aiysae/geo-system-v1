@@ -627,6 +627,7 @@ const feedbackProfileUpdateSchema = z.looseObject({
   ...clientContextShape,
   patch: z.looseObject({
     startDate: z.string().optional(),
+    endDate: z.string().optional(),
     periodMode: z.enum(["service", "calendar"]).optional(),
     currentStage: z.enum([
       "baseline",
@@ -641,6 +642,46 @@ const feedbackProfileUpdateSchema = z.looseObject({
     expectedDurationDays: z.number().int().min(1).max(3_650).optional(),
     nextPlan: z.array(z.string().max(300)).max(100).optional(),
   }),
+})
+
+const feedbackAutomationGetSchema = z.looseObject({
+  ...clientContextShape,
+})
+
+const feedbackAutomationSaveSchema = z.looseObject({
+  ...clientContextShape,
+  weeklyEnabled: z.boolean().optional().default(true),
+  monthlyEnabled: z.boolean().optional().default(true),
+  timeLocal: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().default("10:00"),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  periodMode: z.enum(["service", "calendar"]).optional().default("service"),
+  recipientEmails: z.array(z.string().email().max(254)).min(1).max(10),
+  sendEmptyReports: z.boolean().optional().default(true),
+  finalReportEnabled: z.boolean().optional().default(true),
+}).refine(
+  value => value.weeklyEnabled || value.monthlyEnabled,
+  { message: "请至少开启周报或月报", path: ["weeklyEnabled"] },
+).refine(
+  value => value.endDate >= value.startDate,
+  { message: "结束日期不能早于开始日期", path: ["endDate"] },
+)
+
+const feedbackAutomationScheduleSchema = z.looseObject({
+  ...clientContextShape,
+  scheduleId: z.string().min(1).max(240),
+})
+
+const feedbackAutomationStatusSchema = z.looseObject({
+  ...clientContextShape,
+  scheduleId: z.string().min(1).max(240),
+  operation: z.enum(["pause", "resume"]),
+})
+
+const feedbackAutomationRetrySchema = z.looseObject({
+  ...clientContextShape,
+  scheduleId: z.string().min(1).max(240),
+  executionId: z.string().min(1).max(240),
 })
 
 const feedbackVisibilityUpdateSchema = z.looseObject({
@@ -1091,6 +1132,68 @@ export const AGENT_ACTION_REGISTRY = {
     billable: false,
     schema: feedbackVisibilityUpdateSchema,
   },
+  "feedback.automation.get": {
+    mcpTool: "shitu_get_feedback_automation",
+    title: "读取反馈报告自动报送计划",
+    description: "读取指定客户的周报、月报自动报送设置和最近运行记录。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    readOnly: true,
+    schema: feedbackAutomationGetSchema,
+  },
+  "feedback.automation.save": {
+    mcpTool: "shitu_save_feedback_automation",
+    title: "保存周报与月报自动报送计划",
+    description: "设置客户执行周期、周报或月报频率、发送时间和收件邮箱。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    schema: feedbackAutomationSaveSchema,
+  },
+  "feedback.automation.set-status": {
+    mcpTool: "shitu_set_feedback_automation_status",
+    title: "暂停或恢复反馈报告自动报送",
+    description: "暂停或恢复指定客户的周报、月报自动报送计划。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    schema: feedbackAutomationStatusSchema,
+  },
+  "feedback.automation.run": {
+    mcpTool: "shitu_run_feedback_automation",
+    title: "立即生成并报送当前反馈报告",
+    description: "立即按当前周期生成私密周报或月报链接，并发送到计划中的邮箱。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    schema: feedbackAutomationScheduleSchema,
+  },
+  "feedback.automation.retry": {
+    mcpTool: "shitu_retry_feedback_automation",
+    title: "重试失败的反馈报告报送",
+    description: "重试失败或部分发送的报告任务，已成功送达的收件人不会重复发送。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    schema: feedbackAutomationRetrySchema,
+  },
+  "feedback.automation.delete": {
+    mcpTool: "shitu_delete_feedback_automation",
+    title: "删除反馈报告自动报送计划",
+    description: "删除指定客户的自动报送计划，已生成的历史报告仍会保留。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    destructive: true,
+    schema: feedbackAutomationScheduleSchema,
+  },
   "feedback.reminder-settings.get": {
     mcpTool: "shitu_get_feedback_reminder_settings",
     title: "读取动作录入提醒设置",
@@ -1421,6 +1524,18 @@ export function estimateAgentAction(
       return { ...context, scope: "feedback.edit", units: 1, credits: 0, label: "更新客户执行计划" }
     case "feedback.visibility.update":
       return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "更新客户动作可见范围" }
+    case "feedback.automation.get":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "读取反馈报告自动报送计划" }
+    case "feedback.automation.save":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "保存反馈报告自动报送计划" }
+    case "feedback.automation.set-status":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "更新反馈报告自动报送状态" }
+    case "feedback.automation.run":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "立即报送当前反馈报告" }
+    case "feedback.automation.retry":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "重试失败的反馈报告报送" }
+    case "feedback.automation.delete":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "删除反馈报告自动报送计划" }
     case "feedback.reminder-settings.get":
       return { ...context, scope: "feedback.view", units: 1, credits: 0, label: "读取动作录入提醒设置" }
     case "feedback.reminder-settings.update":

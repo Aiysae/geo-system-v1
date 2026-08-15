@@ -30,6 +30,7 @@ import {
 } from "lucide-react"
 import BatchEvidenceImportDialog from "@/components/client-feedback/batch-evidence-import-dialog"
 import ClientFeedbackReportView from "@/components/client-feedback/client-feedback-report-view"
+import FeedbackAutomationPanel from "@/components/client-feedback/feedback-automation-panel"
 import type { Client } from "@/types"
 import {
   groupClientExecutionActions,
@@ -336,6 +337,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         body: JSON.stringify({
           patch: {
             startDate: profileDraft.startDate,
+            endDate: profileDraft.endDate,
             periodMode: profileDraft.periodMode,
             currentStage: profileDraft.currentStage,
             stageProgress: profileDraft.stageProgress,
@@ -711,7 +713,9 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             </div>
             <h2 className="mt-3 break-words text-2xl font-bold">{client.name}</h2>
             <p className="mt-2 text-xs text-cyan-50/75">
-              正式执行日期 {payload.profile.startDate} · {payload.profile.periodMode === "service" ? "按服务周期" : "按自然周期"}
+              正式执行日期 {payload.profile.startDate}
+              {payload.profile.endDate ? ` 至 ${payload.profile.endDate}` : ""}
+              {" · "}{payload.profile.periodMode === "service" ? "按服务周期" : "按自然周期"}
             </p>
           </div>
           {[
@@ -744,6 +748,9 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
               <button type="button" onClick={() => setBatchImportOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#79D6E8] bg-[#F0FCFF] px-3 text-xs font-semibold text-[#007A99] transition hover:bg-[#E4F9FD]">
                 <FileUp className="h-3.5 w-3.5" />批量导入网址
               </button>
+              {payload.canManageVisibility ? (
+                <FeedbackAutomationPanel key={client.id} client={client} profile={payload.profile} onChanged={() => void load(true)} />
+              ) : null}
               <button type="button" onClick={() => setSettingsOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white">
                 <Settings2 className="h-3.5 w-3.5" />执行设置
               </button>
@@ -1208,11 +1215,12 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#00133F]/58 p-3 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-2xl">
             <header className="flex items-center justify-between border-b border-[#E3EDF6] px-5 py-4">
-              <div><h3 className="text-base font-semibold">执行设置</h3><p className="mt-1 text-xs text-[#7E91A7]">开始日期决定服务进度，反馈报告固定回溯近 7 天或近 30 天</p></div>
+              <div><h3 className="text-base font-semibold">执行设置</h3><p className="mt-1 text-xs text-[#7E91A7]">开始与结束日期共同确定服务周期，自动报送会按该周期生成周报和月报</p></div>
               <button type="button" onClick={() => setSettingsOpen(false)} className="rounded-md p-2 hover:bg-[#EEF5FC]" aria-label="关闭"><X className="h-4 w-4" /></button>
             </header>
             <div className="grid gap-4 p-5 sm:grid-cols-2">
               <label className="space-y-1.5 text-xs font-semibold">正式执行日期<input type="date" value={profileDraft.startDate} onChange={event => setProfileDraft({ ...profileDraft, startDate: event.target.value })} className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]" /></label>
+              <label className="space-y-1.5 text-xs font-semibold">正式结束日期<input type="date" min={profileDraft.startDate} value={profileDraft.endDate || ""} onChange={event => setProfileDraft({ ...profileDraft, endDate: event.target.value || undefined })} className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]" /></label>
               <label className="space-y-1.5 text-xs font-semibold">进度编号方式<select value={profileDraft.periodMode} onChange={event => setProfileDraft({ ...profileDraft, periodMode: event.target.value === "calendar" ? "calendar" : "service" })} className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]"><option value="service">从正式执行日计算</option><option value="calendar">按自然周 / 自然月计算</option></select></label>
               <label className="space-y-1.5 text-xs font-semibold">当前阶段<select value={profileDraft.currentStage} onChange={event => setProfileDraft({ ...profileDraft, currentStage: event.target.value as ClientExecutionStage })} className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]">{STAGE_OPTIONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
               <label className="space-y-1.5 text-xs font-semibold">项目负责人<input value={profileDraft.projectOwner} onChange={event => setProfileDraft({ ...profileDraft, projectOwner: event.target.value })} placeholder="负责人姓名" className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]" /></label>

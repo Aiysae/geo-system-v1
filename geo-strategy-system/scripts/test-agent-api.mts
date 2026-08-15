@@ -13,6 +13,8 @@ process.env.AGENT_STORE = "file"
 process.env.AGENT_FILE = path.join(directory, "agents.json")
 process.env.PENETRATION_AUTOMATION_STORE = "file"
 process.env.PENETRATION_AUTOMATION_FILE = path.join(directory, "penetration-automations.json")
+process.env.CLIENT_FEEDBACK_AUTOMATION_STORE = "file"
+process.env.CLIENT_FEEDBACK_AUTOMATION_FILE = path.join(directory, "feedback-automations.json")
 process.env.AUTH_SECRET = "agent-test-secret-with-at-least-thirty-two-characters"
 process.env.ADMIN_EMAILS = "agent-admin@example.com"
 process.env.AGENT_API_ENABLED = "true"
@@ -208,7 +210,7 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.4")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.5")
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
@@ -231,6 +233,12 @@ try {
     "feedback.report.manage",
     "feedback.profile.update",
     "feedback.visibility.update",
+    "feedback.automation.get",
+    "feedback.automation.save",
+    "feedback.automation.set-status",
+    "feedback.automation.run",
+    "feedback.automation.retry",
+    "feedback.automation.delete",
     "feedback.reminder-settings.get",
     "feedback.reminder-settings.update",
   ]) {
@@ -584,6 +592,35 @@ try {
     publication: "full",
   }, fullToken.token)
   assert.equal(visibilityUpdate.status, 200)
+  const feedbackAutomationSave = await callAgentAction("feedback.automation.save", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_automation_save_0001",
+    weeklyEnabled: true,
+    monthlyEnabled: true,
+    timeLocal: "10:00",
+    startDate: "2026-08-01",
+    endDate: "2026-12-31",
+    periodMode: "service",
+    recipientEmails: ["agent-customer@example.com"],
+    sendEmptyReports: true,
+    finalReportEnabled: true,
+  }, fullToken.token)
+  assert.equal(feedbackAutomationSave.status, 201)
+  const feedbackScheduleId = (await feedbackAutomationSave.json()).data.result.schedule.id as string
+  const feedbackAutomationGet = await callAgentAction("feedback.automation.get", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_automation_get_0001",
+  }, fullToken.token)
+  assert.equal(feedbackAutomationGet.status, 200)
+  assert.equal((await feedbackAutomationGet.json()).data.result.schedule.id, feedbackScheduleId)
+  const feedbackAutomationPause = await callAgentAction("feedback.automation.set-status", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_automation_pause_0001",
+    scheduleId: feedbackScheduleId,
+    operation: "pause",
+  }, fullToken.token)
+  assert.equal(feedbackAutomationPause.status, 200)
+  assert.equal((await feedbackAutomationPause.json()).data.result.schedule.status, "paused")
   const draftReport = await callAgentAction("feedback.report.create", {
     clientId: "client-agent-test",
     requestId: "agent_feedback_report_0001",
@@ -607,6 +644,13 @@ try {
     operation: "revoke-share",
   }, fullToken.token)
   assert.equal(reportRevoke.status, 200)
+
+  const feedbackAutomationDelete = await callAgentAction("feedback.automation.delete", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_automation_delete_0001",
+    scheduleId: feedbackScheduleId,
+  }, fullToken.token)
+  assert.equal(feedbackAutomationDelete.status, 200)
 
   const automationDelete = await callAgentAction("penetration.automation.delete", {
     clientId: "client-agent-test",
@@ -699,7 +743,7 @@ try {
     externalDocs: { url: string }
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
-  assert.equal(openapi.info.version, "1.4.0")
+  assert.equal(openapi.info.version, "1.5.0")
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
   assert.ok(openapi.paths["/actions/penetration.automation.save"])
@@ -707,6 +751,8 @@ try {
   assert.ok(openapi.paths["/actions/article.strategy.plan"])
   assert.ok(openapi.paths["/actions/article.media.run"])
   assert.ok(openapi.paths["/actions/feedback.report.manage"])
+  assert.ok(openapi.paths["/actions/feedback.automation.save"])
+  assert.ok(openapi.paths["/actions/feedback.automation.retry"])
   assert.ok(openapi.paths["/actions/keyword.questions.run"])
   assert.ok(openapi.paths["/tasks/{taskId}/result"])
   assert.ok(openapi.paths["/tasks/{taskId}/cancel"])

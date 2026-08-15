@@ -104,6 +104,8 @@ BEGIN
        AND (
          current_definition NOT LIKE '%penetration_automation_alert%'
          OR current_definition NOT LIKE '%penetration_automation_attention%'
+         OR current_definition NOT LIKE '%feedback_report_sent%'
+         OR current_definition NOT LIKE '%feedback_report_attention%'
        ) THEN
       ALTER TABLE geo_user_notifications
         DROP CONSTRAINT geo_user_notifications_type_check;
@@ -115,7 +117,9 @@ BEGIN
           'payment_request_canceled',
           'feedback_action_reminder',
           'penetration_automation_alert',
-          'penetration_automation_attention'
+          'penetration_automation_attention',
+          'feedback_report_sent',
+          'feedback_report_attention'
         ));
     END IF;
   END IF;

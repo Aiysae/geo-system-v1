@@ -32,6 +32,13 @@ import {
   penetrationAutomationQueueName,
   registerPenetrationAutomationScheduler,
 } from "@/lib/penetration/automation-scheduler"
+import {
+  clientFeedbackAutomationQueueName,
+  closeClientFeedbackAutomationQueue,
+  createClientFeedbackAutomationWorker,
+  enqueueClientFeedbackAutomationCatchup,
+  registerClientFeedbackAutomationScheduler,
+} from "@/lib/client-feedback/automation-scheduler"
 
 function workerConcurrency(name: string, fallback: number): number {
   return Math.max(
@@ -71,6 +78,7 @@ const workerDefinitions = [
 ] as const
 const actionReminderWorker = createActionReminderWorker()
 const penetrationAutomationWorker = createPenetrationAutomationWorker()
+const clientFeedbackAutomationWorker = createClientFeedbackAutomationWorker()
 const prefix = String(process.env.TASK_QUEUE_PREFIX || "geo:bull")
 
 const workerStartedAt = new Date().toISOString()
@@ -108,6 +116,14 @@ async function writeWorkerHeartbeat(): Promise<void> {
         concurrency: Math.max(
           1,
           Math.min(4, Number(process.env.PENETRATION_AUTOMATION_WORKER_CONCURRENCY) || 2),
+        ),
+      },
+      {
+        lane: "notifications" as const,
+        queueName: clientFeedbackAutomationQueueName(),
+        concurrency: Math.max(
+          1,
+          Math.min(6, Number(process.env.CLIENT_FEEDBACK_AUTOMATION_CONCURRENCY) || 2),
         ),
       },
     ],
@@ -333,15 +349,19 @@ async function startWorker(): Promise<void> {
   await enqueueActionReminderCatchup()
   await registerPenetrationAutomationScheduler()
   await enqueuePenetrationAutomationCatchup()
+  await registerClientFeedbackAutomationScheduler()
+  await enqueueClientFeedbackAutomationCatchup()
   const runPromises = [
     ...workers.map(worker => worker.run()),
     actionReminderWorker.run(),
     penetrationAutomationWorker.run(),
+    clientFeedbackAutomationWorker.run(),
   ]
   await Promise.all([
     ...workers.map(worker => worker.waitUntilReady()),
     actionReminderWorker.waitUntilReady(),
     penetrationAutomationWorker.waitUntilReady(),
+    clientFeedbackAutomationWorker.waitUntilReady(),
   ])
   startWorkerHeartbeat()
   await recoverPendingTasks()
@@ -371,6 +391,8 @@ async function shutdown(signal: string): Promise<void> {
       closeActionReminderQueue(),
       penetrationAutomationWorker.close(),
       closePenetrationAutomationQueue(),
+      clientFeedbackAutomationWorker.close(),
+      closeClientFeedbackAutomationQueue(),
     ])
     clearTimeout(forceTimer)
     process.exit(0)

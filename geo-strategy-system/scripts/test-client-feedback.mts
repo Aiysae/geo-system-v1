@@ -37,6 +37,11 @@ const {
 } = await import("../src/lib/client-feedback/store")
 const { buildClientFeedbackReport } = await import("../src/lib/client-feedback/builder")
 const { selectFeedbackMetricRecords } = await import("../src/lib/client-feedback/metrics")
+const {
+  buildFeedbackAutomationPeriods,
+  dueFeedbackAutomationPeriods,
+  nextFeedbackAutomationRunAt,
+} = await import("../src/lib/client-feedback/automation-time")
 const { savePenetrationHistoryRecord } = await import("../src/lib/penetration/history-store")
 const {
   recordArticleGenerationAttribution,
@@ -91,6 +96,7 @@ try {
     updatedByUserId: actorUserId,
     patch: {
       startDate: "2026-01-31",
+      endDate: "2026-05-15",
       periodMode: "service",
       currentStage: "coverage_growth",
       stageProgress: 55,
@@ -104,6 +110,83 @@ try {
     serviceWeek: 5,
     serviceMonth: 2,
   })
+  assert.equal(profile.version, 2)
+  assert.equal(profile.endDate, "2026-05-15")
+
+  const serviceWeeks = buildFeedbackAutomationPeriods({
+    startDate: "2026-01-31",
+    endDate: "2026-02-10",
+    periodMode: "service",
+    type: "weekly",
+    timeLocal: "10:00",
+  })
+  assert.deepEqual(serviceWeeks.map(item => ({
+    start: item.start,
+    end: item.end,
+    final: item.final,
+    dueAt: item.dueAt,
+  })), [
+    { start: "2026-01-31", end: "2026-02-06", final: false, dueAt: "2026-02-07T02:00:00.000Z" },
+    { start: "2026-02-07", end: "2026-02-10", final: true, dueAt: "2026-02-11T02:00:00.000Z" },
+  ])
+
+  const serviceMonths = buildFeedbackAutomationPeriods({
+    startDate: "2024-01-31",
+    endDate: "2024-04-15",
+    periodMode: "service",
+    type: "monthly",
+    timeLocal: "09:30",
+  })
+  assert.deepEqual(serviceMonths.map(item => [item.start, item.end, item.final]), [
+    ["2024-01-31", "2024-02-28", false],
+    ["2024-02-29", "2024-03-30", false],
+    ["2024-03-31", "2024-04-15", true],
+  ])
+
+  const calendarMonths = buildFeedbackAutomationPeriods({
+    startDate: "2026-01-20",
+    endDate: "2026-03-05",
+    periodMode: "calendar",
+    type: "monthly",
+    timeLocal: "10:00",
+  })
+  assert.deepEqual(calendarMonths.map(item => [item.start, item.end, item.final]), [
+    ["2026-01-20", "2026-01-31", false],
+    ["2026-02-01", "2026-02-28", false],
+    ["2026-03-01", "2026-03-05", true],
+  ])
+
+  const duePeriods = dueFeedbackAutomationPeriods({
+    startDate: "2026-01-01",
+    endDate: "2026-02-15",
+    periodMode: "service",
+    timeLocal: "10:00",
+    weeklyEnabled: true,
+    monthlyEnabled: true,
+    finalReportEnabled: true,
+    now: new Date("2026-02-01T03:00:00.000Z"),
+  })
+  assert.equal(duePeriods.filter(item => item.type === "weekly").length, 4)
+  assert.equal(duePeriods.filter(item => item.type === "monthly").length, 1)
+  assert.equal(nextFeedbackAutomationRunAt({
+    startDate: "2026-01-01",
+    endDate: "2026-02-15",
+    periodMode: "service",
+    timeLocal: "10:00",
+    weeklyEnabled: true,
+    monthlyEnabled: true,
+    lastWeeklyPeriodEnd: "2026-01-28",
+    lastMonthlyPeriodEnd: "2026-01-31",
+  }), "2026-02-05T02:00:00.000Z")
+  assert.equal(nextFeedbackAutomationRunAt({
+    startDate: "2026-02-01",
+    endDate: "2026-02-05",
+    periodMode: "service",
+    timeLocal: "10:00",
+    weeklyEnabled: true,
+    monthlyEnabled: false,
+    finalReportEnabled: false,
+  }), undefined, "关闭收官报告后不应为不足一周的项目无限调度")
 
   const week = feedbackPeriodForDate(profile, "weekly", "2026-03-01")
   assert.deepEqual(week, {
