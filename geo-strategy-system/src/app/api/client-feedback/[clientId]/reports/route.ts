@@ -1,14 +1,10 @@
-import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
-import { buildClientFeedbackReport } from "@/lib/client-feedback/builder"
-import { buildFeedbackReportSystemOutputRecord } from "@/lib/system-output/builders"
-import { saveSystemOutputRecord } from "@/lib/system-output/store"
+import { createClientFeedbackReport } from "@/lib/client-feedback/report-service"
 import {
   clientFeedbackReportSharePath,
   feedbackPeriodForDate,
   getClientExecutionProfile,
   listClientFeedbackReports,
-  publishClientFeedbackReport,
   shanghaiDateOnly,
 } from "@/lib/client-feedback/store"
 import { requireOperationAccess } from "@/lib/team-access"
@@ -99,16 +95,7 @@ export async function POST(
     const targetDate = typeof body.targetDate === "string" ? body.targetDate : undefined
     const period = feedbackPeriodForDate(profile, type, targetDate)
     if (period.end > shanghaiDateOnly()) throw new Error("报告截止日期不能晚于今天")
-    const requestId = typeof body.requestId === "string" && /^[A-Za-z0-9_-]{16,160}$/.test(body.requestId)
-      ? body.requestId
-      : ""
-    const reportId = requestId
-      ? `cfr_agent_${createHash("sha256")
-          .update(`${access.dataOwnerUserId}:${access.clientId}:${requestId}`)
-          .digest("hex")
-          .slice(0, 32)}`
-      : undefined
-    const draft = await buildClientFeedbackReport({
+    const created = await createClientFeedbackReport({
       ownerUserId: access.dataOwnerUserId,
       actorUserId: auth.userId,
       client,
@@ -120,31 +107,12 @@ export async function POST(
       currentHistoryRecordId: typeof body.currentHistoryRecordId === "string"
         ? body.currentHistoryRecordId
         : undefined,
-      reportId,
-    })
-    const published = body.publish === true
-      ? await publishClientFeedbackReport({
-          ownerUserId: access.dataOwnerUserId,
-          clientId: access.clientId,
-          reportId: draft.id,
-          actorUserId: auth.userId,
-        })
-      : null
-    const report = published?.report || draft
-    await saveSystemOutputRecord(
-      access.dataOwnerUserId,
-      buildFeedbackReportSystemOutputRecord({
-        ownerUserId: access.dataOwnerUserId,
-        actorUserId: auth.userId,
-        clientName: client.name,
-        report,
-      }),
-    ).catch(error => {
-      console.warn("[client-feedback] system output save failed", report.id, error instanceof Error ? error.message : error)
+      publish: body.publish === true,
+      requestId: typeof body.requestId === "string" ? body.requestId : undefined,
     })
     return NextResponse.json({
-      report,
-      sharePath: published?.sharePath,
+      report: created.report,
+      sharePath: created.sharePath,
     }, { status: 201 })
   } catch (error) {
     return NextResponse.json({

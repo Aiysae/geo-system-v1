@@ -111,6 +111,7 @@ export async function sendSystemEmail(input: {
   subject: string
   text: string
   html: string
+  messageId?: string
 }): Promise<void> {
   const config = readConfig()
   if (!config) throw new AuthEmailConfigurationError()
@@ -122,6 +123,7 @@ export async function sendSystemEmail(input: {
     },
     to: input.to,
     replyTo: config.replyTo,
+    messageId: input.messageId,
     subject: input.subject,
     text: input.text,
     html: input.html,

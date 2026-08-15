@@ -40,6 +40,14 @@ function penetrationAutomationNotificationId(
   return `notice_${type}_${executionId}`.slice(0, 220)
 }
 
+function feedbackAutomationNotificationId(
+  type: "feedback_report_sent" | "feedback_report_attention",
+  executionId: string,
+  userId: string,
+): string {
+  return `notice_${type}_${executionId}_${createHash("sha256").update(userId).digest("hex").slice(0, 12)}`.slice(0, 220)
+}
+
 export async function notifyPaymentRequestCreated(
   request: AdminPaymentRequest,
 ): Promise<UserNotification> {
@@ -226,6 +234,54 @@ export async function notifyPenetrationAutomationAttention(input: {
     body: input.message,
     actionUrl: `/workspace?${params.toString()}`,
     entityType: "penetration_automation_execution",
+    entityId: input.executionId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 90 * 24 * 60 * 60 * 1000,
+    metadata: { clientId: input.clientId },
+  })
+}
+
+export async function notifyFeedbackAutomationResult(input: {
+  userId: string
+  executionId: string
+  clientId: string
+  clientName: string
+  reportCount: number
+  sharePath?: string
+}): Promise<UserNotification> {
+  const actionUrl = input.sharePath
+    || `/workspace?${new URLSearchParams({ clientId: input.clientId, module: "feedback" })}`
+  return await saveUserNotification({
+    id: feedbackAutomationNotificationId("feedback_report_sent", input.executionId, input.userId),
+    userId: input.userId,
+    type: "feedback_report_sent",
+    title: `${input.clientName}反馈报告已自动报送`,
+    body: `本次已生成并发送 ${input.reportCount} 份周报/月报。`,
+    actionUrl,
+    entityType: "client_feedback_automation_execution",
+    entityId: input.executionId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 180 * 24 * 60 * 60 * 1000,
+    metadata: { clientId: input.clientId, reportCount: input.reportCount },
+  })
+}
+
+export async function notifyFeedbackAutomationAttention(input: {
+  userId: string
+  executionId: string
+  clientId: string
+  clientName: string
+  message: string
+}): Promise<UserNotification> {
+  const params = new URLSearchParams({ clientId: input.clientId, module: "feedback" })
+  return await saveUserNotification({
+    id: feedbackAutomationNotificationId("feedback_report_attention", input.executionId, input.userId),
+    userId: input.userId,
+    type: "feedback_report_attention",
+    title: `${input.clientName}自动报送需要处理`,
+    body: input.message,
+    actionUrl: `/workspace?${params.toString()}`,
+    entityType: "client_feedback_automation_execution",
     entityId: input.executionId,
     createdAt: Date.now(),
     expiresAt: Date.now() + 90 * 24 * 60 * 60 * 1000,

@@ -47,6 +47,20 @@ function notificationMeta(
       actionLabel: metadata?.canEdit === false ? "查看进度" : "去录入",
     }
   }
+  if (type === "feedback_report_sent") {
+    return {
+      Icon: CalendarCheck2,
+      iconClass: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      actionLabel: "查看报告",
+    }
+  }
+  if (type === "feedback_report_attention") {
+    return {
+      Icon: TriangleAlert,
+      iconClass: "bg-amber-50 text-amber-700 ring-amber-200",
+      actionLabel: "去处理",
+    }
+  }
   if (type === "payment_request_credited") {
     return {
       Icon: CheckCircle2,

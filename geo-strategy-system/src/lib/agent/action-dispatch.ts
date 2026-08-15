@@ -379,6 +379,75 @@ async function routeForAction(
       },
     }
   }
+  if (action === "feedback.automation.get") {
+    const route = await import("@/app/api/client-feedback/[clientId]/automations/route")
+    const clientId = String(payload.clientId || "")
+    const query = new URLSearchParams()
+    if (payload.teamId) query.set("teamId", String(payload.teamId))
+    const suffix = query.size ? `?${query}` : ""
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/automations${suffix}`,
+      handler: request => route.GET(request, { params: Promise.resolve({ clientId }) }),
+      method: "GET",
+    }
+  }
+  if (action === "feedback.automation.save") {
+    const route = await import("@/app/api/client-feedback/[clientId]/automations/route")
+    const clientId = String(payload.clientId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/automations`,
+      handler: request => route.POST(request, { params: Promise.resolve({ clientId }) }),
+      payload,
+    }
+  }
+  if (action === "feedback.automation.set-status") {
+    const route = await import("@/app/api/client-feedback/[clientId]/automations/[scheduleId]/route")
+    const clientId = String(payload.clientId || "")
+    const scheduleId = String(payload.scheduleId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/automations/${encodeURIComponent(scheduleId)}`,
+      handler: request => route.PATCH(request, { params: Promise.resolve({ clientId, scheduleId }) }),
+      method: "PATCH",
+      payload: {
+        teamId: payload.teamId,
+        action: payload.operation,
+      },
+    }
+  }
+  if (action === "feedback.automation.run") {
+    const route = await import("@/app/api/client-feedback/[clientId]/automations/[scheduleId]/run/route")
+    const clientId = String(payload.clientId || "")
+    const scheduleId = String(payload.scheduleId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/automations/${encodeURIComponent(scheduleId)}/run`,
+      handler: request => route.POST(request, { params: Promise.resolve({ clientId, scheduleId }) }),
+      payload: { teamId: payload.teamId, requestId: payload.requestId },
+    }
+  }
+  if (action === "feedback.automation.retry") {
+    const route = await import("@/app/api/client-feedback/[clientId]/automations/[scheduleId]/executions/[executionId]/retry/route")
+    const clientId = String(payload.clientId || "")
+    const scheduleId = String(payload.scheduleId || "")
+    const executionId = String(payload.executionId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/automations/${encodeURIComponent(scheduleId)}/executions/${encodeURIComponent(executionId)}/retry`,
+      handler: request => route.POST(request, { params: Promise.resolve({ clientId, scheduleId, executionId }) }),
+      payload: { teamId: payload.teamId, requestId: payload.requestId },
+    }
+  }
+  if (action === "feedback.automation.delete") {
+    const route = await import("@/app/api/client-feedback/[clientId]/automations/[scheduleId]/route")
+    const clientId = String(payload.clientId || "")
+    const scheduleId = String(payload.scheduleId || "")
+    const query = new URLSearchParams()
+    if (payload.teamId) query.set("teamId", String(payload.teamId))
+    const suffix = query.size ? `?${query}` : ""
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/automations/${encodeURIComponent(scheduleId)}${suffix}`,
+      handler: request => route.DELETE(request, { params: Promise.resolve({ clientId, scheduleId }) }),
+      method: "DELETE",
+    }
+  }
   if (action === "feedback.reminder-settings.get") {
     const route = await import("@/app/api/account/notification-settings/route")
     return {

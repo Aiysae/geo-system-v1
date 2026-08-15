@@ -141,6 +141,13 @@ function validDateOnly(value: unknown): string {
   return result
 }
 
+function validOptionalEndDate(value: unknown, startDate: string): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined
+  const endDate = validDateOnly(value)
+  if (endDate < startDate) throw new Error("正式结束日期不能早于开始日期")
+  return endDate
+}
+
 function validIso(value: unknown, fallback = new Date().toISOString()): string {
   const parsed = new Date(String(value || ""))
   return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString()
@@ -230,7 +237,7 @@ function mondayOf(value: string): string {
 function defaultProfile(ownerUserId: string, clientId: string): ClientExecutionProfile {
   const now = new Date().toISOString()
   return {
-    version: 1,
+    version: 2,
     ownerUserId,
     clientId,
     startDate: shanghaiDateOnly(),
@@ -253,10 +260,14 @@ function normalizeProfile(
   const fallback = defaultProfile(ownerUserId, clientId)
   if (!value) return fallback
   return {
-    version: 1,
+    version: 2,
     ownerUserId,
     clientId,
     startDate: validDateOnly(value.startDate || fallback.startDate),
+    endDate: validOptionalEndDate(
+      value.endDate,
+      validDateOnly(value.startDate || fallback.startDate),
+    ),
     timezone: "Asia/Shanghai",
     periodMode: value.periodMode === "calendar" ? "calendar" : "service",
     currentStage: STAGES.has(value.currentStage as ClientExecutionStage)
