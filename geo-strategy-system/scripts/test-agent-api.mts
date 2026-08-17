@@ -153,6 +153,12 @@ try {
     "https://shitugeo.top/api/agent/v1/actions/article.media.run",
   )
   assert.equal(mediaTask?.taskId, "task_articleMedia_amjob_agent_contract")
+  const productionTask = buildAgentSubmittedTask(
+    "article.production.run",
+    { run: { id: "cprod_agent_contract" } },
+    "https://shitugeo.top/api/agent/v1/actions/article.production.run",
+  )
+  assert.equal(productionTask?.taskId, "task_contentProduction_cprod_agent_contract")
 
   const budgetAuth = {
     token: created.record,
@@ -210,7 +216,7 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.6")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.7")
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
@@ -229,6 +235,10 @@ try {
     "article.materials.delete",
     "article.media.upload",
     "article.media.run",
+    "article.production.list",
+    "article.production.run",
+    "article.production.get",
+    "article.production.cancel",
     "feedback.report.options",
     "feedback.report.manage",
     "feedback.profile.update",
@@ -751,7 +761,7 @@ try {
     externalDocs: { url: string }
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
-  assert.equal(openapi.info.version, "1.6.0")
+  assert.equal(openapi.info.version, "1.7.0")
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
   assert.ok(openapi.paths["/actions/penetration.automation.save"])

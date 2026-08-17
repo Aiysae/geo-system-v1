@@ -40,6 +40,7 @@ import {
   SOURCE_PLATFORM_CATEGORY_LABELS,
 } from "@/lib/source-platform-intelligence"
 import { SourcePlatformAdoptionChart } from "@/components/keyword/source-platform-adoption-chart"
+import PublishingPlanPanel from "@/components/client-feedback/publishing-plan-panel"
 import { getClientSubjectType } from "@/lib/analysis-subject"
 import { mergeExtractedProfileIntoKnowledgeBase } from "@/lib/client-knowledge-base"
 import {
@@ -1566,6 +1567,7 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
               subjectType={subjectType}
               plan={ab.strategyPlan}
               sourcePlatformSnapshot={sourcePlatformSnapshot}
+              client={client}
               clientId={client.id}
               onPlanChange={nextPlan => updateBrand({ strategyPlan: nextPlan })}
               websitePromptJobRef={client.backgroundJobs?.keywordWebsitePrompt}
@@ -2257,7 +2259,7 @@ function ExtractionStep({
 
 function StrategyStep({
   subjectType,
-  plan, sourcePlatformSnapshot, clientId, onPlanChange, websitePromptJobRef, onChangeWebsitePromptJob,
+  plan, sourcePlatformSnapshot, client, clientId, onPlanChange, websitePromptJobRef, onChangeWebsitePromptJob,
   questions, questionStatus, questionError,
   questionJobProgress,
   questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios,
@@ -2270,6 +2272,7 @@ function StrategyStep({
   subjectType: "brand" | "person"
   plan: GeoStrategyPlan
   sourcePlatformSnapshot: SourcePlatformSnapshot
+  client: Client
   clientId: string
   onPlanChange: (plan: GeoStrategyPlan) => void
   websitePromptJobRef?: BackgroundJobRef
@@ -2503,6 +2506,8 @@ function StrategyStep({
           <span>{wordExportError}</span>
         </div>
       ) : null}
+
+      <PublishingPlanPanel client={client} />
 
       {hasQuestions ? (
         <button

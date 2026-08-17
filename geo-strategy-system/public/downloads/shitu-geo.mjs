@@ -153,6 +153,8 @@ function help() {
   articles get <batchId>
   articles settings
   articles download <batchId> [--scope passed|all|direct] [--variant original|media] --out articles.zip
+  articles production-list|production-run|production-get|production-cancel --file payload.json [--dry-run]
+  articles production-download <runId> [--scope passed|all] --out platform-articles.zip
   feedback get <clientId> [--team-id id]
   knowledge list --client-id id [--team-id id]
   knowledge get <importId> --client-id id [--team-id id]
@@ -200,6 +202,10 @@ const ACTION_COMMANDS = new Map([
   ["articles:materials-delete", "article.materials.delete"],
   ["articles:media-upload", "article.media.upload"],
   ["articles:media-run", "article.media.run"],
+  ["articles:production-list", "article.production.list"],
+  ["articles:production-run", "article.production.run"],
+  ["articles:production-get", "article.production.get"],
+  ["articles:production-cancel", "article.production.cancel"],
   ["feedback:action", "feedback.action.create"],
   ["feedback:import", "feedback.actions.import"],
   ["feedback:report", "feedback.report.create"],
@@ -341,6 +347,16 @@ async function main() {
       binary: true,
       accept: "application/zip, application/octet-stream",
     })
+    await fs.writeFile(target, result.data)
+    return print(target, flags)
+  }
+  if (group === "articles" && command === "production-download" && id) {
+    const scope = flags.scope === "all" ? "all" : "passed"
+    const target = path.resolve(String(flags.out || `geo-platform-content-${id}-${scope}.zip`))
+    const result = await apiRequest(
+      `/content-production/${encodeURIComponent(id)}/download${queryString({ scope })}`,
+      { flags, binary: true, accept: "application/zip, application/octet-stream" },
+    )
     await fs.writeFile(target, result.data)
     return print(target, flags)
   }

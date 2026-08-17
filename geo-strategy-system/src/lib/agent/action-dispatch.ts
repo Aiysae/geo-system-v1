@@ -276,6 +276,48 @@ async function routeForAction(
     const route = await import("@/app/api/article-generation/batches/route")
     return { path: "/api/article-generation/batches", handler: route.POST, payload }
   }
+  if (action === "article.production.list") {
+    const route = await import("@/app/api/article-generation/production-runs/route")
+    const query = new URLSearchParams({ clientId: String(payload.clientId || "") })
+    if (payload.teamId) query.set("teamId", String(payload.teamId))
+    if (payload.limit) query.set("limit", String(payload.limit))
+    return {
+      path: `/api/article-generation/production-runs?${query}`,
+      handler: route.GET,
+      method: "GET",
+    }
+  }
+  if (action === "article.production.run") {
+    const route = await import("@/app/api/article-generation/production-runs/route")
+    return {
+      path: "/api/article-generation/production-runs",
+      handler: route.POST,
+      payload: {
+        clientId: payload.clientId,
+        teamId: payload.teamId,
+        requestId: payload.requestId,
+        dateFrom: payload.dateFrom,
+        dateTo: payload.dateTo,
+        platformKeys: payload.platformKeys,
+        modelProvider: payload.modelProvider,
+        model: payload.model,
+      },
+    }
+  }
+  if (action === "article.production.get" || action === "article.production.cancel") {
+    const route = await import("@/app/api/article-generation/production-runs/[runId]/route")
+    const runId = String(payload.runId || "")
+    const query = new URLSearchParams({ clientId: String(payload.clientId || "") })
+    if (payload.teamId) query.set("teamId", String(payload.teamId))
+    const method = action === "article.production.cancel" ? "DELETE" : "GET"
+    return {
+      path: `/api/article-generation/production-runs/${encodeURIComponent(runId)}?${query}`,
+      handler: request => method === "DELETE"
+        ? route.DELETE(request, { params: Promise.resolve({ runId }) })
+        : route.GET(request, { params: Promise.resolve({ runId }) }),
+      method,
+    }
+  }
   if (action === "feedback.action.create") {
     const route = await import("@/app/api/client-feedback/[clientId]/actions/route")
     const clientId = String(payload.clientId || "")
@@ -615,8 +657,11 @@ export function buildAgentSubmittedTask(
   const nestedJob = record.job && typeof record.job === "object"
     ? record.job as Record<string, unknown>
     : {}
+  const nestedRun = record.run && typeof record.run === "object"
+    ? record.run as Record<string, unknown>
+    : {}
   const sourceJobId = String(
-    record.id || nestedImport.backgroundJobId || nestedJob.id || "",
+    record.id || nestedImport.backgroundJobId || nestedJob.id || nestedRun.id || "",
   ).trim()
   if (!sourceJobId) return undefined
   const definition = AGENT_ACTION_REGISTRY[action]

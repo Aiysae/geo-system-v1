@@ -43,6 +43,9 @@ jobs:
           npm run test:agent-cli
           npm run test:client-feedback
           npm run test:feedback-automation
+          npm run test:publishing-plan
+          npm run test:content-production
+          npm run test:task-queue
           npm run test:ai-credential-pool
           npm run test:ai-credential-adapter
           npm run test:penetration-web
@@ -191,6 +194,7 @@ jobs:
               npm run db:migrate:penetration-automation
               npm run db:migrate:feedback-automation
               npm run db:migrate:publishing-plans
+              npm run db:migrate:content-production
             fi
 
             GEO_LOW_MEMORY_BUILD=1 \

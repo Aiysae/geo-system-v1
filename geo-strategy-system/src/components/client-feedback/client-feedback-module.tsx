@@ -779,6 +779,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         key={`publishing-plan-${client.id}`}
         client={client}
         profile={payload.profile}
+        mode="summary"
         onExecutionChanged={() => void load(true)}
       />
 

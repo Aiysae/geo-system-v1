@@ -6,6 +6,7 @@ import type {
   TaskCenterStatus,
 } from "@/types/task-center"
 import { buildWorkspaceResultUrl, type WorkspaceModule } from "@/lib/workspace-navigation"
+import type { ContentProductionRun } from "@/types/content-production"
 
 type CommonJob = {
   id: string
@@ -392,6 +393,46 @@ export async function syncArticleMediaJobTask(job: CommonJob & {
       completedCount: job.completedCount,
       failedCount: job.failedCount,
       teamId: job.teamId,
+    },
+  })
+}
+
+export async function syncContentProductionTask(run: ContentProductionRun): Promise<void> {
+  const status = normalizeStatus(run.status)
+  const finished = run.completedCount + run.failedCount + run.cancelledCount
+  await syncTaskCenterTask({
+    source: "contentProduction",
+    sourceJobId: run.id,
+    kind: "publishingPlanContentProduction",
+    module: "article",
+    actorUserId: run.createdByUserId,
+    workspaceOwnerUserId: run.ownerUserId,
+    clientId: run.clientId,
+    clientName: run.clientName,
+    title: `${run.clientName || "当前客户"} · 发布计划内容生产`,
+    status,
+    progressPercent: ratioProgress(finished, run.requestedAssetCount),
+    stage: run.stage,
+    error: run.error,
+    resultUrl: workspaceUrl(run.clientId, "article", run.teamId, {
+      view: "production",
+      jobId: run.id,
+    }),
+    canCancel: active(status),
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    finishedAt: run.finishedAt,
+    metadata: {
+      planId: run.planId,
+      planVersion: run.planVersion,
+      requestedPublicationCount: run.requestedPublicationCount,
+      requestedAssetCount: run.requestedAssetCount,
+      completedCount: run.completedCount,
+      passedCount: run.passedCount,
+      reviewRequiredCount: run.reviewRequiredCount,
+      failedCount: run.failedCount,
+      cancelledCount: run.cancelledCount,
+      teamId: run.teamId,
     },
   })
 }

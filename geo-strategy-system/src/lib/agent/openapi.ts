@@ -45,7 +45,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
     openapi: "3.1.0",
     info: {
       title: "势途 GEO Agent API",
-      version: "1.6.0",
+      version: "1.7.0",
       description: "供 CLI、MCP 和自动化 Agent 安全调用势途 GEO 现有业务能力。耗时操作进入后台任务；资料审核与动作记录等轻量写操作同步完成。所有操作沿用网页端权限、积分、联网与质量规则。",
     },
     externalDocs: {
@@ -223,6 +223,23 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
           ],
           responses: {
             200: { description: "文章 ZIP 文件", content: { "application/zip": { schema: { type: "string", contentEncoding: "binary" } } } },
+            401: error,
+            403: error,
+            404: error,
+          },
+        },
+      },
+      "/content-production/{runId}/download": {
+        get: {
+          tags: ["Article"],
+          operationId: "downloadContentProductionRun",
+          description: "将发布计划内容按平台目录打包，并附带发布清单。",
+          parameters: [
+            { name: "runId", in: "path", required: true, schema: { type: "string" } },
+            { name: "scope", in: "query", schema: { type: "string", enum: ["passed", "all"], default: "passed" } },
+          ],
+          responses: {
+            200: { description: "分平台内容 ZIP 文件", content: { "application/zip": { schema: { type: "string", contentEncoding: "binary" } } } },
             401: error,
             403: error,
             404: error,

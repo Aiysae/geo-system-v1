@@ -180,6 +180,10 @@ async function runTask(job: Job<DurableTaskPayload>): Promise<TaskWorkerOutcome>
     const { runArticleBatchFromWorker } = await import("@/lib/article-batches/manager")
     return runArticleBatchFromWorker(sourceJobId)
   }
+  if (source === "contentProduction") {
+    const { runContentProductionFromWorker } = await import("@/lib/content-production/service")
+    return runContentProductionFromWorker(sourceJobId)
+  }
   if (source === "articleMedia") {
     const { runArticleMediaJobFromWorker } = await import("@/lib/article-media/jobs")
     return runArticleMediaJobFromWorker(sourceJobId)
@@ -303,6 +307,7 @@ async function recoverPendingTasks(): Promise<void> {
     { resumePendingBackgroundJobs },
     { resumePendingQuestionJobs },
     { resumePendingArticleBatchMonitors },
+    { resumePendingContentProductionRuns },
     { resumePendingArticleMediaJobs },
     { resumePendingReportJobs },
   ] = await Promise.all([
@@ -311,6 +316,7 @@ async function recoverPendingTasks(): Promise<void> {
     import("@/lib/background-jobs"),
     import("@/lib/geo-strategy/question-jobs"),
     import("@/lib/article-batches/manager"),
+    import("@/lib/content-production/service"),
     import("@/lib/article-media/jobs"),
     import("@/lib/reports/report-jobs"),
   ])
@@ -320,6 +326,7 @@ async function recoverPendingTasks(): Promise<void> {
     resumePendingBackgroundJobs(),
     resumePendingQuestionJobs(),
     resumePendingArticleBatchMonitors(),
+    resumePendingContentProductionRuns(),
     resumePendingArticleMediaJobs(),
     resumePendingReportJobs(),
   ])

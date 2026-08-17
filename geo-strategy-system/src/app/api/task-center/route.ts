@@ -16,6 +16,10 @@ export async function GET(req: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
+    const { reconcileContentProductionRunsForUser } = await import("@/lib/content-production/service")
+    await reconcileContentProductionRunsForUser(auth.userId).catch(error => {
+      console.error("[task-center-api] content production reconciliation failed", error)
+    })
     const requestedLimit = Number(req.nextUrl.searchParams.get("limit") || 50)
     const response = await listTaskCenterTasks(auth.userId, requestedLimit)
     return NextResponse.json(response, { headers: NO_STORE_HEADERS })

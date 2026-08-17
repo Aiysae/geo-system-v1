@@ -287,6 +287,21 @@ export function createShituGeoMcpServer(input: {
     mimeType: "application/zip",
   }))
 
+  server.registerTool("shitu_get_content_production_zip", {
+    title: "获取分平台发布内容 ZIP",
+    description: "返回受保护的 ZIP 资源链接，文章会按真实发布平台目录分组，并附带发布清单。",
+    inputSchema: {
+      runId: z.string().min(1),
+      scope: z.enum(["all", "passed"]).default("passed"),
+    },
+    annotations: readOnlyAnnotations(),
+  }, async ({ runId, scope }) => resourceLink({
+    uri: `shitu://content-production/${encodeURIComponent(runId)}/${scope}.zip`,
+    name: `geo-platform-content-${runId}-${scope}.zip`,
+    description: scope === "all" ? "全部可读稿件（含待复核）" : "仅质检通过的分平台稿件",
+    mimeType: "application/zip",
+  }))
+
   server.registerTool("shitu_get_feedback", {
     title: "读取执行反馈",
     description: "读取客户执行日历、动作、周月报及发布策略。",
@@ -378,6 +393,24 @@ export function createShituGeoMcpServer(input: {
         : "passed"
       const variant = variable(variables.variant) === "media" ? "media" : "original"
       const file = await api.requestBinary(`/articles/batches/${encodeURIComponent(batchId)}/download${agentQuery({ scope, variant })}`)
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: file.contentType || "application/zip",
+          blob: Buffer.from(file.bytes).toString("base64"),
+        }],
+      }
+    },
+  )
+
+  server.registerResource(
+    "shitu-content-production-zip",
+    new ResourceTemplate("shitu://content-production/{runId}/{scope}.zip", { list: undefined }),
+    { title: "势途 GEO 分平台发布内容", description: "按发布计划生产批次读取受保护的 ZIP", mimeType: "application/zip" },
+    async (uri, variables) => {
+      const runId = variable(variables.runId)
+      const scope = variable(variables.scope) === "all" ? "all" : "passed"
+      const file = await api.requestBinary(`/content-production/${encodeURIComponent(runId)}/download${agentQuery({ scope })}`)
       return {
         contents: [{
           uri: uri.href,

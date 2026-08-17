@@ -72,6 +72,11 @@ export async function cancelTaskCenterTask(
   } else if (target.source === "articleMedia") {
     const { cancelArticleMediaJob } = await import("@/lib/article-media/jobs")
     result = await cancelArticleMediaJob(target.sourceJobId, target.actorUserId)
+  } else if (target.source === "contentProduction") {
+    const { getContentProductionRun } = await import("@/lib/content-production/store")
+    const { cancelContentProductionRun } = await import("@/lib/content-production/service")
+    const run = await getContentProductionRun(target.workspaceOwnerUserId, target.sourceJobId)
+    result = run ? await cancelContentProductionRun(run) : null
   } else if (target.source === "report") {
     const { cancelCommercialReportJob } = await import("@/lib/reports/report-jobs")
     result = await cancelCommercialReportJob(

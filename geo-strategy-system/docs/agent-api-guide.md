@@ -119,7 +119,7 @@ CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频�
 
 ## 专用动作
 
-Agent 1.5 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
+Agent 1.7 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
 
 | 模块 | 动作 |
 | --- | --- |
@@ -127,8 +127,8 @@ Agent 1.5 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 | 独立调研 | `research.run`、`research.compare` |
 | AI 诊断 | `diagnosis.run` |
 | 难度测评 | `difficulty.run` |
-| 关键词策略 | `keyword.extract`、`keyword.advantages`、`keyword.strategy.run`、`keyword.website-prompt.run`、`keyword.questions.run` |
-| 文章生成 | `article.generate`、`article.rewrite`、`article.batch.run`、`article.strategy.plan`、`article.source.extract`、`article.brands.analyze`、`article.materials.list`、`article.materials.import`、`article.materials.delete`、`article.media.upload`、`article.media.run` |
+| 关键词策略 | `keyword.extract`、`keyword.advantages`、`keyword.strategy.run`、`keyword.website-prompt.run`、`keyword.questions.run`、`publishing.plan.get`、`publishing.plan.recommend`、`publishing.plan.create`、`publishing.plan.activate`、`publishing.tasks.list`、`publishing.tasks.claim`、`publishing.task.complete`、`publishing.task.fail` |
+| 文章生成 | `article.generate`、`article.rewrite`、`article.batch.run`、`article.strategy.plan`、`article.source.extract`、`article.brands.analyze`、`article.materials.list`、`article.materials.import`、`article.materials.delete`、`article.media.upload`、`article.media.run`、`article.production.list`、`article.production.run`、`article.production.get`、`article.production.cancel` |
 | 执行反馈 | `feedback.action.create`、`feedback.actions.import`、`feedback.report.create`、`feedback.report.options`、`feedback.report.manage`、`feedback.profile.update`、`feedback.visibility.update`、`feedback.automation.get`、`feedback.automation.save`、`feedback.automation.set-status`、`feedback.automation.run`、`feedback.automation.retry`、`feedback.automation.delete` |
 | 客户资料库 | `knowledge.import`、`knowledge.commit` |
 | 专业报告 | `report.create` |
@@ -151,6 +151,14 @@ Agent 1.5 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 2. `article.strategy.plan` 让系统 AI 裁判按每条疑问句、优势和方法论选择 Prompt。
 3. 将返回的 `tasks` 原样作为 `article.batch.run.questionTasks`，使用 `topicMode: "strategy"` 创建批量任务。
 4. 轮询任务，随后下载 `passed`、`all` 或 `direct` 范围的 ZIP。
+
+### 发布规划到分平台成文
+
+1. `publishing.plan.recommend` 依据客户调研信源、预算、平台成本和发布上限生成建议；用户确认后调用 `publishing.plan.create` 和 `publishing.plan.activate`。
+2. `article.production.run` 选择 1–31 天及目标平台。系统以“一个疑问句＋一条匹配优势”为母稿任务，AI 裁判按意图选择创作模板，同一母稿可以投递多个不同平台，但不会在同一平台重复创建。
+3. 提交后立即返回父任务；路由、拆批和文章生成均在持久化 Worker 中继续。使用 `article.production.get` 或任务中心读取进度，切换页面或设备不会中断。
+4. 完成后读取 `shitu://content-production/{runId}/{scope}.zip`，或请求 `GET /content-production/{runId}/download?scope=passed|all`。压缩包按真实平台名称分目录，并附带发布清单。
+5. 需要让外部发布 Agent 逐项执行时，使用 `publishing.tasks.list` 或 `publishing.tasks.claim` 领取任务，再以 `publishing.task.complete` / `publishing.task.fail` 回写网址、证据和执行结果。
 
 ### 品牌短视频·单问题文案
 
@@ -224,7 +232,7 @@ node shitu-geo.mjs articles batch --file video-batch.json
 
 生成文章前可调用 `GET /articles/settings` 或 MCP 工具 `shitu_get_article_settings`，读取当前实际可用的 Prompt、官方模型、中转站模型和默认模型，避免硬编码过期型号。
 
-Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，升级前创建的密钥不会自动获得该权限；需要发布链接、管理客户可见范围或配置自动报送时，请在账号中心重新创建“完整授权”密钥。Agent 1.4 和 1.5 没有增加新权限类型。
+Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，升级前创建的密钥不会自动获得该权限；需要发布链接、管理客户可见范围或配置自动报送时，请在账号中心重新创建“完整授权”密钥。Agent 1.4 至 1.7 没有增加新权限类型。
 
 ## 结果与文件
 
@@ -232,10 +240,11 @@ Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，�
 - `POST /tasks/{taskId}/restore`：任务完成但工作区未显示时恢复结果。
 - `GET /outputs`：按客户和模块分页读取不可变云端产出，模块覆盖 `penetration`、`research`、`diagnosis`、`difficulty`、`keyword`、`article`、`feedback`。
 - `GET /articles/batches/{batchId}/download?scope=passed|all|direct&variant=original|media`：下载质量通过、全部或直推榜单文章 ZIP。
+- `GET /content-production/{runId}/download?scope=passed|all`：按搜狐、今日头条等平台目录下载发布规划成文 ZIP，并附发布清单。
 - `GET /reports/{jobId}/download`：下载专业报告 PDF。
 - `GET /knowledge/imports/{importId}`：读取待人工审核的资料候选项；确认后调用 `knowledge.commit`。
 
-MCP 中对应 `shitu_get_task_result`、`shitu_restore_task_result`、`shitu_get_article_batch_zip` 和 `shitu_get_report_pdf`。文件工具返回受保护资源链接，Agent 需要时再读取。
+MCP 中对应 `shitu_get_task_result`、`shitu_restore_task_result`、`shitu_get_article_batch_zip`、`shitu_get_content_production_zip` 和 `shitu_get_report_pdf`。文件工具返回受保护资源链接，Agent 需要时再读取。
 
 ## 就绪预检
 

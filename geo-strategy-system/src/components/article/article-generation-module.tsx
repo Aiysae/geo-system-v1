@@ -51,6 +51,7 @@ import {
 import { cancelBackgroundJob, createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { toUserFacingError } from "@/lib/user-facing-errors"
+import { WORKSPACE_NAVIGATION_EVENT } from "@/lib/workspace-navigation"
 import {
   DEFAULT_ARTICLE_VIDEO_SCRIPT_CONFIG,
   isBrandVideoScriptPrompt,
@@ -164,7 +165,38 @@ const ArticleStrategyWorkspace = dynamic(
   },
 )
 
-type ArticleWorkspaceMode = "single" | "batch" | "strategy" | "rewrite"
+const ArticleProductionWorkspace = dynamic(
+  () => import("@/components/article/article-production-workspace"),
+  {
+    ssr: false,
+    loading: () => (
+      <section className="flex min-h-[680px] items-center justify-center rounded-lg border border-slate-200 bg-white text-sm text-slate-400">
+        发布计划生产工作台加载中...
+      </section>
+    ),
+  },
+)
+
+type ArticleWorkspaceMode = "single" | "batch" | "strategy" | "production" | "rewrite"
+
+function requestedArticleWorkspaceMode(
+  clientId: string,
+  urlValue?: string,
+): ArticleWorkspaceMode | undefined {
+  if (typeof window === "undefined" && !urlValue) return undefined
+  try {
+    const url = new URL(urlValue || window.location.href, "https://workspace.local")
+    if (url.searchParams.get("module") !== "article") return undefined
+    const requestedClientId = String(url.searchParams.get("clientId") || "").trim()
+    if (requestedClientId && requestedClientId !== clientId) return undefined
+    const view = String(url.searchParams.get("view") || "") as ArticleWorkspaceMode
+    return ["single", "batch", "strategy", "production", "rewrite"].includes(view)
+      ? view
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 const EMPTY_QUESTION_ITEMS: QuestionItem[] = []
 
 function articleStrategySourceFingerprint(
@@ -399,7 +431,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
     hasExplicitArticleModelSelection(client.articleGeneration),
   )
   const [workspaceMode, setWorkspaceMode] = useState<ArticleWorkspaceMode>(() => (
-    client.articleGeneration?.promptKey === "rewrite" ? "rewrite" : "single"
+    requestedArticleWorkspaceMode(client.id)
+    || (client.articleGeneration?.promptKey === "rewrite" ? "rewrite" : "single")
   ))
   const [providers, setProviders] = useState<AiProviderPublicSetting[]>([])
   const [gateways, setGateways] = useState<AiGatewayArticleOption[]>([])
@@ -441,6 +474,23 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   useEffect(() => {
     articleRef.current = article
   }, [article])
+
+  useEffect(() => {
+    const apply = (urlValue?: string) => {
+      const requested = requestedArticleWorkspaceMode(client.id, urlValue)
+      if (requested) setWorkspaceMode(requested)
+    }
+    const onWorkspaceNavigation = (event: Event) => {
+      apply((event as CustomEvent<{ url?: string }>).detail?.url)
+    }
+    const onPopState = () => apply(window.location.href)
+    window.addEventListener(WORKSPACE_NAVIGATION_EVENT, onWorkspaceNavigation)
+    window.addEventListener("popstate", onPopState)
+    return () => {
+      window.removeEventListener(WORKSPACE_NAVIGATION_EVENT, onWorkspaceNavigation)
+      window.removeEventListener("popstate", onPopState)
+    }
+  }, [client.id])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadQuestionMaterials(), 0)
@@ -543,7 +593,8 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
   const isBrandVideoScript = isBrandVideoScriptPrompt(article.promptKey)
   const isBatch = workspaceMode === "batch" && !isRewrite
   const isStrategy = workspaceMode === "strategy" && !isRewrite
-  const isBulkWorkspace = isBatch || isStrategy
+  const isProduction = workspaceMode === "production" && !isRewrite
+  const isBulkWorkspace = isBatch || isStrategy || isProduction
   const usesMultiSubjectFormat = [
     "recommendationRoundup", "tieredEvaluation", "neutralComparisonReview",
   ].includes(article.methodology?.articleFormat || "")
@@ -1049,7 +1100,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 文章生成 · GEO 内容写作台
               </div>
               <div className="geo-module-description truncate">
-                {isStrategy ? "关键词策略自动成文" : isBatch ? "批量文章创作" : isRewrite ? "文章改写" : activePrompt.title}
+                {isProduction ? "按发布计划生产" : isStrategy ? "关键词策略自动成文" : isBatch ? "批量文章创作" : isRewrite ? "文章改写" : activePrompt.title}
               </div>
             </div>
           </div>
@@ -1078,14 +1129,16 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         </div>
       </div>
 
-      <div className="grid items-start gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(340px,0.82fr)_minmax(0,1.18fr)]">
+      <div className={`grid items-start gap-4 p-3 sm:p-4 ${
+        isProduction ? "lg:grid-cols-1" : "lg:grid-cols-[minmax(340px,0.82fr)_minmax(0,1.18fr)]"
+      }`}>
         <div className="space-y-4">
           <section className="geo-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-700">
               <WandSparkles className="h-3.5 w-3.5 text-[#1677FF]" />
               生成设置
             </div>
-            <div className="geo-segmented mb-3 grid-cols-4">
+            <div className="geo-segmented mb-3 grid-cols-3 sm:grid-cols-5 [&>button]:whitespace-nowrap [&>button]:px-1">
               <button
                 type="button"
                 onClick={() => updateMode("single")}
@@ -1118,6 +1171,17 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 }`}
               >
                 自动成文
+              </button>
+              <button
+                type="button"
+                onClick={() => updateMode("production")}
+                className={`h-9 rounded-lg text-xs font-semibold transition ${
+                  isProduction
+                    ? "bg-white text-[#003EB3] shadow-sm"
+                    : "text-slate-500 hover:bg-white/70"
+                }`}
+              >
+                发布计划
               </button>
               <button
                 type="button"
@@ -1195,7 +1259,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             )}
           </section>
 
-          {!isStrategy && <section className="geo-panel p-3 sm:p-4">
+          {!isStrategy && !isProduction && <section className="geo-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="text-xs font-semibold text-slate-700">
                 {isRewrite ? "改写方式" : "创作类型"}
@@ -1233,7 +1297,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             </div>
           </section>}
 
-          <section className="geo-panel p-3 sm:p-4">
+          {!isProduction && <section className="geo-panel p-3 sm:p-4">
             <div className="grid gap-3">
               {isRewrite ? (
                 <>
@@ -1609,7 +1673,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 </>
               )}
             </div>
-          </section>
+          </section>}
 
           {!isBulkWorkspace && article.error && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
@@ -1666,7 +1730,14 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
           </div>}
         </div>
 
-        {isStrategy ? (
+        {isProduction ? (
+          <ArticleProductionWorkspace
+            key={`${client.id}:production`}
+            clientId={client.id}
+            modelProvider={article.modelProvider}
+            model={article.model}
+          />
+        ) : isStrategy ? (
           <ArticleStrategyWorkspace
             key={strategyWorkspaceKey}
             clientId={client.id}

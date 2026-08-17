@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { publishingPlanForViewer } from "@/lib/publishing-plan/access"
+import { getClientExecutionProfile } from "@/lib/client-feedback/store"
 import {
   createPublishingPlanDraft,
   getPublishingPlan,
   listPublishingPlans,
 } from "@/lib/publishing-plan/store"
-import { requireOperationAccess } from "@/lib/team-access"
-import { hasTeamPermission } from "@/lib/team-permissions"
+import {
+  hasPublishingPlanPermission,
+  requirePublishingPlanAccess,
+} from "@/lib/publishing-plan/access-control"
 import { requireUserId } from "@/lib/with-credits"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import type {
@@ -26,15 +29,17 @@ export async function GET(
   try {
     const { clientId } = await context.params
     const teamId = request.nextUrl.searchParams.get("teamId") || undefined
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId,
-      module: "feedback",
       action: "view",
     })
-    const costsVisible = hasTeamPermission(access.permissionKeys, "feedback", "manage")
-    const plans = await listPublishingPlans(access.dataOwnerUserId, access.clientId)
+    const costsVisible = hasPublishingPlanPermission(access.permissionKeys, "manage")
+    const [plans, profile] = await Promise.all([
+      listPublishingPlans(access.dataOwnerUserId, access.clientId),
+      getClientExecutionProfile(access.dataOwnerUserId, access.clientId),
+    ])
     const visiblePlans = costsVisible ? plans : plans.filter(plan => plan.status === "active")
     const selected = costsVisible
       ? plans.find(plan => plan.status === "draft") || plans.find(plan => plan.status === "active")
@@ -45,9 +50,10 @@ export async function GET(
     return noStore(NextResponse.json({
       plans: visiblePlans.map(plan => publishingPlanForViewer(plan, costsVisible)),
       current: current ? publishingPlanForViewer(current, costsVisible) : null,
-      canEdit: hasTeamPermission(access.permissionKeys, "feedback", "edit"),
+      canEdit: hasPublishingPlanPermission(access.permissionKeys, "edit"),
       canManage: costsVisible,
       costsVisible,
+      profile,
     }))
   } catch (error) {
     return noStore(NextResponse.json({
@@ -71,11 +77,10 @@ export async function POST(
       recommendationModel?: unknown
       recommendationGeneratedAt?: unknown
     }
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId: typeof body.teamId === "string" ? body.teamId : undefined,
-      module: "feedback",
       action: "manage",
     })
     const client = (await listWorkspaceClients(access.dataOwnerUserId))

@@ -376,6 +376,55 @@ export async function getPublishingTask(
   return withFileState(state => state.tasks[fileKey(ownerUserId, taskId)] || null)
 }
 
+export async function updatePublishingAssetGeneration(input: {
+  ownerUserId: string
+  assetId: string
+  status: PublishingContentAsset["status"]
+  generationJobId?: string
+  generatedArticleId?: string
+  title?: string
+}): Promise<PublishingContentAsset | null> {
+  const now = new Date().toISOString()
+  if (backend() === "postgres") {
+    await ensurePublishingPlanSchema()
+    const result = await pool().query<AssetRow>(
+      `UPDATE geo_publishing_assets_v1
+       SET status = $3,
+           generation_job_id = COALESCE($4, generation_job_id),
+           generated_article_id = COALESCE($5, generated_article_id),
+           title = COALESCE($6, title),
+           updated_at = $7
+       WHERE owner_user_id = $1 AND id = $2
+       RETURNING *`,
+      [
+        input.ownerUserId,
+        input.assetId,
+        input.status,
+        clean(input.generationJobId, 200) || null,
+        clean(input.generatedArticleId, 200) || null,
+        clean(input.title, 300) || null,
+        now,
+      ],
+    )
+    return result.rows[0] ? assetFromRow(result.rows[0]) : null
+  }
+  return withFileState(state => {
+    const key = fileKey(input.ownerUserId, input.assetId)
+    const asset = state.assets[key]
+    if (!asset) return null
+    const updated: PublishingContentAsset = {
+      ...asset,
+      status: input.status,
+      generationJobId: clean(input.generationJobId, 200) || asset.generationJobId,
+      generatedArticleId: clean(input.generatedArticleId, 200) || asset.generatedArticleId,
+      title: clean(input.title, 300) || asset.title,
+      updatedAt: now,
+    }
+    state.assets[key] = updated
+    return updated
+  }, true)
+}
+
 export async function claimPublishingTasks(input: {
   ownerUserId: string
   clientId: string

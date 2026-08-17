@@ -5,8 +5,10 @@ import {
   getPublishingPlan,
 } from "@/lib/publishing-plan/store"
 import { publishingPlanForViewer } from "@/lib/publishing-plan/access"
-import { requireOperationAccess } from "@/lib/team-access"
-import { hasTeamPermission } from "@/lib/team-permissions"
+import {
+  hasPublishingPlanPermission,
+  requirePublishingPlanAccess,
+} from "@/lib/publishing-plan/access-control"
 import { requireUserId } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
@@ -19,14 +21,13 @@ export async function GET(request: NextRequest, context: Context) {
   if (!auth.ok) return auth.response
   try {
     const { clientId, planId } = await context.params
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId: request.nextUrl.searchParams.get("teamId") || undefined,
-      module: "feedback",
       action: "view",
     })
-    const costsVisible = hasTeamPermission(access.permissionKeys, "feedback", "manage")
+    const costsVisible = hasPublishingPlanPermission(access.permissionKeys, "manage")
     const plan = await getPublishingPlan(access.dataOwnerUserId, planId, true)
     if (!plan || plan.clientId !== access.clientId || (!costsVisible && plan.status !== "active")) {
       throw new Error("发布规划不存在")
@@ -45,11 +46,10 @@ export async function PATCH(request: NextRequest, context: Context) {
   try {
     const { clientId, planId } = await context.params
     const body = await request.json() as { action?: unknown; teamId?: unknown }
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId: typeof body.teamId === "string" ? body.teamId : undefined,
-      module: "feedback",
       action: "manage",
     })
     const current = await getPublishingPlan(access.dataOwnerUserId, planId, false)
@@ -69,11 +69,10 @@ export async function DELETE(request: NextRequest, context: Context) {
   if (!auth.ok) return auth.response
   try {
     const { clientId, planId } = await context.params
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId: request.nextUrl.searchParams.get("teamId") || undefined,
-      module: "feedback",
       action: "manage",
     })
     const current = await getPublishingPlan(access.dataOwnerUserId, planId, false)

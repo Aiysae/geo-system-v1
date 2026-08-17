@@ -41,6 +41,7 @@ type Payload = {
   canEdit: boolean
   canManage: boolean
   costsVisible: boolean
+  profile?: ClientExecutionProfile
 }
 
 const STATUS_LABELS: Record<PublishingTaskStatus, string> = {
@@ -70,12 +71,18 @@ export default function PublishingPlanPanel({
   client,
   profile,
   onExecutionChanged,
+  mode = "full",
 }: {
   client: Client
-  profile: ClientExecutionProfile
+  profile?: ClientExecutionProfile
   onExecutionChanged?: () => void
+  mode?: "full" | "summary"
 }) {
-  const endpoint = `/api/client-feedback/${encodeURIComponent(client.id)}/publishing-plans`
+  const endpointPath = `/api/client-feedback/${encodeURIComponent(client.id)}/publishing-plans`
+  const endpointFor = useCallback((suffix = "") => {
+    const teamId = currentWorkspaceTeamId()
+    return `${endpointPath}${suffix}${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ""}`
+  }, [endpointPath])
   const [payload, setPayload] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState("")
@@ -95,18 +102,18 @@ export default function PublishingPlanPanel({
     if (!silent) setLoading(true)
     setError("")
     try {
-      const response = await fetch(endpoint, { cache: "no-store" })
+      const response = await fetch(endpointFor(), { cache: "no-store" })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "发布规划读取失败")
       const next = body as Payload
       setPayload(next)
-      if (next.current) setDraft(next.current.input)
+      setDraft(next.current?.input || defaultInput(next.profile || profile))
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "发布规划读取失败")
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [endpoint])
+  }, [endpointFor, profile])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
@@ -125,6 +132,8 @@ export default function PublishingPlanPanel({
   )
   const completedCount = tasks.filter(task => task.status === "completed").length
   const completionRate = tasks.length > 0 ? completedCount / tasks.length : 0
+  const todayTasks = tasks.filter(task => task.plannedDate === today())
+  const todayCompleted = todayTasks.filter(task => task.status === "completed").length
 
   function updateDraft(patch: Partial<PublishingPlanInput>) {
     setDraft(current => ({ ...current, ...patch }))
@@ -144,10 +153,14 @@ export default function PublishingPlanPanel({
     setError("")
     setNotice("")
     try {
-      const response = await fetch(`${endpoint}/recommend`, {
+      const response = await fetch(endpointFor("/recommend"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerStage: draft.customerStage, useAi: true }),
+        body: JSON.stringify({
+          teamId: currentWorkspaceTeamId() || undefined,
+          customerStage: draft.customerStage,
+          useAi: true,
+        }),
       })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "平台建议生成失败")
@@ -167,10 +180,11 @@ export default function PublishingPlanPanel({
     setError("")
     setNotice("")
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(endpointFor(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          teamId: currentWorkspaceTeamId() || undefined,
           input: draft,
           sourceSnapshot: recommendation?.sourceSnapshot || plan?.sourceSnapshot || [],
           recommendationModel: recommendation?.model,
@@ -201,10 +215,10 @@ export default function PublishingPlanPanel({
     setPending("activate")
     setError("")
     try {
-      const response = await fetch(`${endpoint}/${encodeURIComponent(plan.id)}`, {
+      const response = await fetch(endpointFor(`/${encodeURIComponent(plan.id)}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "activate" }),
+        body: JSON.stringify({ action: "activate", teamId: currentWorkspaceTeamId() || undefined }),
       })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "规划启用失败")
@@ -222,7 +236,7 @@ export default function PublishingPlanPanel({
     setPending("view")
     setError("")
     try {
-      const response = await fetch(`${endpoint}/${encodeURIComponent(planId)}`, { cache: "no-store" })
+      const response = await fetch(endpointFor(`/${encodeURIComponent(planId)}`), { cache: "no-store" })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "规划版本读取失败")
       const selected = body.plan as PublishingPlan
@@ -241,7 +255,7 @@ export default function PublishingPlanPanel({
     setPending("delete")
     setError("")
     try {
-      const response = await fetch(`${endpoint}/${encodeURIComponent(plan.id)}`, { method: "DELETE" })
+      const response = await fetch(endpointFor(`/${encodeURIComponent(plan.id)}`), { method: "DELETE" })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "规划草案删除失败")
       setNotice("规划草案已删除")
@@ -258,10 +272,15 @@ export default function PublishingPlanPanel({
     setPending(`complete:${completionTask.id}`)
     setError("")
     try {
-      const response = await fetch(`${endpoint}/${encodeURIComponent(plan.id)}/tasks/${encodeURIComponent(completionTask.id)}`, {
+      const response = await fetch(endpointFor(`/${encodeURIComponent(plan.id)}/tasks/${encodeURIComponent(completionTask.id)}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "complete", title: completionTitle, publishedUrl: completionUrl }),
+        body: JSON.stringify({
+          action: "complete",
+          teamId: currentWorkspaceTeamId() || undefined,
+          title: completionTitle,
+          publishedUrl: completionUrl,
+        }),
       })
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "发布任务完成失败")
@@ -282,21 +301,50 @@ export default function PublishingPlanPanel({
     return <section className="flex min-h-36 items-center justify-center rounded-lg border border-[#D7E5F2] bg-white"><Loader2 className="h-5 w-5 animate-spin text-[#1677FF]" /></section>
   }
 
+  if (mode === "summary") {
+    return (
+      <section className="rounded-lg border border-[#D7E5F2] bg-white px-4 py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#EAF4FF] text-[#1677FF]"><ClipboardCheck className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-[#102A43]">发布执行进度</h3>
+              <p className="mt-0.5 text-[10px] text-[#6B8299]">
+                {plan
+                  ? `今日 ${todayCompleted}/${todayTasks.length} 项，全部 ${completedCount}/${tasks.length} 项已完成`
+                  : "尚未在关键词策略中制定发布规划"}
+              </p>
+            </div>
+          </div>
+          {plan ? (
+            <div className="flex min-w-44 items-center gap-3">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#E7EFF7]">
+                <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#13C2C2]" style={{ width: `${Math.round(completionRate * 100)}%` }} />
+              </div>
+              <span className="font-mono text-xs font-bold text-[#0958D9]">{Math.round(completionRate * 100)}%</span>
+            </div>
+          ) : null}
+        </div>
+        {error ? <p className="mt-2 text-[10px] text-rose-600">{error}</p> : null}
+      </section>
+    )
+  }
+
   return (
     <section className="overflow-hidden rounded-lg border border-[#B9DDFC] bg-white shadow-[0_18px_44px_-36px_rgba(0,78,180,.55)]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#DCEAF6] bg-[linear-gradient(120deg,#F2F8FF_0%,#F0FCFF_55%,#F7F5FF_100%)] px-4 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] via-[#00AEEA] to-[#13C2C2] text-white shadow-sm"><Network className="h-5 w-5" /></span>
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-bold text-[#102A43]">各平台发文配额及发布规划表</h3>
-            <p className="mt-1 text-[10px] text-[#6B8299]">预算、内容制作、平台复用和每日执行统一排期</p>
+            <h3 className="truncate text-sm font-bold text-[#102A43]">内容发布规划</h3>
+            <p className="mt-1 text-[10px] text-[#6B8299]">把关键词策略转成平台配额、内容资产和每日发布任务</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {plan ? <span className={`rounded-md px-2.5 py-1 text-[10px] font-bold ${plan.status === "active" ? "bg-emerald-100 text-emerald-700" : plan.status === "draft" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>第 {plan.version} 版 · {plan.status === "active" ? "执行中" : plan.status === "draft" ? "待确认" : "历史版本"}</span> : null}
           {payload?.canManage && payload.plans.length > 1 && plan ? <select aria-label="查看发布规划版本" value={plan.id} onChange={event => void viewPlan(event.target.value)} disabled={pending === "view"} className="h-9 rounded-lg border border-[#C8D9E8] bg-white px-2 text-[10px] font-semibold text-[#526A83] outline-none focus:border-[#1677FF]">{payload.plans.map(item => <option key={item.id} value={item.id}>第 {item.version} 版 · {item.status === "active" ? "执行中" : item.status === "draft" ? "草案" : "历史"}</option>)}</select> : null}
           {payload?.canManage ? (
-            <button type="button" onClick={() => { setDraft(plan?.input || defaultInput(profile)); setEditorOpen(true) }} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#91CAFF] bg-white px-3 text-xs font-semibold text-[#0958D9] transition hover:bg-[#EAF4FF]"><Settings2 className="h-3.5 w-3.5" />{plan ? "重新规划" : "制定规划"}</button>
+            <button type="button" onClick={() => { setDraft(plan?.input || defaultInput(payload?.profile || profile)); setEditorOpen(true) }} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#91CAFF] bg-white px-3 text-xs font-semibold text-[#0958D9] transition hover:bg-[#EAF4FF]"><Settings2 className="h-3.5 w-3.5" />{plan ? "重新规划" : "制定规划"}</button>
           ) : null}
           {plan ? <button type="button" onClick={() => setDetailsOpen(value => !value)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#D7E5F2] bg-white px-3 text-xs font-semibold text-[#526A83]"><ChevronDown className={`h-3.5 w-3.5 transition ${detailsOpen ? "rotate-180" : ""}`} />{detailsOpen ? "收起" : "展开"}</button> : null}
         </div>
@@ -510,20 +558,25 @@ function MoneyInput({ value, onChange }: { value: number; onChange: (value: numb
   return <div className="relative"><input type="number" min="0" step="0.01" value={value / 100} onChange={event => onChange(Math.round(Number(event.target.value || 0) * 100))} className={inputClass("pr-8")} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8AA0B5]">元</span></div>
 }
 
-function defaultInput(profile: ClientExecutionProfile): PublishingPlanInput {
-  const startDate = profile.startDate || today()
+function defaultInput(profile?: ClientExecutionProfile): PublishingPlanInput {
+  const startDate = profile?.startDate || today()
   return {
     totalServiceFeeCents: 1_000_000,
     executionCostRateBps: 3_250,
     startDate,
-    endDate: profile.endDate || addMonthsMinusOne(startDate, 3),
-    periodMode: profile.periodMode,
+    endDate: profile?.endDate || addMonthsMinusOne(startDate, 3),
+    periodMode: profile?.periodMode || "service",
     customerStage: "new_launch",
     firstMonthBudgetBps: 5_000,
     firstSevenDaysBudgetBps: 5_000,
     contentCreationCostsCents: { article: 0, authority_article: 0, video: 0 },
     platformConfigs: [],
   }
+}
+
+function currentWorkspaceTeamId(): string {
+  if (typeof window === "undefined") return ""
+  return String(new URL(window.location.href).searchParams.get("teamId") || "").trim().slice(0, 200)
 }
 
 function addMonthsMinusOne(value: string, months: number): string {
