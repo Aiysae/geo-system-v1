@@ -111,6 +111,7 @@ jobs:
               --contimeout=20 \
               --exclude 'node_modules' \
               --exclude '.next' \
+              --exclude '.data' \
               --exclude '.env.local' \
               --exclude '.env.production' \
               -e "$SSH_RSYNC" \
