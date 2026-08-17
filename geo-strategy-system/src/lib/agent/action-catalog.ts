@@ -711,6 +711,127 @@ const feedbackReminderSettingsUpdateSchema = z.looseObject({
   { message: "请至少提供一项提醒设置", path: ["emailEnabled"] },
 )
 
+const publishingCategorySchema = z.enum([
+  "self_media",
+  "industry_vertical",
+  "authority_media",
+  "government_association",
+  "brand_official",
+  "other",
+])
+const publishingContentTypeSchema = z.enum(["article", "authority_article", "video"])
+const publishingTaskStatusSchema = z.enum(["planned", "claimed", "completed", "failed", "skipped"])
+const publishingDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+const publishingSourceEvidenceSchema = z.looseObject({
+  platformKey: z.string().min(1).max(160),
+  platformName: z.string().min(1).max(120),
+  category: publishingCategorySchema,
+  citationShare: z.number().min(0).max(100),
+  adoptionRate: z.number().min(0).max(100),
+  balancedAdoptionRate: z.number().min(0).max(100),
+  modelCoverage: z.number().min(0).max(10_000),
+  questionCoverage: z.number().min(0).max(10_000),
+  citationEvents: z.number().int().nonnegative(),
+  domains: z.array(z.string().max(300)).max(100),
+  evidenceUrls: z.array(z.string().url().max(2_000)).max(100),
+  source: z.enum(["penetration", "keyword_strategy", "manual", "system"]),
+})
+
+const publishingPlatformConfigSchema = z.looseObject({
+  id: z.string().min(1).max(160),
+  platformKey: z.string().min(1).max(160),
+  platformName: z.string().min(1).max(120),
+  category: publishingCategorySchema,
+  contentType: publishingContentTypeSchema,
+  enabled: z.boolean().optional().default(true),
+  weightBps: z.number().int().min(0).max(10_000),
+  dailyLimitPerAccount: z.number().int().min(1).max(1_000),
+  safeUtilizationBps: z.number().int().min(1_000).max(10_000).optional().default(8_000),
+  existingAccountCount: z.number().int().min(0).max(10_000).optional().default(0),
+  publishUnitCostCents: z.number().int().min(0).max(10_000_000),
+  maxReusePlatforms: z.number().int().min(1).max(100).optional().default(4),
+  evidenceScore: z.number().min(0).max(100).optional(),
+  strategicScore: z.number().min(0).max(100).optional(),
+  recommendationReason: z.string().max(1_000).optional(),
+  sourceEvidence: publishingSourceEvidenceSchema.optional(),
+})
+
+const publishingPlanInputSchema = z.looseObject({
+  totalServiceFeeCents: z.number().int().positive().max(10_000_000_000),
+  executionCostRateBps: z.number().int().min(3_000).max(3_500).optional().default(3_250),
+  startDate: publishingDateSchema,
+  endDate: publishingDateSchema,
+  periodMode: z.enum(["service", "calendar"]).optional().default("service"),
+  customerStage: z.enum(["new_launch", "maintenance"]).optional().default("new_launch"),
+  firstMonthBudgetBps: z.number().int().min(1_000).max(9_000).optional().default(5_000),
+  firstSevenDaysBudgetBps: z.number().int().min(1_000).max(9_000).optional().default(5_000),
+  servicePeriodWeightsBps: z.array(z.number().int().min(0).max(10_000)).max(120).optional(),
+  contentCreationCostsCents: z.object({
+    article: z.number().int().min(0).max(10_000_000),
+    authority_article: z.number().int().min(0).max(10_000_000),
+    video: z.number().int().min(0).max(10_000_000),
+  }),
+  platformConfigs: z.array(publishingPlatformConfigSchema).min(1).max(100),
+}).refine(value => value.endDate >= value.startDate, {
+  message: "服务结束日期不能早于开始日期",
+  path: ["endDate"],
+})
+
+const publishingPlanGetSchema = z.looseObject({
+  ...clientContextShape,
+  planId: z.string().min(1).max(240).optional(),
+})
+const publishingPlanRecommendSchema = z.looseObject({
+  ...clientContextShape,
+  customerStage: z.enum(["new_launch", "maintenance"]).optional().default("new_launch"),
+  useAi: z.boolean().optional().default(true),
+})
+const publishingPlanCreateSchema = z.looseObject({
+  ...clientContextShape,
+  input: publishingPlanInputSchema,
+  sourceSnapshot: z.array(publishingSourceEvidenceSchema).max(100).optional().default([]),
+  recommendationModel: z.string().max(200).optional(),
+  recommendationGeneratedAt: z.string().datetime().optional(),
+})
+const publishingPlanActivateSchema = z.looseObject({
+  ...clientContextShape,
+  planId: z.string().min(1).max(240),
+})
+const publishingTasksListSchema = z.looseObject({
+  ...clientContextShape,
+  planId: z.string().min(1).max(240),
+  date: publishingDateSchema.optional(),
+  from: publishingDateSchema.optional(),
+  to: publishingDateSchema.optional(),
+  status: publishingTaskStatusSchema.optional(),
+  platformKey: z.string().max(160).optional(),
+  limit: z.number().int().min(1).max(10_000).optional().default(500),
+})
+const publishingTasksClaimSchema = z.looseObject({
+  ...clientContextShape,
+  planId: z.string().min(1).max(240),
+  date: publishingDateSchema.optional(),
+  limit: z.number().int().min(1).max(100).optional().default(10),
+  leaseSeconds: z.number().int().min(60).max(3_600).optional().default(900),
+})
+const publishingTaskCompleteSchema = z.looseObject({
+  ...clientContextShape,
+  planId: z.string().min(1).max(240),
+  taskId: z.string().min(1).max(300),
+  claimToken: z.string().min(1).max(240).optional(),
+  publishedUrl: z.string().url().max(2_000),
+  publishedAt: z.string().datetime().optional(),
+  title: z.string().max(300).optional(),
+})
+const publishingTaskFailSchema = z.looseObject({
+  ...clientContextShape,
+  planId: z.string().min(1).max(240),
+  taskId: z.string().min(1).max(300),
+  claimToken: z.string().min(1).max(240).optional(),
+  reason: z.string().min(1).max(800),
+})
+
 const knowledgeImportSchema = z.looseObject({
   ...clientContextShape,
   files: z.array(z.object({
@@ -1229,6 +1350,88 @@ export const AGENT_ACTION_REGISTRY = {
     billable: false,
     schema: feedbackReminderSettingsUpdateSchema,
   },
+  "publishing.plan.get": {
+    mcpTool: "shitu_get_publishing_plan",
+    title: "读取客户发布规划",
+    description: "读取客户当前生效的发文预算、平台配额、账号需求、每日任务及内容复用关系。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.view",
+    billable: false,
+    readOnly: true,
+    schema: publishingPlanGetSchema,
+  },
+  "publishing.plan.recommend": {
+    mcpTool: "shitu_recommend_publishing_platforms",
+    title: "生成发布平台建议",
+    description: "根据渗透率信源和关键词策略证据，使用豆包辅助判断平台适配度并返回可人工调整的平台权重建议。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    schema: publishingPlanRecommendSchema,
+  },
+  "publishing.plan.create": {
+    mcpTool: "shitu_create_publishing_plan",
+    title: "创建发布规划草案",
+    description: "按服务费、30% 至 35% 执行成本、阶段预算、平台权重和账号上限创建可审计的新版本草案。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    schema: publishingPlanCreateSchema,
+  },
+  "publishing.plan.activate": {
+    mcpTool: "shitu_activate_publishing_plan",
+    title: "启用发布规划版本",
+    description: "启用指定发布规划草案并归档此前生效版本。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    schema: publishingPlanActivateSchema,
+  },
+  "publishing.tasks.list": {
+    mcpTool: "shitu_list_publishing_tasks",
+    title: "读取发布任务",
+    description: "按日期、平台和状态读取发布任务，并返回对应疑问句、匹配优势、内容类型和账号槽位。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.view",
+    billable: false,
+    readOnly: true,
+    schema: publishingTasksListSchema,
+  },
+  "publishing.tasks.claim": {
+    mcpTool: "shitu_claim_publishing_tasks",
+    title: "领取发布任务",
+    description: "并发安全地领取当前生效规划中的待执行任务；领取结果可直接交给文章生成和发布 Agent。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.edit",
+    billable: false,
+    schema: publishingTasksClaimSchema,
+  },
+  "publishing.task.complete": {
+    mcpTool: "shitu_complete_publishing_task",
+    title: "完成发布任务",
+    description: "回填真实发布链接，同时自动写入客户执行反馈日历；相同任务重试不会生成重复动作。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.edit",
+    billable: false,
+    schema: publishingTaskCompleteSchema,
+  },
+  "publishing.task.fail": {
+    mcpTool: "shitu_fail_publishing_task",
+    title: "标记发布任务失败",
+    description: "记录发布失败原因并释放领取锁，供后续人工检查或重新规划。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.edit",
+    billable: false,
+    schema: publishingTaskFailSchema,
+  },
   "report.create": {
     mcpTool: "shitu_create_professional_report",
     title: "生成专业报告",
@@ -1562,6 +1765,24 @@ export function estimateAgentAction(
       return { ...context, scope: "feedback.view", units: 1, credits: 0, label: "读取动作录入提醒设置" }
     case "feedback.reminder-settings.update":
       return { ...context, scope: "feedback.edit", units: 1, credits: 0, label: "更新动作录入提醒设置" }
+    case "publishing.plan.get":
+      return { ...context, scope: "feedback.view", units: 1, credits: 0, label: "读取客户发布规划" }
+    case "publishing.plan.recommend":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "生成发布平台建议" }
+    case "publishing.plan.create":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "创建发布规划草案" }
+    case "publishing.plan.activate":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "启用发布规划版本" }
+    case "publishing.tasks.list":
+      return { ...context, scope: "feedback.view", units: 1, credits: 0, label: "读取发布任务" }
+    case "publishing.tasks.claim": {
+      const units = Math.max(1, Math.min(100, Number(input.limit) || 10))
+      return { ...context, scope: "feedback.edit", units, credits: 0, label: `领取发布任务 × ${units}` }
+    }
+    case "publishing.task.complete":
+      return { ...context, scope: "feedback.edit", units: 1, credits: 0, label: "完成发布任务" }
+    case "publishing.task.fail":
+      return { ...context, scope: "feedback.edit", units: 1, credits: 0, label: "标记发布任务失败" }
     case "background.run": {
       const kind = input.kind
       if (!isBackgroundJobKind(kind)) throw new Error("后台任务 kind 无效")

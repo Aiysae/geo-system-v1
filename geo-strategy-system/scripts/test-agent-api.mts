@@ -210,7 +210,7 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.5")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.6")
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
@@ -241,6 +241,14 @@ try {
     "feedback.automation.delete",
     "feedback.reminder-settings.get",
     "feedback.reminder-settings.update",
+    "publishing.plan.get",
+    "publishing.plan.recommend",
+    "publishing.plan.create",
+    "publishing.plan.activate",
+    "publishing.tasks.list",
+    "publishing.tasks.claim",
+    "publishing.task.complete",
+    "publishing.task.fail",
   ]) {
     assert.ok(
       AGENT_ACTIONS.some(action => action.name === actionName),
@@ -743,7 +751,7 @@ try {
     externalDocs: { url: string }
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
-  assert.equal(openapi.info.version, "1.5.0")
+  assert.equal(openapi.info.version, "1.6.0")
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
   assert.ok(openapi.paths["/actions/penetration.automation.save"])
@@ -753,6 +761,9 @@ try {
   assert.ok(openapi.paths["/actions/feedback.report.manage"])
   assert.ok(openapi.paths["/actions/feedback.automation.save"])
   assert.ok(openapi.paths["/actions/feedback.automation.retry"])
+  assert.ok(openapi.paths["/actions/publishing.plan.create"])
+  assert.ok(openapi.paths["/actions/publishing.tasks.claim"])
+  assert.ok(openapi.paths["/actions/publishing.task.complete"])
   assert.ok(openapi.paths["/actions/keyword.questions.run"])
   assert.ok(openapi.paths["/tasks/{taskId}/result"])
   assert.ok(openapi.paths["/tasks/{taskId}/cancel"])
