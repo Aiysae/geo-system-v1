@@ -476,6 +476,96 @@ async function routeForAction(
       },
     }
   }
+  if (action === "publishing.plan.get") {
+    const clientId = String(payload.clientId || "")
+    const query = new URLSearchParams()
+    if (payload.teamId) query.set("teamId", String(payload.teamId))
+    const suffix = query.size ? `?${query}` : ""
+    if (payload.planId) {
+      const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/[planId]/route")
+      const planId = String(payload.planId)
+      return {
+        path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans/${encodeURIComponent(planId)}${suffix}`,
+        handler: request => route.GET(request, { params: Promise.resolve({ clientId, planId }) }),
+        method: "GET",
+      }
+    }
+    const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/route")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans${suffix}`,
+      handler: request => route.GET(request, { params: Promise.resolve({ clientId }) }),
+      method: "GET",
+    }
+  }
+  if (action === "publishing.plan.recommend") {
+    const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/recommend/route")
+    const clientId = String(payload.clientId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans/recommend`,
+      handler: request => route.POST(request, { params: Promise.resolve({ clientId }) }),
+      payload,
+    }
+  }
+  if (action === "publishing.plan.create") {
+    const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/route")
+    const clientId = String(payload.clientId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans`,
+      handler: request => route.POST(request, { params: Promise.resolve({ clientId }) }),
+      payload,
+    }
+  }
+  if (action === "publishing.plan.activate") {
+    const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/[planId]/route")
+    const clientId = String(payload.clientId || "")
+    const planId = String(payload.planId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans/${encodeURIComponent(planId)}`,
+      handler: request => route.PATCH(request, { params: Promise.resolve({ clientId, planId }) }),
+      method: "PATCH",
+      payload: { teamId: payload.teamId, action: "activate" },
+    }
+  }
+  if (action === "publishing.tasks.list") {
+    const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/[planId]/tasks/route")
+    const clientId = String(payload.clientId || "")
+    const planId = String(payload.planId || "")
+    const query = new URLSearchParams()
+    for (const key of ["teamId", "date", "from", "to", "status", "platformKey", "limit"] as const) {
+      if (payload[key] !== undefined && payload[key] !== "") query.set(key, String(payload[key]))
+    }
+    const suffix = query.size ? `?${query}` : ""
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans/${encodeURIComponent(planId)}/tasks${suffix}`,
+      handler: request => route.GET(request, { params: Promise.resolve({ clientId, planId }) }),
+      method: "GET",
+    }
+  }
+  if (action === "publishing.tasks.claim") {
+    const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/[planId]/tasks/route")
+    const clientId = String(payload.clientId || "")
+    const planId = String(payload.planId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans/${encodeURIComponent(planId)}/tasks`,
+      handler: request => route.POST(request, { params: Promise.resolve({ clientId, planId }) }),
+      payload,
+    }
+  }
+  if (action === "publishing.task.complete" || action === "publishing.task.fail") {
+    const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/[planId]/tasks/[taskId]/route")
+    const clientId = String(payload.clientId || "")
+    const planId = String(payload.planId || "")
+    const taskId = String(payload.taskId || "")
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`,
+      handler: request => route.PATCH(request, { params: Promise.resolve({ clientId, planId, taskId }) }),
+      method: "PATCH",
+      payload: {
+        ...payload,
+        action: action === "publishing.task.complete" ? "complete" : "fail",
+      },
+    }
+  }
   if (action === "report.create") {
     const route = await import("@/app/api/reports/jobs/route")
     return { path: "/api/reports/jobs", handler: route.POST, payload }

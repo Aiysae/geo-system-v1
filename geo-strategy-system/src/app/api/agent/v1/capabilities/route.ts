@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     const auth = await requireAgentAuth(request)
     traceId = auth.traceId
     return agentSuccess({
-      apiVersion: "v1.5",
+      apiVersion: "v1.6",
       actions: AGENT_ACTIONS.filter(action => (
         action.requiredScope === "dynamic"
         || hasAgentScope(auth.token.scopes, action.requiredScope)

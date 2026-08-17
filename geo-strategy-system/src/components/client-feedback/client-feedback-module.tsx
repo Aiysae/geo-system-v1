@@ -31,6 +31,7 @@ import {
 import BatchEvidenceImportDialog from "@/components/client-feedback/batch-evidence-import-dialog"
 import ClientFeedbackReportView from "@/components/client-feedback/client-feedback-report-view"
 import FeedbackAutomationPanel from "@/components/client-feedback/feedback-automation-panel"
+import PublishingPlanPanel from "@/components/client-feedback/publishing-plan-panel"
 import type { Client } from "@/types"
 import {
   groupClientExecutionActions,
@@ -773,6 +774,13 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
           <button type="button" onClick={() => void navigator.clipboard.writeText(shareUrl).then(() => setNotice("私密链接已复制")).catch(() => undefined)} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] px-3 text-xs font-semibold text-white"><Copy className="h-3.5 w-3.5" />复制链接</button>
         </div>
       ) : null}
+
+      <PublishingPlanPanel
+        key={`publishing-plan-${client.id}`}
+        client={client}
+        profile={payload.profile}
+        onExecutionChanged={() => void load(true)}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1.08fr_.92fr]">
         <section className="rounded-lg border border-[#D7E5F2] bg-white">
