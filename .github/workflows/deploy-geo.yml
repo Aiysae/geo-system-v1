@@ -189,6 +189,7 @@ jobs:
               npm run db:migrate:system-outputs
               npm run db:migrate:penetration-automation
               npm run db:migrate:feedback-automation
+              npm run db:migrate:publishing-plans
             fi
 
             GEO_LOW_MEMORY_BUILD=1 \
