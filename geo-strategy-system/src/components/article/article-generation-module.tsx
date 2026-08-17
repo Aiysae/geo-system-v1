@@ -1138,7 +1138,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               <WandSparkles className="h-3.5 w-3.5 text-[#1677FF]" />
               生成设置
             </div>
-            <div className="geo-segmented mb-3 grid-cols-3 sm:grid-cols-5 [&>button]:whitespace-nowrap [&>button]:px-1">
+            <div className="geo-segmented mb-3 grid-cols-3 [&>button]:whitespace-nowrap [&>button]:px-2">
               <button
                 type="button"
                 onClick={() => updateMode("single")}
@@ -1152,36 +1152,14 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               </button>
               <button
                 type="button"
-                onClick={() => updateMode("batch")}
+                onClick={() => updateMode(isBulkWorkspace ? workspaceMode : "batch")}
                 className={`h-9 rounded-lg text-xs font-semibold transition ${
-                  isBatch
+                  isBulkWorkspace
                     ? "bg-white text-[#003EB3] shadow-sm"
                     : "text-slate-500 hover:bg-white/70"
                 }`}
               >
-                批量生成
-              </button>
-              <button
-                type="button"
-                onClick={() => updateMode("strategy")}
-                className={`h-9 rounded-lg text-xs font-semibold transition ${
-                  isStrategy
-                    ? "bg-white text-[#003EB3] shadow-sm"
-                    : "text-slate-500 hover:bg-white/70"
-                }`}
-              >
-                自动成文
-              </button>
-              <button
-                type="button"
-                onClick={() => updateMode("production")}
-                className={`h-9 rounded-lg text-xs font-semibold transition ${
-                  isProduction
-                    ? "bg-white text-[#003EB3] shadow-sm"
-                    : "text-slate-500 hover:bg-white/70"
-                }`}
-              >
-                发布计划
+                批量生产
               </button>
               <button
                 type="button"
@@ -1195,6 +1173,31 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 文章改写
               </button>
             </div>
+            {isBulkWorkspace ? (
+              <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50/55 p-2">
+                <div className="mb-1.5 px-1 text-[10px] font-semibold text-slate-500">选择任务来源</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {([
+                    { key: "batch", label: "手动 / Excel" },
+                    { key: "strategy", label: "疑问句池" },
+                    { key: "production", label: "发布计划" },
+                  ] as const).map(option => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => updateMode(option.key)}
+                      className={`h-8 rounded-md px-1 text-[10px] font-semibold transition ${
+                        workspaceMode === option.key
+                          ? "bg-[#1677FF] text-white shadow-sm"
+                          : "bg-white text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-xs">
                 <span className="mb-1.5 block font-medium text-slate-500">选择模型</span>

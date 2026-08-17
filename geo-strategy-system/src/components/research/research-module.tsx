@@ -12,12 +12,14 @@ import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
 import { getGeoArticleFormat } from "@/lib/geo-methodology/article-formats"
 import { toUserFacingError } from "@/lib/user-facing-errors"
-import type { BackgroundJobKind, BackgroundJobRef, Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
+import type { BackgroundJobKind, BackgroundJobRef, Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchEvidenceReference, ResearchEvidenceSource, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import {
   BarChart3,
   Brain,
   CheckCircle2,
+  ExternalLink,
   FlaskConical,
+  Globe2,
   Layers3,
   Loader2,
   RefreshCw,
@@ -145,6 +147,7 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
       ourBrand: compareOurBrand,
       industry: compareIndustry,
       website: client.website,
+      region: compareSourceMode === "manual" ? manualInput.region : "",
       competitors: allCompetitors,
       selectedCompetitors: activeSelectedCompetitors,
       penetration: compareSourceMode === "module" ? client.penetration : undefined,
@@ -705,8 +708,14 @@ function ResearchReport({
   result: ResearchResult
   subjectType: "brand" | "person"
 }) {
+  const references = result.evidenceReferences || []
+  const sources = result.sources || []
   return (
     <div className="space-y-4">
+      <EvidenceStatus
+        audit={result.evidenceAudit}
+        sourceCount={sources.length}
+      />
       <div className="rounded-lg border border-[#BAE0FF] bg-[#F5F9FF] p-4">
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck className="h-4 w-4 text-[#1677FF]" />
@@ -720,16 +729,27 @@ function ResearchReport({
           </div>
         )}
         <p className="text-sm leading-7 text-slate-700">{result.executiveSummary}</p>
+        <SourceBadges path="executiveSummary" references={references} sources={sources} />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <MiniPanel title={subjectType === "person" ? "个人 IP 形象" : "品牌形象"} text={result.brandImage} />
-        <MiniPanel title="当前认知" text={result.modelMentality} />
+        <MiniPanel
+          title={subjectType === "person" ? "个人 IP 形象" : "品牌形象"}
+          text={result.brandImage}
+          sourceIds={referenceIds(references, "brandImage")}
+          sources={sources}
+        />
+        <MiniPanel
+          title="当前认知"
+          text={result.modelMentality}
+          sourceIds={referenceIds(references, "modelMentality")}
+          sources={sources}
+        />
       </div>
 
       {result.dimensions.length > 0 && (
         <div className="space-y-2">
-          {result.dimensions.map(item => (
+          {result.dimensions.map((item, dimensionIndex) => (
             <div key={item.name} className="rounded-lg border border-slate-200 bg-white/80 p-3">
               <div className="flex items-center justify-between gap-3 mb-2">
                 <div className="text-sm font-medium text-slate-800">{item.name}</div>
@@ -739,6 +759,11 @@ function ResearchReport({
                 <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#00C8FF]" style={{ width: `${item.score}%` }} />
               </div>
               <p className="text-xs leading-6 text-slate-600">{item.insight}</p>
+              <SourceBadges
+                path={`dimensions.${dimensionIndex}.insight`}
+                references={references}
+                sources={sources}
+              />
               {item.evidence.length > 0 && <InlineList items={item.evidence} tone="slate" />}
             </div>
           ))}
@@ -746,12 +771,13 @@ function ResearchReport({
       )}
 
       <div className="grid gap-3 md:grid-cols-2">
-        <ListPanel title="用户感知" items={result.audiencePerception} tone="cyan" />
-        <ListPanel title="信任信号" items={result.trustSignals} tone="emerald" />
-        <ListPanel title="证据缺口" items={result.evidenceGaps} tone="amber" />
-        <ListPanel title="风险暴露" items={result.risks} tone="rose" />
+        <ListPanel title="用户感知" items={result.audiencePerception} tone="cyan" referencePath="audiencePerception" references={references} sources={sources} />
+        <ListPanel title="信任信号" items={result.trustSignals} tone="emerald" referencePath="trustSignals" references={references} sources={sources} />
+        <ListPanel title="证据缺口" items={result.evidenceGaps} tone="amber" referencePath="evidenceGaps" references={references} sources={sources} />
+        <ListPanel title="风险暴露" items={result.risks} tone="rose" referencePath="risks" references={references} sources={sources} />
+        <ListPanel title="增长机会" items={result.opportunities} tone="blue" referencePath="opportunities" references={references} sources={sources} />
+        <ListPanel title="行动建议" items={result.recommendations} tone="emerald" referencePath="recommendations" references={references} sources={sources} />
       </div>
-      <ListPanel title="机会与行动建议" items={[...result.opportunities, ...result.recommendations]} tone="blue" />
 
       {Boolean(result.contentBlueprints?.length) && (
         <section className="overflow-hidden rounded-lg border border-violet-200 bg-white">
@@ -784,6 +810,8 @@ function ResearchReport({
           </div>
         </section>
       )}
+
+      <EvidenceSourceList sources={sources} />
 
       <div className="text-[11px] text-slate-400 text-right">
         生成于 {new Date(result.generatedAt).toLocaleString("zh-CN")}
@@ -821,17 +849,24 @@ function CompareReport({
               {targetLabel} vs {item.competitor}
             </div>
             <p className="text-sm leading-7 text-slate-700">{item.positioningSummary}</p>
+            <SourceBadges
+              path="positioningSummary"
+              references={item.evidenceReferences || []}
+              sources={item.sources || []}
+            />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
-            <ListPanel title={subjectType === "person" ? "目标人物优势" : "我方优势"} items={item.ourAdvantages} tone="emerald" />
-            <ListPanel title={subjectType === "person" ? "同行人物优势" : "竞品优势"} items={item.competitorAdvantages} tone="rose" />
-            <ListPanel title={subjectType === "person" ? "目标人物短板" : "我方短板"} items={item.ourWeaknesses} tone="amber" />
-            <ListPanel title={subjectType === "person" ? "同行人物短板" : "竞品短板"} items={item.competitorWeaknesses} tone="slate" />
+            <ListPanel title={subjectType === "person" ? "目标人物优势" : "我方优势"} items={item.ourAdvantages} tone="emerald" referencePath="ourAdvantages" references={item.evidenceReferences} sources={item.sources} />
+            <ListPanel title={subjectType === "person" ? "同行人物优势" : "竞品优势"} items={item.competitorAdvantages} tone="rose" referencePath="competitorAdvantages" references={item.evidenceReferences} sources={item.sources} />
+            <ListPanel title={subjectType === "person" ? "目标人物短板" : "我方短板"} items={item.ourWeaknesses} tone="amber" referencePath="ourWeaknesses" references={item.evidenceReferences} sources={item.sources} />
+            <ListPanel title={subjectType === "person" ? "同行人物短板" : "竞品短板"} items={item.competitorWeaknesses} tone="slate" referencePath="competitorWeaknesses" references={item.evidenceReferences} sources={item.sources} />
           </div>
-          <ListPanel title="差异化叙事" items={item.differentiators} tone="blue" />
-          <ListPanel title="用户选择因素" items={item.userChoiceDrivers} tone="cyan" />
-          <ListPanel title="内容打法" items={item.contentActions} tone="rose" />
+          <ListPanel title="差异化叙事" items={item.differentiators} tone="blue" referencePath="differentiators" references={item.evidenceReferences} sources={item.sources} />
+          <ListPanel title="用户选择因素" items={item.userChoiceDrivers} tone="cyan" referencePath="userChoiceDrivers" references={item.evidenceReferences} sources={item.sources} />
+          <ListPanel title="内容打法" items={item.contentActions} tone="rose" referencePath="contentActions" references={item.evidenceReferences} sources={item.sources} />
+          <EvidenceStatus audit={item.evidenceAudit} sourceCount={item.sources?.length || 0} compact />
+          <EvidenceSourceList sources={item.sources || []} />
         </div>
       ))}
 
@@ -854,14 +889,28 @@ function getComparisons(result: CompetitorCompareResult): CompetitorComparison[]
     differentiators: result.differentiators,
     userChoiceDrivers: result.userChoiceDrivers,
     contentActions: result.contentActions,
+    sources: result.sources,
+    evidenceReferences: result.evidenceReferences,
+    evidenceAudit: result.evidenceAudit,
   }]
 }
 
-function MiniPanel({ title, text }: { title: string; text: string }) {
+function MiniPanel({
+  title,
+  text,
+  sourceIds = [],
+  sources = [],
+}: {
+  title: string
+  text: string
+  sourceIds?: string[]
+  sources?: ResearchEvidenceSource[]
+}) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white/80 p-3">
       <div className="text-xs font-semibold text-slate-700 mb-1">{title}</div>
       <p className="text-xs leading-6 text-slate-600">{text}</p>
+      <SourceBadges sourceIds={sourceIds} sources={sources} />
     </div>
   )
 }
@@ -870,10 +919,16 @@ function ListPanel({
   title,
   items,
   tone,
+  referencePath,
+  references,
+  sources,
 }: {
   title: string
   items: string[]
   tone: "emerald" | "rose" | "amber" | "blue" | "cyan" | "slate"
+  referencePath?: string
+  references?: ResearchEvidenceReference[]
+  sources?: ResearchEvidenceSource[]
 }) {
   const color = {
     emerald: "border-emerald-100 bg-emerald-50/35 text-emerald-700",
@@ -898,12 +953,127 @@ function ListPanel({
               ) : (
                 <CheckCircle2 className="mt-1 h-3.5 w-3.5 shrink-0 text-current" />
               )}
-              <span>{item}</span>
+              <span className="min-w-0">
+                <span>{item}</span>
+                {referencePath ? (
+                  <SourceBadges
+                    path={`${referencePath}.${index}`}
+                    references={references || []}
+                    sources={sources || []}
+                  />
+                ) : null}
+              </span>
             </li>
           ))}
         </ul>
       )}
     </div>
+  )
+}
+
+function referenceIds(references: ResearchEvidenceReference[], path: string): string[] {
+  return references.find(reference => reference.path === path)?.sourceIds || []
+}
+
+function SourceBadges({
+  path,
+  references = [],
+  sourceIds,
+  sources,
+}: {
+  path?: string
+  references?: ResearchEvidenceReference[]
+  sourceIds?: string[]
+  sources: ResearchEvidenceSource[]
+}) {
+  const ids = sourceIds || (path ? referenceIds(references, path) : [])
+  if (ids.length === 0) return null
+  const sourceMap = new Map(sources.map(source => [source.id, source]))
+  return (
+    <span className="mt-1.5 flex flex-wrap gap-1">
+      {ids.map(id => {
+        const source = sourceMap.get(id)
+        if (!source) return null
+        return (
+          <a
+            key={`${path || "source"}-${id}`}
+            href={source.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            title={source.title}
+            className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100 hover:text-blue-900"
+          >
+            {id}
+            <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        )
+      })}
+    </span>
+  )
+}
+
+function EvidenceStatus({
+  audit,
+  sourceCount,
+  compact = false,
+}: {
+  audit?: ResearchResult["evidenceAudit"]
+  sourceCount: number
+  compact?: boolean
+}) {
+  if (!audit) {
+    return (
+      <div className={`${compact ? "mt-1" : ""} rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800`}>
+        这是旧版结果，未保存完整的联网证据快照；重新调研后可查看可点击来源。
+      </div>
+    )
+  }
+  return (
+    <div className={`${compact ? "mt-1" : ""} flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800`}>
+      <span className="inline-flex items-center gap-1 font-semibold">
+        <Globe2 className="h-3.5 w-3.5" />
+        强制联网验证完成
+      </span>
+      <span>{sourceCount} 条可读来源</span>
+      <span>{audit.uniqueDomainCount} 个独立网站</span>
+      <span>{audit.queryCount} 组检索</span>
+    </div>
+  )
+}
+
+function EvidenceSourceList({ sources }: { sources: ResearchEvidenceSource[] }) {
+  if (sources.length === 0) return null
+  return (
+    <section className="overflow-hidden rounded-lg border border-blue-100 bg-white">
+      <div className="flex items-center gap-2 border-b border-blue-100 bg-blue-50/70 px-3 py-2.5">
+        <Globe2 className="h-4 w-4 text-blue-600" />
+        <div>
+          <div className="text-xs font-semibold text-slate-800">联网来源与引用</div>
+          <div className="text-[10px] text-slate-500">以下网址均已实际打开并验证为可读页面</div>
+        </div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {sources.map(source => (
+          <a
+            key={`${source.id}-${source.url}`}
+            href={source.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="group grid gap-1 px-3 py-2.5 transition hover:bg-blue-50/50 sm:grid-cols-[2rem_minmax(0,1fr)_auto] sm:items-start sm:gap-2"
+          >
+            <span className="font-mono text-[10px] font-bold text-blue-700">{source.id}</span>
+            <span className="min-w-0">
+              <span className="block text-xs font-medium leading-5 text-slate-700 group-hover:text-blue-800">{source.title}</span>
+              <span className="block break-all text-[10px] leading-4 text-slate-400">{source.url}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+              {source.domain}
+              <ExternalLink className="h-3 w-3" />
+            </span>
+          </a>
+        ))}
+      </div>
+    </section>
   )
 }
 

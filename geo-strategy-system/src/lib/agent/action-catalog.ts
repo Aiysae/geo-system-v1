@@ -978,7 +978,7 @@ export const AGENT_ACTION_REGISTRY = {
   "research.run": {
     mcpTool: "shitu_run_research",
     title: "运行独立调研",
-    description: "使用客户资料和已有检测证据生成独立调研结果。",
+    description: "强制检索并读取可访问的多域名网页，再基于逐条可追溯证据生成独立调研；证据不足时任务失败，不使用未验证的模型记忆补齐。",
     module: "research",
     taskSource: "background",
     idempotent: true,
@@ -989,7 +989,7 @@ export const AGENT_ACTION_REGISTRY = {
   "research.compare": {
     mcpTool: "shitu_compare_competitors",
     title: "运行竞品对比",
-    description: "对目标主体与最多 5 个竞争对手生成可追溯的对比结果。",
+    description: "对每个竞争对手独立强制联网取证，并为目标主体与最多 5 个竞争对手生成带原始网址和引用编号的对比结果。",
     module: "research",
     taskSource: "background",
     idempotent: true,

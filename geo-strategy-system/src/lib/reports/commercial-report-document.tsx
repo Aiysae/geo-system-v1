@@ -27,6 +27,8 @@ import type {
   PenetrationItem,
   PenetrationSource,
   ResearchDimension,
+  ResearchEvidenceReference,
+  ResearchEvidenceSource,
   ReportBrandingSettings,
 } from "@/types"
 import type {
@@ -2109,18 +2111,21 @@ function ResearchOverviewPage({ input }: { input: CommercialReportInput }) {
       <View style={styles.insightBox} wrap={false}>
         <Text style={styles.insightTitle}>调研结论</Text>
         <Text style={styles.insightText}>{result.executiveSummary}</Text>
+        <ResearchReferenceLabel references={result.evidenceReferences} path="executiveSummary" />
       </View>
       <View style={styles.twoColumn}>
         <View style={styles.halfColumn}>
           <View style={styles.compactPanel} wrap={false}>
             <Text style={styles.compactPanelTitle}>{isPersonReport(input) ? "个人 IP 形象" : "品牌形象"}</Text>
             <Text style={styles.compactPanelText}>{result.brandImage}</Text>
+            <ResearchReferenceLabel references={result.evidenceReferences} path="brandImage" />
           </View>
         </View>
         <View style={styles.halfColumn}>
           <View style={styles.compactPanel} wrap={false}>
             <Text style={styles.compactPanelTitle}>当前模型认知</Text>
             <Text style={styles.compactPanelText}>{result.modelMentality}</Text>
+            <ResearchReferenceLabel references={result.evidenceReferences} path="modelMentality" />
           </View>
         </View>
       </View>
@@ -2144,16 +2149,20 @@ function ResearchDimensionEvidencePages({ input }: { input: CommercialReportInpu
         title={pageIndex === 0 ? "调研维度与依据" : "调研维度与依据（续）"}
         intro="每个维度保留原始洞察与证据，便于客户理解评分依据。"
       />
-      {pageDimensions.map((dimension, index) => (
+      {pageDimensions.map((dimension, index) => {
+        const absoluteIndex = pageIndex * 4 + index
+        return (
         <View key={`${dimension.name}-${index}`} style={styles.auditCheck} wrap={false}>
           <View style={styles.auditCheckHeader}>
             <Text style={[styles.auditCheckStatus, { backgroundColor: COLORS.blue }]}>{Math.round(dimension.score)} 分</Text>
             <Text style={styles.auditCheckTitle}>{dimension.name}</Text>
           </View>
           <Text style={styles.auditCheckSummary}>{dimension.insight}</Text>
+          <ResearchReferenceLabel references={input.research?.evidenceReferences} path={`dimensions.${absoluteIndex}.insight`} />
           {dimension.evidence.length > 0 ? <Text style={styles.auditCheckMeta}>依据：{dimension.evidence.join("；")}</Text> : null}
         </View>
-      ))}
+        )
+      })}
     </Page>
   ))
 }
@@ -2207,6 +2216,7 @@ function CompetitorComparisonPages({ input }: { input: CommercialReportInput }) 
       <View style={styles.insightBox} wrap={false}>
         <Text style={styles.insightTitle}>定位判断</Text>
         <Text style={styles.insightText}>{comparison.positioningSummary}</Text>
+        <ResearchReferenceLabel references={comparison.evidenceReferences} path="positioningSummary" />
       </View>
       <View style={styles.twoColumn}>
         <View style={styles.halfColumn}>
@@ -2228,6 +2238,71 @@ function CompetitorComparisonPages({ input }: { input: CommercialReportInput }) 
       </View>
     </Page>
   ))
+}
+
+function ResearchReferenceLabel({
+  references,
+  path,
+}: {
+  references?: ResearchEvidenceReference[]
+  path: string
+}) {
+  const ids = references?.find(reference => reference.path === path)?.sourceIds || []
+  return ids.length > 0
+    ? <Text style={styles.sourceMeta}>来源：{ids.join("、")}</Text>
+    : null
+}
+
+function ResearchSourceIndexPages({ input }: { input: CommercialReportInput }) {
+  const groups: Array<{
+    key: string
+    label: string
+    sources: ResearchEvidenceSource[]
+    audit?: { uniqueDomainCount: number; queryCount: number; passed: boolean }
+  }> = []
+  if (input.research?.sources?.length) {
+    groups.push({
+      key: "research",
+      label: "独立调研",
+      sources: input.research.sources,
+      audit: input.research.evidenceAudit,
+    })
+  }
+  if (input.competitorCompare?.sources?.length) {
+    groups.push({
+      key: "competitor",
+      label: "竞品对比",
+      sources: input.competitorCompare.sources,
+      audit: input.competitorCompare.evidenceAudit,
+    })
+  }
+
+  return groups.flatMap(group => chunk(group.sources, 10).map((pageSources, pageIndex) => (
+    <Page key={`${group.key}-sources-${pageIndex}`} size="A4" style={styles.page}>
+      <HeaderFooter input={input} />
+      <ChapterTitle
+        kicker="RESEARCH SOURCES"
+        title={pageIndex === 0 ? `${group.label}联网证据` : `${group.label}联网证据（续）`}
+        intro="列出生成调研结论时已实际打开验证的公开网页，可点击访问原始来源。"
+      />
+      {pageIndex === 0 ? (
+        <View style={styles.statusStrip}>
+          <View style={styles.statusCard}><Text style={styles.statusCardLabel}>联网状态</Text><Text style={styles.statusCardValue}>{group.audit?.passed ? "已验证" : "历史结果"}</Text></View>
+          <View style={styles.statusCard}><Text style={styles.statusCardLabel}>可读来源</Text><Text style={styles.statusCardValue}>{group.sources.length} 条</Text></View>
+          <View style={styles.statusCard}><Text style={styles.statusCardLabel}>独立网站</Text><Text style={styles.statusCardValue}>{group.audit?.uniqueDomainCount ?? new Set(group.sources.map(source => source.domain)).size} 个</Text></View>
+          <View style={styles.statusCard}><Text style={styles.statusCardLabel}>检索组数</Text><Text style={styles.statusCardValue}>{group.audit?.queryCount ?? "-"}</Text></View>
+        </View>
+      ) : null}
+      {pageSources.map(source => (
+        <View key={`${source.id}-${source.url}`} style={styles.sourceRow} wrap={false}>
+          <Text style={styles.sourceTitle}>{source.id}. {source.title || source.domain}</Text>
+          <Text style={styles.sourceMeta}>{source.domain} · 检索：{source.query || "未记录"}</Text>
+          <Text style={styles.auditCheckMeta}>{source.excerpt.length > 150 ? `${source.excerpt.slice(0, 147)}...` : source.excerpt}</Text>
+          <Link src={source.url} style={styles.sourceLink}>{source.url.length > 100 ? `${source.url.slice(0, 97)}...` : source.url}</Link>
+        </View>
+      ))}
+    </Page>
+  )))
 }
 
 function coreAuditGroups(checks: GeoAuditCheck[]) {
@@ -3223,6 +3298,7 @@ export function CommercialReportDocument({ input }: { input: CommercialReportInp
       <AppendixPages input={input} answers={answers} />
       {input.penetration ? <SourcesPage input={input} answers={answers} sources={sources} /> : null}
       {input.penetration ? <SourceIndexPages input={input} sources={sources} /> : null}
+      {input.research || input.competitorCompare ? <ResearchSourceIndexPages input={input} /> : null}
       {input.keyword ? <KeywordEvidencePages input={input} /> : null}
       <ClosingPage input={input} />
     </Document>

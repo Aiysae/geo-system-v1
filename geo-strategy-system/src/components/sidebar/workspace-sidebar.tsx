@@ -47,6 +47,64 @@ export const DASHBOARD_MODULES: ReadonlyArray<{
   { key: "feedback", label: "执行反馈", desc: "日历、周报与月报", icon: CalendarRange, accent: "from-[#00AEEA] to-[#13C2C2]" },
 ] as const
 
+type DashboardWorkflowKey = "insights" | "assessment" | "keyword" | "article" | "feedback"
+
+const DASHBOARD_WORKFLOWS: ReadonlyArray<{
+  key: DashboardWorkflowKey
+  label: string
+  desc: string
+  icon: typeof Radar
+  accent: string
+  modules: ReadonlyArray<{ key: DashboardModuleKey; label: string }>
+}> = [
+  {
+    key: "insights",
+    label: "情报洞察",
+    desc: "渗透率与联网调研",
+    icon: Radar,
+    accent: "from-[#1677FF] to-[#00AEEA]",
+    modules: [
+      { key: "penetration", label: "渗透率检测" },
+      { key: "research", label: "联网调研" },
+    ],
+  },
+  {
+    key: "assessment",
+    label: "诊断评估",
+    desc: "网站诊断与难度成本",
+    icon: Gauge,
+    accent: "from-[#2F54EB] to-[#597EF7]",
+    modules: [
+      { key: "diagnosis", label: "网站 AI 诊断" },
+      { key: "difficulty", label: "难度与成本" },
+    ],
+  },
+  {
+    key: "keyword",
+    label: "策略规划",
+    desc: "问题、信源与发布计划",
+    icon: ListOrdered,
+    accent: "from-[#4096FF] to-[#00C8FF]",
+    modules: [{ key: "keyword", label: "策略规划" }],
+  },
+  {
+    key: "article",
+    label: "内容生产",
+    desc: "单篇、批量与改写",
+    icon: FileText,
+    accent: "from-[#6C5CE7] to-[#2F54EB]",
+    modules: [{ key: "article", label: "内容生产" }],
+  },
+  {
+    key: "feedback",
+    label: "执行复盘",
+    desc: "动作、周报与月报",
+    icon: CalendarRange,
+    accent: "from-[#00AEEA] to-[#13C2C2]",
+    modules: [{ key: "feedback", label: "执行复盘" }],
+  },
+] as const
+
 export function isDashboardModuleKey(value: string | null): value is DashboardModuleKey {
   return DASHBOARD_MODULES.some(module => module.key === value)
 }
@@ -73,16 +131,30 @@ export default function WorkspaceSidebar({
   const restricted = access.mode === "client"
   const drawerClass = open ? "translate-x-0" : "-translate-x-full"
   const SubjectIcon = client && getClientSubjectType(client) === "person" ? UserRound : Building2
-  const visibleModules = DASHBOARD_MODULES.filter(module => {
+  const canViewModule = (module: DashboardModuleKey) => {
     if (access.mode === "standard") return true
     if (access.mode === "team") {
-      return hasTeamPermission(access.permissionKeys || [], module.key, "view")
+      return hasTeamPermission(access.permissionKeys || [], module, "view")
     }
-    if (module.key === "penetration" || module.key === "feedback") {
-      return hasTeamPermission(access.permissionKeys || [], module.key, "view")
+    if (module === "penetration" || module === "feedback") {
+      return hasTeamPermission(access.permissionKeys || [], module, "view")
     }
     return true
-  })
+  }
+  const canOperateModule = (module: DashboardModuleKey) => access.mode === "client"
+    ? module === "penetration" && access.canRunPenetration
+    : access.mode !== "team"
+      || (!access.teamReadOnly && (
+        hasTeamPermission(access.permissionKeys || [], module, "execute")
+        || hasTeamPermission(access.permissionKeys || [], module, "edit")
+        || hasTeamPermission(access.permissionKeys || [], module, "manage")
+      ))
+  const visibleWorkflows = DASHBOARD_WORKFLOWS
+    .map(workflow => ({
+      ...workflow,
+      modules: workflow.modules.filter(module => canViewModule(module.key)),
+    }))
+    .filter(workflow => workflow.modules.length > 0)
 
   return (
     <aside className={cn("no-print fixed inset-y-0 left-0 z-50 flex h-screen w-[248px] shrink-0 transform flex-col overflow-hidden bg-[linear-gradient(180deg,#001743_0%,#002C70_52%,#003B8F_100%)] text-white shadow-[10px_0_36px_-28px_rgba(0,29,102,.9)] transition-transform duration-300 ease-out md:static md:translate-x-0", drawerClass)}>
@@ -103,25 +175,51 @@ export default function WorkspaceSidebar({
         </Link>
       </div>
 
-      <div className="shrink-0 px-4 pb-2 text-[10px] font-semibold text-cyan-100/55">功能模块</div>
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4" aria-label="工作台功能模块">
-        {visibleModules.map(item => {
-          const Icon = item.icon
-          const selected = active === item.key
-          const canOperate = access.mode === "client"
-            ? item.key === "penetration" && access.canRunPenetration
-            : access.mode !== "team"
-              || (!access.teamReadOnly && (
-              hasTeamPermission(access.permissionKeys || [], item.key, "execute")
-              || hasTeamPermission(access.permissionKeys || [], item.key, "edit")
-              || hasTeamPermission(access.permissionKeys || [], item.key, "manage")
-            ))
-          const readOnly = (restricted && item.key !== "feedback" && !canOperate) || !canOperate
+      <div className="shrink-0 px-4 pb-2 text-[10px] font-semibold text-cyan-100/55">业务工作流</div>
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4" aria-label="工作台业务工作流">
+        {visibleWorkflows.map(workflow => {
+          const Icon = workflow.icon
+          const selected = workflow.modules.some(module => module.key === active)
+          const defaultModule = workflow.modules[0].key
+          const readOnly = workflow.modules.every(module => !canOperateModule(module.key))
           return (
-            <button key={item.key} type="button" onClick={() => { onChange(item.key); onClose?.() }} className={cn("group flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition", selected ? `bg-gradient-to-r ${item.accent} text-white shadow-sm` : "text-white/68 hover:bg-white/9 hover:text-white")} aria-current={selected ? "page" : undefined}>
-              <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", selected ? "bg-white/16 text-white" : "bg-white/7 text-cyan-100/70 group-hover:bg-white/12 group-hover:text-white")}><Icon className="h-4 w-4" /></span>
-              <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5"><span className="truncate text-xs font-semibold">{item.label}</span>{readOnly ? <LockKeyhole className="h-3 w-3 shrink-0 opacity-55" /> : null}</span><span className={cn("mt-0.5 block truncate text-[9px]", selected ? "text-white/68" : "text-white/38")}>{item.desc}</span></span>
-            </button>
+            <div key={workflow.key} className="space-y-1">
+              <button
+                type="button"
+                onClick={() => { onChange(selected ? active : defaultModule); onClose?.() }}
+                className={cn("group flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition", selected ? `bg-gradient-to-r ${workflow.accent} text-white shadow-sm` : "text-white/68 hover:bg-white/9 hover:text-white")}
+                aria-current={selected ? "page" : undefined}
+              >
+                <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", selected ? "bg-white/16 text-white" : "bg-white/7 text-cyan-100/70 group-hover:bg-white/12 group-hover:text-white")}><Icon className="h-4 w-4" /></span>
+                <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5"><span className="truncate text-xs font-semibold">{workflow.label}</span>{readOnly ? <LockKeyhole className="h-3 w-3 shrink-0 opacity-55" /> : null}</span><span className={cn("mt-0.5 block truncate text-[9px]", selected ? "text-white/68" : "text-white/38")}>{workflow.desc}</span></span>
+              </button>
+              {selected && workflow.modules.length > 1 ? (
+                <div className="ml-5 space-y-0.5 border-l border-cyan-100/15 pl-3">
+                  {workflow.modules.map(module => {
+                    const childSelected = active === module.key
+                    const childReadOnly = !canOperateModule(module.key)
+                    return (
+                      <button
+                        key={module.key}
+                        type="button"
+                        onClick={() => { onChange(module.key); onClose?.() }}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[10px] font-semibold transition",
+                          childSelected
+                            ? "bg-white/12 text-white"
+                            : "text-white/52 hover:bg-white/8 hover:text-white/85",
+                        )}
+                        aria-current={childSelected ? "page" : undefined}
+                      >
+                        <span className={cn("h-1.5 w-1.5 rounded-full", childSelected ? "bg-cyan-200" : "bg-white/25")} />
+                        <span className="min-w-0 flex-1 truncate">{module.label}</span>
+                        {childReadOnly ? <LockKeyhole className="h-3 w-3 shrink-0 opacity-50" /> : null}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
           )
         })}
       </nav>

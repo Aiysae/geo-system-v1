@@ -3,6 +3,8 @@ import type {
   AnalysisSubjectType,
   CompetitorCompareResult,
   CompetitorComparison,
+  ResearchEvidenceAudit,
+  ResearchEvidenceReference,
 } from "@/types"
 import {
   isAdapterCredentialConfigured,
@@ -21,19 +23,60 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import {
+  buildCompetitorSearchQueries,
+  collectResearchEvidence,
+  formatResearchEvidenceForModel,
+  type ResearchEvidenceBundle,
+} from "@/lib/research/web-evidence"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
-function list(value: unknown, limit = 8): string[] {
-  if (!Array.isArray(value)) return []
-  return value.map(item => String(item ?? "").trim()).filter(Boolean).slice(0, limit)
-}
-
 function text(value: unknown, fallback = ""): string {
   const s = String(value ?? "").trim()
   return s || fallback
+}
+
+function sourceIds(value: unknown, available: Set<string>): string[] {
+  if (!Array.isArray(value)) return []
+  return Array.from(new Set(
+    value
+      .map(item => String(item || "").trim().toUpperCase())
+      .filter(id => available.has(id)),
+  )).slice(0, 8)
+}
+
+function addReference(
+  references: ResearchEvidenceReference[],
+  path: string,
+  ids: string[],
+): void {
+  if (ids.length > 0) references.push({ path, sourceIds: ids })
+}
+
+function sourcedList(
+  value: unknown,
+  path: string,
+  available: Set<string>,
+  references: ResearchEvidenceReference[],
+  limit = 8,
+): string[] {
+  if (!Array.isArray(value)) return []
+  const output: string[] = []
+  for (const item of value) {
+    const row = record(item)
+    const itemText = typeof item === "string"
+      ? item.trim()
+      : text(row.text ?? row.claim ?? row.value)
+    if (!itemText) continue
+    const index = output.length
+    output.push(itemText)
+    addReference(references, `${path}.${index}`, sourceIds(row.sourceIds, available))
+    if (output.length >= limit) break
+  }
+  return output
 }
 
 function buildPenetrationContext(
@@ -96,6 +139,7 @@ function buildPrompt(args: {
   penetrationContext: string
   subjectType: AnalysisSubjectType
   personProfileContext: string
+  evidenceContext: string
 }): { system: string; user: string } {
   const isPerson = args.subjectType === "person"
   const targetNoun = isPerson ? "目标人物" : "我方品牌"
@@ -104,21 +148,23 @@ function buildPrompt(args: {
 
 【分析要求】
 1. 必须区分：事实优势、模型心智优势、信源优势、表达优势、内容覆盖优势。
-2. 不确定的地方写成"证据不足"，不要编造客户案例、价格、资质。
-3. 每条优劣势必须具体到可以指导官网内容、第三方测评、问答文章、替代品对比页的建设。
-${isPerson ? "4. 只比较具名人物的专业领域、公开信任资产、内容覆盖和模型心智；医院、律所、公司、学校等机构只能作为人物背景，不得当作同行人物。不得编造履历、职称、资质或案例。" : ""}
+2. 所有外部事实和比较结论只能使用本次服务器已打开验证的证据包，不得使用模型记忆补造。
+3. 每条结论都要填写 sourceIds，只能引用 S1、S2 等已提供编号；无法验证时写"证据不足"，不要编造客户案例、价格、资质。
+4. 每条优劣势必须具体到可以指导官网内容、第三方测评、问答文章、替代品对比页的建设。
+${isPerson ? "5. 只比较具名人物的专业领域、公开信任资产、内容覆盖和模型心智；医院、律所、公司、学校等机构只能作为人物背景，不得当作同行人物。不得编造履历、职称、资质或案例。" : ""}
 
 【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止额外文字】
 {
   "competitor": "${competitorNoun}姓名或名称",
   "positioningSummary": "120-180 字，说明${targetNoun}与该${competitorNoun}在豆包心智里的相对位置",
-  "ourAdvantages": ["${targetNoun}相对该${competitorNoun}的优势，3-6 条"],
-  "competitorAdvantages": ["该${competitorNoun}相对${targetNoun}的优势，3-6 条"],
-  "ourWeaknesses": ["${targetNoun}面对该${competitorNoun}时暴露的短板，3-6 条"],
-  "competitorWeaknesses": ["该${competitorNoun}短板，3-6 条"],
-  "differentiators": ["最应该放大的差异化叙事，3-6 条"],
-  "userChoiceDrivers": ["用户在两者之间选择时的关键决策因素，3-6 条"],
-  "contentActions": ["针对该竞品的内容/信源打法，4-8 条"]
+  "positioningSummarySourceIds": ["S1", "S2"],
+  "ourAdvantages": [{"text": "${targetNoun}相对该${competitorNoun}的优势", "sourceIds": ["S1"]}],
+  "competitorAdvantages": [{"text": "该${competitorNoun}相对${targetNoun}的优势", "sourceIds": ["S2"]}],
+  "ourWeaknesses": [{"text": "${targetNoun}面对该${competitorNoun}时暴露的短板", "sourceIds": ["S1"]}],
+  "competitorWeaknesses": [{"text": "该${competitorNoun}短板", "sourceIds": ["S2"]}],
+  "differentiators": [{"text": "最应该放大的差异化叙事", "sourceIds": ["S1", "S2"]}],
+  "userChoiceDrivers": [{"text": "用户在两者之间选择时的关键决策因素", "sourceIds": ["S1", "S2"]}],
+  "contentActions": [{"text": "针对该竞品的内容/信源打法", "sourceIds": ["S1", "S2"]}]
 }`
 
   const user = `请生成${targetNoun}与指定${competitorNoun}的优劣势对比报告：
@@ -130,7 +176,12 @@ ${targetNoun}：${args.ourBrand}
 其它已知${competitorNoun}：${args.competitors.filter(c => c !== args.competitor).join("、") || "无"}
 ${isPerson ? `\n【目标人物身份资料】\n${args.personProfileContext}` : ""}
 
-${args.penetrationContext}`
+${args.penetrationContext}
+
+【本次已验证的联网证据包】
+${args.evidenceContext}
+
+只能用上述编号做外部事实引用，不得虚构其他来源。`
 
   return { system, user }
 }
@@ -149,19 +200,39 @@ function comparisonPayload(parsed: unknown): Record<string, unknown> {
   return data
 }
 
-function normalizeComparison(parsed: unknown, fallbackCompetitor: string): CompetitorComparison {
+function normalizeComparison(
+  parsed: unknown,
+  fallbackCompetitor: string,
+  evidenceBundle: ResearchEvidenceBundle,
+): CompetitorComparison {
   const data = comparisonPayload(parsed)
-  return {
+  const available = new Set(evidenceBundle.sources.map(source => source.id))
+  const references: ResearchEvidenceReference[] = []
+  addReference(
+    references,
+    "positioningSummary",
+    sourceIds(data.positioningSummarySourceIds, available),
+  )
+  const comparison: CompetitorComparison = {
     competitor: text(data.competitor, fallbackCompetitor),
     positioningSummary: text(data.positioningSummary),
-    ourAdvantages: list(data.ourAdvantages, 7),
-    competitorAdvantages: list(data.competitorAdvantages, 7),
-    ourWeaknesses: list(data.ourWeaknesses, 7),
-    competitorWeaknesses: list(data.competitorWeaknesses, 6),
-    differentiators: list(data.differentiators, 7),
-    userChoiceDrivers: list(data.userChoiceDrivers, 7),
-    contentActions: list(data.contentActions, 10),
+    ourAdvantages: sourcedList(data.ourAdvantages, "ourAdvantages", available, references, 7),
+    competitorAdvantages: sourcedList(data.competitorAdvantages, "competitorAdvantages", available, references, 7),
+    ourWeaknesses: sourcedList(data.ourWeaknesses, "ourWeaknesses", available, references, 7),
+    competitorWeaknesses: sourcedList(data.competitorWeaknesses, "competitorWeaknesses", available, references, 6),
+    differentiators: sourcedList(data.differentiators, "differentiators", available, references, 7),
+    userChoiceDrivers: sourcedList(data.userChoiceDrivers, "userChoiceDrivers", available, references, 7),
+    contentActions: sourcedList(data.contentActions, "contentActions", available, references, 10),
+    sources: evidenceBundle.sources,
+    evidenceReferences: references,
+    evidenceAudit: evidenceBundle.audit,
   }
+  const hasSummaryReference = references.some(reference => reference.path === "positioningSummary")
+  const detailReferences = references.filter(reference => reference.path !== "positioningSummary").length
+  if (!hasSummaryReference || detailReferences < 6) {
+    throw new Error("竞品对比结论没有完整绑定联网证据")
+  }
+  return comparison
 }
 
 function isUsableComparison(comparison: CompetitorComparison): boolean {
@@ -196,12 +267,42 @@ function summarizeWeaknesses(comparisons: CompetitorComparison[]): string[] {
 }
 
 function normalize(comparisons: CompetitorComparison[], selectedCompetitors: string[]): CompetitorCompareResult {
-  const first = comparisons[0] || normalizeComparison({}, selectedCompetitors[0] || "竞品")
+  const first = comparisons[0]
+  if (!first) throw new Error("未生成可用的联网竞品对比")
+  const aggregateSources = comparisons.flatMap((comparison, comparisonIndex) =>
+    (comparison.sources || []).map(source => ({
+      ...source,
+      id: `C${comparisonIndex + 1}-${source.id}`,
+    })),
+  )
+  const aggregateReferences = comparisons.flatMap((comparison, comparisonIndex) =>
+    (comparison.evidenceReferences || []).map(reference => ({
+      path: `comparisons.${comparisonIndex}.${reference.path}`,
+      sourceIds: reference.sourceIds.map(id => `C${comparisonIndex + 1}-${id}`),
+    })),
+  )
+  const uniqueDomainCount = new Set(aggregateSources.map(source => source.domain)).size
+  const aggregateAudit: ResearchEvidenceAudit = {
+    version: 1,
+    searchExecuted: comparisons.every(comparison => comparison.evidenceAudit?.searchExecuted === true),
+    searchedAt: new Date().toISOString(),
+    queryCount: comparisons.reduce((sum, comparison) => sum + (comparison.evidenceAudit?.queryCount || 0), 0),
+    candidateCount: comparisons.reduce((sum, comparison) => sum + (comparison.evidenceAudit?.candidateCount || 0), 0),
+    validSourceCount: aggregateSources.length,
+    uniqueDomainCount,
+    minimumSourceCount: comparisons.reduce((sum, comparison) => sum + (comparison.evidenceAudit?.minimumSourceCount || 0), 0),
+    minimumDomainCount: 2,
+    passed: comparisons.every(comparison => comparison.evidenceAudit?.passed === true),
+    warnings: comparisons.flatMap(comparison => comparison.evidenceAudit?.warnings || []).slice(0, 8),
+  }
   return {
     ...first,
     selectedCompetitors,
     comparisons,
     ourWeaknessSummary: summarizeWeaknesses(comparisons),
+    sources: aggregateSources,
+    evidenceReferences: aggregateReferences,
+    evidenceAudit: aggregateAudit,
     generatedAt: new Date().toISOString(),
   }
 }
@@ -215,14 +316,32 @@ async function generateComparison(args: {
   penetrationContext: string
   subjectType: AnalysisSubjectType
   personProfileContext: string
+  region: string
+  signal?: AbortSignal
 }): Promise<CompetitorComparison> {
-  const { system, user } = buildPrompt(args)
+  const evidenceBundle = await collectResearchEvidence({
+    queries: buildCompetitorSearchQueries({
+      subject: args.ourBrand,
+      competitor: args.competitor,
+      industry: args.industry,
+      region: args.region,
+      subjectType: args.subjectType,
+    }),
+    minimumSources: 3,
+    minimumDomains: 2,
+    maximumSources: 10,
+    signal: args.signal,
+  })
+  const { system, user } = buildPrompt({
+    ...args,
+    evidenceContext: formatResearchEvidenceForModel(evidenceBundle),
+  })
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const raw = await runAdapterCredentialPoolChat("doubao", "research", {
       system: attempt === 0
         ? system
-        : `${system}\n\n上一次输出无法解析或字段不完整。请只输出一个完整 JSON 对象，并确保所有数组和引号正确闭合。`,
+        : `${system}\n\n上一次输出无法解析或缺少引用。请只输出一个完整 JSON 对象，并确保定位摘要和至少 6 条详细结论都填写有效 sourceIds。`,
       user,
       temperature: attempt === 0 ? 0.35 : 0.2,
       maxTokens: 3072,
@@ -230,11 +349,12 @@ async function generateComparison(args: {
       mode: "judge",
       allowWebSearch: false,
       timeoutSec: 150,
+      signal: args.signal,
     })
 
     try {
       const parsed = parseJsonStrict<unknown>(raw, `豆包竞品对比（${args.competitor}）`)
-      const comparison = normalizeComparison(parsed, args.competitor)
+      const comparison = normalizeComparison(parsed, args.competitor, evidenceBundle)
       if (!isUsableComparison(comparison)) {
         throw new Error("返回字段不完整")
       }
@@ -299,6 +419,7 @@ async function handler(req: NextRequest) {
     const selectedCompetitors = rawSelectedCompetitors.slice(0, 5)
     const industry = String(body.industry || "").trim()
     const website = String(body.website || "").trim()
+    const region = String(body.region || "").trim()
     const subjectType = normalizeAnalysisSubjectType(body.subjectType)
     const personProfile = normalizePersonSubjectProfile(body.personProfile)
     const competitors: string[] = Array.isArray(body.competitors)
@@ -337,7 +458,7 @@ async function handler(req: NextRequest) {
 
     const comparisons = await mapWithConcurrency(
       selectedCompetitors,
-      3,
+      2,
       competitor => generateComparison({
         ourBrand,
         competitor,
@@ -347,6 +468,8 @@ async function handler(req: NextRequest) {
         penetrationContext: buildPenetrationContext(body.penetration, ourBrand, [competitor], subjectType),
         subjectType,
         personProfileContext: formatPersonSubjectContext(personProfile),
+        region,
+        signal: req.signal,
       })
     )
     const result = normalize(comparisons, selectedCompetitors)

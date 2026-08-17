@@ -515,10 +515,10 @@ function StickyHeader({
               type="button"
               onClick={onOpenReportHistory}
               className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/20 bg-white/8 px-3 text-xs font-semibold text-white transition hover:bg-white/14"
-              title="查看历史报告"
+              title="查看历史成果"
             >
               <History className="h-3.5 w-3.5" />
-              历史报告
+              历史成果
             </button>
           ) : null}
           {client && access.canCreateReports && (
@@ -586,7 +586,7 @@ function StickyHeader({
                       className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-semibold hover:bg-[#EEF5FC]"
                     >
                       <History className="h-4 w-4 text-[#1677FF]" />
-                      历史报告
+                      历史成果
                     </button>
                   ) : null}
                   {client && access.canCreateReports ? (
