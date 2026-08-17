@@ -246,6 +246,7 @@ export async function checkAgentActionReadiness(
     action === "article.generate"
     || action === "article.rewrite"
     || action === "article.batch.run"
+    || action === "article.production.run"
     || action === "article.strategy.plan"
     || action === "article.brands.analyze"
   ) {

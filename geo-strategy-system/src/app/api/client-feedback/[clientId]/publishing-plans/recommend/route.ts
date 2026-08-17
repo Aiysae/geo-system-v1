@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { recommendPublishingPlanPlatforms } from "@/lib/publishing-plan/recommendation"
-import { requireOperationAccess } from "@/lib/team-access"
+import { requirePublishingPlanAccess } from "@/lib/publishing-plan/access-control"
 import { requireUserId } from "@/lib/with-credits"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import type { PublishingCustomerStage } from "@/types/publishing-plan"
@@ -22,11 +22,10 @@ export async function POST(
       customerStage?: PublishingCustomerStage
       useAi?: unknown
     }
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId: typeof body.teamId === "string" ? body.teamId : undefined,
-      module: "feedback",
       action: "manage",
     })
     const client = (await listWorkspaceClients(access.dataOwnerUserId))

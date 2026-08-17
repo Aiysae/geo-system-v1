@@ -832,6 +832,28 @@ const publishingTaskFailSchema = z.looseObject({
   reason: z.string().min(1).max(800),
 })
 
+const articleProductionListSchema = z.looseObject({
+  ...clientContextShape,
+  limit: z.number().int().min(1).max(100).optional().default(30),
+})
+const articleProductionRunSchema = z.looseObject({
+  ...clientContextShape,
+  dateFrom: publishingDateSchema,
+  dateTo: publishingDateSchema,
+  platformKeys: z.array(z.string().min(1).max(160)).max(100).optional().default([]),
+  modelProvider: z.string().min(1).max(240).optional().default("doubao"),
+  model: z.string().max(240).optional(),
+  estimatedAssetCount: z.number().int().min(1).max(10_000).optional().default(1)
+    .describe("用于 Agent 执行前的积分预估；实际以发布规划中的去重内容数为准"),
+}).refine(value => value.dateTo >= value.dateFrom, {
+  message: "结束日期不能早于开始日期",
+  path: ["dateTo"],
+})
+const articleProductionRunIdSchema = z.looseObject({
+  ...clientContextShape,
+  runId: z.string().min(1).max(240),
+})
+
 const knowledgeImportSchema = z.looseObject({
   ...clientContextShape,
   files: z.array(z.object({
@@ -1194,6 +1216,50 @@ export const AGENT_ACTION_REGISTRY = {
     requiredScope: "article.execute",
     billable: true,
     schema: articleBatchSchema,
+  },
+  "article.production.list": {
+    mcpTool: "shitu_list_content_production_runs",
+    title: "读取发布计划生产批次",
+    description: "读取当前客户的生效发布计划、内容生产记录与完成进度。",
+    module: "article",
+    idempotent: true,
+    requiredScope: "article.view",
+    billable: false,
+    readOnly: true,
+    schema: articleProductionListSchema,
+  },
+  "article.production.run": {
+    mcpTool: "shitu_run_publishing_plan_content_production",
+    title: "按发布计划生产内容",
+    description: "将指定日期与平台的发布任务转成独立文章或短视频文案，并在后台按质量门禁生成。",
+    module: "article",
+    taskSource: "contentProduction",
+    idempotent: true,
+    requiredScope: "article.execute",
+    billable: true,
+    schema: articleProductionRunSchema,
+  },
+  "article.production.get": {
+    mcpTool: "shitu_get_content_production_run",
+    title: "读取发布内容生产进度",
+    description: "读取母稿、发布平台、质检状态和分平台下载地址。",
+    module: "article",
+    idempotent: true,
+    requiredScope: "article.view",
+    billable: false,
+    readOnly: true,
+    schema: articleProductionRunIdSchema,
+  },
+  "article.production.cancel": {
+    mcpTool: "shitu_cancel_content_production_run",
+    title: "停止发布内容生产",
+    description: "停止指定生产批次中未开始的工作，已完成文章和草稿仍会保留。",
+    module: "article",
+    idempotent: true,
+    requiredScope: "article.execute",
+    billable: false,
+    destructive: true,
+    schema: articleProductionRunIdSchema,
   },
   "feedback.action.create": {
     mcpTool: "shitu_create_feedback_action",
@@ -1803,6 +1869,22 @@ export function estimateAgentAction(
         ...estimate,
       }
     }
+    case "article.production.list":
+      return { ...context, scope: "article.view", units: 1, credits: 0, label: "读取发布内容生产批次" }
+    case "article.production.run": {
+      const units = Math.max(1, Math.min(10_000, Math.floor(Number(input.estimatedAssetCount) || 1)))
+      return {
+        ...context,
+        scope: "article.execute",
+        units,
+        credits: estimateFeatureCredits("articleThirdPartyObservation", units),
+        label: `发布计划内容生产 × ${units}（最终按实际 Prompt 结算）`,
+      }
+    }
+    case "article.production.get":
+      return { ...context, scope: "article.view", units: 1, credits: 0, label: "读取发布内容生产进度" }
+    case "article.production.cancel":
+      return { ...context, scope: "article.execute", units: 1, credits: 0, label: "停止发布内容生产" }
     case "report.create": {
       const reportInput = record(input.input)
       const reportClient = record(reportInput.client)

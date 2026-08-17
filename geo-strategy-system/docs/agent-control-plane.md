@@ -39,13 +39,17 @@ Current typed execution operations:
   `keyword.questions.run`.
 - Content: `article.generate`, `article.rewrite`, `article.batch.run`, strategy
   planning, source extraction, brand analysis, question-material management,
-  media upload, and background media insertion. The article actions also expose
+  media upload, background media insertion, and publishing-plan production
+  runs (`article.production.list/run/get/cancel`). Production runs route content
+  in bounded chunks, launch durable child batches, and export one ZIP grouped
+  by destination platform. The article actions also expose
   the typed `brandSingleQuestionVideoScript` mode for one-question/one-advantage
   video copy, including platform, duration, tag, CTA, and evidence-boundary
   settings; batch downloads include Word files and an Excel-compatible manifest.
 - Delivery: feedback action creation/import, report options, report creation,
   publish/share management, execution-profile and visibility management, plus
-  `report.create`.
+  `report.create`. Publishing-plan recommendation, activation, task claiming,
+  completion, and failure actions connect content planning to publishing Agents.
 - Knowledge: `knowledge.import` followed by human-reviewed
   `knowledge.commit`.
 
@@ -63,7 +67,8 @@ operations return their result directly.
 - `cli/shitu-geo.mjs` is a dependency-light Node.js CLI for macOS, Linux, and
   Windows. It supports typed action aliases, cursor pagination, task result
   restoration, background watching, cancellation, protected report downloads,
-  article batch ZIP downloads, feedback reads, and knowledge review.
+  article batch ZIP downloads, platform-grouped content-production ZIPs,
+  feedback reads, and knowledge review.
 - `src/agent/mcp-stdio.ts` exposes the same contract to local MCP clients.
 - `/api/agent/mcp` is a stateless Streamable HTTP MCP endpoint. Each request is
   authenticated with the same Agent Bearer Token and each tool delegates to the

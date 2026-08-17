@@ -11,6 +11,7 @@ export type DurableTaskSource =
   | "background"
   | "question"
   | "articleBatch"
+  | "contentProduction"
   | "articleMedia"
   | "report"
 
@@ -103,6 +104,7 @@ const MIGRATED_SOURCES = new Set<DurableTaskSource>([
   "background",
   "question",
   "articleBatch",
+  "contentProduction",
   "articleMedia",
   "report",
 ])
@@ -627,6 +629,7 @@ export function isDurableTaskSource(value: unknown): value is DurableTaskSource 
     "background",
     "question",
     "articleBatch",
+    "contentProduction",
     "articleMedia",
     "report",
   ].includes(String(value) as TaskCenterSource)

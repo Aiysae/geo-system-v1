@@ -22,6 +22,7 @@ assert.equal(durableTaskQueueLane("penetration"), "penetration")
 assert.equal(durableTaskQueueLane("difficulty"), "generation")
 assert.equal(durableTaskQueueLane("question"), "generation")
 assert.equal(durableTaskQueueLane("articleBatch"), "generation")
+assert.equal(durableTaskQueueLane("contentProduction"), "generation")
 assert.equal(durableTaskQueueLane("background"), "generation")
 assert.equal(durableTaskQueueLane("report"), "utility")
 assert.equal(
@@ -63,6 +64,7 @@ for (const source of [
   "background",
   "question",
   "articleBatch",
+  "contentProduction",
   "report",
 ]) {
   assert.equal(isDurableTaskSource(source), true, `${source} must be a durable task source`)

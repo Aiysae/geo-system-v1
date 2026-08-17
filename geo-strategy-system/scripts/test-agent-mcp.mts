@@ -21,7 +21,11 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   })
   if (url.includes("/download")) {
     return new Response(new TextEncoder().encode("agent-binary-test"), {
-      headers: { "Content-Type": url.includes("articles/batches") ? "application/zip" : "application/pdf" },
+      headers: {
+        "Content-Type": url.includes("articles/batches") || url.includes("content-production")
+          ? "application/zip"
+          : "application/pdf",
+      },
     })
   }
   const data = url.endsWith("/clients")
@@ -80,6 +84,11 @@ try {
     "shitu_delete_article_materials",
     "shitu_upload_article_media",
     "shitu_run_article_media",
+    "shitu_list_content_production_runs",
+    "shitu_run_publishing_plan_content_production",
+    "shitu_get_content_production_run",
+    "shitu_cancel_content_production_run",
+    "shitu_get_content_production_zip",
     "shitu_get_feedback_report_options",
     "shitu_manage_feedback_report",
     "shitu_update_feedback_profile",
@@ -211,6 +220,7 @@ try {
   const templates = await client.listResourceTemplates()
   assert.ok(templates.resourceTemplates.some(item => item.uriTemplate.includes("reports/{jobId}")))
   assert.ok(templates.resourceTemplates.some(item => item.uriTemplate.includes("article-batches/{batchId}")))
+  assert.ok(templates.resourceTemplates.some(item => item.uriTemplate.includes("content-production/{runId}")))
   const pdf = await client.readResource({ uri: "shitu://reports/report-mcp/download.pdf" })
   assert.equal(pdf.contents[0]?.mimeType, "application/pdf")
   assert.ok("blob" in (pdf.contents[0] || {}))
@@ -219,6 +229,11 @@ try {
   })
   assert.equal(directZip.contents[0]?.mimeType, "application/zip")
   assert.ok(requests.some(item => item.url.includes("/download?scope=direct&variant=original")))
+  const platformZip = await client.readResource({
+    uri: "shitu://content-production/run-mcp/all.zip",
+  })
+  assert.equal(platformZip.contents[0]?.mimeType, "application/zip")
+  assert.ok(requests.some(item => item.url.includes("/content-production/run-mcp/download?scope=all")))
   console.log("Agent MCP contract tests passed.")
 } finally {
   globalThis.fetch = originalFetch

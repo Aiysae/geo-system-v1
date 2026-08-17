@@ -28,5 +28,11 @@ export async function loadAgentTaskResult(target: TaskCenterCancellationTarget):
   if (target.source === "articleMedia") {
     return getOwnedArticleMediaJob(target.sourceJobId, target.actorUserId)
   }
+  if (target.source === "contentProduction") {
+    const { getContentProductionRun } = await import("@/lib/content-production/store")
+    const { syncContentProductionRun } = await import("@/lib/content-production/service")
+    const run = await getContentProductionRun(target.workspaceOwnerUserId, target.sourceJobId)
+    return run ? syncContentProductionRun(run) : null
+  }
   return getCommercialReportJob(target.sourceJobId, target.workspaceOwnerUserId)
 }

@@ -3,7 +3,7 @@ import {
   completePublishingTaskWithFeedback,
   failPublishingTaskForPlan,
 } from "@/lib/publishing-plan/task-service"
-import { requireOperationAccess } from "@/lib/team-access"
+import { requirePublishingPlanAccess } from "@/lib/publishing-plan/access-control"
 import { requireUserId } from "@/lib/with-credits"
 
 export const runtime = "nodejs"
@@ -25,11 +25,10 @@ export async function PATCH(request: NextRequest, context: Context) {
       reason?: unknown
       claimToken?: unknown
     }
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId: typeof body.teamId === "string" ? body.teamId : undefined,
-      module: "feedback",
       action: "edit",
     })
     if (body.action === "fail") {

@@ -14,6 +14,7 @@ export type TaskCenterSource =
   | "question"
   | "articleBatch"
   | "articleMedia"
+  | "contentProduction"
   | "report"
 
 export type TaskCenterStatus =

@@ -6,8 +6,10 @@ import {
   listPublishingTasks,
 } from "@/lib/publishing-plan/store"
 import { buildPublishingTaskPackages } from "@/lib/publishing-plan/task-service"
-import { requireOperationAccess } from "@/lib/team-access"
-import { hasTeamPermission } from "@/lib/team-permissions"
+import {
+  hasPublishingPlanPermission,
+  requirePublishingPlanAccess,
+} from "@/lib/publishing-plan/access-control"
 import { requireUserId } from "@/lib/with-credits"
 import type { PublishingTaskStatus } from "@/types/publishing-plan"
 
@@ -24,11 +26,10 @@ export async function GET(
   if (!auth.ok) return auth.response
   try {
     const { clientId, planId } = await context.params
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId: request.nextUrl.searchParams.get("teamId") || undefined,
-      module: "feedback",
       action: "view",
     })
     const plan = await getPublishingPlan(access.dataOwnerUserId, planId, true)
@@ -42,7 +43,7 @@ export async function GET(
       status: statusValue && TASK_STATUSES.has(statusValue) ? statusValue : undefined,
       limit: Number(request.nextUrl.searchParams.get("limit")) || undefined,
     })
-    const costsVisible = hasTeamPermission(access.permissionKeys, "feedback", "manage")
+    const costsVisible = hasPublishingPlanPermission(access.permissionKeys, "manage")
     const packages = buildPublishingTaskPackages(plan, tasks)
     return NextResponse.json({
       tasks: packages.map(item => publishingTaskPackageForViewer(item, costsVisible)),
@@ -69,11 +70,10 @@ export async function POST(
       limit?: unknown
       leaseSeconds?: unknown
     }
-    const access = await requireOperationAccess({
+    const access = await requirePublishingPlanAccess({
       userId: auth.userId,
       clientId,
       teamId: typeof body.teamId === "string" ? body.teamId : undefined,
-      module: "feedback",
       action: "edit",
     })
     const plan = await getPublishingPlan(access.dataOwnerUserId, planId, true)
