@@ -12,6 +12,7 @@ export interface SafeWebFetchOptions {
   acceptLanguage?: string
   allowedContentTypes?: RegExp
   allowHttpErrors?: boolean
+  signal?: AbortSignal
 }
 
 export interface SafeWebFetchResult {
@@ -209,10 +210,12 @@ export async function fetchSafeWebText(
 
   for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
     const controller = new AbortController()
+    const abortFromParent = () => controller.abort()
+    if (options.signal?.aborted) controller.abort()
+    else options.signal?.addEventListener("abort", abortFromParent, { once: true })
     const timer = setTimeout(() => controller.abort(), options.timeoutMs || DEFAULT_TIMEOUT_MS)
-    let response: Response
     try {
-      response = await fetch(current.toString(), {
+      const response = await fetch(current.toString(), {
         cache: "no-store",
         redirect: "manual",
         signal: controller.signal,
@@ -222,42 +225,46 @@ export async function fetchSafeWebText(
           "Accept-Language": options.acceptLanguage || "zh-CN,zh;q=0.9,en;q=0.8",
         },
       })
+
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get("location")
+        if (!location) throw new Error("网页发生跳转但没有返回目标地址。")
+        const next = await validatePublicHttpUrl(new URL(location, current).toString())
+        redirects.push(next.toString())
+        current = next
+        continue
+      }
+
+      const contentType = response.headers.get("content-type") || ""
+      if (options.allowedContentTypes && contentType && !options.allowedContentTypes.test(contentType)) {
+        throw new Error(`该网址返回了不支持的内容类型：${contentType.split(";")[0]}`)
+      }
+      if (!response.ok && !options.allowHttpErrors) {
+        throw new Error(`网页读取失败 HTTP ${response.status}`)
+      }
+
+      const bytes = await readLimitedBytes(response, maxBytes)
+      return {
+        requestedUrl: rawUrl,
+        finalUrl: current.toString(),
+        status: response.status,
+        ok: response.ok,
+        contentType,
+        headers: headerRecord(response.headers),
+        text: decodeBytes(bytes, contentType),
+        bytes: bytes.byteLength,
+        redirects,
+        durationMs: Date.now() - startedAt,
+      }
     } catch (error) {
-      if (controller.signal.aborted) throw new Error("网页读取超时。")
+      if (controller.signal.aborted) {
+        if (options.signal?.aborted) throw new Error("网页读取已停止。")
+        throw new Error("网页读取超时。")
+      }
       throw error
     } finally {
       clearTimeout(timer)
-    }
-
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location")
-      if (!location) throw new Error("网页发生跳转但没有返回目标地址。")
-      const next = await validatePublicHttpUrl(new URL(location, current).toString())
-      redirects.push(next.toString())
-      current = next
-      continue
-    }
-
-    const contentType = response.headers.get("content-type") || ""
-    if (options.allowedContentTypes && contentType && !options.allowedContentTypes.test(contentType)) {
-      throw new Error(`该网址返回了不支持的内容类型：${contentType.split(";")[0]}`)
-    }
-    if (!response.ok && !options.allowHttpErrors) {
-      throw new Error(`网页读取失败 HTTP ${response.status}`)
-    }
-
-    const bytes = await readLimitedBytes(response, maxBytes)
-    return {
-      requestedUrl: rawUrl,
-      finalUrl: current.toString(),
-      status: response.status,
-      ok: response.ok,
-      contentType,
-      headers: headerRecord(response.headers),
-      text: decodeBytes(bytes, contentType),
-      bytes: bytes.byteLength,
-      redirects,
-      durationMs: Date.now() - startedAt,
+      options.signal?.removeEventListener("abort", abortFromParent)
     }
   }
 

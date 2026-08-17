@@ -1571,6 +1571,37 @@ export interface ResearchDimension {
   score: number
   insight: string
   evidence: string[]
+  sourceIds?: string[]
+}
+
+export interface ResearchEvidenceSource {
+  id: string
+  query: string
+  title: string
+  url: string
+  domain: string
+  excerpt: string
+  fetchedAt: string
+  contentType?: string
+}
+
+export interface ResearchEvidenceReference {
+  path: string
+  sourceIds: string[]
+}
+
+export interface ResearchEvidenceAudit {
+  version: 1
+  searchExecuted: boolean
+  searchedAt: string
+  queryCount: number
+  candidateCount: number
+  validSourceCount: number
+  uniqueDomainCount: number
+  minimumSourceCount: number
+  minimumDomainCount: number
+  passed: boolean
+  warnings?: string[]
 }
 
 export interface ResearchContentBlueprint {
@@ -1600,6 +1631,9 @@ export interface ResearchResult {
   opportunities: string[]
   recommendations: string[]
   contentBlueprints?: ResearchContentBlueprint[]
+  sources?: ResearchEvidenceSource[]
+  evidenceReferences?: ResearchEvidenceReference[]
+  evidenceAudit?: ResearchEvidenceAudit
   generatedAt: string
 }
 
@@ -1615,12 +1649,18 @@ export interface CompetitorComparison {
   differentiators: string[]
   userChoiceDrivers: string[]
   contentActions: string[]
+  sources?: ResearchEvidenceSource[]
+  evidenceReferences?: ResearchEvidenceReference[]
+  evidenceAudit?: ResearchEvidenceAudit
 }
 
 export interface CompetitorCompareResult extends CompetitorComparison {
   selectedCompetitors?: string[]
   comparisons?: CompetitorComparison[]
   ourWeaknessSummary?: string[]
+  sources?: ResearchEvidenceSource[]
+  evidenceReferences?: ResearchEvidenceReference[]
+  evidenceAudit?: ResearchEvidenceAudit
   generatedAt: string
 }
 

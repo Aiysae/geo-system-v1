@@ -2507,8 +2507,6 @@ function StrategyStep({
         </div>
       ) : null}
 
-      <PublishingPlanPanel client={client} />
-
       {hasQuestions ? (
         <button
           type="button"
@@ -2629,6 +2627,12 @@ function StrategyStep({
         </Card>
       )}
 
+      <details className="group rounded-xl border border-slate-200 bg-white/70">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-700">
+          <span className="flex items-center gap-2"><Settings className="h-4 w-4 text-indigo-500" />高级资产：官网与第三方站点</span>
+          <span className="text-[10px] font-medium text-slate-400 group-open:hidden">展开查看</span>
+        </summary>
+        <div className="space-y-6 border-t border-slate-200 p-4">
       {/* Official Site Strategy */}
       {plan.official_site_strategy && plan.official_site_strategy.length > 0 && (
         <Card title="官网建设策略" icon={<Settings className="h-4 w-4 text-indigo-500" />}>
@@ -2753,6 +2757,8 @@ function StrategyStep({
           </div>
         </Card>
       )}
+        </div>
+      </details>
 
       <Card
         title="AI 信源平台采信率排名"
@@ -2779,8 +2785,15 @@ function StrategyStep({
         </Card>
       )}
 
+      <PublishingPlanPanel client={client} />
+
       {/* Monitoring & Roadmap */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <details className="group rounded-xl border border-slate-200 bg-white/70">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-700">
+          <span className="flex items-center gap-2"><RefreshCw className="h-4 w-4 text-rose-500" />执行复盘交接项</span>
+          <span className="text-[10px] font-medium text-slate-400 group-open:hidden">展开查看</span>
+        </summary>
+        <div className="grid grid-cols-1 gap-6 border-t border-slate-200 p-4 md:grid-cols-2">
         {plan.geo_monitoring_plan && plan.geo_monitoring_plan.length > 0 && (
           <Card title="GEO 复盘指标" icon={<RefreshCw className="h-4 w-4 text-rose-500" />}>
             <div className="space-y-2">
@@ -2818,6 +2831,7 @@ function StrategyStep({
           </Card>
         )}
       </div>
+      </details>
 
       {/* Question Module */}
       <div ref={questionPoolRef} className="scroll-mt-24">

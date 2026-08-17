@@ -127,6 +127,30 @@ const input: CommercialReportInput = {
     risks: ["竞品在通用推荐问题中占位更稳定"],
     opportunities: ["围绕真实检测数据形成差异化内容"],
     recommendations: ["补齐可验证案例页并建立月度复测机制"],
+    sources: [
+      { id: "S1", title: "企业 GEO 服务选择指南", url: "https://example.com/research-guide", domain: "example.com", query: "GEO 服务选择", excerpt: "从检测证据、多模型覆盖和持续复测角度评估服务能力。", fetchedAt: generatedAt, contentType: "text/html" },
+      { id: "S2", title: "AI 搜索可见度实践", url: "https://news.example.net/research", domain: "news.example.net", query: "AI 搜索可见度", excerpt: "公开案例、第三方信源和结构化内容会影响模型提及。", fetchedAt: generatedAt, contentType: "text/html" },
+      { id: "S3", title: "品牌信任证据建设", url: "https://authority.example.org/evidence", domain: "authority.example.org", query: "品牌 信任证据", excerpt: "权威资料、可核验资质与真实案例能提高信息可验证性。", fetchedAt: generatedAt, contentType: "text/html" },
+      { id: "S4", title: "内容覆盖与用户问题", url: "https://content.example.cn/coverage", domain: "content.example.cn", query: "用户问题 内容覆盖", excerpt: "按真实用户问题建立内容矩阵，并持续核验引用情况。", fetchedAt: generatedAt, contentType: "text/html" },
+    ],
+    evidenceReferences: [
+      { path: "executiveSummary", sourceIds: ["S1", "S2"] },
+      { path: "brandImage", sourceIds: ["S1"] },
+      { path: "modelMentality", sourceIds: ["S2", "S3"] },
+      { path: "dimensions.0.insight", sourceIds: ["S1"] },
+    ],
+    evidenceAudit: {
+      version: 1,
+      searchExecuted: true,
+      searchedAt: generatedAt,
+      queryCount: 4,
+      candidateCount: 12,
+      validSourceCount: 4,
+      uniqueDomainCount: 4,
+      minimumSourceCount: 4,
+      minimumDomainCount: 2,
+      passed: true,
+    },
     generatedAt,
   },
   competitorCompare: {
@@ -298,10 +322,12 @@ assert.ok(processEvidenceIndex > difficultyInsightsIndex && processEvidenceIndex
 const appendixIndex = sectionIndex("AppendixPages")
 const sourcesIndex = sectionIndex("SourcesPage")
 const sourceIndexIndex = sectionIndex("SourceIndexPages")
+const researchSourceIndex = sectionIndex("ResearchSourceIndexPages")
 const closingIndex = sectionIndex("ClosingPage")
 assert.equal(sourcesIndex, appendixIndex + 1, "联网来源与证据应紧接在原始真实回答之后")
 assert.equal(sourceIndexIndex, sourcesIndex + 1, "可点击来源列表应保留在来源概览之后")
-assert.equal(closingIndex, sourceIndexIndex + 1, "联网来源与证据应作为封底前的最后内容板块")
+assert.equal(researchSourceIndex, sourceIndexIndex + 1, "调研联网证据应位于真实回答和检测信源之后")
+assert.equal(closingIndex, researchSourceIndex + 1, "全部联网来源与证据应作为封底前的最后内容板块")
 
 const pdf = await renderToBuffer(React.createElement(CommercialReportDocument, { input }) as Parameters<typeof renderToBuffer>[0])
 assert.ok(pdf.length > 120_000, "四模块综合报告应成功渲染并包含完整图表与正文")

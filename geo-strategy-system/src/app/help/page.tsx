@@ -14,16 +14,17 @@ import {
 import SiteFooter from "@/components/site-footer"
 
 const SITE_URL = "https://shitugeo.top"
-const UPDATED_AT = "2026-08-08"
+const UPDATED_AT = "2026-08-18"
 
 export const metadata: Metadata = {
   title: "帮助与使用说明 · 势途 GEO",
-  description: "势途 GEO 网站说明、快速开始、七个功能模块、客户协作、积分报告与常见问题。",
+  description: "势途 GEO 网站说明、快速开始、五段业务工作流、客户协作、积分报告与常见问题。",
   alternates: { canonical: `${SITE_URL}/help` },
 }
 
 const modules = [
   {
+    workflow: "insight",
     id: "module-penetration",
     title: "渗透率情报",
     purpose: "用多个 AI 模型独立联网回答同一批真实问题，查看品牌或个人 IP 的提及、竞品、信源和可见度。",
@@ -31,13 +32,15 @@ const modules = [
     output: "原始联网回答、引用网址、品牌声量、关键词热度、模型对比和专业报告。",
   },
   {
+    workflow: "insight",
     id: "module-research",
     title: "独立调研",
-    purpose: "围绕客户、行业与竞争环境形成结构化研究，补充后续策略需要的事实基础。",
-    steps: ["确认调研对象和行业范围", "补充已有资料与重点关注方向", "生成调研后核对关键事实", "保存结果或导出专业报告"],
-    output: "行业现状、竞争关系、机会判断、风险提示和研究结论。",
+    purpose: "强制读取可访问的公开网页，围绕客户、行业与竞争环境形成可追溯研究。",
+    steps: ["确认调研对象、区域和行业范围", "系统检索并打开多个独立来源", "根据已验证证据生成调研与竞品对比", "逐条查看引用编号和原始网址"],
+    output: "行业现状、竞争关系、机会判断、风险提示、证据引用和可点击的原始信源。",
   },
   {
+    workflow: "assessment",
     id: "module-diagnosis",
     title: "AI 诊断",
     purpose: "检查网站和品牌资料是否容易被 AI 发现、理解、引用和验证。",
@@ -45,6 +48,7 @@ const modules = [
     output: "诊断分数、问题证据、影响说明和可执行修复建议。",
   },
   {
+    workflow: "assessment",
     id: "module-difficulty",
     title: "难度测评",
     purpose: "评估进入目标行业和区域后，建立 AI 稳定提及所需的竞争难度、周期、内容量与预算。",
@@ -52,6 +56,7 @@ const modules = [
     output: "七维评分、难度等级、预计周期、阶段目标、内容数量和执行成本。",
   },
   {
+    workflow: "strategy",
     id: "module-keyword",
     title: "关键词策略",
     purpose: "把客户资料转成可执行的关键词、用户疑问句、优势匹配和平台发布策略。",
@@ -59,6 +64,7 @@ const modules = [
     output: "关键词体系、疑问句池、优势匹配、平台策略和内容执行建议。",
   },
   {
+    workflow: "content",
     id: "module-article",
     title: "文章生成",
     purpose: "根据客户知识资料、疑问句、优势和文章方法生成或改写可交付内容。",
@@ -66,6 +72,7 @@ const modules = [
     output: "Markdown 正文、质量检查结果以及可单独或批量下载的 Word 文档。",
   },
   {
+    workflow: "feedback",
     id: "module-feedback",
     title: "执行反馈",
     purpose: "持续记录已经完成的发布、优化、检测和沟通动作，形成客户可核验的周报与月报。",
@@ -73,6 +80,14 @@ const modules = [
     output: "动作日历、证据链接、阶段进度、前后效果对比和客户反馈报告。",
   },
 ]
+
+const workflows = [
+  { id: "insight", title: "情报洞察", purpose: "先看清 AI 可见度、行业事实和竞争格局。" },
+  { id: "assessment", title: "诊断评估", purpose: "判断网站基础、执行难度、周期与预算。" },
+  { id: "strategy", title: "策略规划", purpose: "把资料和证据转成疑问句、优势和发布规划。" },
+  { id: "content", title: "内容生产", purpose: "按任务、平台和方法论生成或改写内容。" },
+  { id: "feedback", title: "执行复盘", purpose: "记录动作、对比效果并向客户持续反馈。" },
+] as const
 
 const faqs = [
   { q: "提交任务后可以切换客户或退出页面吗？", a: "可以。已提交的检测、生成和报告任务会在后台继续，完成后会进入任务中心或消息中心。" },
@@ -109,7 +124,7 @@ const structuredData = {
 const toc = [
   ["about", "网站说明"],
   ["quick-start", "快速开始"],
-  ["modules", "七个功能模块"],
+  ["modules", "五段业务工作流"],
   ["accounts", "客户与团队"],
   ["tasks", "任务与数据"],
   ["billing", "积分与报告"],
@@ -150,7 +165,7 @@ export default function HelpPage() {
 
         <article className="min-w-0 space-y-14">
           <HelpSection id="about" icon={BookOpenCheck} title="网站说明">
-            <p>势途 GEO 是面向品牌、企业、专业服务者和 GEO 运营团队的全链路操作工具。它把 AI 可见度检测、行业研究、网站诊断、难度评估、关键词策略、文章生产和持续反馈放在同一个客户工作区中。</p>
+            <p>势途 GEO 是面向品牌、企业、专业服务者和 GEO 运营团队的全链路操作工具。它将能力收敛为情报洞察、诊断评估、策略规划、内容生产和执行复盘五段业务工作流。</p>
             <p>系统产出用于辅助判断和执行。涉及品牌事实、资质、案例、价格和承诺时，请以客户确认后的真实资料为准。</p>
           </HelpSection>
 
@@ -160,9 +175,27 @@ export default function HelpPage() {
             </ol>
           </HelpSection>
 
-          <HelpSection id="modules" icon={FileText} title="七个功能模块">
-            <div className="divide-y divide-[#D9E8F7] border-y border-[#D9E8F7]">
-              {modules.map((module, index) => <section key={module.id} id={module.id} className="scroll-mt-20 py-7"><div className="grid gap-5 lg:grid-cols-[180px_1fr]"><div><div className="text-[10px] font-bold text-[#00AEEA]">{String(index + 1).padStart(2, "0")}</div><h3 className="mt-1 text-lg font-bold text-[#0B2F5B]">{module.title}</h3><p className="mt-2 text-xs leading-6 text-slate-500">{module.purpose}</p></div><div><ol className="grid gap-2 sm:grid-cols-2">{module.steps.map((step, stepIndex) => <li key={step} className="flex gap-2 text-sm leading-6 text-slate-700"><span className="font-mono text-[10px] font-bold text-[#1677FF]">{stepIndex + 1}.</span>{step}</li>)}</ol><div className="mt-4 border-l-2 border-[#00AEEA] bg-[#EDF8FF] px-4 py-3 text-xs leading-6 text-[#38536E]"><strong className="text-[#0958D9]">可获得：</strong>{module.output}</div></div></div></section>)}
+          <HelpSection id="modules" icon={FileText} title="五段业务工作流">
+            <div className="space-y-8">
+              {workflows.map((workflow, workflowIndex) => (
+                <section key={workflow.id} className="border-t border-[#D9E8F7] pt-6">
+                  <div className="mb-2 flex items-baseline gap-3">
+                    <span className="font-mono text-[10px] font-bold text-[#00AEEA]">{String(workflowIndex + 1).padStart(2, "0")}</span>
+                    <h3 className="text-lg font-bold text-[#0B2F5B]">{workflow.title}</h3>
+                  </div>
+                  <p className="mb-3 text-xs leading-6 text-slate-500">{workflow.purpose}</p>
+                  <div className="divide-y divide-[#D9E8F7] border-y border-[#D9E8F7]">
+                    {modules.filter(module => module.workflow === workflow.id).map(module => (
+                      <section key={module.id} id={module.id} className="scroll-mt-20 py-6">
+                        <div className="grid gap-5 lg:grid-cols-[180px_1fr]">
+                          <div><h4 className="text-base font-bold text-[#163B66]">{module.title}</h4><p className="mt-2 text-xs leading-6 text-slate-500">{module.purpose}</p></div>
+                          <div><ol className="grid gap-2 sm:grid-cols-2">{module.steps.map((step, stepIndex) => <li key={step} className="flex gap-2 text-sm leading-6 text-slate-700"><span className="font-mono text-[10px] font-bold text-[#1677FF]">{stepIndex + 1}.</span>{step}</li>)}</ol><div className="mt-4 border-l-2 border-[#00AEEA] bg-[#EDF8FF] px-4 py-3 text-xs leading-6 text-[#38536E]"><strong className="text-[#0958D9]">可获得：</strong>{module.output}</div></div>
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </section>
+              ))}
             </div>
           </HelpSection>
 
