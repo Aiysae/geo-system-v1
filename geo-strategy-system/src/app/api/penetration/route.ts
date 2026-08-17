@@ -15,6 +15,7 @@ import type {
 import { ADAPTERS } from "@/lib/llm"
 import {
   getAdapterCredentialPoolCapacity,
+  hasAdapterCredentialPoolCandidate,
   isAdapterCredentialConfigured,
   runAdapterCredentialPoolChat,
 } from "@/lib/ai-credential-adapter"
@@ -50,6 +51,14 @@ import { requireOperationAccess, type OperationAccessContext } from "@/lib/team-
 import { hasTeamPermission } from "@/lib/team-permissions"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
+import {
+  buildJudgeEntryBatches,
+  buildPenetrationExtractionSummary,
+  orderJudgeCandidates,
+  validateJudgeBatchItems,
+  type PenetrationJudgeBatchItem,
+  type PenetrationJudgeEntry,
+} from "@/lib/penetration/entity-extraction"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -57,11 +66,18 @@ export const dynamic = "force-dynamic"
 export const revalidate = 0
 
 const BLIND_QUERY_MAX_TOKENS = 2048
-const JUDGE_BATCH_TIMEOUT_SEC = 45
-const JUDGE_BATCH_MAX_TOKENS = 3072
+const JUDGE_BATCH_TIMEOUT_SEC = 60
+const JUDGE_BATCH_MAX_TOKENS = 6144
 const JUDGE_BATCH_SIZE = Math.max(
   1,
-  Math.min(10, Math.floor(Number(process.env.PENETRATION_V3_JUDGE_BATCH_SIZE) || 6)),
+  Math.min(3, Math.floor(Number(process.env.PENETRATION_V3_JUDGE_BATCH_SIZE) || 3)),
+)
+const JUDGE_BATCH_MAX_CHARACTERS = Math.max(
+  2_000,
+  Math.min(
+    12_000,
+    Math.floor(Number(process.env.PENETRATION_V3_JUDGE_BATCH_MAX_CHARACTERS) || 6_000),
+  ),
 )
 const JUDGE_PIPELINE_CONCURRENCY = Math.max(
   1,
@@ -138,10 +154,11 @@ function buildJudgeSystemPrompt(
           "name": "原文中的完整姓名",
           "profession": "原文可确认的职业；无法确认则空字符串",
           "organization": "原文可确认的所属机构；无法确认则空字符串",
-          "isPeer": true
+          "isPeer": true,
+          "evidence": "回答原文中含该姓名的最短完整片段"
         }
       ],
-      "mentionedOrganizations": ["原文中确实出现的医院、律所、公司、学校或协会；去重"],
+      "mentionedOrganizations": [{"name": "机构名", "evidence": "回答原文中的最短完整片段"}],
       "topRecommended": "原文明确排第一或最被推荐的同行人物姓名；没有明确倾向则空字符串"
     }
   ]
@@ -173,7 +190,9 @@ function buildJudgeSystemPrompt(
   "items": [
     {
       "id": "输入中的 id",
-      "mentionedBrands": ["原文中确实出现的全部具体品牌/公司/产品/服务商专有名词；去重"],
+      "mentionedBrands": [
+        {"name": "原文中确实出现的具体品牌/公司/产品/服务商专有名词", "evidence": "回答原文中含该名称的最短完整片段"}
+      ],
       "topRecommended": "原文中明确排第一或最被推荐的品牌；没有明确倾向则填空字符串"
     }
   ]
@@ -650,14 +669,18 @@ async function blindQuery(
 // ============================================================================
 // Stage B · 独立裁判 AI 检测
 // ============================================================================
-interface BatchJudgeItem {
-  id: string
-  mentionedBrands: string[]
-  mentionedEntities: PenetrationMentionedEntity[]
-  topRecommended: string | null
+interface BatchJudgeItem extends PenetrationJudgeBatchItem {
+  judgeModel?: ModelKey
+  modelsTried?: ModelKey[]
 }
 
-async function judgeAnswersBatch(
+function literalEvidence(answer: string, name: string, value: unknown): string | undefined {
+  const evidence = typeof value === "string" ? value.trim().slice(0, 240) : ""
+  if (evidence && normalize(answer).includes(normalize(evidence))) return evidence
+  return answerMentionsBrand(answer, name) ? name : undefined
+}
+
+async function judgeAnswersBatchWithModel(
   judgeModel: ModelKey,
   args: {
     subjectType: AnalysisSubjectType
@@ -672,7 +695,7 @@ async function judgeAnswersBatch(
   const user = buildJudgeUserPrompt(args)
   const t0 = Date.now()
 
-  async function attempt(extraHint = ""): Promise<BatchJudgeItem[] | null> {
+  async function attempt(extraHint = ""): Promise<{ items: BatchJudgeItem[]; error?: string }> {
     const raw = await runPenetrationProviderCall(judgeModel, "judge", () =>
       runAdapterCredentialPoolChat(judgeModel, "judge", {
         system: sys + extraHint,
@@ -687,8 +710,11 @@ async function judgeAnswersBatch(
       }),
     )
     const parsed = parseJsonLoose(raw) as { items?: unknown } | null
-    if (!parsed || !Array.isArray(parsed.items)) return null
-    return parsed.items
+    if (!parsed || !Array.isArray(parsed.items)) {
+      return { items: [], error: "返回内容不是包含 items 数组的 JSON" }
+    }
+    const answerById = new Map(args.entries.map(entry => [entry.id, entry.answer]))
+    const items = parsed.items
       .map((value): BatchJudgeItem | null => {
         if (!value || typeof value !== "object") return null
         const item = value as {
@@ -700,8 +726,9 @@ async function judgeAnswersBatch(
         }
         const id = typeof item.id === "string" ? item.id.trim() : ""
         if (!id) return null
+        const answer = answerById.get(id) || ""
         const mentionedEntities: PenetrationMentionedEntity[] = []
-        let mentionedBrands: string[] = []
+        const mentionedBrands: string[] = []
         if (args.subjectType === "person") {
           const people = Array.isArray(item.mentionedPeople) ? item.mentionedPeople : []
           for (const value of people) {
@@ -710,12 +737,14 @@ async function judgeAnswersBatch(
             const name = String(person.name || "").trim()
             if (!name) continue
             const isPeer = person.isPeer === true
+            const evidence = literalEvidence(answer, name, person.evidence)
             mentionedEntities.push({
               name,
               kind: "person",
               isPeer,
               profession: String(person.profession || "").trim() || undefined,
               organization: String(person.organization || "").trim() || undefined,
+              evidence,
             })
             if (isPeer) mentionedBrands.push(name)
           }
@@ -728,15 +757,35 @@ async function judgeAnswersBatch(
               : value && typeof value === "object"
                 ? String((value as Record<string, unknown>).name || "").trim()
                 : ""
-            if (name) mentionedEntities.push({ name, kind: "organization" })
+            if (name) {
+              mentionedEntities.push({
+                name,
+                kind: "organization",
+                evidence: literalEvidence(
+                  answer,
+                  name,
+                  value && typeof value === "object"
+                    ? (value as Record<string, unknown>).evidence
+                    : value,
+                ),
+              })
+            }
           }
         } else {
-          mentionedBrands = Array.isArray(item.mentionedBrands)
-            ? item.mentionedBrands.map(x => String(x).trim()).filter(Boolean)
-            : []
-          mentionedEntities.push(
-            ...mentionedBrands.map(name => ({ name, kind: "brand" as const })),
-          )
+          const brands = Array.isArray(item.mentionedBrands) ? item.mentionedBrands : []
+          for (const value of brands) {
+            const record = value && typeof value === "object"
+              ? value as Record<string, unknown>
+              : null
+            const name = (record ? String(record.name || "") : String(value || "")).trim()
+            if (!name) continue
+            mentionedBrands.push(name)
+            mentionedEntities.push({
+              name,
+              kind: "brand",
+              evidence: literalEvidence(answer, name, record?.evidence ?? value),
+            })
+          }
         }
         const topRecommended =
           typeof item.topRecommended === "string" && item.topRecommended.trim()
@@ -745,30 +794,112 @@ async function judgeAnswersBatch(
         return { id, mentionedBrands, mentionedEntities, topRecommended }
       })
       .filter((item): item is BatchJudgeItem => !!item)
+    const validation = validateJudgeBatchItems(args.entries, items)
+    if (!validation.ok) {
+      const details = [
+        validation.missingIds.length > 0 ? `缺少 ${validation.missingIds.join(",")}` : "",
+        validation.unexpectedIds.length > 0 ? `多出 ${validation.unexpectedIds.join(",")}` : "",
+        validation.duplicateIds.length > 0 ? `重复 ${validation.duplicateIds.join(",")}` : "",
+      ].filter(Boolean).join("；")
+      return { items: [], error: `输出条目不完整：${details}` }
+    }
+    return { items }
   }
 
   try {
-    let items = await attempt()
-    if (!items) {
-      items = await attempt("\n\n必须返回包含 items 数组的严格 JSON；每个输入 id 都要有对应项。")
+    let result = await attempt()
+    if (result.error) {
+      result = await attempt(
+        `\n\n上一次输出未通过完整性校验（${result.error}）。必须返回严格 JSON，且每个输入 id 必须且只能有一个对应项。`,
+      )
     }
-    if (!items) {
+    if (result.error) {
       return {
         items: [],
-        error: `${adapter.label} 批量裁判返回非 JSON，已保留代码层已知品牌匹配结果`,
+        error: `${adapter.label} 品牌裁判结果不完整：${result.error}`,
       }
     }
     console.log(
-      `[penetration·batch-judge] ✓ ${adapter.label} | ${Date.now() - t0}ms | inputs=${args.entries.length} | outputs=${items.length}`
+      `[penetration·batch-judge] ✓ ${adapter.label} | ${Date.now() - t0}ms | inputs=${args.entries.length} | outputs=${result.items.length}`
     )
-    return { items }
+    return { items: result.items }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "未知错误"
+    const msg = sanitizeAiUpstreamMessage(
+      e instanceof Error ? e.message : "未知错误",
+      400,
+    )
     console.error(`[penetration·batch-judge] ✗ ${adapter.label} | ${msg}`)
     return {
       items: [],
-      error: `${adapter.label} 批量裁判接口调用失败：${msg}（已保留代码层已知品牌匹配结果）`,
+      error: `${adapter.label} 品牌裁判调用失败：${msg}`,
     }
+  }
+}
+
+async function judgeAnswersBatch(
+  judgeModels: ModelKey[],
+  args: {
+    subjectType: AnalysisSubjectType
+    personProfile?: PersonSubjectProfile
+    competitors: string[]
+    entries: PenetrationJudgeEntry[]
+  },
+): Promise<{ items: BatchJudgeItem[]; error?: string; modelsTried: ModelKey[] }> {
+  const modelsTried: ModelKey[] = []
+  const errors: string[] = []
+
+  for (const judgeModel of judgeModels) {
+    modelsTried.push(judgeModel)
+    const judged = await judgeAnswersBatchWithModel(judgeModel, args)
+    if (!judged.error) {
+      return {
+        items: judged.items.map(item => ({
+          ...item,
+          judgeModel,
+          modelsTried: [...modelsTried],
+        })),
+        modelsTried,
+      }
+    }
+    errors.push(judged.error)
+  }
+
+  // A whole batch can fail because one long answer makes the structured output
+  // too large. Retry each answer independently before declaring extraction lost.
+  if (args.entries.length > 1) {
+    const singletonResults = await mapWithConcurrency(
+      args.entries,
+      Math.min(2, args.entries.length),
+      entry => judgeAnswersBatch(judgeModels, { ...args, entries: [entry] }),
+    )
+    const items = singletonResults.flatMap(result => result.items)
+    const failedIds = args.entries
+      .map(entry => entry.id)
+      .filter(id => !items.some(item => item.id === id))
+    if (failedIds.length === 0) {
+      return {
+        items,
+        modelsTried: Array.from(new Set([
+          ...modelsTried,
+          ...singletonResults.flatMap(result => result.modelsTried),
+        ])),
+      }
+    }
+    errors.push(`单条重试后仍缺少 ${failedIds.join(",")}`)
+    return {
+      items,
+      modelsTried: Array.from(new Set([
+        ...modelsTried,
+        ...singletonResults.flatMap(result => result.modelsTried),
+      ])),
+      error: errors.join("；").slice(0, 800),
+    }
+  }
+
+  return {
+    items: [],
+    modelsTried,
+    error: errors.join("；").slice(0, 800) || "没有可用的品牌裁判模型",
   }
 }
 
@@ -802,6 +933,12 @@ async function processSlot(args: {
       sourceDomains: blind.sourceDomains,
       topSourceDomain: blind.topSourceDomain,
       ...blind.auditFields,
+      extraction: {
+        status: "failed",
+        attempts: 0,
+        version: 2,
+        error: "联网回答失败，未进入实体提取",
+      },
       hitOur: false,
       error: blind.error || "回答为空",
     }
@@ -845,6 +982,7 @@ async function processSlot(args: {
     sourceDomains: blind.sourceDomains,
     topSourceDomain: blind.topSourceDomain,
     ...blind.auditFields,
+    extraction: { status: "pending", attempts: 0, version: 2 },
     hitOur: codeHit,
   }
 }
@@ -911,7 +1049,18 @@ function mergeVerifiedSubjects(
   if (subjectType !== "person") {
     return {
       mentionedSubjects,
-      entities: mentionedSubjects.map(name => ({ name, kind: "brand" })),
+      entities: mentionedSubjects.map(name => {
+        const canonical = resolver.canonicalize(name)
+        const source = candidates.find(entity =>
+          entity.kind === "brand"
+          && resolver.canonicalize(entity.name)?.key === canonical?.key
+        )
+        return {
+          name,
+          kind: "brand" as const,
+          evidence: source?.evidence,
+        }
+      }),
     }
   }
 
@@ -931,6 +1080,7 @@ function mergeVerifiedSubjects(
       isPeer: mentionedSubjects.some(name => resolver.canonicalize(name)?.key === person.key),
       profession: source?.profession,
       organization: source?.organization,
+      evidence: source?.evidence,
     }
   })
   const organizationEntities = Array.from(candidateByKey.values())
@@ -945,7 +1095,7 @@ function mergeVerifiedSubjects(
 
 async function enrichWithBatchJudge(
   results: ProcessedSlot[],
-  judgeModel: ModelKey,
+  judgeModels: ModelKey[],
   competitors: string[],
   ourBrand: string,
   brandAliases: string[],
@@ -954,35 +1104,52 @@ async function enrichWithBatchJudge(
 ): Promise<void> {
   const jobs: Array<{
     model: ModelKey
-    slots: Array<{ id: string; item: ProcessedSlot["item"] }>
+    slots: Array<{ id: string; answer: string; item: ProcessedSlot["item"] }>
   }> = []
 
   for (const model of Array.from(new Set(results.map(result => result.model)))) {
     const slots = results
       .filter(result => result.model === model && !!result.item.answer.trim())
       .map((result, index) => ({
-        id: `${model}-${index + 1}`,
+        id: result.item.sampleId || `${model}-${index + 1}`,
+        answer: result.item.answer,
         item: result.item,
       }))
-    for (let start = 0; start < slots.length; start += JUDGE_BATCH_SIZE) {
-      jobs.push({ model, slots: slots.slice(start, start + JUDGE_BATCH_SIZE) })
+    for (const slotsBatch of buildJudgeEntryBatches(slots, {
+      maxItems: JUDGE_BATCH_SIZE,
+      maxCharacters: JUDGE_BATCH_MAX_CHARACTERS,
+    })) {
+      jobs.push({ model, slots: slotsBatch })
     }
   }
 
   await mapWithConcurrency(jobs, JUDGE_PIPELINE_CONCURRENCY, async job => {
-    const judged = await judgeAnswersBatch(judgeModel, {
+    const judged = await judgeAnswersBatch(judgeModels, {
       subjectType,
       personProfile,
       competitors,
-      entries: job.slots.map(slot => ({ id: slot.id, answer: slot.item.answer })),
+      entries: job.slots.map(slot => ({ id: slot.id, answer: slot.answer })),
     })
     const judgedById = new Map(judged.items.map(item => [item.id, item]))
 
     for (const slot of job.slots) {
       const result = judgedById.get(slot.id)
+      if (!result) {
+        const error = judged.error || "品牌实体提取未返回本条结果"
+        slot.item.extraction = {
+          status: "failed",
+          attempts: judged.modelsTried.length,
+          modelsTried: judged.modelsTried,
+          extractedAt: new Date().toISOString(),
+          version: 2,
+          error,
+        }
+        slot.item.judgeError = error
+        continue
+      }
       const merged = mergeVerifiedSubjects(
         slot.item,
-        result?.mentionedEntities ?? [],
+        result.mentionedEntities,
         ourBrand,
         brandAliases,
         competitors,
@@ -1002,7 +1169,7 @@ async function enrichWithBatchJudge(
           ),
         )
       slot.item.topRecommended =
-        result?.topRecommended &&
+        result.topRecommended &&
         !isPlatformName(result.topRecommended) &&
         answerMentionsBrand(slot.item.answer, result.topRecommended) &&
         (
@@ -1013,30 +1180,38 @@ async function enrichWithBatchJudge(
         )
           ? result.topRecommended
           : null
-      if (judged.error) slot.item.judgeError = judged.error
+      slot.item.extraction = {
+        status: "succeeded",
+        attempts: result.modelsTried?.length || 1,
+        model: result.judgeModel,
+        modelsTried: result.modelsTried,
+        extractedAt: new Date().toISOString(),
+        version: 2,
+      }
+      delete slot.item.judgeError
     }
   })
 }
 
 // ============================================================================
-// 选裁判模型：优先 DeepSeek（结构化输出最稳/最便宜），依次降级
-// 强约束：裁判应尽量与"出题模型"不同，避免自证；只有当所有可用模型都被占用时才允许相同。
+// 裁判首先使用账号池里真实健康的通道，再考虑环境变量回退通道。
+// 同一任务保留多个跨厂商候选，任一账号欠费、限流或输出截断都可自动切换。
 // ============================================================================
-async function pickJudge(activeModels: ModelKey[]): Promise<ModelKey | null> {
-  const order: ModelKey[] = ["deepseek", "qwen", "ernie", "hunyuan", "doubao", "kimi"]
-  for (const m of order) {
-    if (
-      !activeModels.includes(m)
-      && (await isAdapterCredentialConfigured(m, "judge", { jsonMode: true }))
-    ) return m
-  }
-  for (const m of order) {
-    if (
-      activeModels.includes(m)
-      && (await isAdapterCredentialConfigured(m, "judge", { jsonMode: true }))
-    ) return m
-  }
-  return null
+async function pickJudgeCandidates(activeModels: ModelKey[]): Promise<ModelKey[]> {
+  const order: ModelKey[] = ["qwen", "hunyuan", "doubao", "kimi", "ernie", "deepseek"]
+  const readiness = await Promise.all(order.map(async model => ({
+    model,
+    pooled: await hasAdapterCredentialPoolCandidate(model, "judge", { jsonMode: true }),
+    configured: await isAdapterCredentialConfigured(model, "judge", { jsonMode: true }),
+  })))
+  const pooled = readiness.filter(item => item.pooled).map(item => item.model)
+  const fallback = readiness
+    .filter(item => !item.pooled && item.configured)
+    .map(item => item.model)
+  return [
+    ...orderJudgeCandidates(pooled, activeModels),
+    ...orderJudgeCandidates(fallback, activeModels),
+  ]
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1125,8 +1300,8 @@ async function judgeSampledBatch(args: {
     return NextResponse.json({ error: "裁判阶段没有收到可处理的联网回答" }, { status: 400 })
   }
 
-  const judgeModel = await pickJudge(args.models)
-  if (!judgeModel) {
+  const judgeModels = await pickJudgeCandidates(args.models)
+  if (judgeModels.length === 0) {
     return NextResponse.json(
       { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
       { status: 400 },
@@ -1140,7 +1315,7 @@ async function judgeSampledBatch(args: {
   })
   await enrichWithBatchJudge(
     results,
-    judgeModel,
+    judgeModels,
     knownSubjectResolver.knownNames,
     args.ourBrand,
     args.brandAliases,
@@ -1151,6 +1326,9 @@ async function judgeSampledBatch(args: {
   const byModel: PenetrationByModel = {}
   for (const model of args.models) byModel[model] = []
   for (const result of results) byModel[result.model]!.push(result.item)
+  const judgeModelsUsed = Array.from(new Set(results.flatMap(result =>
+    result.item.extraction?.model ? [result.item.extraction.model] : []
+  )))
   const judgeErrors: Partial<Record<ModelKey, string>> = {}
   for (const model of args.models) {
     const error = (byModel[model] || [])
@@ -1161,9 +1339,11 @@ async function judgeSampledBatch(args: {
 
   return NextResponse.json({
     byModel,
+    extraction: buildPenetrationExtractionSummary(byModel),
     generatedAt: new Date().toISOString(),
-    judgeModel,
-    judgeLabel: `${ADAPTERS[judgeModel].label}（批量${
+    judgeModel: judgeModelsUsed[0] || judgeModels[0],
+    judgeModels: judgeModelsUsed,
+    judgeLabel: `${judgeModelsUsed.map(model => ADAPTERS[model].label).join(" / ") || ADAPTERS[judgeModels[0]].label}（容灾批量${
       args.subjectType === "person" ? "人物与同行" : "品牌"
     }裁判，不联网）`,
     judgeErrors,
@@ -1303,8 +1483,8 @@ async function handler(req: NextRequest) {
     const featureKey = "penetrationSlot"
     const slotCount = activeModels.length * questions.length
     const requiredCredits = estimateFeatureCredits(featureKey, slotCount)
-    const judgeModel = sampleOnly ? null : await pickJudge(activeModels)
-    if (!sampleOnly && !judgeModel) {
+    const judgeModels = sampleOnly ? [] : await pickJudgeCandidates(activeModels)
+    if (!sampleOnly && judgeModels.length === 0) {
       return NextResponse.json(
         { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
         { status: 400 }
@@ -1347,8 +1527,8 @@ async function handler(req: NextRequest) {
         activeModels.length * questions.length
       } 个 slot（${sampleOnly
         ? "Stage A 客观联网采样"
-        : `Stage A 客观联网单问 + Stage B 非联网批量裁判 [${
-            ADAPTERS[judgeModel!].label
+        : `Stage A 客观联网单问 + Stage B 非联网容灾批量裁判 [${
+            judgeModels.map(model => ADAPTERS[model].label).join(" → ")
           }] + Stage C 原文交叉校验`
       }）`
     )
@@ -1420,10 +1600,10 @@ async function handler(req: NextRequest) {
       brandAliases,
       competitors,
     })
-    if (judgeModel) {
+    if (judgeModels.length > 0) {
       await enrichWithBatchJudge(
         results,
-        judgeModel,
+        judgeModels,
         knownSubjectResolver.knownNames,
         ourBrand,
         brandAliases,
@@ -1465,6 +1645,10 @@ async function handler(req: NextRequest) {
         modelCount: activeModels.length,
       },
     )
+    const extraction = buildPenetrationExtractionSummary(byModel)
+    const judgeModelsUsed = Array.from(new Set(results.flatMap(result =>
+      result.item.extraction?.model ? [result.item.extraction.model] : []
+    )))
 
     const successfulSlots = results.filter(result => isCompletePenetrationItem(result.item)).length
     if (reservation) {
@@ -1476,10 +1660,12 @@ async function handler(req: NextRequest) {
       {
         byModel,
         aggregated,
+        extraction,
         generatedAt: new Date().toISOString(),
-        judgeModel: judgeModel || undefined,
-        judgeLabel: judgeModel
-          ? `${ADAPTERS[judgeModel].label}（批量${
+        judgeModel: judgeModelsUsed[0] || judgeModels[0] || undefined,
+        judgeModels: judgeModelsUsed,
+        judgeLabel: judgeModels.length > 0
+          ? `${judgeModelsUsed.map(model => ADAPTERS[model].label).join(" / ") || ADAPTERS[judgeModels[0]].label}（容灾批量${
               subjectType === "person" ? "人物与同行" : "品牌"
             }裁判，不联网）`
           : undefined,

@@ -262,6 +262,32 @@ export default function PenetrationHistoryPanel({
     }
   }
 
+  async function reanalyzeRecord(record: PenetrationHistoryRecord) {
+    setBusyId(record.id)
+    setError("")
+    try {
+      const response = await apiFetch(`/api/penetration/history/${record.id}`, {
+        method: "POST",
+      })
+      const data = await readApiJson<{
+        record?: PenetrationHistoryRecord
+        error?: string
+      }>(response, "历史报告品牌榜重新整理")
+      if (!response.ok || !data.record) {
+        throw new Error(data.error || "历史报告品牌榜重新整理失败")
+      }
+      setDetail(data.record)
+      await loadHistory(true)
+    } catch (caught) {
+      setError(toUserFacingError(caught, {
+        fallback: "品牌榜重新整理失败，请稍后重试。",
+        subject: "历史报告",
+      }))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   if (selectedId) {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-[#F4F8FD]">
@@ -279,6 +305,17 @@ export default function PenetrationHistoryPanel({
           </button>
           {detail ? (
             <div className="flex items-center gap-2">
+              {canManageHistory && detail.result?.extraction?.status !== "complete" ? (
+                <button
+                  type="button"
+                  onClick={() => void reanalyzeRecord(detail)}
+                  disabled={busyId === detail.id}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-60"
+                >
+                  <RotateCw className={`h-4 w-4 ${busyId === detail.id ? "animate-spin" : ""}`} />
+                  重新整理品牌榜
+                </button>
+              ) : null}
               {detail.result && onExportPenetration ? (
                 <button
                   type="button"
@@ -1049,7 +1086,11 @@ function HistoryAnswerItem({ item, index }: { item: PenetrationItem; index: numb
         <div className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-slate-600">
           {item.answer || "本次没有返回回答原文。"}
         </div>
-        {item.mentionedBrands.length > 0 ? (
+        {item.extraction && item.extraction.status !== "succeeded" ? (
+          <div className="mt-3 text-[10px] text-amber-700">
+            本条品牌名单尚未完整整理，未纳入品牌排行榜。
+          </div>
+        ) : item.mentionedBrands.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {item.mentionedBrands.map(brand => (
               <span key={brand} className="rounded-md bg-slate-100 px-2 py-1 text-[10px] text-slate-600">

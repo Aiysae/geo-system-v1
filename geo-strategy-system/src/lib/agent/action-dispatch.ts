@@ -73,6 +73,14 @@ async function routeForAction(
     const route = await import("@/app/api/penetration/jobs/route")
     return { path: "/api/penetration/jobs", handler: route.POST, payload }
   }
+  if (action === "penetration.brands.reanalyze") {
+    const route = await import("@/app/api/penetration/reanalyze/route")
+    return {
+      path: "/api/penetration/reanalyze",
+      handler: route.POST,
+      payload: { clientId: payload.clientId, teamId: payload.teamId },
+    }
+  }
   if (action === "penetration.automation.get") {
     const route = await import("@/app/api/penetration/automations/route")
     const query = new URLSearchParams({ clientId: String(payload.clientId || "") })

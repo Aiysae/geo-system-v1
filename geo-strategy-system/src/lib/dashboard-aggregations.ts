@@ -4,6 +4,7 @@ import {
   createSubjectResolver,
 } from "@/lib/subject-canonicalization"
 import type { CanonicalBrand } from "@/lib/brand-canonicalization"
+import { isPenetrationExtractionUsable } from "@/lib/penetration/entity-extraction"
 
 export interface BrandVoiceItem {
   rank: number
@@ -65,6 +66,7 @@ export function computeBrandVoice(
     const mk = model as ModelKey
     for (const slot of items) {
       if (!slot.answer?.trim()) continue
+      if (!isPenetrationExtractionUsable(slot)) continue
       const cleaned = extractValidBrands(slot.mentionedBrands, resolver.canonicalize)
       for (const b of cleaned) {
         const prev = acc.get(b.key)
@@ -136,6 +138,7 @@ export function computeKeywordCompetition(
     const mk = model as ModelKey
     for (const slot of items) {
       if (!slot.answer?.trim()) continue
+      if (!isPenetrationExtractionUsable(slot)) continue
       // 拒答 / 空回答 视为"该模型未参与"，提及计数为 0
       const count = resolver.canonicalizeList(slot.mentionedBrands).length
 

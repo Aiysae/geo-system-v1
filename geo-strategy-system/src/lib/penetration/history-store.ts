@@ -13,6 +13,7 @@ import {
   buildPenetrationSampleQuality,
   computePenetrationSourceDiversity,
 } from "@/lib/penetration/sample-design"
+import { buildPenetrationExtractionSummary } from "@/lib/penetration/entity-extraction"
 import type {
   PenetrationHistoryListItem,
   PenetrationHistoryListPage,
@@ -173,6 +174,9 @@ export function buildPenetrationHistoryRecord(
         questionIntents: input.request.questionIntents,
       })
     : undefined
+  const extraction = result
+    ? result.extraction || buildPenetrationExtractionSummary(result.byModel)
+    : undefined
 
   return {
     id: input.id,
@@ -200,6 +204,9 @@ export function buildPenetrationHistoryRecord(
       balancedPenetrationRate: result?.aggregated.categoryBalancedRate ?? null,
       sampleConfidence: sampleQuality?.confidence,
       completionRate: sampleQuality?.completionRate,
+      extractionStatus: extraction?.status,
+      extractionCompletedSlots: extraction?.succeeded,
+      extractionFailedSlots: extraction?.failed,
     },
     dashboard,
     result,

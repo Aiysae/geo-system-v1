@@ -78,6 +78,7 @@ export type AgentAuditRecord = {
 export type AgentActionName =
   | "penetration.run"
   | "penetration.questions.generate"
+  | "penetration.brands.reanalyze"
   | "penetration.automation.get"
   | "penetration.automation.save"
   | "penetration.automation.set-status"

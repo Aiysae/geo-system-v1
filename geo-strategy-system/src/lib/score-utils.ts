@@ -18,6 +18,7 @@ import {
   buildPenetrationSampleQuality,
   computePenetrationSourceDiversity,
 } from "@/lib/penetration/sample-design"
+import { isPenetrationExtractionUsable } from "@/lib/penetration/entity-extraction"
 
 // 宽松匹配：把空格/大小写差异都抹掉后，任一方包含另一方即视为同一品牌
 // 例：用户填 "势途"、模型返回 "势途GEO" / "势途 GEO" → 都识别为我方
@@ -115,7 +116,9 @@ export function aggregatePenetration(
       allQuestions.add(it.question)
       totalSlots++
       validModelSlots++
-      const canonicalBrands = resolver.canonicalizeList(it.mentionedBrands)
+      const canonicalBrands = isPenetrationExtractionUsable(it)
+        ? resolver.canonicalizeList(it.mentionedBrands)
+        : []
 
       // hitOur=true 是直接命中；裁判从原文抽取并校验过的简称/别名也可命中全称。
       // 这样能修复“排行榜识别到我方品牌，但提及率仍为 0%”的不一致。
@@ -209,6 +212,7 @@ export function aggregatePenetration(
     for (const items of Object.values(byModel)) {
       for (const item of items || []) {
         if (!item.answer?.trim()) continue
+        if (!isPenetrationExtractionUsable(item)) continue
         const seen = new Set<string>()
         for (const entity of item.mentionedEntities || []) {
           if (entity.kind !== "organization") continue

@@ -116,6 +116,7 @@
     "test:penetration-capacity-deferral": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-capacity-deferral.mts",
     "test:penetration-provider-concurrency": "tsx scripts/test-penetration-provider-concurrency.mts",
     "test:penetration-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-history.mts",
+    "test:penetration-extraction": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-entity-extraction.mts",
     "test:penetration-automation": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-automation.mts",
     "test:person-subject": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-person-subject.mts",
     "test:onboarding": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-onboarding.mts",
