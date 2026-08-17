@@ -1,4 +1,5 @@
 import { aggregatePenetration } from "@/lib/score-utils"
+import { buildPenetrationExtractionSummary } from "@/lib/penetration/entity-extraction"
 import { normalizePenetrationQuestionIntentHints } from "@/lib/penetration/sample-design"
 import type {
   AnalysisSubjectType,
@@ -74,6 +75,7 @@ export function buildPenetrationBatchResult(args: {
         modelCount: args.modelCount,
       },
     ),
+    extraction: buildPenetrationExtractionSummary(byModel),
     questionIntents,
     generatedAt: args.generatedAt,
   }

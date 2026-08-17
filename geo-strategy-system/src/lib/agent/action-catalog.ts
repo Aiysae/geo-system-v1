@@ -111,6 +111,10 @@ const penetrationQuestionGenerationSchema = z.looseObject({
   ).optional(),
 })
 
+const penetrationReanalyzeSchema = z.looseObject({
+  ...clientContextShape,
+})
+
 const penetrationAutomationScheduleIdShape = {
   ...clientContextShape,
   scheduleId: z.string().min(1).max(240),
@@ -754,6 +758,16 @@ export const AGENT_ACTION_REGISTRY = {
     requiredScope: "penetration.execute",
     billable: true,
     schema: penetrationQuestionGenerationSchema,
+  },
+  "penetration.brands.reanalyze": {
+    mcpTool: "shitu_reanalyze_penetration_brands",
+    title: "重新整理检测品牌榜",
+    description: "只复用已保存的原始联网回答重新识别品牌或同行，不重新发起联网检测、不重复扣除检测积分。",
+    module: "penetration",
+    idempotent: true,
+    requiredScope: "penetration.execute",
+    billable: false,
+    schema: penetrationReanalyzeSchema,
   },
   "penetration.automation.get": {
     mcpTool: "shitu_get_penetration_automation",
@@ -1408,6 +1422,14 @@ export function estimateAgentAction(
         "queryGeneration",
         "penetration.execute",
       )
+    case "penetration.brands.reanalyze":
+      return {
+        ...context,
+        scope: "penetration.execute",
+        units: 1,
+        credits: 0,
+        label: "重新整理检测品牌榜",
+      }
     case "penetration.automation.get":
       return { ...context, scope: "penetration.view", units: 1, credits: 0, label: "读取自动检测计划" }
     case "penetration.automation.save":

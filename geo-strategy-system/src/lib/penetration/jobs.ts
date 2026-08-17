@@ -16,6 +16,7 @@ import {
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
 import { createInternalApiHeaders } from "@/lib/internal-api"
+import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { buildPenetrationBatchResult } from "@/lib/penetration/result-merge"
 import {
   getPenetrationSlotValidationError,
@@ -1075,6 +1076,7 @@ type SettledPenetrationBatch = {
 
 type SettledPenetrationJudgeBatch = {
   batch: PenetrationBatch
+  sampledByModel: PenetrationByModel
   data?: PenetrationBatchResponse
   error?: unknown
 }
@@ -1160,8 +1162,8 @@ async function processDueWave(
     const sampledByModel = data.byModel
     const task = judgeLaneTails[lane]
       .then(() => fetchBatchJudge(job, batch, sampledByModel))
-      .then((judged): SettledPenetrationJudgeBatch => ({ batch, data: judged }))
-      .catch((error): SettledPenetrationJudgeBatch => ({ batch, error }))
+      .then((judged): SettledPenetrationJudgeBatch => ({ batch, sampledByModel, data: judged }))
+      .catch((error): SettledPenetrationJudgeBatch => ({ batch, sampledByModel, error }))
     judgeLaneTails[lane] = task.then(() => undefined)
     pendingJudgeBatches.push(task)
   }
@@ -1399,11 +1401,62 @@ async function processDueWave(
   const judgedBatches = await Promise.all(pendingJudgeBatches)
   for (const judged of judgedBatches) {
     if (judged.error || !judged.data?.byModel) {
+      const message = sanitizeAiUpstreamMessage(
+        judged.error instanceof Error ? judged.error.message : "品牌实体整理失败",
+        500,
+      )
       console.warn(
         "[penetration-jobs] independent judge stage failed; raw answers retained",
         job.id,
-        judged.error instanceof Error ? judged.error.message : judged.error,
+        message,
       )
+      const failedByModel: PenetrationByModel = {}
+      for (const [model, items] of Object.entries(judged.sampledByModel) as Array<[
+        ModelKey,
+        PenetrationItem[] | undefined,
+      ]>) {
+        failedByModel[model] = (items || []).map(item => item.answer?.trim()
+          ? {
+              ...item,
+              extraction: {
+                status: "failed",
+                attempts: 0,
+                extractedAt: nowIso(),
+                version: 2,
+                error: message,
+              },
+              judgeError: message,
+            } as PenetrationAttemptItem
+          : item)
+      }
+      const latest = await getStoredJob(job.id)
+      if (latest) job = latest
+      const failedResult = buildPenetrationBatchResult({
+        operation: job.request.operation || "replace",
+        currentResult: job.result,
+        baseResult: job.baseResult,
+        incomingByModel: failedByModel,
+        ourBrand: job.request.ourBrand,
+        brandAliases: job.request.brandAliases,
+        competitors: job.request.competitors,
+        subjectType: job.request.subjectType || "brand",
+        generatedAt: monotonicGeneratedAt(job.result?.generatedAt, nowIso()),
+        plannedQuestions: job.request.operation === "append"
+          ? undefined
+          : job.request.questions,
+        questionIntents: job.request.questionIntents,
+        plannedSlots: job.request.operation === "append"
+          ? (job.baseResult?.aggregated.plannedSlots
+            ?? job.baseResult?.aggregated.totalSlots
+            ?? 0) + job.totalSlots
+          : job.totalSlots,
+        modelCount: job.request.operation === "append"
+          ? undefined
+          : job.request.models.length,
+      })
+      job = await patchJob(job.id, { result: failedResult })
+        || { ...job, result: failedResult }
+      job = await persistPartialJobResult(job)
       continue
     }
     const incomingByModel: PenetrationByModel = {}

@@ -971,6 +971,29 @@ export interface PenetrationMentionedEntity {
   isPeer?: boolean
   profession?: string
   organization?: string
+  /** Short literal excerpt from the raw answer proving that this entity was mentioned. */
+  evidence?: string
+}
+
+export type PenetrationEntityExtractionStatus = "pending" | "succeeded" | "failed"
+
+export interface PenetrationEntityExtraction {
+  status: PenetrationEntityExtractionStatus
+  attempts: number
+  version: 2
+  model?: ModelKey
+  modelsTried?: ModelKey[]
+  extractedAt?: string
+  error?: string
+}
+
+export interface PenetrationEntityExtractionSummary {
+  status: "pending" | "complete" | "partial" | "failed"
+  total: number
+  succeeded: number
+  failed: number
+  pending: number
+  version: 2
 }
 
 export interface PenetrationItem {
@@ -997,6 +1020,8 @@ export interface PenetrationItem {
   sourceCount?: number
   webVerified?: boolean
   webVerificationNote?: string
+  /** Independent entity-judge state; raw model answers remain valid even when this stage fails. */
+  extraction?: PenetrationEntityExtraction
   // 客观判分结果：盲测回答中是否出现我方全称，或出现经原文字面校验的同品牌简称/别名。
   hitOur: boolean
 }
@@ -1118,6 +1143,7 @@ export interface PenetrationAggregated {
 export interface PenetrationResult {
   byModel: PenetrationByModel
   aggregated: PenetrationAggregated
+  extraction?: PenetrationEntityExtractionSummary
   questionIntents?: PenetrationQuestionIntentHint[]
   generatedAt: string
 }
@@ -1249,6 +1275,9 @@ export interface PenetrationHistorySummary {
   balancedPenetrationRate?: number | null
   sampleConfidence?: PenetrationSampleConfidence
   completionRate?: number
+  extractionStatus?: PenetrationEntityExtractionSummary["status"]
+  extractionCompletedSlots?: number
+  extractionFailedSlots?: number
 }
 
 export interface PenetrationHistoryListItem {

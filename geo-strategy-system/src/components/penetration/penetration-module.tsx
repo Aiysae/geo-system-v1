@@ -77,6 +77,7 @@ export default function PenetrationModule({
   const [modelProgress, setModelProgress] = useState<Partial<Record<ModelKey, PenetrationModelProgress>>>({})
   const [progressLabel, setProgressLabel] = useState("")
   const [completionNotice, setCompletionNotice] = useState("")
+  const [reanalyzingBrands, setReanalyzingBrands] = useState(false)
   const [retestingSampleId, setRetestingSampleId] = useState<string | null>(null)
   const [retryableSlots, setRetryableSlots] = useState<PenetrationRetryableSlot[]>([])
   const publishedResultAtRef = useRef(client.penetration?.generatedAt || "")
@@ -141,14 +142,18 @@ export default function PenetrationModule({
             const historyNotice = job.historySavedAt
               ? "已保存到检测历史。"
               : "检测记录正在保存。"
+            const extractionNotice = job.result?.extraction
+              && job.result.extraction.status !== "complete"
+              ? `品牌榜已整理 ${job.result.extraction.succeeded}/${job.result.extraction.total} 条回答，可在结果页继续重新整理。`
+              : ""
             setCompletionNotice(
               job.operation === "append"
                 ? job.totalSlots > 1
-                  ? `未完成项补采完成：${job.completedSlots}/${job.totalSlots} 项结果已追加，原回答仍然保留。${historyNotice}`
-                  : `本题重新检测完成，新的联网回答已追加，原回答仍然保留。${historyNotice}`
+                  ? `未完成项补采完成：${job.completedSlots}/${job.totalSlots} 项结果已追加，原回答仍然保留。${historyNotice}${extractionNotice}`
+                  : `本题重新检测完成，新的联网回答已追加，原回答仍然保留。${historyNotice}${extractionNotice}`
                 : completedQuestions && completedModels
-                ? `疑问句检测完成：共 ${job.totalSlots} 项结果，覆盖 ${completedQuestions} 个问题和 ${completedModels} 个模型。${historyNotice}`
-                : `疑问句检测完成：${job.completedSlots} 项结果已更新。${historyNotice}`,
+                ? `疑问句检测完成：共 ${job.totalSlots} 项结果，覆盖 ${completedQuestions} 个问题和 ${completedModels} 个模型。${historyNotice}${extractionNotice}`
+                : `疑问句检测完成：${job.completedSlots} 项结果已更新。${historyNotice}${extractionNotice}`,
             )
             return
           }
@@ -338,6 +343,33 @@ export default function PenetrationModule({
     }
   }
 
+  async function handleReanalyzeBrands() {
+    if (loading || reanalyzingBrands || !canExecute) return
+    setReanalyzingBrands(true)
+    setError(null)
+    try {
+      const response = await apiFetch("/api/penetration/reanalyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientId: client.id }),
+      })
+      const payload = await readApiJson<{
+        result?: PenetrationResult
+        error?: string
+      }>(response, "品牌榜重新整理")
+      if (!response.ok || !payload.result) {
+        throw new Error(payload.error || "品牌榜重新整理失败")
+      }
+      publishedResultAtRef.current = payload.result.generatedAt
+      onChangeClient({ penetration: payload.result })
+      setCompletionNotice("品牌与同行实体已根据原始联网回答重新整理，图表已更新。")
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "品牌榜重新整理失败")
+    } finally {
+      setReanalyzingBrands(false)
+    }
+  }
+
   // 旧报告也在展示时按最新规则重算，避免历史 hitOur=false 把简称命中显示成 0%。
   const pen = useMemo(() => {
     if (!client.penetration) return undefined
@@ -441,6 +473,33 @@ export default function PenetrationModule({
               </div>
             ) : (
               <>
+                {pen.extraction?.status !== "complete" ? (
+                  <div className="no-print flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-xs font-semibold text-amber-950">
+                        {pen.extraction
+                          ? `品牌榜已完成 ${pen.extraction.succeeded}/${pen.extraction.total} 条回答整理`
+                          : "这份报告尚未记录品牌榜完整性"}
+                      </div>
+                      <div className="mt-1 text-[11px] leading-5 text-amber-800">
+                        {pen.extraction?.status === "pending"
+                          ? "原始联网回答已经保留，品牌与同行名单仍在整理；未完成项暂不进入排行榜。"
+                          : "未完整识别的回答暂不进入排行榜，避免把客户品牌单独展示成失真的完整结果。"}
+                      </div>
+                    </div>
+                    {!loading ? (
+                      <button
+                        type="button"
+                        onClick={handleReanalyzeBrands}
+                        disabled={reanalyzingBrands || !canExecute}
+                        className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-amber-600 px-3 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${reanalyzingBrands ? "animate-spin" : ""}`} />
+                        {reanalyzingBrands ? "正在重新整理" : "重新整理品牌榜"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                   <div className="geo-data-panel min-w-0 rounded-lg p-4">
                     <div className="geo-section-kicker mb-1">
@@ -849,7 +908,12 @@ function RawAnswersPanel({
                   <AnswerItem text={it.answer} ourBrand={ourBrand} highlightFn={highlight} />
                   <AnswerAuditBadges item={it} />
                   <SourceAuditSnippet item={it} />
-                  {it.mentionedBrands.length > 0 && (
+                  {it.extraction && it.extraction.status !== "succeeded" ? (
+                    <div className="flex items-center gap-1 pl-7 text-[10px] text-amber-700">
+                      <RefreshCw className={`h-3 w-3 ${it.extraction.status === "pending" ? "animate-spin" : ""}`} />
+                      {it.extraction.status === "pending" ? "品牌名单正在整理" : "本条品牌名单待重新整理"}
+                    </div>
+                  ) : it.mentionedBrands.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1 pl-7">
                       <span className="mr-1 text-[10px] text-slate-400">
                         {subjectType === "person" ? "同行人物" : "识别品牌"}

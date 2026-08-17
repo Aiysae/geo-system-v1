@@ -3147,7 +3147,9 @@ function AppendixPages({ input, answers }: { input: CommercialReportInput; answe
           <Text style={styles.appendixMeta}>{MODEL_LABELS[model]} · Q{index + 1} · {item.webVerified ? "联网可验证" : "联网未验证"}</Text>
           <Text style={styles.appendixQuestion}>{item.question}</Text>
           <Text style={styles.appendixAnswer}>{item.answer || item.webFailureReason || "该回答未返回有效内容。"}</Text>
-          {item.mentionedBrands.length > 0 ? (
+          {item.extraction && item.extraction.status !== "succeeded" ? (
+            <Text style={styles.sourceMeta}>本条品牌名单尚未完整整理，未纳入品牌排行榜。</Text>
+          ) : item.mentionedBrands.length > 0 ? (
             <View style={styles.pillRow}>{item.mentionedBrands.map(brand => <Text key={brand} style={styles.pill}>{brand}</Text>)}</View>
           ) : null}
         </View>
