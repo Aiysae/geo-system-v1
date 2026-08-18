@@ -112,7 +112,7 @@ export function createShituGeoMcpServer(input: {
   forwardedIp?: string
 }): McpServer {
   const api = new ShituAgentApiClient(input)
-  const server = new McpServer({ name: "shitu-geo", version: "1.8.0" })
+  const server = new McpServer({ name: "shitu-geo", version: "1.9.0" })
 
   server.registerTool("shitu_list_clients", {
     title: "查看势途 GEO 客户",

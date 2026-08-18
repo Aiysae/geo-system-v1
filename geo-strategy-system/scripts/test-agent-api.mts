@@ -216,7 +216,7 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.8")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.9")
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
@@ -782,7 +782,7 @@ try {
     externalDocs: { url: string }
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
-  assert.equal(openapi.info.version, "1.8.0")
+  assert.equal(openapi.info.version, "1.9.0")
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
   assert.ok(openapi.paths["/actions/penetration.automation.save"])

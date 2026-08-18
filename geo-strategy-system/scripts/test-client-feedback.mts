@@ -465,6 +465,7 @@ try {
   assert.equal(batchGroup[0]?.isBatch, true)
   assert.equal(batchGroup[0]?.itemCount, 2)
   assert.equal(batchGroup[0]?.actionIds.length, 2)
+  assert.deepEqual(batchGroup[0]?.platformNames, ["搜狐", "CSDN"])
 
   const ownerBatchDetail = await getClientExecutionActionDetail({
     userId: ownerUserId,

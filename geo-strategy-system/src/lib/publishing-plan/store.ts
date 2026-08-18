@@ -115,6 +115,20 @@ export interface CompletePublishingTaskInput {
   executionActionId?: string
 }
 
+export interface CompleteNextPublishingTaskInput {
+  ownerUserId: string
+  clientId: string
+  planId: string
+  plannedDate: string
+  platformKey: string
+  actorUserId: string
+  publishedUrl: string
+  publishedAt?: string
+  title?: string
+  evidence?: PublishingTask["evidence"]
+  executionActionId: string
+}
+
 const DEFAULT_FILE_PATH = process.env.NODE_ENV === "production"
   ? "/var/lib/geo-system/publishing-plans.json"
   : path.join(process.cwd(), ".data", "publishing-plans.json")
@@ -235,6 +249,16 @@ export async function getCurrentPublishingPlan(
   const plans = await listPublishingPlans(ownerUserId, clientId)
   const selected = plans.find(plan => plan.status === "active") || plans.find(plan => plan.status === "draft")
   return selected ? getPublishingPlan(ownerUserId, selected.id, includeRecords) : null
+}
+
+export async function getActivePublishingPlan(
+  ownerUserId: string,
+  clientId: string,
+  includeRecords = true,
+): Promise<PublishingPlan | null> {
+  const active = (await listPublishingPlans(ownerUserId, clientId))
+    .find(plan => plan.status === "active")
+  return active ? getPublishingPlan(ownerUserId, active.id, includeRecords) : null
 }
 
 export async function activatePublishingPlan(
@@ -535,6 +559,154 @@ export async function completePublishingTask(input: CompletePublishingTaskInput)
     }
     state.tasks[key] = completed
     return completed
+  }, true)
+}
+
+export async function completeNextPublishingTask(
+  input: CompleteNextPublishingTaskInput,
+): Promise<PublishingTask | null> {
+  const url = normalizeHttpUrl(input.publishedUrl)
+  const now = new Date().toISOString()
+  const publishedAt = validIso(input.publishedAt) || now
+  const evidence = normalizeEvidence(input.evidence, url)
+  if (backend() === "postgres") {
+    await ensurePublishingPlanSchema()
+    const result = await pool().query<TaskRow>(
+      `WITH action_lock AS (
+         SELECT pg_advisory_xact_lock(hashtextextended($10, 0))
+       ), existing AS (
+         SELECT task.id
+         FROM geo_publishing_tasks_v1 task
+         CROSS JOIN action_lock
+         WHERE task.owner_user_id = $1 AND task.plan_id = $2
+           AND task.client_id = $3 AND task.execution_action_id = $10
+         LIMIT 1
+       ), candidate AS (
+         SELECT task.id
+         FROM geo_publishing_tasks_v1 task
+         JOIN geo_publishing_plans_v1 plan
+           ON plan.owner_user_id = task.owner_user_id AND plan.id = task.plan_id
+         WHERE task.owner_user_id = $1 AND task.plan_id = $2 AND task.client_id = $3
+           AND task.planned_date = $4::date AND task.platform_key = $5
+           AND plan.status = 'active'
+           AND (
+             task.status IN ('planned', 'failed')
+             OR (task.status = 'claimed' AND task.claim_expires_at <= NOW())
+           )
+           AND NOT EXISTS (SELECT 1 FROM existing)
+         ORDER BY task.account_slot, task.id
+         FOR UPDATE OF task SKIP LOCKED
+         LIMIT 1
+       )
+       UPDATE geo_publishing_tasks_v1 task
+       SET status = 'completed', published_url = $6, published_at = $7,
+           title = COALESCE($8, task.title), evidence = $9::jsonb,
+           execution_action_id = $10, claimed_by = NULL, claim_token = NULL,
+           claim_expires_at = NULL, failure_reason = NULL, updated_at = $11
+       WHERE task.owner_user_id = $1
+         AND task.id = COALESCE((SELECT id FROM existing), (SELECT id FROM candidate))
+       RETURNING task.*`,
+      [
+        input.ownerUserId,
+        input.planId,
+        input.clientId,
+        input.plannedDate,
+        input.platformKey,
+        url,
+        publishedAt,
+        clean(input.title, 300) || null,
+        JSON.stringify(evidence),
+        clean(input.executionActionId, 200),
+        now,
+      ],
+    )
+    return result.rows[0] ? taskFromRow(result.rows[0]) : null
+  }
+  return withFileState(state => {
+    const plan = state.plans[fileKey(input.ownerUserId, input.planId)]
+    if (!plan || plan.status !== "active" || plan.clientId !== input.clientId) return null
+    const existing = Object.entries(state.tasks).find(([, task]) => (
+      task.ownerUserId === input.ownerUserId
+      && task.planId === input.planId
+      && task.executionActionId === input.executionActionId
+    ))
+    const candidate = existing || Object.entries(state.tasks)
+      .filter(([, task]) => (
+        task.ownerUserId === input.ownerUserId
+        && task.planId === input.planId
+        && task.clientId === input.clientId
+        && task.plannedDate === input.plannedDate
+        && task.platformKey === input.platformKey
+        && (
+          task.status === "planned"
+          || task.status === "failed"
+          || (task.status === "claimed" && String(task.claimExpiresAt || "") <= now)
+        )
+      ))
+      .sort(([, left], [, right]) => left.accountSlot - right.accountSlot || left.id.localeCompare(right.id))[0]
+    if (!candidate) return null
+    const [key, task] = candidate
+    const completed: PublishingTask = {
+      ...task,
+      status: "completed",
+      publishedUrl: url,
+      publishedAt,
+      title: clean(input.title, 300) || task.title,
+      evidence,
+      executionActionId: clean(input.executionActionId, 200),
+      claimedBy: undefined,
+      claimToken: undefined,
+      claimExpiresAt: undefined,
+      failureReason: undefined,
+      updatedAt: now,
+    }
+    state.tasks[key] = completed
+    return completed
+  }, true)
+}
+
+export async function reopenPublishingTaskByExecutionAction(input: {
+  ownerUserId: string
+  clientId: string
+  executionActionId: string
+}): Promise<number> {
+  if (backend() === "postgres") {
+    await ensurePublishingPlanSchema()
+    const result = await pool().query(
+      `UPDATE geo_publishing_tasks_v1
+       SET status = 'planned', published_url = NULL, published_at = NULL,
+           evidence = '[]'::jsonb, execution_action_id = NULL,
+           claimed_by = NULL, claim_token = NULL, claim_expires_at = NULL,
+           failure_reason = NULL, updated_at = NOW()
+       WHERE owner_user_id = $1 AND client_id = $2 AND execution_action_id = $3`,
+      [input.ownerUserId, input.clientId, input.executionActionId],
+    )
+    return result.rowCount || 0
+  }
+  return withFileState(state => {
+    let count = 0
+    for (const [key, task] of Object.entries(state.tasks)) {
+      if (
+        task.ownerUserId !== input.ownerUserId
+        || task.clientId !== input.clientId
+        || task.executionActionId !== input.executionActionId
+      ) continue
+      state.tasks[key] = {
+        ...task,
+        status: "planned",
+        publishedUrl: undefined,
+        publishedAt: undefined,
+        evidence: [],
+        executionActionId: undefined,
+        claimedBy: undefined,
+        claimToken: undefined,
+        claimExpiresAt: undefined,
+        failureReason: undefined,
+        updatedAt: new Date().toISOString(),
+      }
+      count += 1
+    }
+    return count
   }, true)
 }
 

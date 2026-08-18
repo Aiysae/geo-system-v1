@@ -381,6 +381,7 @@ async function routeForAction(
         importId: payload.importId || payload.requestId,
         defaults: payload.defaults,
         rows: payload.rows,
+        reconcilePublishingQuota: payload.reconcilePublishingQuota,
       },
     }
   }

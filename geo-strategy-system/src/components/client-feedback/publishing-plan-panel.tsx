@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import type { Client } from "@/types"
 import type { ClientExecutionProfile } from "@/types/client-feedback"
+import type { ClientPublicationProgress } from "@/types/client-feedback"
 import type {
   PublishingContentType,
   PublishingContentAsset,
@@ -72,11 +73,15 @@ export default function PublishingPlanPanel({
   profile,
   onExecutionChanged,
   mode = "full",
+  selectedDate: summaryDate,
+  refreshKey = "",
 }: {
   client: Client
   profile?: ClientExecutionProfile
   onExecutionChanged?: () => void
   mode?: "full" | "summary"
+  selectedDate?: string
+  refreshKey?: string
 }) {
   const endpointPath = `/api/client-feedback/${encodeURIComponent(client.id)}/publishing-plans`
   const endpointFor = useCallback((suffix = "") => {
@@ -97,12 +102,19 @@ export default function PublishingPlanPanel({
   const [completionTask, setCompletionTask] = useState<PublishingTask | null>(null)
   const [completionTitle, setCompletionTitle] = useState("")
   const [completionUrl, setCompletionUrl] = useState("")
+  const [publicationProgress, setPublicationProgress] = useState<ClientPublicationProgress | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setError("")
     try {
-      const response = await fetch(endpointFor(), { cache: "no-store" })
+      const baseUrl = endpointFor()
+      const response = await fetch(
+        mode === "summary"
+          ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}summary=1`
+          : baseUrl,
+        { cache: "no-store" },
+      )
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "发布规划读取失败")
       const next = body as Payload
@@ -113,12 +125,12 @@ export default function PublishingPlanPanel({
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [endpointFor, profile])
+  }, [endpointFor, mode, profile])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
     return () => window.clearTimeout(timer)
-  }, [load])
+  }, [load, refreshKey])
 
   const plan = payload?.current || null
   const tasks = useMemo(() => plan?.calculation.tasks || [], [plan])
@@ -132,8 +144,36 @@ export default function PublishingPlanPanel({
   )
   const completedCount = tasks.filter(task => task.status === "completed").length
   const completionRate = tasks.length > 0 ? completedCount / tasks.length : 0
-  const todayTasks = tasks.filter(task => task.plannedDate === today())
-  const todayCompleted = todayTasks.filter(task => task.status === "completed").length
+  const progressDate = mode === "summary" ? summaryDate || today() : effectiveSelectedDate
+
+  useEffect(() => {
+    if (!plan?.id || !progressDate) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      const query = new URLSearchParams({
+        date: progressDate,
+        limit: "10000",
+        progressOnly: "1",
+      })
+      const teamId = currentWorkspaceTeamId()
+      if (teamId) query.set("teamId", teamId)
+      void fetch(`${endpointPath}/${encodeURIComponent(plan.id)}/tasks?${query.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      }).then(async response => {
+        const body = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(body?.error || "发布进度读取失败")
+        if (!controller.signal.aborted) setPublicationProgress(body.progress || null)
+      }).catch(caught => {
+        if (caught instanceof DOMException && caught.name === "AbortError") return
+        if (!controller.signal.aborted) setPublicationProgress(null)
+      })
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [endpointPath, plan?.id, progressDate, refreshKey])
 
   function updateDraft(patch: Partial<PublishingPlanInput>) {
     setDraft(current => ({ ...current, ...patch }))
@@ -303,28 +343,22 @@ export default function PublishingPlanPanel({
 
   if (mode === "summary") {
     return (
-      <section className="rounded-lg border border-[#D7E5F2] bg-white px-4 py-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="overflow-hidden rounded-lg border border-[#BFDDF5] bg-white shadow-[0_16px_38px_-34px_rgba(0,78,180,.55)]">
+        <div className="flex flex-col gap-3 border-b border-[#E3EDF6] bg-[linear-gradient(110deg,#F2F8FF,#F0FCFF)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#EAF4FF] text-[#1677FF]"><ClipboardCheck className="h-4 w-4" /></span>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#1677FF] text-white"><ClipboardCheck className="h-4 w-4" /></span>
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-[#102A43]">发布执行进度</h3>
+              <h3 className="text-sm font-semibold text-[#102A43]">{progressDate} 发布达成</h3>
               <p className="mt-0.5 text-[10px] text-[#6B8299]">
-                {plan
-                  ? `今日 ${todayCompleted}/${todayTasks.length} 项，全部 ${completedCount}/${tasks.length} 项已完成`
-                  : "尚未在关键词策略中制定发布规划"}
+                {plan ? `计划第 ${plan.version} 版 · 上传发布网址后自动核销` : "尚未在关键词策略中制定发布规划"}
               </p>
             </div>
           </div>
-          {plan ? (
-            <div className="flex min-w-44 items-center gap-3">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#E7EFF7]">
-                <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#13C2C2]" style={{ width: `${Math.round(completionRate * 100)}%` }} />
-              </div>
-              <span className="font-mono text-xs font-bold text-[#0958D9]">{Math.round(completionRate * 100)}%</span>
-            </div>
+          {publicationProgress?.plannedCount ? (
+            <span className="font-mono text-lg font-bold text-[#0958D9]">{Math.round(publicationProgress.completionRate * 100)}%</span>
           ) : null}
         </div>
+        {plan && publicationProgress ? <PublicationProgressCompact progress={publicationProgress} /> : null}
         {error ? <p className="mt-2 text-[10px] text-rose-600">{error}</p> : null}
       </section>
     )
@@ -516,6 +550,64 @@ function PlanEditor({
         </div>
         <footer className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-[#DCEAF6] bg-white px-4 py-3"><button type="button" onClick={onClose} className="h-9 rounded-lg border border-[#C8D9E8] px-4 text-xs font-semibold text-[#526A83]">取消</button><button type="button" onClick={onSave} disabled={pending === "save" || input.platformConfigs.length === 0} className="inline-flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-4 text-xs font-bold text-white disabled:opacity-50">{pending === "save" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}生成规划草案</button></footer>
       </div>
+    </div>
+  )
+}
+
+function PublicationProgressCompact({ progress }: { progress: ClientPublicationProgress }) {
+  const metrics = [
+    { label: "计划", value: progress.plannedCount, color: "text-[#0958D9]", surface: "bg-[#EAF4FF]" },
+    { label: "已发布", value: progress.actualCount, color: "text-emerald-700", surface: "bg-emerald-50" },
+    { label: "待完成", value: progress.remainingCount, color: "text-amber-700", surface: "bg-amber-50" },
+    { label: "超额", value: progress.overageCount, color: "text-fuchsia-700", surface: "bg-fuchsia-50" },
+  ]
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-px bg-[#E3EDF6] sm:grid-cols-4">
+        {metrics.map(metric => (
+          <div key={metric.label} className="bg-white px-4 py-3">
+            <div className={`inline-flex rounded-md px-2 py-1 text-[9px] font-semibold ${metric.surface} ${metric.color}`}>{metric.label}</div>
+            <p className={`mt-2 font-mono text-lg font-bold ${metric.color}`}>{metric.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {progress.platforms.length > 0 ? (
+        <div className="divide-y divide-[#EDF2F7] px-4">
+          {progress.platforms.map(platform => {
+            const rate = platform.plannedCount > 0
+              ? Math.min(100, Math.round((platform.matchedCount / platform.plannedCount) * 100))
+              : platform.actualCount > 0 ? 100 : 0
+            return (
+              <div key={platform.platformKey} className="grid gap-2 py-3 sm:grid-cols-[minmax(88px,0.7fr)_minmax(120px,1.3fr)_auto] sm:items-center">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-[#102A43]" title={platform.platformName}>{platform.platformName}</p>
+                  <p className="mt-0.5 text-[9px] text-[#8AA0B5]">已发布 {platform.actualCount} / 计划 {platform.plannedCount}</p>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[#E7EFF7]" aria-label={`${platform.platformName} 完成度 ${rate}%`}>
+                  <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] via-[#00AEEA] to-[#13C2C2] transition-[width]" style={{ width: `${rate}%` }} />
+                </div>
+                <div className="flex items-center gap-1.5 text-[9px] font-semibold">
+                  {platform.remainingCount > 0 ? <span className="rounded bg-amber-50 px-1.5 py-1 text-amber-700">待 {platform.remainingCount}</span> : null}
+                  {platform.overageCount > 0 ? <span className="rounded bg-fuchsia-50 px-1.5 py-1 text-fuchsia-700">超 {platform.overageCount}</span> : null}
+                  {platform.remainingCount === 0 && platform.plannedCount > 0 ? <span className="rounded bg-emerald-50 px-1.5 py-1 text-emerald-700">达标</span> : null}
+                  {platform.plannedCount === 0 ? <span className="rounded bg-slate-100 px-1.5 py-1 text-slate-600">计划外</span> : null}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="px-4 py-6 text-center text-xs text-[#8AA0B5]">当天暂无发布计划或执行记录</p>
+      )}
+
+      {progress.needsReviewCount > 0 ? (
+        <div className="flex items-center gap-2 border-t border-amber-100 bg-amber-50 px-4 py-2.5 text-[10px] text-amber-700">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          {progress.needsReviewCount} 条网址尚未识别平台，请删除后重新导入并手动选择平台。
+        </div>
+      ) : null}
     </div>
   )
 }
