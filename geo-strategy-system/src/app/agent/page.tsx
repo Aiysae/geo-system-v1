@@ -16,6 +16,7 @@ import {
   TerminalSquare,
 } from "lucide-react"
 import { AGENT_INTEGRATIONS } from "@/lib/agent/integration-catalog"
+import { AGENT_ACTIONS } from "@/lib/agent/action-catalog"
 
 export const metadata: Metadata = {
   title: "Agent 接入说明 · 势途 GEO",
@@ -27,6 +28,16 @@ const CAPABILITIES = [
   { icon: Layers3, title: "策略与内容生产", detail: "关键词、AI 裁判选稿、改写、批量文章与自动配图" },
   { icon: FileText, title: "资料与客户交付", detail: "资料审核、执行反馈、分享链接、历史产出与专业报告" },
   { icon: Route, title: "后台持续执行", detail: "切换页面或设备不中断任务" },
+] as const
+
+const ACTIVE_ACTION_COUNT = AGENT_ACTIONS.filter(action => !action.deprecated).length
+
+const WORKFLOW_COVERAGE = [
+  ["情报与评估", "联网检测、自动复测、品牌重析、独立调研、竞品对比、AI 诊断和难度测评"],
+  ["策略规划", "资料提炼、优势、联网关键词策略、问题池、平台建议、预算配额和发布任务"],
+  ["内容生产", "单篇、改写、批量、AI 选稿、资料导入、批量配图和分平台内容包"],
+  ["执行交付", "动作记录、证据导入、可见权限、周月报、自动邮件报送和专业报告"],
+  ["结果管理", "客户资料读取、任务查询与取消、不可变历史产出、报告和文章文件下载"],
 ] as const
 
 export default function AgentGuidePage() {
@@ -49,7 +60,7 @@ export default function AgentGuidePage() {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_20%,rgba(0,174,234,.55),transparent_27%),radial-gradient(circle_at_62%_85%,rgba(22,119,255,.5),transparent_32%)]" />
           <div className="relative mx-auto grid min-h-[440px] max-w-7xl items-center gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[1.05fr_.95fr] lg:py-16">
             <div>
-              <div className="inline-flex items-center gap-2 text-xs font-bold text-cyan-200"><Sparkles className="h-4 w-4" />GEO 全链路操作工具</div>
+              <div className="inline-flex items-center gap-2 text-xs font-bold text-cyan-200"><Sparkles className="h-4 w-4" />GEO 全链路操作工具 · {ACTIVE_ACTION_COUNT} 项正式动作</div>
               <h1 className="mt-5 max-w-3xl text-3xl font-bold leading-tight sm:text-5xl">让你的 Agent<br />直接操作势途 GEO</h1>
               <p className="mt-5 max-w-2xl text-sm leading-7 text-blue-100/80 sm:text-base">选择 Agent、授权客户、复制配置并测试连接。正式任务使用与网页端相同的权限、积分和历史记录。</p>
               <div className="mt-7 flex flex-wrap gap-3">
@@ -89,6 +100,18 @@ export default function AgentGuidePage() {
             <div className="mt-5 grid gap-x-8 border-y border-[#D8E7F7] sm:grid-cols-2 lg:grid-cols-3">
               {AGENT_INTEGRATIONS.map(item => <div key={item.key} className="flex min-h-28 gap-3 border-b border-[#E8F1FA] py-5"><span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#EAF4FF] text-[#0958D9]"><Bot className="h-4 w-4" /></span><div><h3 className="text-sm font-bold">{item.label}</h3><p className="mt-1.5 text-xs leading-5 text-slate-500">{item.description}</p></div></div>)}
             </div>
+          </div>
+        </section>
+
+        <section className="border-y border-[#D8E7F7] bg-[#F7FBFF] py-12">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6">
+            <div className="grid gap-8 lg:grid-cols-[230px_1fr]">
+              <div><p className="text-xs font-bold text-[#1677FF]">覆盖检查</p><h2 className="mt-2 text-2xl font-bold">网页主工作流已同步</h2><p className="mt-3 text-xs leading-6 text-slate-500">能力目录由同一份动作注册表生成，REST、MCP、OpenAPI 与 CLI 不再分别手写一套功能清单。</p></div>
+              <div className="divide-y divide-[#D8E7F7] border-y border-[#D8E7F7]">
+                {WORKFLOW_COVERAGE.map(([title, detail]) => <div key={title} className="grid gap-1 py-4 sm:grid-cols-[150px_1fr]"><h3 className="text-sm font-bold text-[#163B66]">{title}</h3><p className="text-xs leading-6 text-slate-500">{detail}</p></div>)}
+              </div>
+            </div>
+            <div className="mt-6 rounded-lg border border-[#FFE0B2] bg-[#FFF9ED] px-4 py-3 text-xs leading-6 text-[#6B5528]"><strong>人工安全边界：</strong>充值与积分、发票、密码邮箱、模型 API Key、团队成员、客户账号授权及管理员财务操作不会出现在 Agent 动作目录中。</div>
           </div>
         </section>
 

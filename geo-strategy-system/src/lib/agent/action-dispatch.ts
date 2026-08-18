@@ -276,6 +276,29 @@ async function routeForAction(
     const route = await import("@/app/api/article-generation/batches/route")
     return { path: "/api/article-generation/batches", handler: route.POST, payload }
   }
+  if (action === "article.batch.delete") {
+    const batchId = String(payload.batchId || "")
+    const { getOwnedStoredArticleBatch } = await import("@/lib/article-batches/store")
+    const batch = await getOwnedStoredArticleBatch(batchId, auth.userId)
+    const expectedTeamId = String(payload.teamId || "") || undefined
+    if (
+      !batch
+      || batch.clientId !== String(payload.clientId || "")
+      || (batch.teamId || undefined) !== expectedTeamId
+    ) {
+      throw new AgentApiError({
+        code: "NOT_FOUND",
+        message: "批量文章任务不存在或不属于当前授权客户",
+        status: 404,
+      })
+    }
+    const route = await import("@/app/api/article-generation/batches/[batchId]/route")
+    return {
+      path: `/api/article-generation/batches/${encodeURIComponent(batchId)}`,
+      handler: request => route.DELETE(request, { params: Promise.resolve({ batchId }) }),
+      method: "DELETE",
+    }
+  }
   if (action === "article.production.list") {
     const route = await import("@/app/api/article-generation/production-runs/route")
     const query = new URLSearchParams({ clientId: String(payload.clientId || "") })
@@ -332,6 +355,19 @@ async function routeForAction(
         teamId: payload.teamId,
         action: { ...(payload.action as Record<string, unknown>), id: actionId },
       },
+    }
+  }
+  if (action === "feedback.action.delete") {
+    const route = await import("@/app/api/client-feedback/[clientId]/actions/route")
+    const clientId = String(payload.clientId || "")
+    const query = new URLSearchParams()
+    if (payload.teamId) query.set("teamId", String(payload.teamId))
+    if (payload.actionId) query.set("actionId", String(payload.actionId))
+    if (payload.importBatchId) query.set("importBatchId", String(payload.importBatchId))
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/actions?${query}`,
+      handler: request => route.DELETE(request, { params: Promise.resolve({ clientId }) }),
+      method: "DELETE",
     }
   }
   if (action === "feedback.actions.import") {
@@ -566,6 +602,19 @@ async function routeForAction(
       handler: request => route.PATCH(request, { params: Promise.resolve({ clientId, planId }) }),
       method: "PATCH",
       payload: { teamId: payload.teamId, action: "activate" },
+    }
+  }
+  if (action === "publishing.plan.delete") {
+    const route = await import("@/app/api/client-feedback/[clientId]/publishing-plans/[planId]/route")
+    const clientId = String(payload.clientId || "")
+    const planId = String(payload.planId || "")
+    const query = new URLSearchParams()
+    if (payload.teamId) query.set("teamId", String(payload.teamId))
+    const suffix = query.size ? `?${query}` : ""
+    return {
+      path: `/api/client-feedback/${encodeURIComponent(clientId)}/publishing-plans/${encodeURIComponent(planId)}${suffix}`,
+      handler: request => route.DELETE(request, { params: Promise.resolve({ clientId, planId }) }),
+      method: "DELETE",
     }
   }
   if (action === "publishing.tasks.list") {

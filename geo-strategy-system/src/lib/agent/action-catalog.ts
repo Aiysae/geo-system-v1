@@ -269,6 +269,11 @@ const articleBatchSchema = z.looseObject({
   }
 })
 
+const articleBatchOperationSchema = z.looseObject({
+  ...clientContextShape,
+  batchId: z.string().min(1).max(240),
+})
+
 const reportSchema = z.looseObject({
   ...clientContextShape,
   input: z.looseObject({
@@ -606,6 +611,15 @@ const feedbackImportSchema = z.looseObject({
   })).min(1).max(200),
 })
 
+const feedbackActionDeleteSchema = z.looseObject({
+  ...clientContextShape,
+  actionId: z.string().min(1).max(240).optional(),
+  importBatchId: z.string().min(1).max(240).optional(),
+}).refine(
+  value => Boolean(value.actionId) !== Boolean(value.importBatchId),
+  { message: "actionId 与 importBatchId 必须且只能提供一个", path: ["actionId"] },
+)
+
 const feedbackReportSchema = z.looseObject({
   ...clientContextShape,
   type: z.enum(["weekly", "monthly"]),
@@ -795,6 +809,10 @@ const publishingPlanCreateSchema = z.looseObject({
   recommendationGeneratedAt: z.string().datetime().optional(),
 })
 const publishingPlanActivateSchema = z.looseObject({
+  ...clientContextShape,
+  planId: z.string().min(1).max(240),
+})
+const publishingPlanDeleteSchema = z.looseObject({
   ...clientContextShape,
   planId: z.string().min(1).max(240),
 })
@@ -1217,6 +1235,17 @@ export const AGENT_ACTION_REGISTRY = {
     billable: true,
     schema: articleBatchSchema,
   },
+  "article.batch.delete": {
+    mcpTool: "shitu_delete_article_batch",
+    title: "删除已结束的批量文章任务",
+    description: "删除指定批次和关联文件；运行中的批次必须先停止。",
+    module: "article",
+    idempotent: true,
+    requiredScope: "article.manage",
+    billable: false,
+    destructive: true,
+    schema: articleBatchOperationSchema,
+  },
   "article.production.list": {
     mcpTool: "shitu_list_content_production_runs",
     title: "读取发布计划生产批次",
@@ -1270,6 +1299,17 @@ export const AGENT_ACTION_REGISTRY = {
     requiredScope: "feedback.edit",
     billable: false,
     schema: feedbackActionSchema,
+  },
+  "feedback.action.delete": {
+    mcpTool: "shitu_delete_feedback_action",
+    title: "删除执行动作或整批导入记录",
+    description: "按动作编号删除单条执行记录，或按导入批次编号删除同一次批量导入产生的记录。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    destructive: true,
+    schema: feedbackActionDeleteSchema,
   },
   "feedback.actions.import": {
     mcpTool: "shitu_import_feedback_actions",
@@ -1456,6 +1496,17 @@ export const AGENT_ACTION_REGISTRY = {
     requiredScope: "feedback.manage",
     billable: false,
     schema: publishingPlanActivateSchema,
+  },
+  "publishing.plan.delete": {
+    mcpTool: "shitu_delete_publishing_plan_draft",
+    title: "删除发布规划草案",
+    description: "删除尚未生效的发布规划草案；生效中和已归档版本保持为可审计记录。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    destructive: true,
+    schema: publishingPlanDeleteSchema,
   },
   "publishing.tasks.list": {
     mcpTool: "shitu_list_publishing_tasks",
@@ -1795,6 +1846,8 @@ export function estimateAgentAction(
     }
     case "feedback.action.create":
       return { ...context, scope: "feedback.edit", units: 1, credits: 0, label: "记录执行动作" }
+    case "feedback.action.delete":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "删除执行动作" }
     case "feedback.actions.import": {
       const units = Array.isArray(input.rows) ? input.rows.length : 0
       return { ...context, scope: "feedback.edit", units, credits: 0, label: `批量导入执行证据 × ${units}` }
@@ -1839,6 +1892,8 @@ export function estimateAgentAction(
       return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "创建发布规划草案" }
     case "publishing.plan.activate":
       return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "启用发布规划版本" }
+    case "publishing.plan.delete":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "删除发布规划草案" }
     case "publishing.tasks.list":
       return { ...context, scope: "feedback.view", units: 1, credits: 0, label: "读取发布任务" }
     case "publishing.tasks.claim": {
@@ -1869,6 +1924,8 @@ export function estimateAgentAction(
         ...estimate,
       }
     }
+    case "article.batch.delete":
+      return { ...context, scope: "article.manage", units: 1, credits: 0, label: "删除批量文章任务" }
     case "article.production.list":
       return { ...context, scope: "article.view", units: 1, credits: 0, label: "读取发布内容生产批次" }
     case "article.production.run": {

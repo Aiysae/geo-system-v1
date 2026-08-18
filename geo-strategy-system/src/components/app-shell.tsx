@@ -13,6 +13,7 @@ import SiteFooter from "@/components/site-footer"
 import {
   AlertTriangle,
   ArrowUp,
+  Bot,
   CheckCircle2,
   CircleHelp,
   Cloud,
@@ -495,6 +496,14 @@ function StickyHeader({
 
         <div className="no-print hidden items-center gap-2 lg:flex">
           <Link
+            href="/agent"
+            className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#69DFFF]/55 bg-[#00AEEA]/18 px-3 text-xs font-bold text-cyan-50 shadow-[0_10px_24px_-18px_rgba(0,200,255,0.9)] transition hover:bg-[#00AEEA]/28"
+            title="查看 Agent 接入方式"
+          >
+            <Bot className="h-3.5 w-3.5" />
+            Agent 接入
+          </Link>
+          <Link
             href={helpHref}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/8 text-white transition hover:bg-white/14"
             title="查看当前模块使用说明"
@@ -560,6 +569,14 @@ function StickyHeader({
                   onClick={() => setMobileActionsOpen(false)}
                 />
                 <div className="absolute right-0 top-11 z-50 w-48 overflow-hidden rounded-lg border border-[#C8D7E8] bg-white p-1.5 text-[#38536E] shadow-xl">
+                  <Link
+                    href="/agent"
+                    onClick={() => setMobileActionsOpen(false)}
+                    className="flex h-10 w-full items-center gap-2 rounded-md bg-[#EAF4FF] px-3 text-left text-xs font-bold text-[#0958D9] hover:bg-[#DCEEFF]"
+                  >
+                    <Bot className="h-4 w-4 text-[#1677FF]" />
+                    Agent 接入
+                  </Link>
                   <Link
                     href={helpHref}
                     onClick={() => setMobileActionsOpen(false)}
