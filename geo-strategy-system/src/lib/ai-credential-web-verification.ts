@@ -1,6 +1,12 @@
 import "server-only"
 
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
+import {
+  buildAiCredentialRouteIdentity,
+  recordAiCredentialRouteFailure,
+  recordAiCredentialRouteSuccess,
+} from "@/lib/ai-credential-route-health"
 import {
   getAiCredentialRuntime,
   prioritizeAiCredentialModel,
@@ -10,6 +16,7 @@ import { ADAPTERS } from "@/lib/llm"
 import type { ModelKey } from "@/types"
 import type {
   AiCredentialCapability,
+  AiCredentialModule,
   AiCredentialVendor,
 } from "@/types/ai-credentials"
 import type { AiCredentialVerificationResult } from "@/lib/ai-credential-verification"
@@ -25,7 +32,12 @@ const STRICT_WEB_MODEL_BY_VENDOR: Partial<Record<AiCredentialVendor, ModelKey>> 
 
 export async function verifyAiCredentialWeb(
   credentialId: string,
-  options: { allModels?: boolean; model?: string } = {},
+  options: {
+    allModels?: boolean
+    model?: string
+    module?: AiCredentialModule
+    isProbe?: boolean
+  } = {},
 ): Promise<AiCredentialVerificationResult> {
   const credential = await getAiCredentialRuntime(credentialId)
   const modelKey = STRICT_WEB_MODEL_BY_VENDOR[credential.vendor]
@@ -52,6 +64,7 @@ export async function verifyAiCredentialWeb(
     : credential.allowedModels
 
   const startedAt = Date.now()
+  const routeModule = options.module || "penetration"
   const models: AiCredentialModelVerification[] = []
   let lastError: unknown
   for (const model of modelsToTest) {
@@ -100,9 +113,27 @@ export async function verifyAiCredentialWeb(
         capabilities: ["chat", "native_web", "auditable_sources"],
         latencyMs: Date.now() - modelStartedAt,
       })
+      await recordAiCredentialRouteSuccess(
+        buildAiCredentialRouteIdentity(credential, {
+          module: routeModule,
+          model,
+          requiredCapabilities: ["native_web", "auditable_sources"],
+        }),
+        Date.now() - modelStartedAt,
+        options.isProbe === true,
+      )
       if (!options.allModels) break
     } catch (error) {
       lastError = error
+      await recordAiCredentialRouteFailure(
+        buildAiCredentialRouteIdentity(credential, {
+          module: routeModule,
+          model,
+          requiredCapabilities: ["native_web", "auditable_sources"],
+        }),
+        classifyAiCredentialFailure(error),
+        options.isProbe === true,
+      )
       models.push({
         model,
         status: "failed",

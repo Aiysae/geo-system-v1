@@ -2,6 +2,7 @@ import "server-only"
 
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
 import {
   getAiCredentialPoolCapacity,
@@ -199,7 +200,7 @@ export async function hasAdapterCredentialPoolCandidate(
   const route = await resolveAdapterCredentialRoute(model, module, args)
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationReady, searchReady] = await Promise.all([
-      hasRouteCandidate(route, module),
+      hasAiCredentialCandidate(selectionRequest(route, module, undefined, null)),
       hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
     ])
     return generationReady && searchReady
@@ -229,7 +230,7 @@ export async function getAdapterCredentialPoolCapacity(
   const route = await resolveAdapterCredentialRoute(model, module, args)
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationPool, searchPool] = await Promise.all([
-      routePoolCapacity(route, module),
+      getAiCredentialPoolCapacity(selectionRequest(route, module, undefined, null)),
       getAiCredentialPoolCapacity(externalSearchSelectionRequest(module)),
     ])
     return {
@@ -277,7 +278,7 @@ export async function getAdapterCredentialPoolSnapshot(
   const route = await resolveAdapterCredentialRoute(model, module, args)
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationPool, searchPool] = await Promise.all([
-      routePoolSnapshot(route, module),
+      getAiCredentialPoolSnapshot(selectionRequest(route, module, undefined, null)),
       getAiCredentialPoolSnapshot(externalSearchSelectionRequest(module)),
     ])
     const maxConcurrency = Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency)
@@ -345,13 +346,14 @@ async function runAuditableExternalCredentialPoolChat(
 ): Promise<string> {
   const route = await resolveAdapterCredentialRoute(model, module, args)
   const label = ADAPTERS[model].label
-  const generationExactRequest = selectionRequest(route, module)
-  const generationModel = route.selectionModel
-    && await hasAiCredentialCandidate(generationExactRequest)
+  // Prefer the configured model while an exact account is available, then
+  // widen failover to each relay account's verified model name.
+  let generationModel = route.selectionModel
+    && await hasAiCredentialCandidate(selectionRequest(route, module))
     ? route.selectionModel
     : undefined
   const [hasGenerationPool, hasSearchPool] = await Promise.all([
-    hasRouteCandidate(route, module),
+    hasAiCredentialCandidate(selectionRequest(route, module, undefined, null)),
     hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
   ])
   if (!hasGenerationPool || !hasSearchPool) {
@@ -425,6 +427,7 @@ async function runAuditableExternalCredentialPoolChat(
         route.requiredCapabilities,
       )
       if (!selectedModel) throw new Error(`${label} 可用账号未配置模型`)
+      const searchModel = searchLease.credential.allowedModels[0] || "ernie-5.1"
       const startedAt = Date.now()
       try {
         const result = await ADAPTERS[model].chat({
@@ -442,25 +445,53 @@ async function runAuditableExternalCredentialPoolChat(
             baseUrl: searchLease.credential.baseUrl,
             chatPath: searchLease.credential.chatPath,
             apiKey: searchLease.credential.apiKey,
-            model: searchLease.credential.allowedModels[0] || "ernie-5.1",
+            model: searchModel,
             timeout: args.timeoutSec,
             extra: { enableSearch: true },
           },
         })
         const latencyMs = Date.now() - startedAt
         await Promise.all([
-          recordAiCredentialSuccess(generationLease.credential.id, latencyMs),
-          recordAiCredentialSuccess(searchLease.credential.id, latencyMs),
+          recordAiCredentialSuccess(generationLease.credential, latencyMs, {
+            module,
+            model: selectedModel,
+            requiredCapabilities: route.requiredCapabilities,
+          }),
+          recordAiCredentialSuccess(searchLease.credential, latencyMs, {
+            module,
+            model: searchModel,
+            requiredCapabilities: ["native_web", "auditable_sources"],
+          }),
         ])
         return result
       } catch (error) {
         lastError = error
         if (error instanceof BaiduWebSearchError) {
           excludedSearchIds.push(searchLease.credential.id)
-          await recordAiCredentialFailure(searchLease.credential, error)
+          await recordAiCredentialFailure(searchLease.credential, error, {
+            module,
+            model: searchModel,
+            requiredCapabilities: ["native_web", "auditable_sources"],
+          })
         } else {
           excludedGenerationIds.push(generationLease.credential.id)
-          await recordAiCredentialFailure(generationLease.credential, error)
+          await recordAiCredentialFailure(generationLease.credential, error, {
+            module,
+            model: selectedModel,
+            requiredCapabilities: route.requiredCapabilities,
+          })
+          if (
+            generationModel
+            && classifyAiCredentialFailure(error).scope !== "ignored"
+            && !(await hasAiCredentialCandidate(selectionRequest(
+              route,
+              module,
+              excludedGenerationIds,
+              generationModel,
+            )))
+          ) {
+            generationModel = undefined
+          }
         }
         if (!shouldFailOverAiCredential(error)) throw error
         console.warn(
@@ -553,11 +584,19 @@ export async function runAdapterCredentialPoolChat(
           extra: route.extra,
         },
       })
-      await recordAiCredentialSuccess(lease.credential.id, Date.now() - startedAt)
+      await recordAiCredentialSuccess(lease.credential, Date.now() - startedAt, {
+        module,
+        model: credentialModel,
+        requiredCapabilities: route.requiredCapabilities,
+      })
       return result
     } catch (error) {
       lastError = error
-      await recordAiCredentialFailure(lease.credential, error)
+      await recordAiCredentialFailure(lease.credential, error, {
+        module,
+        model: resolveRouteCredentialModel(route, lease.credential, selectionModel),
+        requiredCapabilities: route.requiredCapabilities,
+      })
       if (!shouldFailOverAiCredential(error)) throw error
       console.warn(
         `[ai-credential-adapter] ${model}/${module} 当前账号不可用，尝试下一账号。`,

@@ -1,7 +1,15 @@
 import "server-only"
 
 import { randomUUID } from "crypto"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import { isPermanentAiCredentialFailure } from "@/lib/ai-credential-errors"
+import {
+  aiCredentialRouteHealthId,
+  buildAiCredentialRouteIdentity,
+  listAiCredentialRouteHealth,
+  recordAiCredentialRouteFailure,
+  recordAiCredentialRouteSuccess,
+} from "@/lib/ai-credential-route-health"
 import {
   listAiCredentialRuntimes,
   updateAiCredentialHealth,
@@ -11,6 +19,8 @@ import { reserveRateLimit } from "@/lib/rate-limit"
 import type {
   AiCredentialCapability,
   AiCredentialLease,
+  AiCredentialRouteContext,
+  AiCredentialRouteHealth,
   AiCredentialRuntime,
   AiCredentialSelectionRequest,
 } from "@/types/ai-credentials"
@@ -24,6 +34,7 @@ const DEFAULT_WAIT_TIMEOUT_MS = 30_000
 const DEFAULT_LEASE_SECONDS = 10 * 60
 const MAX_CONSECUTIVE_FAILURES_BEFORE_QUARANTINE = 6
 const lastSuccessWriteAt = new Map<string, number>()
+const lastRouteSuccessWriteAt = new Map<string, number>()
 
 function isCoolingDown(credential: AiCredentialRuntime): boolean {
   if (!credential.cooldownUntil) return false
@@ -33,13 +44,23 @@ function isCoolingDown(credential: AiCredentialRuntime): boolean {
 function satisfiesRequest(
   credential: AiCredentialRuntime,
   request: AiCredentialSelectionRequest,
+  routeHealth?: AiCredentialRouteHealth,
+  blockedByRouteScope = false,
 ): boolean {
+  const routeIsAvailable = !routeHealth
+    || routeHealth.state === "closed"
+    || routeHealth.state === "degraded"
+  const routeHasRecovered = routeHealth?.state === "closed"
   if (
     !credential.enabled
     || !credential.apiKey
-    || credential.healthStatus === "unhealthy"
-    || credential.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES_BEFORE_QUARANTINE
-    || isCoolingDown(credential)
+    || blockedByRouteScope
+    || !routeIsAvailable
+    || (!routeHasRecovered && (
+      credential.healthStatus === "unhealthy"
+      || credential.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES_BEFORE_QUARANTINE
+      || isCoolingDown(credential)
+    ))
   ) return false
   if (request.excludeCredentialIds?.includes(credential.id)) return false
   const verified = new Set(credential.verifiedCapabilities)
@@ -73,6 +94,51 @@ function satisfiesRequest(
   return (request.requiredCapabilities || []).every(capability => verified.has(capability))
 }
 
+type AiCredentialCandidate = {
+  credential: AiCredentialRuntime
+  routeHealth?: AiCredentialRouteHealth
+}
+
+async function eligibleCredentials(
+  request: AiCredentialSelectionRequest,
+): Promise<AiCredentialCandidate[]> {
+  const credentials = await listAiCredentialRuntimes(request.vendor)
+  const identities = credentials.map(credential =>
+    buildAiCredentialRouteIdentity(credential, request),
+  )
+  const routes = await listAiCredentialRouteHealth(
+    credentials.map(credential => credential.id),
+  )
+  const routeHealth = new Map(routes.map(route => [route.id, route]))
+  return credentials
+    .map((credential, index) => {
+      const identity = identities[index]
+      const exactRoute = routeHealth.get(aiCredentialRouteHealthId(identity))
+      const blockedByRouteScope = routes.some(route => {
+        if (route.credentialId !== credential.id) return false
+        if (route.state === "closed" || route.state === "degraded") return false
+        if (route.id === exactRoute?.id) return true
+        if (route.failureScope === "credential") return true
+        if (route.failureScope === "model") return route.model === identity.model
+        if (route.failureScope === "capability") {
+          return route.capabilityProfile === identity.capabilityProfile
+        }
+        return false
+      })
+      return {
+        credential,
+        routeHealth: exactRoute,
+        blockedByRouteScope,
+      }
+    })
+    .filter(candidate => satisfiesRequest(
+      candidate.credential,
+      request,
+      candidate.routeHealth,
+      candidate.blockedByRouteScope,
+    ))
+}
+
 function stableHash(value: string): number {
   let hash = 2166136261
   for (let index = 0; index < value.length; index += 1) {
@@ -94,14 +160,20 @@ function weightedRouteScore(
 async function orderedCandidates(
   request: AiCredentialSelectionRequest,
 ): Promise<AiCredentialRuntime[]> {
-  const credentials = (await listAiCredentialRuntimes(request.vendor))
-    .filter(credential => satisfiesRequest(credential, request))
+  const candidates = await eligibleCredentials(request)
+  const routeHealth = new Map(
+    candidates.map(candidate => [candidate.credential.id, candidate.routeHealth]),
+  )
+  const credentials = candidates.map(candidate => candidate.credential)
   if (credentials.length <= 1) return credentials
   const sequence = await kv.incrby(
     `geo:ai-credential:route-sequence:${request.vendor}:${request.module}`,
     1,
   )
   return credentials.sort((left, right) => {
+    const leftDegraded = routeHealth.get(left.id)?.state === "degraded" ? 1 : 0
+    const rightDegraded = routeHealth.get(right.id)?.state === "degraded" ? 1 : 0
+    if (leftDegraded !== rightDegraded) return leftDegraded - rightDegraded
     if (left.priority !== right.priority) return left.priority - right.priority
     const leftScore = weightedRouteScore(left, sequence)
     const rightScore = weightedRouteScore(right, sequence)
@@ -384,8 +456,8 @@ async function occupiedSlotCount(scope: string, limit: number): Promise<number> 
 export async function getAiCredentialPoolCapacity(
   request: AiCredentialSelectionRequest,
 ): Promise<AiCredentialPoolCapacity> {
-  const candidates = (await listAiCredentialRuntimes(request.vendor))
-    .filter(credential => satisfiesRequest(credential, request))
+  const candidates = (await eligibleCredentials(request))
+    .map(candidate => candidate.credential)
   const groups = buildCredentialCapacityGroups(candidates)
   return {
     candidateCount: candidates.length,
@@ -400,8 +472,8 @@ export async function getAiCredentialPoolCapacity(
 export async function getAiCredentialPoolSnapshot(
   request: AiCredentialSelectionRequest,
 ): Promise<AiCredentialPoolSnapshot> {
-  const candidates = (await listAiCredentialRuntimes(request.vendor))
-    .filter(credential => satisfiesRequest(credential, request))
+  const candidates = (await eligibleCredentials(request))
+    .map(candidate => candidate.credential)
   const groups = buildCredentialCapacityGroups(candidates)
   const maxConcurrency = [...groups.values()].reduce(
     (sum, group) => sum + Math.min(group.credentialConcurrency, group.groupConcurrency),
@@ -480,8 +552,7 @@ export async function acquireAiCredential(
 export async function hasAiCredentialCandidate(
   request: AiCredentialSelectionRequest,
 ): Promise<boolean> {
-  const credentials = await listAiCredentialRuntimes(request.vendor)
-  return credentials.some(credential => satisfiesRequest(credential, request))
+  return (await eligibleCredentials(request)).length > 0
 }
 
 export async function tryAcquireAiCredential(
@@ -513,11 +584,36 @@ export function resolveAiCredentialModel(
 }
 
 export async function recordAiCredentialSuccess(
-  credentialId: string,
+  credential: string | AiCredentialRuntime,
   latencyMs: number,
+  context?: AiCredentialRouteContext,
 ): Promise<void> {
+  const credentialId = typeof credential === "string" ? credential : credential.id
+  if (context && typeof credential !== "string") {
+    const identity = buildAiCredentialRouteIdentity(credential, context)
+    const routeId = aiCredentialRouteHealthId(identity)
+    const now = Date.now()
+    if (now - (lastRouteSuccessWriteAt.get(routeId) || 0) >= 30_000 || context.isProbe) {
+      lastRouteSuccessWriteAt.set(routeId, now)
+      try {
+        await recordAiCredentialRouteSuccess(
+          identity,
+          latencyMs,
+          context.isProbe === true,
+        )
+      } catch (error) {
+        console.warn(
+          "[ai-credential-router] failed to record route success",
+          error instanceof Error ? error.message : String(error),
+        )
+      }
+    }
+  }
   const now = Date.now()
-  if (now - (lastSuccessWriteAt.get(credentialId) || 0) < 30_000) return
+  if (
+    now - (lastSuccessWriteAt.get(credentialId) || 0) < 30_000
+    && !context?.isProbe
+  ) return
   lastSuccessWriteAt.set(credentialId, now)
   try {
     await updateAiCredentialHealth(credentialId, {
@@ -536,7 +632,46 @@ export async function recordAiCredentialSuccess(
 export async function recordAiCredentialFailure(
   credential: AiCredentialRuntime,
   error: unknown,
+  context?: AiCredentialRouteContext,
 ): Promise<void> {
+  if (context) {
+    const failure = classifyAiCredentialFailure(error)
+    if (!failure.countsTowardCircuit || failure.scope === "ignored") return
+    const identity = buildAiCredentialRouteIdentity(credential, context)
+    lastRouteSuccessWriteAt.delete(aiCredentialRouteHealthId(identity))
+    try {
+      await recordAiCredentialRouteFailure(
+        identity,
+        failure,
+        context.isProbe === true,
+      )
+    } catch (storeError) {
+      console.warn(
+        "[ai-credential-router] failed to record route failure",
+        storeError instanceof Error ? storeError.message : String(storeError),
+      )
+    }
+    if (failure.scope !== "credential") return
+
+    lastSuccessWriteAt.delete(credential.id)
+    const failures = credential.consecutiveFailures + 1
+    try {
+      await updateAiCredentialHealth(credential.id, {
+        status: "unhealthy",
+        consecutiveFailures: failures,
+        cooldownUntil: new Date(
+          Date.now() + Math.max(30 * 60_000, failure.cooldownMs),
+        ).toISOString(),
+      })
+    } catch (storeError) {
+      console.warn(
+        "[ai-credential-router] failed to quarantine credential",
+        storeError instanceof Error ? storeError.message : String(storeError),
+      )
+    }
+    return
+  }
+
   const failures = credential.consecutiveFailures + 1
   const permanent = isPermanentAiCredentialFailure(error)
   const quarantined = permanent
@@ -568,10 +703,18 @@ export async function withAiCredential<T>(
   const startedAt = Date.now()
   try {
     const result = await task(lease.credential)
-    await recordAiCredentialSuccess(lease.credential.id, Date.now() - startedAt)
+    await recordAiCredentialSuccess(lease.credential, Date.now() - startedAt, {
+      module: request.module,
+      model: request.model,
+      requiredCapabilities: request.requiredCapabilities,
+    })
     return result
   } catch (error) {
-    await recordAiCredentialFailure(lease.credential, error)
+    await recordAiCredentialFailure(lease.credential, error, {
+      module: request.module,
+      model: request.model,
+      requiredCapabilities: request.requiredCapabilities,
+    })
     throw error
   } finally {
     await lease.release()

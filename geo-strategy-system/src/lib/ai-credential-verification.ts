@@ -5,11 +5,17 @@ import {
   prioritizeAiCredentialModel,
   updateAiCredentialHealth,
 } from "@/lib/ai-credential-store"
-import { isPermanentAiCredentialFailure } from "@/lib/ai-credential-errors"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
+import {
+  buildAiCredentialRouteIdentity,
+  recordAiCredentialRouteFailure,
+  recordAiCredentialRouteSuccess,
+} from "@/lib/ai-credential-route-health"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import type {
   AiCredentialCapability,
+  AiCredentialModule,
   AiCredentialPublic,
 } from "@/types/ai-credentials"
 
@@ -46,7 +52,12 @@ function looksLikeJson(value: string): boolean {
 
 export async function verifyAiCredentialChat(
   credentialId: string,
-  options: { allModels?: boolean } = {},
+  options: {
+    allModels?: boolean
+    model?: string
+    module?: AiCredentialModule
+    isProbe?: boolean
+  } = {},
 ): Promise<AiCredentialVerificationResult> {
   const credential = await getAiCredentialRuntime(credentialId)
   if (!credential.apiKey) throw new Error("该模型账号尚未配置 API Key")
@@ -54,10 +65,16 @@ export async function verifyAiCredentialChat(
     throw new Error("请先为该账号填写至少一个可用模型")
   }
 
+  const requestedModel = String(options.model || "").trim()
+  if (requestedModel && !credential.allowedModels.includes(requestedModel)) {
+    throw new Error("指定模型不在该账号的允许模型列表中")
+  }
+  const routeModule = options.module || credential.allowedModules[0] || "article"
+  const modelsToTest = requestedModel ? [requestedModel] : credential.allowedModels
   const startedAt = Date.now()
   let lastError: unknown
   const models: AiCredentialModelVerification[] = []
-  for (const model of credential.allowedModels) {
+  for (const model of modelsToTest) {
     const modelStartedAt = Date.now()
     try {
       const content = await openaiCompatChat({
@@ -81,9 +98,27 @@ export async function verifyAiCredentialChat(
         capabilities,
         latencyMs: Date.now() - modelStartedAt,
       })
+      await recordAiCredentialRouteSuccess(
+        buildAiCredentialRouteIdentity(credential, {
+          module: routeModule,
+          model,
+          requiredCapabilities: ["chat"],
+        }),
+        Date.now() - modelStartedAt,
+        options.isProbe === true,
+      )
       if (!options.allModels) break
     } catch (error) {
       lastError = error
+      await recordAiCredentialRouteFailure(
+        buildAiCredentialRouteIdentity(credential, {
+          module: routeModule,
+          model,
+          requiredCapabilities: ["chat"],
+        }),
+        classifyAiCredentialFailure(error),
+        options.isProbe === true,
+      )
       models.push({
         model,
         status: "failed",
@@ -133,13 +168,21 @@ export async function verifyAiCredentialChat(
     lastError instanceof Error ? lastError.message : String(lastError || ""),
     240,
   )
+  const diagnosis = classifyAiCredentialFailure(lastError)
+  const credentialFailure = diagnosis.scope === "credential"
   await updateAiCredentialHealth(credential.id, {
-    status: isPermanentAiCredentialFailure(lastError)
+    status: credentialFailure
       ? "unhealthy"
-      : "degraded",
+      : credential.verifiedCapabilities.includes("chat")
+        ? "healthy"
+        : "degraded",
     latencyMs: Date.now() - startedAt,
-    consecutiveFailures: credential.consecutiveFailures + 1,
-    cooldownUntil: new Date(Date.now() + 5 * 60_000).toISOString(),
+    consecutiveFailures: credentialFailure
+      ? credential.consecutiveFailures + 1
+      : credential.consecutiveFailures,
+    cooldownUntil: credentialFailure
+      ? new Date(Date.now() + Math.max(30 * 60_000, diagnosis.cooldownMs)).toISOString()
+      : undefined,
   })
   throw new Error(message || "模型账号连通性检测失败")
 }
