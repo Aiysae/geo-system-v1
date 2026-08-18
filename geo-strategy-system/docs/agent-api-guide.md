@@ -173,7 +173,8 @@ Agent 1.8 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 2. `article.production.run` 选择 1–31 天及目标平台。系统以“一个疑问句＋一条匹配优势”为母稿任务，AI 裁判按意图选择创作模板，同一母稿可以投递多个不同平台，但不会在同一平台重复创建。
 3. 提交后立即返回父任务；路由、拆批和文章生成均在持久化 Worker 中继续。使用 `article.production.get` 或任务中心读取进度，切换页面或设备不会中断。
 4. 完成后读取 `shitu://content-production/{runId}/{scope}.zip`，或请求 `GET /content-production/{runId}/download?scope=passed|all`。压缩包按真实平台名称分目录，并附带发布清单。
-5. 需要让外部发布 Agent 逐项执行时，使用 `publishing.tasks.list` 或 `publishing.tasks.claim` 领取任务，再以 `publishing.task.complete` / `publishing.task.fail` 回写网址、证据和执行结果。
+5. 需要让外部发布 Agent 逐项执行时，使用 `publishing.tasks.list` 或 `publishing.tasks.claim` 领取任务，再以 `publishing.task.complete` / `publishing.task.fail` 回写网址、证据和执行结果。`publishing.tasks.list` 传入 `date` 后还会返回当天计划、实发、剩余、超额和分平台完成进度。
+6. 已经在外部平台完成发布时，也可以用 `feedback.actions.import` 批量回填标题和网址。系统会按域名识别平台，并在 `reconcilePublishingQuota` 未关闭时核销当天发布配额；相同网址不会重复核销。
 
 ### 品牌短视频·单问题文案
 

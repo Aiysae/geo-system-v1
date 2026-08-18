@@ -36,6 +36,7 @@ export async function GET(
       action: "view",
     })
     const costsVisible = hasPublishingPlanPermission(access.permissionKeys, "manage")
+    const summaryOnly = request.nextUrl.searchParams.get("summary") === "1"
     const [plans, profile] = await Promise.all([
       listPublishingPlans(access.dataOwnerUserId, access.clientId),
       getClientExecutionProfile(access.dataOwnerUserId, access.clientId),
@@ -45,7 +46,7 @@ export async function GET(
       ? plans.find(plan => plan.status === "draft") || plans.find(plan => plan.status === "active")
       : plans.find(plan => plan.status === "active")
     const current = selected
-      ? await getPublishingPlan(access.dataOwnerUserId, selected.id, true)
+      ? await getPublishingPlan(access.dataOwnerUserId, selected.id, !summaryOnly)
       : null
     return noStore(NextResponse.json({
       plans: visiblePlans.map(plan => publishingPlanForViewer(plan, costsVisible)),

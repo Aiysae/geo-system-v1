@@ -587,6 +587,7 @@ const feedbackActionSchema = z.looseObject({
     quantity: z.number().nonnegative().optional(),
     unit: z.string().max(40).optional(),
     platform: z.string().max(120).optional(),
+    platformKey: z.string().max(160).optional(),
     evidence: z.array(z.object({
       label: z.string().max(160),
       url: z.string().url().max(1_000),
@@ -597,6 +598,7 @@ const feedbackActionSchema = z.looseObject({
 const feedbackImportSchema = z.looseObject({
   ...clientContextShape,
   importId: z.string().max(200).optional(),
+  reconcilePublishingQuota: z.boolean().optional().default(true),
   defaults: z.object({
     category: feedbackCategorySchema.optional(),
     status: z.enum(["planned", "completed"]).optional(),
@@ -608,6 +610,7 @@ const feedbackImportSchema = z.looseObject({
     title: z.string().min(1).max(160),
     url: z.string().url().max(1_000),
     platform: z.string().max(120).optional(),
+    platformKey: z.string().max(160).optional(),
   })).min(1).max(200),
 })
 
@@ -1314,7 +1317,7 @@ export const AGENT_ACTION_REGISTRY = {
   "feedback.actions.import": {
     mcpTool: "shitu_import_feedback_actions",
     title: "批量导入执行证据",
-    description: "批量导入标题、证据网址和平台，并生成执行动作记录。",
+    description: "批量导入标题、证据网址和平台，自动识别发布平台，并可同步核销当日发布配额。重复网址不会重复计数。",
     module: "feedback",
     idempotent: true,
     requiredScope: "feedback.edit",
@@ -1511,7 +1514,7 @@ export const AGENT_ACTION_REGISTRY = {
   "publishing.tasks.list": {
     mcpTool: "shitu_list_publishing_tasks",
     title: "读取发布任务",
-    description: "按日期、平台和状态读取发布任务，并返回对应疑问句、匹配优势、内容类型和账号槽位。",
+    description: "按日期、平台和状态读取发布任务，并返回对应疑问句、匹配优势、内容类型和账号槽位；指定 date 时同时返回计划、实发、剩余、超额及分平台达成统计。",
     module: "feedback",
     idempotent: true,
     requiredScope: "feedback.view",

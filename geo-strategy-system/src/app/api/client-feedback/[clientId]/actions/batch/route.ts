@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { MAX_EVIDENCE_IMPORT_ROWS } from "@/lib/client-feedback/evidence-import"
+import {
+  MAX_EVIDENCE_IMPORT_ROWS,
+  validateEvidenceImportRows,
+} from "@/lib/client-feedback/evidence-import"
 import { saveClientExecutionActionBatch } from "@/lib/client-feedback/store"
+import {
+  previewPublishingEvidenceImport,
+  reconcilePublishingEvidenceActions,
+} from "@/lib/publishing-plan/evidence-reconciliation"
 import {
   isOperationAccessError,
   requireOperationAccess,
@@ -63,6 +70,8 @@ export async function POST(
       teamId?: unknown
       defaults?: Partial<ClientEvidenceImportDefaults>
       rows?: unknown
+      preview?: unknown
+      reconcilePublishingQuota?: unknown
     }
     const access = await requireOperationAccess({
       userId: auth.userId,
@@ -88,6 +97,7 @@ export async function POST(
         title: text(row.title),
         url: text(row.url),
         platform: text(row.platform),
+        platformKey: text(row.platformKey),
       }
     })
     const category = CATEGORIES.has(body.defaults?.category as ClientExecutionActionCategory)
@@ -106,6 +116,29 @@ export async function POST(
       occurredDate: text(body.defaults?.occurredDate),
       description: text(body.defaults?.description),
     }
+    const shouldReconcile = status === "completed"
+      && ["self_media_publish", "authority_media_publish", "video_publish"].includes(category)
+      && body.reconcilePublishingQuota !== false
+    if (body.preview === true) {
+      const previewRows = validateEvidenceImportRows(rows).filter(row => !row.error)
+      const preview = shouldReconcile
+        ? await previewPublishingEvidenceImport({
+            ownerUserId: access.dataOwnerUserId,
+            clientId: access.clientId,
+            occurredDate: defaults.occurredDate,
+            rows: previewRows,
+          })
+        : null
+      return noStore({
+        preview: preview ? {
+          ...preview,
+          rows: preview.rows.map((row, index) => ({
+            ...row,
+            rowNumber: previewRows[index]?.rowNumber || row.rowNumber,
+          })),
+        } : null,
+      })
+    }
     const result = await saveClientExecutionActionBatch({
       ownerUserId: access.dataOwnerUserId,
       clientId: access.clientId,
@@ -114,7 +147,20 @@ export async function POST(
       defaults,
       rows,
     })
-    return noStore(result, { status: 201 })
+    if (!shouldReconcile || result.created.length === 0) {
+      return noStore(result, { status: 201 })
+    }
+    const reconciliation = await reconcilePublishingEvidenceActions({
+      ownerUserId: access.dataOwnerUserId,
+      clientId: access.clientId,
+      actorUserId: auth.userId,
+      actions: result.created,
+    })
+    return noStore({
+      ...result,
+      created: reconciliation.actions,
+      reconciliation: reconciliation.summary,
+    }, { status: 201 })
   } catch (error) {
     const message = error instanceof Error ? error.message : "批量导入动作失败"
     return noStore(

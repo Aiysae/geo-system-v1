@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import {
   AlertCircle,
   ArrowLeft,
@@ -15,14 +16,21 @@ import {
 } from "lucide-react"
 import {
   inferEvidencePlatform,
+  inferEvidencePlatformKey,
   MAX_EVIDENCE_IMPORT_ROWS,
   parseEvidenceImportText,
   validateEvidenceImportRows,
   type EvidenceImportRowDraft,
 } from "@/lib/client-feedback/evidence-import"
+import {
+  resolveSourcePlatformByName,
+  sourcePlatformOptions,
+} from "@/lib/source-platform-registry"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   ClientEvidenceImportDefaults,
+  ClientEvidenceImportPreview,
+  ClientEvidenceImportPreviewRow,
   ClientEvidenceImportResult,
   ClientExecutionActionCategory,
   ClientExecutionActionStatus,
@@ -48,6 +56,13 @@ const CATEGORY_OPTIONS: Array<{ value: ClientExecutionActionCategory; label: str
   { value: "other", label: "其他动作" },
 ]
 
+const PLATFORM_OPTIONS = sourcePlatformOptions()
+const PUBLICATION_CATEGORIES = new Set<ClientExecutionActionCategory>([
+  "self_media_publish",
+  "authority_media_publish",
+  "video_publish",
+])
+
 function rowKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -67,6 +82,7 @@ function revalidate(rows: EditableImportRow[]): EditableImportRow[] {
     title: row.title,
     url: row.url,
     platform: row.platform,
+    platformKey: row.platformKey,
   })))
   return rows.map((row, index) => ({
     ...row,
@@ -94,6 +110,8 @@ export default function BatchEvidenceImportDialog({
   const [visibility, setVisibility] = useState<ClientExecutionActionVisibility>("client")
   const [occurredDate, setOccurredDate] = useState(defaultDate)
   const [description, setDescription] = useState("")
+  const [reconcilePublishingQuota, setReconcilePublishingQuota] = useState(true)
+  const [quotaPreview, setQuotaPreview] = useState<ClientEvidenceImportPreview | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState("")
 
@@ -115,15 +133,17 @@ export default function BatchEvidenceImportDialog({
     }
   }, [rows])
 
-  function parseRows() {
+  async function parseRows() {
     setError("")
     const parsed = parseEvidenceImportText(rawText)
     if (parsed.length === 0) {
       setError("请先粘贴文章标题和证据网址")
       return
     }
-    setRows(toEditableRows(parsed))
+    const editable = toEditableRows(parsed)
+    setRows(editable)
     setStep("preview")
+    await refreshQuotaPreview(editable)
   }
 
   function updateRow(
@@ -131,17 +151,29 @@ export default function BatchEvidenceImportDialog({
     field: "title" | "url" | "platform",
     value: string,
   ) {
+    setQuotaPreview(null)
     setRows(current => {
       const next = current.map(row => {
         if (row.key !== key) return row
+        if (field === "platform") {
+          const definition = resolveSourcePlatformByName(value)
+          return {
+            ...row,
+            platform: definition?.name || value,
+            platformKey: definition?.key || "",
+          }
+        }
         if (field !== "url") return { ...row, [field]: value }
         const shouldRefreshPlatform = !row.platform || row.platform === row.inferredPlatform
         const inferredPlatform = inferEvidencePlatform(value)
+        const inferredPlatformKey = inferEvidencePlatformKey(value)
         return {
           ...row,
           url: value,
           inferredPlatform,
+          inferredPlatformKey,
           platform: shouldRefreshPlatform ? inferredPlatform : row.platform,
+          platformKey: shouldRefreshPlatform ? inferredPlatformKey : row.platformKey,
         }
       })
       return revalidate(next)
@@ -149,10 +181,12 @@ export default function BatchEvidenceImportDialog({
   }
 
   function removeRow(key: string) {
+    setQuotaPreview(null)
     setRows(current => revalidate(current.filter(row => row.key !== key)))
   }
 
   function addRow() {
+    setQuotaPreview(null)
     setRows(current => revalidate([
       ...current,
       {
@@ -162,10 +196,65 @@ export default function BatchEvidenceImportDialog({
         url: "",
         normalizedUrl: "",
         inferredPlatform: "",
+        inferredPlatformKey: "",
         platform: "",
+        platformKey: "",
         error: "请填写标题",
       },
     ]))
+  }
+
+  function shouldReconcileQuota(): boolean {
+    return reconcilePublishingQuota
+      && status === "completed"
+      && PUBLICATION_CATEGORIES.has(category)
+  }
+
+  async function refreshQuotaPreview(sourceRows = rows): Promise<ClientEvidenceImportPreview | null> {
+    const checked = revalidate(sourceRows)
+    setRows(checked)
+    if (!shouldReconcileQuota()) {
+      setQuotaPreview(null)
+      return null
+    }
+    if (checked.some(row => row.error && !isDuplicateWarning(row.error))) return null
+    setPending(true)
+    setError("")
+    try {
+      const response = await fetch(`${endpoint}/actions/batch`, {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          preview: true,
+          reconcilePublishingQuota: true,
+          defaults: { category, status, visibility, occurredDate, description },
+          rows: checked.map(row => ({
+            title: row.title,
+            url: row.url,
+            platform: row.platform,
+            platformKey: row.platformKey,
+          })),
+        }),
+      })
+      const body = await response.json().catch(() => null) as {
+        preview?: ClientEvidenceImportPreview | null
+        error?: string
+      } | null
+      if (!response.ok || !body) throw new Error(body?.error || "发布配额预览失败")
+      setQuotaPreview(body.preview || null)
+      return body.preview || null
+    } catch (caught) {
+      setQuotaPreview(null)
+      setError(toUserFacingError(caught, {
+        fallback: "发布配额暂时无法预览，请检查后重试。",
+        subject: "发布配额预览",
+      }))
+      return null
+    } finally {
+      setPending(false)
+    }
   }
 
   async function submitImport() {
@@ -203,7 +292,9 @@ export default function BatchEvidenceImportDialog({
             title: row.title,
             url: row.url,
             platform: row.platform,
+            platformKey: row.platformKey,
           })),
+          reconcilePublishingQuota: shouldReconcileQuota(),
         }),
       })
       const body = await response.json().catch(() => null) as (
@@ -223,7 +314,9 @@ export default function BatchEvidenceImportDialog({
     }
   }
 
-  return (
+  if (typeof document === "undefined") return null
+
+  return createPortal(
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#00133F]/62 p-2 backdrop-blur-sm sm:p-5"
       role="dialog"
@@ -244,7 +337,7 @@ export default function BatchEvidenceImportDialog({
                 批量导入证据网址
               </h2>
               <p className="mt-0.5 text-[11px] text-slate-500">
-                每个标题和网址会形成一条独立动作记录
+                自动识别发布平台，并将有效网址核销到当日发布任务
               </p>
             </div>
           </div>
@@ -276,7 +369,7 @@ export default function BatchEvidenceImportDialog({
               <input
                 type="date"
                 value={occurredDate}
-                onChange={event => setOccurredDate(event.target.value)}
+              onChange={event => { setOccurredDate(event.target.value); setQuotaPreview(null) }}
                 className="h-10 w-full rounded-lg border border-[#C8D9E8] bg-white px-3 text-xs font-normal outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/10"
               />
             </label>
@@ -284,7 +377,7 @@ export default function BatchEvidenceImportDialog({
               动作类型
               <select
                 value={category}
-                onChange={event => setCategory(event.target.value as ClientExecutionActionCategory)}
+                onChange={event => { setCategory(event.target.value as ClientExecutionActionCategory); setQuotaPreview(null) }}
                 className="h-10 w-full rounded-lg border border-[#C8D9E8] bg-white px-3 text-xs font-normal outline-none transition focus:border-[#1677FF]"
               >
                 {CATEGORY_OPTIONS.map(option => (
@@ -296,7 +389,7 @@ export default function BatchEvidenceImportDialog({
               完成状态
               <select
                 value={status}
-                onChange={event => setStatus(event.target.value as ClientExecutionActionStatus)}
+                onChange={event => { setStatus(event.target.value as ClientExecutionActionStatus); setQuotaPreview(null) }}
                 className="h-10 w-full rounded-lg border border-[#C8D9E8] bg-white px-3 text-xs font-normal outline-none transition focus:border-[#1677FF]"
               >
                 <option value="completed">已完成</option>
@@ -323,6 +416,18 @@ export default function BatchEvidenceImportDialog({
                 placeholder="这段说明将应用到本批次的每条记录"
                 className="h-10 w-full rounded-lg border border-[#C8D9E8] bg-white px-3 text-xs font-normal outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/10"
               />
+            </label>
+            <label className="flex items-start gap-3 rounded-lg border border-[#B7D9FF] bg-white px-3 py-3 sm:col-span-2 lg:col-span-4">
+              <input
+                type="checkbox"
+                checked={reconcilePublishingQuota}
+                onChange={event => { setReconcilePublishingQuota(event.target.checked); setQuotaPreview(null) }}
+                className="mt-0.5 h-4 w-4 accent-[#1677FF]"
+              />
+              <span>
+                <span className="block text-[11px] font-semibold text-[#102A43]">同步核销当日发布配额</span>
+                <span className="mt-1 block text-[10px] leading-4 text-[#6B8299]">仅“已完成”的自媒体、权威媒体和视频发布会核销；重复网址不重复计数。</span>
+              </span>
             </label>
           </section>
 
@@ -368,6 +473,14 @@ export default function BatchEvidenceImportDialog({
                       <AlertCircle className="h-3 w-3" />需修改 {summary.errorCount}
                     </span>
                   ) : null}
+                  {quotaPreview ? (
+                    <>
+                      <span className="rounded-md bg-sky-50 px-2 py-1 font-semibold text-sky-700">匹配任务 {quotaPreview.summary.matchedCount}</span>
+                      {quotaPreview.summary.overQuotaCount > 0 ? <span className="rounded-md bg-violet-50 px-2 py-1 font-semibold text-violet-700">超额 {quotaPreview.summary.overQuotaCount}</span> : null}
+                      {quotaPreview.summary.unplannedCount > 0 ? <span className="rounded-md bg-cyan-50 px-2 py-1 font-semibold text-cyan-700">计划外 {quotaPreview.summary.unplannedCount}</span> : null}
+                      {quotaPreview.summary.needsReviewCount > 0 ? <span className="rounded-md bg-amber-50 px-2 py-1 font-semibold text-amber-700">待确认平台 {quotaPreview.summary.needsReviewCount}</span> : null}
+                    </>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -377,23 +490,35 @@ export default function BatchEvidenceImportDialog({
                 >
                   <Plus className="h-3.5 w-3.5" />添加一行
                 </button>
+                {shouldReconcileQuota() ? (
+                  <button
+                    type="button"
+                    onClick={() => void refreshQuotaPreview()}
+                    disabled={pending || summary.errorCount > 0}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#B7D9FF] bg-white px-3 text-[11px] font-semibold text-[#0958D9] disabled:opacity-40"
+                  >
+                    {pending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}刷新核销预览
+                  </button>
+                ) : null}
               </div>
 
               <div className="overflow-hidden rounded-lg border border-[#D4E4F2]">
-                <div className="hidden grid-cols-[2rem_minmax(170px,1.35fr)_minmax(220px,1.7fr)_minmax(110px,.65fr)_2rem] gap-2 border-b border-[#D4E4F2] bg-[#EEF6FD] px-3 py-2 text-[10px] font-semibold text-slate-500 md:grid">
+                <div className="hidden grid-cols-[2rem_minmax(150px,1.15fr)_minmax(190px,1.45fr)_minmax(100px,.65fr)_minmax(105px,.65fr)_2rem] gap-2 border-b border-[#D4E4F2] bg-[#EEF6FD] px-3 py-2 text-[10px] font-semibold text-slate-500 md:grid">
                   <span>#</span>
                   <span>标题</span>
                   <span>证据网址</span>
                   <span>平台</span>
+                  <span>当日核销</span>
                   <span />
                 </div>
                 <div className="max-h-[44vh] divide-y divide-[#E5EEF6] overflow-y-auto">
                   {rows.map(row => {
                     const warning = isDuplicateWarning(row.error)
+                    const quotaRow = quotaPreview?.rows.find(item => item.rowNumber === row.rowNumber)
                     return (
                       <div
                         key={row.key}
-                        className={`grid gap-2 px-3 py-3 md:grid-cols-[2rem_minmax(170px,1.35fr)_minmax(220px,1.7fr)_minmax(110px,.65fr)_2rem] md:items-start ${
+                        className={`grid gap-2 px-3 py-3 md:grid-cols-[2rem_minmax(150px,1.15fr)_minmax(190px,1.45fr)_minmax(100px,.65fr)_minmax(105px,.65fr)_2rem] md:items-start ${
                           row.error
                             ? warning ? "bg-amber-50/55" : "bg-rose-50/55"
                             : "bg-white"
@@ -429,11 +554,21 @@ export default function BatchEvidenceImportDialog({
                           <span className="text-[10px] font-semibold text-slate-500 md:hidden">平台</span>
                           <input
                             value={row.platform}
+                            list="execution-evidence-platforms"
                             maxLength={120}
                             onChange={event => updateRow(row.key, "platform", event.target.value)}
                             className="h-9 w-full rounded-md border border-[#C8D9E8] bg-white px-2.5 text-xs outline-none transition focus:border-[#1677FF]"
                           />
                         </label>
+                        <div className="flex min-h-9 items-center">
+                          {quotaRow ? (
+                            <QuotaPreviewBadge row={quotaRow} />
+                          ) : (
+                            <span className="text-[10px] text-slate-400">
+                              {row.error ? "不核销" : shouldReconcileQuota() ? "待预览" : "不核销"}
+                            </span>
+                          )}
+                        </div>
                         <button
                           type="button"
                           onClick={() => removeRow(row.key)}
@@ -447,6 +582,9 @@ export default function BatchEvidenceImportDialog({
                   })}
                 </div>
               </div>
+              <datalist id="execution-evidence-platforms">
+                {PLATFORM_OPTIONS.map(option => <option key={option.key} value={option.name} />)}
+              </datalist>
             </section>
           )}
 
@@ -486,10 +624,12 @@ export default function BatchEvidenceImportDialog({
             {step === "paste" ? (
               <button
                 type="button"
-                onClick={parseRows}
+                onClick={() => void parseRows()}
+                disabled={pending}
                 className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-[linear-gradient(100deg,#1677FF,#00AEEA)] px-5 text-xs font-semibold text-white shadow-sm shadow-[#1677FF]/20 transition hover:brightness-105 sm:flex-none"
               >
-                解析并预览
+                {pending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+                {pending ? "正在识别" : "解析并预览"}
               </button>
             ) : (
               <button
@@ -505,6 +645,26 @@ export default function BatchEvidenceImportDialog({
           </div>
         </footer>
       </div>
+    </div>,
+    document.body,
+  )
+}
+
+function QuotaPreviewBadge({ row }: { row: ClientEvidenceImportPreviewRow }) {
+  const meta = {
+    matched: { label: "将核销 1 项", className: "bg-emerald-50 text-emerald-700" },
+    over_quota: { label: "超额发布", className: "bg-violet-50 text-violet-700" },
+    unplanned: { label: "计划外发布", className: "bg-sky-50 text-sky-700" },
+    needs_review: { label: "待确认平台", className: "bg-amber-50 text-amber-700" },
+  }[row.status]
+  return (
+    <div className="min-w-0">
+      <span className={`inline-flex rounded-md px-2 py-1 text-[9px] font-semibold ${meta.className}`}>
+        {meta.label}
+      </span>
+      {row.plannedCount > 0 ? (
+        <p className="mt-1 text-[9px] text-slate-400">当日已完成 {row.completedCount}/{row.plannedCount}</p>
+      ) : null}
     </div>
   )
 }

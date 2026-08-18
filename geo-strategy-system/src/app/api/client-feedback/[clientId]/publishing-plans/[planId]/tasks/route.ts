@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { publishingTaskPackageForViewer } from "@/lib/publishing-plan/access"
+import { listClientExecutionActionsOnDate } from "@/lib/client-feedback/store"
+import { buildClientPublicationProgress } from "@/lib/publishing-plan/evidence-reconciliation"
 import {
   claimPublishingTasks,
   getPublishingPlan,
@@ -32,22 +34,45 @@ export async function GET(
       teamId: request.nextUrl.searchParams.get("teamId") || undefined,
       action: "view",
     })
+    const date = request.nextUrl.searchParams.get("date") || undefined
+    const progressOnly = request.nextUrl.searchParams.get("progressOnly") === "1"
+    if (date && progressOnly) {
+      const [plan, tasks, actions] = await Promise.all([
+        getPublishingPlan(access.dataOwnerUserId, planId, false),
+        listPublishingTasks(access.dataOwnerUserId, planId, { date, limit: 10_000 }),
+        listClientExecutionActionsOnDate(access.dataOwnerUserId, access.clientId, date),
+      ])
+      if (!plan || plan.clientId !== access.clientId) throw new Error("发布规划不存在")
+      return NextResponse.json({
+        tasks: [],
+        costsVisible: hasPublishingPlanPermission(access.permissionKeys, "manage"),
+        progress: buildClientPublicationProgress({ date, plan, tasks, actions }),
+      })
+    }
     const plan = await getPublishingPlan(access.dataOwnerUserId, planId, true)
     if (!plan || plan.clientId !== access.clientId) throw new Error("发布规划不存在")
     const statusValue = request.nextUrl.searchParams.get("status") as PublishingTaskStatus | null
-    const tasks = await listPublishingTasks(access.dataOwnerUserId, planId, {
-      date: request.nextUrl.searchParams.get("date") || undefined,
-      from: request.nextUrl.searchParams.get("from") || undefined,
-      to: request.nextUrl.searchParams.get("to") || undefined,
-      platformKey: request.nextUrl.searchParams.get("platformKey") || undefined,
-      status: statusValue && TASK_STATUSES.has(statusValue) ? statusValue : undefined,
-      limit: Number(request.nextUrl.searchParams.get("limit")) || undefined,
-    })
+    const [tasks, actions] = await Promise.all([
+      listPublishingTasks(access.dataOwnerUserId, planId, {
+        date,
+        from: request.nextUrl.searchParams.get("from") || undefined,
+        to: request.nextUrl.searchParams.get("to") || undefined,
+        platformKey: request.nextUrl.searchParams.get("platformKey") || undefined,
+        status: statusValue && TASK_STATUSES.has(statusValue) ? statusValue : undefined,
+        limit: Number(request.nextUrl.searchParams.get("limit")) || undefined,
+      }),
+      date
+        ? listClientExecutionActionsOnDate(access.dataOwnerUserId, access.clientId, date)
+        : Promise.resolve([]),
+    ])
     const costsVisible = hasPublishingPlanPermission(access.permissionKeys, "manage")
     const packages = buildPublishingTaskPackages(plan, tasks)
     return NextResponse.json({
       tasks: packages.map(item => publishingTaskPackageForViewer(item, costsVisible)),
       costsVisible,
+      progress: date
+        ? buildClientPublicationProgress({ date, plan, actions })
+        : undefined,
     })
   } catch (error) {
     return NextResponse.json({
