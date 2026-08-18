@@ -216,7 +216,7 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.7")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.8")
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
@@ -239,6 +239,8 @@ try {
     "article.production.run",
     "article.production.get",
     "article.production.cancel",
+    "article.batch.delete",
+    "feedback.action.delete",
     "feedback.report.options",
     "feedback.report.manage",
     "feedback.profile.update",
@@ -255,6 +257,7 @@ try {
     "publishing.plan.recommend",
     "publishing.plan.create",
     "publishing.plan.activate",
+    "publishing.plan.delete",
     "publishing.tasks.list",
     "publishing.tasks.claim",
     "publishing.task.complete",
@@ -670,6 +673,19 @@ try {
   }, fullToken.token)
   assert.equal(feedbackAutomationDelete.status, 200)
 
+  const feedbackActionDelete = await callAgentAction("feedback.action.delete", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_action_delete_0001",
+    actionId: storedFeedback[0]!.id,
+  }, fullToken.token)
+  assert.equal(feedbackActionDelete.status, 200)
+  assert.equal((await feedbackActionDelete.json()).data.result.ok, true)
+  assert.equal(
+    (await listClientExecutionActions(user.id, "client-agent-test"))
+      .some(action => action.id === storedFeedback[0]!.id),
+    false,
+  )
+
   const automationDelete = await callAgentAction("penetration.automation.delete", {
     clientId: "client-agent-test",
     requestId: "agent_automation_delete_0001",
@@ -684,6 +700,11 @@ try {
     kind: "knowledgeImport",
     payload: {},
   }).scope, "keyword.execute")
+  assert.equal(estimateAgentAction("article.batch.delete", {
+    clientId: "client-agent-test",
+    requestId: "agent_article_batch_delete_0001",
+    batchId: "batch-agent-test",
+  }).scope, "article.manage")
   const parsedQuestions = parseAgentActionInput("keyword.questions.run", {
     clientId: "client-agent-test",
     requestId: "agent_question_schema_0001",
@@ -761,17 +782,20 @@ try {
     externalDocs: { url: string }
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
-  assert.equal(openapi.info.version, "1.7.0")
+  assert.equal(openapi.info.version, "1.8.0")
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
   assert.ok(openapi.paths["/actions/penetration.automation.save"])
   assert.ok(openapi.paths["/actions/article.batch.run"])
+  assert.ok(openapi.paths["/actions/article.batch.delete"])
   assert.ok(openapi.paths["/actions/article.strategy.plan"])
   assert.ok(openapi.paths["/actions/article.media.run"])
   assert.ok(openapi.paths["/actions/feedback.report.manage"])
+  assert.ok(openapi.paths["/actions/feedback.action.delete"])
   assert.ok(openapi.paths["/actions/feedback.automation.save"])
   assert.ok(openapi.paths["/actions/feedback.automation.retry"])
   assert.ok(openapi.paths["/actions/publishing.plan.create"])
+  assert.ok(openapi.paths["/actions/publishing.plan.delete"])
   assert.ok(openapi.paths["/actions/publishing.tasks.claim"])
   assert.ok(openapi.paths["/actions/publishing.task.complete"])
   assert.ok(openapi.paths["/actions/keyword.questions.run"])
@@ -784,6 +808,7 @@ try {
   assert.equal(openapi.externalDocs.url, "https://shitugeo.top/agent")
   assert.ok(openapi.components.schemas.AgentScope.enum.includes("knowledge.view"))
   assert.ok(openapi.components.schemas.AgentScope.enum.includes("feedback.manage"))
+  assert.ok(openapi.components.schemas.AgentScope.enum.includes("article.manage"))
   const openapiRoute = await import("../src/app/api/agent/v1/openapi.json/route")
   const trustedOpenapi = await openapiRoute.GET(new Request("https://malicious-host.example/api/agent/v1/openapi.json"))
   assert.equal((await trustedOpenapi.json()).externalDocs.url, "https://shitugeo.top/agent")

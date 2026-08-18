@@ -53,6 +53,7 @@ export async function DELETE(
       clientId,
       module: "feedback",
       action: "manage",
+      teamId: request.nextUrl.searchParams.get("teamId") || undefined,
     })
     const importBatchId = request.nextUrl.searchParams.get("importBatchId") || ""
     if (importBatchId) {

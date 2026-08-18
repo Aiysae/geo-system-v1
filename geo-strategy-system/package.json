@@ -103,6 +103,7 @@
     "test:agent-api": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-agent-api.mts",
     "test:agent-mcp": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-agent-mcp.mts",
     "test:agent-cli": "tsx scripts/test-agent-cli.mts",
+    "test:agent-coverage": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-agent-feature-coverage.mts",
     "test:membership-catalog": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-membership-catalog.mts",
     "test:workspace-summaries": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-workspace-client-summaries.mts",
     "test:penetration-web": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-web-adapters.mts",

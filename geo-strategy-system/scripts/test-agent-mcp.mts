@@ -64,9 +64,11 @@ try {
     "shitu_generate_article",
     "shitu_rewrite_article",
     "shitu_generate_article_batch",
+    "shitu_delete_article_batch",
     "shitu_import_knowledge",
     "shitu_commit_knowledge",
     "shitu_create_feedback_action",
+    "shitu_delete_feedback_action",
     "shitu_import_feedback_actions",
     "shitu_create_feedback_report",
     "shitu_create_professional_report",
@@ -106,6 +108,7 @@ try {
     "shitu_get_article_batch_zip",
     "shitu_get_feedback",
     "shitu_list_knowledge_imports",
+    "shitu_delete_publishing_plan_draft",
   ]) assert.ok(names.has(name), `${name} should be registered`)
   assert.equal(
     tools.tools.find(tool => tool.name === "shitu_get_penetration_automation")?.annotations?.readOnlyHint,
@@ -125,6 +128,18 @@ try {
   )
   assert.equal(
     tools.tools.find(tool => tool.name === "shitu_delete_feedback_automation")?.annotations?.destructiveHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_delete_article_batch")?.annotations?.destructiveHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_delete_feedback_action")?.annotations?.destructiveHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_delete_publishing_plan_draft")?.annotations?.destructiveHint,
     true,
   )
   const articleToolSchema = tools.tools.find(

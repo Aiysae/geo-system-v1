@@ -92,6 +92,15 @@ export default function BrandHome({ user }: BrandHomeProps) {
             </Link>
 
             <div className="flex shrink-0 items-center gap-2">
+              <Link
+                href="/agent"
+                className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-cyan-200/24 bg-cyan-200/10 px-2 text-xs font-semibold text-cyan-50 transition-colors hover:bg-cyan-200/18 sm:gap-1.5 sm:px-3"
+                title="Agent 接入"
+              >
+                <Bot className="h-4 w-4" />
+                <span className="sm:hidden">Agent</span>
+                <span className="hidden sm:inline">Agent 接入</span>
+              </Link>
               {user ? (
                 <>
                   {user.role === "admin" ? (
