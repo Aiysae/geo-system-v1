@@ -32,6 +32,81 @@ export type AiCredentialHealthStatus =
   | "degraded"
   | "unhealthy"
 
+export type AiCredentialRouteState =
+  | "closed"
+  | "degraded"
+  | "open"
+  | "half_open"
+  | "action_required"
+
+export type AiCredentialFailureClass =
+  | "none"
+  | "cancelled"
+  | "local_capacity"
+  | "request_rejected"
+  | "rate_limited"
+  | "transient_upstream"
+  | "authentication"
+  | "billing"
+  | "permission"
+  | "model_unavailable"
+  | "web_evidence"
+  | "unknown"
+
+export type AiCredentialFailureScope =
+  | "ignored"
+  | "route"
+  | "capability"
+  | "model"
+  | "credential"
+
+export interface AiCredentialFailureDiagnosis {
+  failureClass: AiCredentialFailureClass
+  scope: AiCredentialFailureScope
+  code: string
+  message: string
+  countsTowardCircuit: boolean
+  actionRequired: boolean
+  retryable: boolean
+  cooldownMs: number
+}
+
+export interface AiCredentialRouteIdentity {
+  credentialId: string
+  vendor: AiCredentialVendor
+  model: string
+  module: AiCredentialModule
+  capabilityProfile: string
+}
+
+export interface AiCredentialRouteHealth extends AiCredentialRouteIdentity {
+  id: string
+  state: AiCredentialRouteState
+  failureClass: AiCredentialFailureClass
+  failureScope: AiCredentialFailureScope
+  consecutiveFailures: number
+  successCount: number
+  failureCount: number
+  probeAttempts: number
+  lastErrorCode?: string
+  lastErrorMessage?: string
+  openUntil?: string
+  nextProbeAt?: string
+  lastProbeAt?: string
+  lastSuccessAt?: string
+  lastFailureAt?: string
+  lastLatencyMs?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AiCredentialRouteContext {
+  module: AiCredentialModule
+  model?: string
+  requiredCapabilities?: AiCredentialCapability[]
+  isProbe?: boolean
+}
+
 export interface AiCredentialPublic {
   id: string
   vendor: AiCredentialVendor

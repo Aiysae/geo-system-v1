@@ -476,6 +476,11 @@ export async function saveAiCredential(
     || previous.chatPath !== chatPath
   ))
   const verificationIdentityChanged = apiKeyChanged || endpointChanged
+  const routeConfigurationChanged = verificationIdentityChanged || Boolean(previous && (
+    JSON.stringify(previous.allowedModels) !== JSON.stringify(allowedModels)
+    || JSON.stringify(previous.allowedModules) !== JSON.stringify(allowedModules)
+    || JSON.stringify(previous.declaredCapabilities) !== JSON.stringify(declaredCapabilities)
+  ))
   const declaresStrictWeb = declaredCapabilities.includes("native_web")
     && declaredCapabilities.includes("auditable_sources")
   const verifiedWebModels = verificationIdentityChanged || !declaresStrictWeb
@@ -625,6 +630,12 @@ export async function saveAiCredential(
       stored,
     ])
   }
+  if (routeConfigurationChanged) {
+    const { deleteAiCredentialRouteHealth } = await import(
+      "@/lib/ai-credential-route-health"
+    )
+    await deleteAiCredentialRouteHealth(stored.id)
+  }
   return toPublic(stored)
 }
 
@@ -737,6 +748,10 @@ export async function setAiCredentialEnabled(
 
 export async function deleteAiCredential(id: string): Promise<void> {
   if (!CREDENTIAL_ID_PATTERN.test(id)) throw new Error("模型账号编号无效")
+  const { deleteAiCredentialRouteHealth } = await import(
+    "@/lib/ai-credential-route-health"
+  )
+  await deleteAiCredentialRouteHealth(id)
   const db = databasePool()
   if (db) {
     await ensureSchema(db)

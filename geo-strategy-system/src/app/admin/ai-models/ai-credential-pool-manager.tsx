@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   Power,
+  RefreshCw,
   TestTube2,
   Trash2,
   XCircle,
@@ -22,10 +23,13 @@ import {
 import type {
   AiCredentialHealthStatus,
   AiCredentialPublic,
+  AiCredentialRouteHealth,
+  AiCredentialRouteState,
   AiCredentialVendor,
 } from "@/types/ai-credentials"
 import {
   deleteCredentialAction,
+  probeCredentialHealthAction,
   saveCredentialAction,
   testCredentialAction,
   testCredentialWebAction,
@@ -45,6 +49,22 @@ const HEALTH_STYLES: Record<AiCredentialHealthStatus, string> = {
   healthy: "bg-emerald-50 text-emerald-700",
   degraded: "bg-amber-50 text-amber-700",
   unhealthy: "bg-rose-50 text-rose-700",
+}
+
+const ROUTE_LABELS: Record<AiCredentialRouteState, string> = {
+  closed: "通道可用",
+  degraded: "观察中",
+  open: "冷却恢复中",
+  half_open: "正在复检",
+  action_required: "需要处理",
+}
+
+const ROUTE_STYLES: Record<AiCredentialRouteState, string> = {
+  closed: "border-emerald-100 bg-emerald-50 text-emerald-700",
+  degraded: "border-amber-100 bg-amber-50 text-amber-700",
+  open: "border-sky-100 bg-sky-50 text-sky-700",
+  half_open: "border-cyan-100 bg-cyan-50 text-cyan-700",
+  action_required: "border-rose-100 bg-rose-50 text-rose-700",
 }
 
 function strictWebCapacityByModel(items: AiCredentialPublic[]) {
@@ -250,8 +270,10 @@ function CredentialForm({
 
 export function AiCredentialPoolManager({
   credentials,
+  routeHealth,
 }: {
   credentials: AiCredentialPublic[]
+  routeHealth: AiCredentialRouteHealth[]
 }) {
   const router = useRouter()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -268,6 +290,16 @@ export function AiCredentialPoolManager({
     }
     return map
   }, [credentials])
+  const routesByCredential = useMemo(() => {
+    const map = new Map<string, AiCredentialRouteHealth[]>()
+    for (const route of routeHealth) {
+      map.set(route.credentialId, [
+        ...(map.get(route.credentialId) || []),
+        route,
+      ])
+    }
+    return map
+  }, [routeHealth])
 
   function complete(result: CredentialActionResult) {
     setNotice(result.ok
@@ -359,7 +391,9 @@ export function AiCredentialPoolManager({
                 <span className="text-[11px] text-slate-400">{items.filter(item => item.enabled).length}/{items.length} 已启用</span>
               </div>
               <div className="grid gap-3 xl:grid-cols-2">
-                {items.map(credential => (
+                {items.map(credential => {
+                  const credentialRoutes = routesByCredential.get(credential.id) || []
+                  return (
                   <div key={credential.id} className="rounded-lg border border-slate-200 bg-slate-50/40 p-3.5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -392,6 +426,20 @@ export function AiCredentialPoolManager({
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          title="立即复检并尝试恢复异常通道"
+                          disabled={workingId === credential.id || !credential.enabled}
+                          onClick={() => runAction(
+                            credential.id,
+                            () => probeCredentialHealthAction(credential.id),
+                          )}
+                          className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-cyan-600 disabled:opacity-40"
+                        >
+                          {workingId === credential.id
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <RefreshCw className="h-4 w-4" />}
+                        </button>
                         <button
                           type="button"
                           title="检测账号"
@@ -473,13 +521,42 @@ export function AiCredentialPoolManager({
                         </button>
                       </div>
                     </div>
+                    {credentialRoutes.length > 0 ? (
+                      <details className="mt-3 border-t border-slate-200 pt-3">
+                        <summary className="cursor-pointer text-[11px] font-semibold text-slate-600">
+                          通道健康明细 · {credentialRoutes.filter(route => route.state === "closed").length}/{credentialRoutes.length} 可用
+                        </summary>
+                        <div className="mt-2 grid gap-1.5">
+                          {credentialRoutes.map(route => (
+                            <div
+                              key={route.id}
+                              className={`rounded-md border px-2.5 py-2 text-[10px] ${ROUTE_STYLES[route.state]}`}
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                                <strong>{route.model} · {route.module} · {route.capabilityProfile}</strong>
+                                <span>{ROUTE_LABELS[route.state]}</span>
+                              </div>
+                              {route.lastErrorMessage ? (
+                                <p className="mt-1 break-words opacity-80">{route.lastErrorMessage}</p>
+                              ) : null}
+                              {route.nextProbeAt && route.state !== "closed" ? (
+                                <p className="mt-1 opacity-70">
+                                  下次自动复检：{new Date(route.nextProbeAt).toLocaleString("zh-CN")}
+                                </p>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    ) : null}
                     {editingId === credential.id ? (
                       <div className="mt-4 border-t border-slate-200 pt-4">
                         <CredentialForm credential={credential} onComplete={complete} />
                       </div>
                     ) : null}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )

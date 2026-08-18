@@ -109,11 +109,28 @@ export async function runCredentialPoolChat(
         apiKey: lease.credential.apiKey,
         label: `${input.legacy.label}·${lease.credential.accountLabel}`,
       }, credentialModel)
-      await recordAiCredentialSuccess(lease.credential.id, Date.now() - startedAt)
+      const routeContext = {
+        module: input.module,
+        model: credentialModel,
+        requiredCapabilities,
+      }
+      await recordAiCredentialSuccess(
+        lease.credential,
+        Date.now() - startedAt,
+        routeContext,
+      )
       return result
     } catch (error) {
       lastError = error
-      await recordAiCredentialFailure(lease.credential, error)
+      await recordAiCredentialFailure(lease.credential, error, {
+        module: input.module,
+        model: resolveAiCredentialModel(
+          lease.credential,
+          selectionModel || input.model,
+          requiredCapabilities,
+        ),
+        requiredCapabilities,
+      })
       if (!shouldFailOverAiCredential(error)) throw error
       console.warn(
         `[ai-credential-chat] ${input.vendor}/${input.model} 当前账号不可用，尝试下一账号。`,

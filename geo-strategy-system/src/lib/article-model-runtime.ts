@@ -339,14 +339,23 @@ async function callModel(
         usedFallback || attempt > 0,
       )
       await recordAiCredentialSuccess(
-        lease.credential.id,
+        lease.credential,
         Date.now() - startedAt,
+        {
+          module: "article",
+          model: credentialModel,
+          requiredCapabilities: ["chat"],
+        },
       )
       return content
     } catch (error) {
       lastError = error
       if (input.signal.aborted || isAbortFailure(error)) throw error
-      await recordAiCredentialFailure(lease.credential, error)
+      await recordAiCredentialFailure(lease.credential, error, {
+        module: "article",
+        model: credentialModel,
+        requiredCapabilities: ["chat"],
+      })
       if (!credentialFailoverFailure(error)) throw error
       console.warn(
         `[article-credential-pool] ${model.label}/${model.model} 当前账号不可用，尝试同模型下一账号。`,

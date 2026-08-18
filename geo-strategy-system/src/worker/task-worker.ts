@@ -39,6 +39,10 @@ import {
   enqueueClientFeedbackAutomationCatchup,
   registerClientFeedbackAutomationScheduler,
 } from "@/lib/client-feedback/automation-scheduler"
+import {
+  startAiCredentialHealthMonitor,
+  stopAiCredentialHealthMonitor,
+} from "@/lib/ai-credential-health-monitor"
 
 function workerConcurrency(name: string, fallback: number): number {
   return Math.max(
@@ -352,6 +356,7 @@ async function waitForWebProcess(): Promise<void> {
 
 async function startWorker(): Promise<void> {
   await waitForWebProcess()
+  startAiCredentialHealthMonitor()
   await registerActionReminderScheduler()
   await enqueueActionReminderCatchup()
   await registerPenetrationAutomationScheduler()
@@ -391,6 +396,7 @@ async function shutdown(signal: string): Promise<void> {
   }, 30_000)
   forceTimer.unref()
   try {
+    stopAiCredentialHealthMonitor()
     await Promise.all([
       stopWorkerHeartbeat(),
       ...workers.map(worker => worker.close()),
