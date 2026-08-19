@@ -47,8 +47,10 @@ try {
   assert.equal(getRechargePackage("light_66"), null, "retired packages must not be sold again")
   assert.equal(getRechargePackage("growth_298"), null, "retired packages must not be sold again")
   assert.equal(getRechargePackage("enterprise_1298")?.credits, 10_000)
+  assert.equal(getRechargePackage("full_cycle_3666")?.priceCents, 366_600)
+  assert.equal(getRechargePackage("full_cycle_3666")?.credits, 35_000)
   assert.equal(getRechargePackage("light_49"), null, "legacy packages must not be sold again")
-  assert.equal(RECHARGE_PACKAGES.length, 4)
+  assert.equal(RECHARGE_PACKAGES.length, 5)
   assert.equal(rechargeSavingsPercent(RECHARGE_PACKAGES[0]), 46)
   assert.ok(
     rechargeUnitPrice(RECHARGE_PACKAGES[3]) > rechargeUnitPrice(RECHARGE_PACKAGES[0]),
