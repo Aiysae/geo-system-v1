@@ -30,6 +30,8 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   const data = url.endsWith("/clients")
     ? { clients: [{ id: "client-mcp", name: "MCP 客户" }], total: 1 }
+    : url.endsWith("/plan")
+      ? { plan: { primaryWorkflow: { key: "penetration_check" } } }
     : { task: { id: "task-mcp", status: "queued" } }
   return Response.json({ ok: true, data, meta: { traceId: "trace_mcp", serverTime: new Date().toISOString() } })
 }) as typeof fetch
@@ -47,6 +49,7 @@ try {
   const names = new Set(tools.tools.map(tool => tool.name))
   assert.equal(names.size, tools.tools.length, "MCP tool names must be unique")
   assert.ok(names.has("shitu_list_clients"))
+  assert.ok(names.has("shitu_plan_request"))
   assert.ok(names.has("shitu_run_penetration"))
   assert.ok(names.has("shitu_run_difficulty"))
   assert.ok(names.has("shitu_cancel_task"))
@@ -154,6 +157,13 @@ try {
   const listed = await client.callTool({ name: "shitu_list_clients", arguments: {} })
   assert.equal(listed.isError, undefined)
   assert.equal((listed.structuredContent as { result: { total: number } }).result.total, 1)
+
+  const planned = await client.callTool({
+    name: "shitu_plan_request",
+    arguments: { request: "帮我看看客户在 AI 里有没有被推荐" },
+  })
+  assert.equal(planned.isError, undefined)
+  assert.ok(requests.some(item => item.url.endsWith("/plan") && item.method === "POST"))
 
   const run = await client.callTool({
     name: "shitu_run_penetration",

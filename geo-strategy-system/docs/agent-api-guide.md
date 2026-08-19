@@ -58,16 +58,19 @@ Claude Code 可使用 `claude mcp add --transport http`；Cursor 和其他 MCP A
 
 ## 推荐工作流
 
+用户用口语化方式表达需求时，先调用 MCP 工具 `shitu_plan_request`、REST `POST /plan` 或 CLI `plan --request "..."`。规划器会返回匹配客户、主工作流、备选理解、动作顺序、缺少信息和确认要求。它是只读的，不扣积分、不创建任务。
+
 任何会扣积分的动作都按以下顺序执行：
 
-1. `shitu_list_clients` 获取准确的 `clientId` 和可选 `teamId`。
-2. `shitu_get_client` 只读取任务需要的资料区段。
-3. 使用稳定的 `requestId`，先提交 `dryRun: true`。
-4. 向用户展示预计积分、问题数和模型数，并等待 Agent 宿主的执行确认。
-5. 使用相同 `requestId` 正式提交。
-6. 根据返回的 `task.taskId` 查询任务中心；不要保持 HTTP 长连接等待业务完成。
-7. 完成后读取 `task.resultUrl`，或从不可变历史产出中读取结果。
-8. PDF 和文章 ZIP 使用下载端点或 MCP 受保护资源，不嵌入普通 JSON。
+1. 模糊需求先用 `shitu_plan_request` 解析；明确单步需求可直接进入下一步。
+2. `shitu_list_clients` 获取准确的 `clientId` 和可选 `teamId`。匹配到多个客户时不得猜测。
+3. `shitu_get_client` 只读取任务需要的资料区段。
+4. 使用稳定的 `requestId`，先提交 `dryRun: true`。
+5. 向用户展示预计积分、问题数和模型数，并等待 Agent 宿主的执行确认。删除类动作无论如何都需确认。
+6. 使用相同 `requestId` 正式提交。
+7. 根据返回的 `task.taskId` 查询任务中心；不要保持 HTTP 长连接等待业务完成。
+8. 完成后读取 `task.resultUrl`，或从不可变历史产出中读取结果。
+9. PDF 和文章 ZIP 使用下载端点或 MCP 受保护资源，不嵌入普通 JSON。
 
 相同 `requestId` 重试会返回原任务或原同步结果，不会重复创建业务任务、重复调用 AI 或重复占用 Agent 日预算。同一 `requestId` 携带不同参数会返回 `IDEMPOTENCY_CONFLICT`；仍在处理时返回可重试的 `REQUEST_IN_PROGRESS`。
 CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频率，有新进度后立即恢复，避免多 Agent 同时等待时挤占服务。
@@ -168,7 +171,7 @@ Agent 1.8 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 
 ### 发布规划到分平台成文
 
-1. `publishing.plan.recommend` 依据客户调研信源、预算、平台成本和发布上限生成建议；用户确认后调用 `publishing.plan.create` 和 `publishing.plan.activate`。
+1. `publishing.plan.recommend` 依据客户调研信源、预算、平台成本和发布上限生成建议；用户确认后调用 `publishing.plan.create` 和 `publishing.plan.activate`。`capacityMode: "existing_accounts"` 会严格限制在“已有账号×单账号安全日上限”内；`planned_expansion` 允许测算需新增账号，但单个账号仍不会超限。
    尚未启用的错误草案可用 `publishing.plan.delete` 删除；生效和归档版本保持为审计记录。
 2. `article.production.run` 选择 1–31 天及目标平台。系统以“一个疑问句＋一条匹配优势”为母稿任务，AI 裁判按意图选择创作模板，同一母稿可以投递多个不同平台，但不会在同一平台重复创建。
 3. 提交后立即返回父任务；路由、拆批和文章生成均在持久化 Worker 中继续。使用 `article.production.get` 或任务中心读取进度，切换页面或设备不会中断。

@@ -12,6 +12,7 @@ const store = await import("../src/lib/publishing-plan/store")
 const taskService = await import("../src/lib/publishing-plan/task-service")
 
 const input = {
+  capacityMode: "existing_accounts" as const,
   totalServiceFeeCents: 1_000_000,
   executionCostRateBps: 3_250,
   startDate: "2026-09-01",
@@ -105,7 +106,9 @@ assert.ok(calculated.summary.plannedCostCents <= calculated.summary.executionBud
 assert.equal(calculated.summary.totalPublicationCount, calculated.tasks.length)
 assert.equal(calculated.summary.uniqueContentCount, calculated.assets.length)
 assert.ok(calculated.summary.reusedPublicationCount > 0)
-assert.ok(calculated.platformQuotas.some(item => item.accountGap > 0))
+assert.equal(calculated.calculationVersion, "publishing-plan-v2")
+assert.ok(calculated.platformQuotas.every(item => item.accountGap === 0))
+assert.ok(calculated.platformQuotas.some(item => item.capacityConstrained))
 
 assert.throws(() => calculator.calculatePublishingPlan({
   ...input,
@@ -130,11 +133,80 @@ assert.throws(() => calculator.calculatePublishingPlan({
 
 const uniquePairs = new Set(calculated.tasks.map(task => `${task.assetId}\u0000${task.platformKey}`))
 assert.equal(uniquePairs.size, calculated.tasks.length, "同一内容不能在相同平台重复")
+const calculatedLoads = new Map<string, number>()
 for (const task of calculated.tasks) {
   const quota = calculated.platformQuotas.find(item => item.platformKey === task.platformKey)
   assert.ok(quota)
-  assert.ok(task.accountSlot <= quota.requiredAccountCount)
+  assert.ok(task.accountSlot <= quota.plannedAccountCount)
+  assert.ok(task.accountSlot <= quota.existingAccountCount)
+  const key = `${task.platformKey}:${task.plannedDate}:${task.accountSlot}`
+  calculatedLoads.set(key, (calculatedLoads.get(key) || 0) + 1)
+  assert.ok(calculatedLoads.get(key)! <= quota.effectiveDailyLimitPerAccount)
 }
+
+const hardCapacity = calculator.calculatePublishingPlan({
+  ...input,
+  totalServiceFeeCents: 3_000,
+  startDate: "2026-09-01",
+  endDate: "2026-09-01",
+  customerStage: "maintenance" as const,
+  contentCreationCostsCents: { article: 0, authority_article: 0, video: 0 },
+  platformConfigs: [{
+    ...input.platformConfigs[0],
+    weightBps: 10_000,
+    dailyLimitPerAccount: 3,
+    safeUtilizationBps: 10_000,
+    existingAccountCount: 1,
+    publishUnitCostCents: 100,
+  }],
+}, {
+  ownerUserId: "owner-a",
+  clientId: "client-a",
+  planId: "plan-hard-capacity",
+  planVersion: 1,
+})
+assert.equal(hardCapacity.tasks.length, 3)
+assert.equal(hardCapacity.platformQuotas[0].plannedAccountCount, 1)
+assert.equal(hardCapacity.platformQuotas[0].additionalAccountCount, 0)
+assert.equal(hardCapacity.platformQuotas[0].dailyCapacity, 3)
+assert.ok(hardCapacity.summary.unallocatedBudgetCents > 0)
+assert.ok(hardCapacity.warnings.some(message => message.includes("现有账号容量")))
+
+const expansionCapacity = calculator.calculatePublishingPlan({
+  ...input,
+  capacityMode: "planned_expansion" as const,
+  totalServiceFeeCents: 3_000,
+  startDate: "2026-09-01",
+  endDate: "2026-09-01",
+  customerStage: "maintenance" as const,
+  contentCreationCostsCents: { article: 0, authority_article: 0, video: 0 },
+  platformConfigs: [{
+    ...input.platformConfigs[0],
+    weightBps: 10_000,
+    dailyLimitPerAccount: 3,
+    safeUtilizationBps: 10_000,
+    existingAccountCount: 1,
+    publishUnitCostCents: 100,
+  }],
+}, {
+  ownerUserId: "owner-a",
+  clientId: "client-a",
+  planId: "plan-expansion-capacity",
+  planVersion: 1,
+})
+assert.equal(expansionCapacity.tasks.length, 9)
+assert.equal(expansionCapacity.platformQuotas[0].plannedAccountCount, 3)
+assert.equal(expansionCapacity.platformQuotas[0].additionalAccountCount, 2)
+const expansionLoads = new Map<string, number>()
+for (const task of expansionCapacity.tasks) {
+  const key = `${task.plannedDate}:${task.accountSlot}`
+  expansionLoads.set(key, (expansionLoads.get(key) || 0) + 1)
+}
+assert.ok([...expansionLoads.values()].every(count => count <= 3))
+
+const burstQuota = calculated.platformQuotas.find(item => item.platformKey === "sohu")
+assert.ok(burstQuota)
+assert.ok((burstQuota.windowCounts.period_1_burst || 0) <= 7 * burstQuota.dailyCapacity)
 
 const plan = await store.createPublishingPlanDraft({
   ownerUserId: "owner-a",

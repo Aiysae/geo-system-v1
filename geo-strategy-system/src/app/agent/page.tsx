@@ -24,6 +24,7 @@ export const metadata: Metadata = {
 }
 
 const CAPABILITIES = [
+  { icon: Sparkles, title: "模糊需求自动规划", detail: "直接说业务目标，Agent 会匹配客户、模块和安全执行顺序" },
   { icon: CircleGauge, title: "分析与自动监测", detail: "渗透率、定时检测、独立调研、AI 诊断与难度测评" },
   { icon: Layers3, title: "策略与内容生产", detail: "关键词、AI 裁判选稿、改写、批量文章与自动配图" },
   { icon: FileText, title: "资料与客户交付", detail: "资料审核、执行反馈、分享链接、历史产出与专业报告" },
@@ -62,7 +63,7 @@ export default function AgentGuidePage() {
             <div>
               <div className="inline-flex items-center gap-2 text-xs font-bold text-cyan-200"><Sparkles className="h-4 w-4" />GEO 全链路操作工具 · {ACTIVE_ACTION_COUNT} 项正式动作</div>
               <h1 className="mt-5 max-w-3xl text-3xl font-bold leading-tight sm:text-5xl">让你的 Agent<br />直接操作势途 GEO</h1>
-              <p className="mt-5 max-w-2xl text-sm leading-7 text-blue-100/80 sm:text-base">选择 Agent、授权客户、复制配置并测试连接。正式任务使用与网页端相同的权限、积分和历史记录。</p>
+              <p className="mt-5 max-w-2xl text-sm leading-7 text-blue-100/80 sm:text-base">选择 Agent、授权客户、复制配置并测试连接。接入后可直接说出业务目标，Agent 会先规划正确模块和动作顺序，正式任务仍使用与网页端相同的权限、积分和历史记录。</p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Link href={actionHref} className="inline-flex h-11 items-center gap-2 rounded-lg bg-white px-5 text-sm font-bold text-[#0958D9] shadow-lg shadow-blue-950/20"><Bot className="h-4 w-4" />开始接入</Link>
                 <a href="/api/agent/v1/openapi.json" target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-lg border border-white/25 bg-white/10 px-5 text-sm font-semibold text-white backdrop-blur"><TerminalSquare className="h-4 w-4" />OpenAPI</a>
@@ -89,7 +90,7 @@ export default function AgentGuidePage() {
 
         <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6">
           <div className="max-w-2xl"><p className="text-xs font-bold text-[#1677FF]">AGENT 能力</p><h2 className="mt-2 text-2xl font-bold">一次接入，持续执行</h2></div>
-          <div className="mt-7 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-7 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
             {CAPABILITIES.map(item => <article key={item.title} className="rounded-lg border border-[#D8E7F7] bg-white p-5 shadow-sm"><item.icon className="h-5 w-5 text-[#1677FF]" /><h3 className="mt-4 text-sm font-bold">{item.title}</h3><p className="mt-2 text-xs leading-5 text-slate-500">{item.detail}</p></article>)}
           </div>
         </section>

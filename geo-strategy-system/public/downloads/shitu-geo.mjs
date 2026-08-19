@@ -134,6 +134,7 @@ function help() {
   auth status
 
 客户与任务
+  plan --request "帮我看看这个品牌在 AI 里有没有被推荐" [--client-hint 客户名]
   clients list
   clients get <clientId> [--team-id id] [--sections core,penetration]
   tasks list [--client-id id] [--team-id id] [--status running]
@@ -273,6 +274,16 @@ async function main() {
   }
   if (group === "capabilities") {
     const result = await apiRequest("/capabilities", { flags })
+    return print(result.data, flags)
+  }
+  if (group === "plan") {
+    const request = String(flags.request || positional.slice(1).join(" ") || "").trim()
+    if (!request) throw new Error("请通过 --request 提供需要规划的业务需求")
+    const result = await apiRequest("/plan", {
+      method: "POST",
+      body: { request, clientHint: flags.clientHint || undefined },
+      flags,
+    })
     return print(result.data, flags)
   }
   if (group === "clients" && command === "list") {

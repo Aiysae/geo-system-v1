@@ -112,7 +112,29 @@ export function createShituGeoMcpServer(input: {
   forwardedIp?: string
 }): McpServer {
   const api = new ShituAgentApiClient(input)
-  const server = new McpServer({ name: "shitu-geo", version: "1.9.0" })
+  const server = new McpServer({ name: "shitu-geo", version: "1.10.0" }, {
+    instructions: [
+      "用户需求模糊、口语化或包含多个步骤时，首先调用 shitu_plan_request。",
+      "任何客户业务必须先解析客户；匹配到多个客户时只追问一个关键问题，不得猜测 clientId。",
+      "会扣积分或产生写入的动作先使用 dryRun=true，之后使用同一 requestId 正式提交。",
+      "删除、取消和其他不可逆动作始终需要人工确认。",
+      "后台任务创建后通过任务工具读取状态和真实结果，不重复提交相同业务。",
+    ].join("\n"),
+  })
+
+  server.registerTool("shitu_plan_request", {
+    title: "解析模糊需求并规划势途 GEO 工作流",
+    description: "只读解释用户需求，匹配客户、模块、动作顺序和安全要求。不扣积分，不会直接执行业务。",
+    inputSchema: {
+      request: z.string().min(1).max(4_000).describe("用户原始需求，可以是口语化或模糊表达"),
+      clientHint: z.string().max(300).optional().describe("可选的客户名、品牌名或人物名提示"),
+    },
+    annotations: readOnlyAnnotations(),
+  }, async args => {
+    try {
+      return success(await api.request("/plan", { method: "POST", body: args }) as ToolValue)
+    } catch (error) { return failure(error) }
+  })
 
   server.registerTool("shitu_list_clients", {
     title: "查看势途 GEO 客户",
