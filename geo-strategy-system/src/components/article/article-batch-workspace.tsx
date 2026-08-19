@@ -637,7 +637,21 @@ export default function ArticleBatchWorkspace({
               ))}
             </select>
             {selectedBatch && (
-              <div className="flex shrink-0 gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
+                {!selectedBatchVideoScript && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setMediaOpen(true)}
+                    disabled={generatedCount === 0 || acting}
+                    className="gap-1.5 border-cyan-200 text-cyan-700 hover:bg-cyan-50 hover:text-cyan-800"
+                    title={generatedCount > 0 ? "为本批文章批量插入图片" : "本批文章生成后即可批量插入图片"}
+                  >
+                    <ImagePlus className="h-3.5 w-3.5" />
+                    批量插入图片
+                  </Button>
+                )}
                 {selectedBatch.failedCount > 0 && (
                   <Button
                     type="button"
@@ -741,18 +755,6 @@ export default function ArticleBatchWorkspace({
                   )}
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {generatedCount > 0 && !selectedBatchVideoScript && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setMediaOpen(true)}
-                      className="h-8 gap-1.5 border-cyan-200 text-cyan-700 hover:bg-cyan-50 hover:text-cyan-800"
-                    >
-                      <ImagePlus className="h-3.5 w-3.5" />
-                      批量插入图片
-                    </Button>
-                  )}
                   {mediaGeneratedCount > 0 && !selectedBatchVideoScript && (
                     <a
                       href={`/api/article-generation/batches/${encodeURIComponent(selectedBatch.id)}/download?scope=all&variant=media`}

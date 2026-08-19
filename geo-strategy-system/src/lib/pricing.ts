@@ -222,6 +222,17 @@ export const RECHARGE_PACKAGES = [
     kind: "enterprise",
     description: "适合企业市场部或代运营团队同时服务多个客户，并进行长期积分储备。",
   },
+  {
+    key: "full_cycle_3666",
+    name: "完整周期交付包",
+    priceCents: 366600,
+    credits: 35000,
+    badge: "品牌 / 个人 IP",
+    firstPurchaseOnly: false,
+    recommended: true,
+    kind: "enterprise",
+    description: "支持品牌或个人 IP 完成一个完整 GEO 交付周期，覆盖持续检测、策略、内容生产与专业报告。",
+  },
 ] as const satisfies readonly RechargePackageDefinition[]
 
 export const LEGACY_RECHARGE_PACKAGE_KEYS = [
