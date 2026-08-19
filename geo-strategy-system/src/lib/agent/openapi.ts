@@ -45,7 +45,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
     openapi: "3.1.0",
     info: {
       title: "势途 GEO Agent API",
-      version: "1.9.0",
+      version: "1.10.0",
       description: "供 CLI、MCP 和自动化 Agent 安全调用势途 GEO 现有业务能力。耗时操作进入后台任务；资料审核与动作记录等轻量写操作同步完成。所有操作沿用网页端权限、积分、联网与质量规则。",
     },
     externalDocs: {
@@ -56,6 +56,7 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
     servers: [{ url: `${origin}/api/agent/v1` }],
     security,
     tags: [
+      { name: "Planner" },
       { name: "Capability" },
       { name: "Client" },
       { name: "Task" },
@@ -67,6 +68,31 @@ export function agentOpenApiDocument(origin: string): Record<string, unknown> {
       { name: "Action" },
     ],
     paths: {
+      "/plan": {
+        post: {
+          tags: ["Planner"],
+          operationId: "planAgentRequest",
+          summary: "解析模糊业务需求",
+          description: "只读返回客户匹配、推荐工作流、动作顺序、缺失信息与执行安全要求；规划本身不扣积分。",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["request"],
+                  properties: {
+                    request: { type: "string", minLength: 1, maxLength: 4_000 },
+                    clientHint: { type: "string", maxLength: 300 },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 200: success, 400: error, 401: error, 403: error, 429: error },
+        },
+      },
       "/capabilities": {
         get: { tags: ["Capability"], operationId: "getCapabilities", responses: { 200: success, 401: error, 403: error } },
       },

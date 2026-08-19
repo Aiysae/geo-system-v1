@@ -216,7 +216,9 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.9")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.10")
+  assert.equal(capabilitiesBody.data.planner.endpoint, "/api/agent/v1/plan")
+  assert.ok(capabilitiesBody.data.workflows.some((workflow: { key?: string }) => workflow.key === "penetration_check"))
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
@@ -280,11 +282,30 @@ try {
   assert.ok(articleGenerateAction?.inputSchema?.properties?.videoScriptConfig)
   assert.ok(articleBatchAction?.inputSchema?.properties?.basePayload?.properties?.videoScriptConfig)
   assert.ok(articleStrategyAction?.inputSchema?.properties?.outputTrack)
+  const publishingCreateAction = AGENT_ACTIONS.find(
+    (action: { name?: string }) => action.name === "publishing.plan.create",
+  ) as { inputSchema?: { properties?: Record<string, { properties?: Record<string, unknown> }> } } | undefined
+  assert.ok(publishingCreateAction?.inputSchema?.properties?.input?.properties?.capacityMode)
   assert.equal(
     capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.report.manage"),
     false,
     "operator tokens must not receive feedback.manage actions",
   )
+
+  const plannerRoute = await import("../src/app/api/agent/v1/plan/route")
+  const planned = await plannerRoute.POST(new Request("http://localhost/api/agent/v1/plan", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${created.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ request: "帮我看看测试品牌在 AI 里有没有被推荐" }),
+  }))
+  assert.equal(planned.status, 200)
+  const plannedBody = await planned.json()
+  assert.equal(plannedBody.data.plan.primaryWorkflow.key, "penetration_check")
+  assert.equal(plannedBody.data.plan.clientResolution.clientId, "client-agent-test")
+  assert.equal(plannedBody.data.plan.executionPolicy.mustDryRunFirst, true)
 
   const articleSettingsRoute = await import("../src/app/api/agent/v1/articles/settings/route")
   const articleSettings = await articleSettingsRoute.GET(new Request(
@@ -782,7 +803,8 @@ try {
     externalDocs: { url: string }
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
-  assert.equal(openapi.info.version, "1.9.0")
+  assert.equal(openapi.info.version, "1.10.0")
+  assert.ok(openapi.paths["/plan"])
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
   assert.ok(openapi.paths["/actions/penetration.automation.save"])

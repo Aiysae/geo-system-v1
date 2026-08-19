@@ -51,6 +51,7 @@ type WindowAllocation = {
   window: PublishingBudgetWindow
   counts: Map<string, number>
   actualCostCents: number
+  capacityConstrainedPlatformIds: Set<string>
 }
 
 export function calculatePublishingPlan(
@@ -186,14 +187,26 @@ export function calculatePublishingPlan(
     warnings.push(`单个规划最多生成 ${MAX_PLAN_TASKS} 条发布任务，剩余预算暂未分配。`)
   }
 
-  const platformQuotas = buildPlatformQuotas(enabledPlatforms, allocations, tasks)
+  const platformQuotas = buildPlatformQuotas(enabledPlatforms, allocations, tasks, input.capacityMode)
   const plannedCostCents = tasks.reduce((sum, task) => sum + task.plannedCostCents, 0)
   const requiredAccountCount = platformQuotas.reduce((sum, item) => sum + item.requiredAccountCount, 0)
   const existingAccountCount = platformQuotas.reduce((sum, item) => sum + item.existingAccountCount, 0)
   const accountGap = platformQuotas.reduce((sum, item) => sum + item.accountGap, 0)
   const reusedPublicationCount = Math.max(0, tasks.length - assets.length)
 
-  if (accountGap > 0) warnings.push(`当前发布能力还缺少 ${accountGap} 个平台账号，请补充账号或调整平台权重。`)
+  const constrainedPlatformIds = new Set(
+    allocations.flatMap(allocation => [...allocation.capacityConstrainedPlatformIds]),
+  )
+  if (input.capacityMode === "existing_accounts" && constrainedPlatformIds.size > 0) {
+    const names = enabledPlatforms
+      .filter(platform => constrainedPlatformIds.has(platform.id))
+      .map(platform => platform.platformName)
+      .slice(0, 6)
+    warnings.push(`已按现有账号容量限制 ${names.join("、")}${constrainedPlatformIds.size > names.length ? "等平台" : ""}的发布量，未分配预算不会生成虚拟账号任务。`)
+  }
+  if (input.capacityMode === "planned_expansion" && accountGap > 0) {
+    warnings.push(`当前规划需新增 ${accountGap} 个平台账号，每个账号的日任务仍已限制在安全发布上限内。`)
+  }
   if (plannedCostCents < executionBudgetCents) {
     warnings.push(`受整数篇数和平台单价影响，尚有 ${executionBudgetCents - plannedCostCents} 分预算未分配。`)
   }
@@ -219,7 +232,7 @@ export function calculatePublishingPlan(
       activeDayCount: dateRange(input.startDate, input.endDate).length,
     },
     warnings,
-    calculationVersion: "publishing-plan-v1",
+    calculationVersion: "publishing-plan-v2",
   }
 }
 
@@ -270,6 +283,7 @@ export function normalizePublishingPlanInput(raw: PublishingPlanInput): Publishi
     : platform)
 
   return {
+    capacityMode: raw.capacityMode === "planned_expansion" ? "planned_expansion" : "existing_accounts",
     totalServiceFeeCents,
     executionCostRateBps,
     startDate,
@@ -304,16 +318,27 @@ function allocateWindow(
   maxTasks: number,
 ): WindowAllocation {
   const counts = new Map(configs.map(config => [config.id, 0]))
-  if (maxTasks <= 0) return { window, counts, actualCostCents: 0 }
+  const capacityConstrainedPlatformIds = new Set<string>()
+  if (maxTasks <= 0) return { window, counts, actualCostCents: 0, capacityConstrainedPlatformIds }
   const normalizedWeights = normalizeWeights(configs.map(config => config.weightBps), 10_000)
   const targetBudgets = distributeInteger(window.budgetCents, normalizedWeights)
+  const windowDayCount = dateRange(window.startDate, window.endDate).length
+  const platformCapacities = new Map(configs.map(config => [
+    config.id,
+    input.capacityMode === "existing_accounts"
+      ? windowDayCount * effectiveDailyLimit(config) * config.existingAccountCount
+      : maxTasks,
+  ]))
   const effectiveCosts = configs.map(config => {
     const creationCost = input.contentCreationCostsCents[config.contentType]
     return Math.max(1, config.publishUnitCostCents + Math.ceil(creationCost / Math.max(1, config.maxReusePlatforms)))
   })
 
   configs.forEach((config, index) => {
-    counts.set(config.id, Math.max(0, Math.floor(targetBudgets[index] / effectiveCosts[index])))
+    const requested = Math.max(0, Math.floor(targetBudgets[index] / effectiveCosts[index]))
+    const capacity = platformCapacities.get(config.id) || 0
+    if (requested > capacity) capacityConstrainedPlatformIds.add(config.id)
+    counts.set(config.id, Math.min(requested, capacity))
   })
 
   let actualCost = allocationCost(counts, configs, input)
@@ -345,7 +370,10 @@ function allocateWindow(
 
   let iterations = allocatedTasks
   while (iterations < maxTasks) {
-    const candidates = configs.map((config, index) => {
+    const candidates = configs.filter(config => (
+      (counts.get(config.id) || 0) < (platformCapacities.get(config.id) || 0)
+    )).map((config) => {
+      const index = configs.indexOf(config)
       const nextCounts = new Map(counts)
       nextCounts.set(config.id, (nextCounts.get(config.id) || 0) + 1)
       const nextCost = allocationCost(nextCounts, configs, input)
@@ -370,7 +398,15 @@ function allocateWindow(
     iterations += 1
   }
 
-  return { window, counts, actualCostCents: actualCost }
+  if (input.capacityMode === "existing_accounts" && actualCost < window.budgetCents) {
+    for (const config of configs) {
+      if ((counts.get(config.id) || 0) >= (platformCapacities.get(config.id) || 0)) {
+        capacityConstrainedPlatformIds.add(config.id)
+      }
+    }
+  }
+
+  return { window, counts, actualCostCents: actualCost, capacityConstrainedPlatformIds }
 }
 
 function allocationCost(
@@ -409,6 +445,7 @@ function buildPlatformQuotas(
   configs: PublishingPlatformConfig[],
   allocations: WindowAllocation[],
   tasks: PublishingTask[],
+  capacityMode: PublishingPlanInput["capacityMode"],
 ): PublishingPlatformQuota[] {
   return configs.map(config => {
     const platformTasks = tasks.filter(task => task.platformKey === config.platformKey)
@@ -419,6 +456,11 @@ function buildPlatformQuotas(
     const peakDailyCount = Math.max(0, ...countsByDate.values())
     const limit = effectiveDailyLimit(config)
     const requiredAccountCount = peakDailyCount > 0 ? Math.ceil(peakDailyCount / limit) : 0
+    const plannedAccountCount = requiredAccountCount
+    const additionalAccountCount = Math.max(0, plannedAccountCount - config.existingAccountCount)
+    const capacityConstrained = allocations.some(allocation => (
+      allocation.capacityConstrainedPlatformIds.has(config.id)
+    ))
     return {
       platformKey: config.platformKey,
       platformName: config.platformName,
@@ -428,10 +470,21 @@ function buildPlatformQuotas(
       publicationCount: platformTasks.length,
       plannedCostCents: platformTasks.reduce((sum, task) => sum + task.plannedCostCents, 0),
       peakDailyCount,
+      dailyLimitPerAccount: config.dailyLimitPerAccount,
+      safeUtilizationBps: config.safeUtilizationBps,
+      dailyCapacity: limit * (
+        capacityMode === "existing_accounts"
+          ? config.existingAccountCount
+          : plannedAccountCount
+      ),
       requiredAccountCount,
+      plannedAccountCount,
+      additionalAccountCount,
       existingAccountCount: config.existingAccountCount,
-      accountGap: Math.max(0, requiredAccountCount - config.existingAccountCount),
+      accountGap: additionalAccountCount,
       effectiveDailyLimitPerAccount: limit,
+      capacityMode,
+      capacityConstrained,
       windowCounts: Object.fromEntries(allocations.map(allocation => [
         allocation.window.id,
         allocation.counts.get(config.id) || 0,

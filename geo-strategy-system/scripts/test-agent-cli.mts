@@ -32,10 +32,23 @@ assert.equal(
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "geo-agent-cli-"))
 let lastActionPath = ""
 let lastActionPayload: Record<string, unknown> | undefined
+let lastPlanPayload: Record<string, unknown> | undefined
 const server = http.createServer(async (request, response) => {
   if (request.url === "/api/agent/v1/capabilities" && request.headers.authorization === "Bearer cli-test-token") {
     response.setHeader("Content-Type", "application/json")
     response.end(JSON.stringify({ ok: true, data: { apiVersion: "v1", token: { id: "agt_cli" } }, meta: { traceId: "trace_cli" } }))
+    return
+  }
+  if (request.url === "/api/agent/v1/plan" && request.method === "POST" && request.headers.authorization === "Bearer cli-test-token") {
+    const chunks: Buffer[] = []
+    for await (const chunk of request) chunks.push(Buffer.from(chunk))
+    lastPlanPayload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>
+    response.setHeader("Content-Type", "application/json")
+    response.end(JSON.stringify({
+      ok: true,
+      data: { plan: { primaryWorkflow: { key: "penetration_check" } } },
+      meta: { traceId: "trace_cli_plan" },
+    }))
     return
   }
   if (request.url === "/api/agent/v1/actions/research.run" && request.method === "POST" && request.headers.authorization === "Bearer cli-test-token") {
@@ -90,6 +103,10 @@ try {
   const status = await run(["auth", "status", "--json"])
   assert.equal(status.code, 0, status.stderr)
   assert.equal(JSON.parse(status.stdout).apiVersion, "v1")
+  const plan = await run(["plan", "--request", "看看测试品牌在 AI 里有没有被推荐", "--client-hint", "测试客户", "--json"])
+  assert.equal(plan.code, 0, plan.stderr)
+  assert.equal(JSON.parse(plan.stdout).plan.primaryWorkflow.key, "penetration_check")
+  assert.equal(lastPlanPayload?.clientHint, "测试客户")
   const payloadFile = path.join(directory, "research-payload.json")
   await fs.writeFile(payloadFile, JSON.stringify({
     clientId: "client-cli-test",

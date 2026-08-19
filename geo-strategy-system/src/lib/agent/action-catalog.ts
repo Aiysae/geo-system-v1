@@ -775,6 +775,8 @@ const publishingPlatformConfigSchema = z.looseObject({
 })
 
 const publishingPlanInputSchema = z.looseObject({
+  capacityMode: z.enum(["existing_accounts", "planned_expansion"]).optional().default("existing_accounts")
+    .describe("按现有账号严格排期，或允许计算需新增的账号数"),
   totalServiceFeeCents: z.number().int().positive().max(10_000_000_000),
   executionCostRateBps: z.number().int().min(3_000).max(3_500).optional().default(3_250),
   startDate: publishingDateSchema,

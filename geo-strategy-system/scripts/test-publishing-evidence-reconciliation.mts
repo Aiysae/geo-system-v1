@@ -30,6 +30,7 @@ try {
     clientName: "发布核销测试客户",
     createdByUserId: actorUserId,
     input: {
+      capacityMode: "existing_accounts",
       totalServiceFeeCents: 100_000,
       executionCostRateBps: 3_000,
       startDate: "2026-09-01",

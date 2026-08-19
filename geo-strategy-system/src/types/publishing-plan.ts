@@ -3,6 +3,7 @@ import type { SourcePlatformCategory } from "@/types/geo-strategy"
 export type PublishingPlanStatus = "draft" | "active" | "archived"
 export type PublishingCustomerStage = "new_launch" | "maintenance"
 export type PublishingPeriodMode = "service" | "calendar"
+export type PublishingCapacityMode = "existing_accounts" | "planned_expansion"
 export type PublishingContentType = "article" | "authority_article" | "video"
 export type PublishingTaskStatus =
   | "planned"
@@ -52,6 +53,7 @@ export interface PublishingContentCostConfig {
 }
 
 export interface PublishingPlanInput {
+  capacityMode: PublishingCapacityMode
   totalServiceFeeCents: number
   executionCostRateBps: number
   startDate: string
@@ -85,10 +87,17 @@ export interface PublishingPlatformQuota {
   publicationCount: number
   plannedCostCents: number
   peakDailyCount: number
+  dailyLimitPerAccount: number
+  safeUtilizationBps: number
+  dailyCapacity: number
   requiredAccountCount: number
+  plannedAccountCount: number
+  additionalAccountCount: number
   existingAccountCount: number
   accountGap: number
   effectiveDailyLimitPerAccount: number
+  capacityMode: PublishingCapacityMode
+  capacityConstrained: boolean
   windowCounts: Record<string, number>
 }
 
@@ -169,7 +178,7 @@ export interface PublishingPlanCalculation {
   tasks: PublishingTask[]
   summary: PublishingPlanSummary
   warnings: string[]
-  calculationVersion: "publishing-plan-v1"
+  calculationVersion: "publishing-plan-v1" | "publishing-plan-v2"
 }
 
 export interface PublishingPlan {
