@@ -83,6 +83,7 @@ export type AgentActionName =
   | "penetration.automation.save"
   | "penetration.automation.set-status"
   | "penetration.automation.run"
+  | "penetration.automation.cancel"
   | "penetration.automation.delete"
   | "difficulty.run"
   | "research.run"

@@ -125,9 +125,16 @@ const WORKFLOWS: AgentWorkflowDefinition[] = [
   workflow({
     key: "penetration_automation",
     title: "自动渗透率监测",
-    description: "读取或设置定时检测、下降阈值与提醒。",
+    description: "读取或设置固定疑问句、模型、定时检测、下降阈值与团队提醒，并可暂停或停止执行。",
     module: "penetration",
-    actions: ["penetration.automation.get", "penetration.automation.save"],
+    actions: [
+      "penetration.automation.get",
+      "penetration.automation.save",
+      "penetration.automation.set-status",
+      "penetration.automation.run",
+      "penetration.automation.cancel",
+      "penetration.automation.delete",
+    ],
     supportingTools: ["shitu_list_clients"],
     requiredInputs: ["客户", "检测间隔", "执行时间"],
     risk: "low",
@@ -136,6 +143,8 @@ const WORKFLOWS: AgentWorkflowDefinition[] = [
     rules: [
       { pattern: /(自动|定时|每天|隔\s*[1-7一二三四五六七]天).{0,12}(渗透率|疑问句|检测|监测)/i, weight: 18 },
       { pattern: /(下降|下跌).{0,8}(提醒|告警|通知)/i, weight: 8 },
+      { pattern: /(停止|取消|暂停|恢复|删除).{0,10}(自动|定时).{0,8}(检测|监测|任务|计划)/i, weight: 17 },
+      { pattern: /(疑问句|问题|模型).{0,10}(自动|定时).{0,8}(检测|监测)/i, weight: 9 },
     ],
   }),
   workflow({

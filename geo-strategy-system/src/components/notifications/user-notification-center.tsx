@@ -26,6 +26,13 @@ function notificationMeta(
   type: UserNotificationType,
   metadata?: Record<string, unknown>,
 ) {
+  if (type === "penetration_automation_completed") {
+    return {
+      Icon: CheckCircle2,
+      iconClass: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      actionLabel: "查看报告",
+    }
+  }
   if (type === "penetration_automation_alert") {
     return {
       Icon: TriangleAlert,

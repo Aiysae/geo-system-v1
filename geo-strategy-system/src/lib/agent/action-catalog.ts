@@ -134,6 +134,12 @@ const penetrationAutomationSaveSchema = z.looseObject({
   inAppEnabled: z.boolean().optional().default(true),
   emailEnabled: z.boolean().optional().default(true),
   monthlyCreditLimit: z.number().int().min(1).max(1_000_000).optional(),
+  questions: z.array(z.string().min(1).max(2_000)).min(1).max(600).optional(),
+  questionIntents: z.array(z.object({
+    question: z.string().min(1).max(2_000),
+    category: penetrationQuestionCategorySchema,
+  })).max(600).optional(),
+  models: z.array(modelSchema).min(1).max(6).optional(),
   status: z.enum(["active", "paused"]).optional().default("active"),
 })
 
@@ -144,6 +150,11 @@ const penetrationAutomationStatusSchema = z.looseObject({
 
 const penetrationAutomationRunSchema = z.looseObject({
   ...penetrationAutomationScheduleIdShape,
+})
+
+const penetrationAutomationCancelSchema = z.looseObject({
+  ...penetrationAutomationScheduleIdShape,
+  executionId: z.string().min(1).max(240),
 })
 
 const penetrationAutomationDeleteSchema = z.looseObject({
@@ -949,10 +960,10 @@ export const AGENT_ACTION_REGISTRY = {
   "penetration.automation.save": {
     mcpTool: "shitu_save_penetration_automation",
     title: "保存自动检测计划",
-    description: "创建或更新每天至每 7 天执行一次的渗透率检测计划和下降提醒阈值。",
+    description: "创建或更新每天至每 7 天执行一次的自动检测计划，并固定疑问句、问题意图、模型和下降提醒阈值。",
     module: "penetration",
     idempotent: true,
-    requiredScope: "penetration.execute",
+    requiredScope: "penetration.manage",
     billable: false,
     schema: penetrationAutomationSaveSchema,
   },
@@ -962,7 +973,7 @@ export const AGENT_ACTION_REGISTRY = {
     description: "将自动渗透率检测计划设置为启用或暂停。",
     module: "penetration",
     idempotent: true,
-    requiredScope: "penetration.execute",
+    requiredScope: "penetration.manage",
     billable: false,
     schema: penetrationAutomationStatusSchema,
   },
@@ -976,13 +987,24 @@ export const AGENT_ACTION_REGISTRY = {
     billable: false,
     schema: penetrationAutomationRunSchema,
   },
-  "penetration.automation.delete": {
-    mcpTool: "shitu_delete_penetration_automation",
-    title: "删除自动检测计划",
-    description: "删除指定客户的自动渗透率检测计划。历史检测报告不会被删除。",
+  "penetration.automation.cancel": {
+    mcpTool: "shitu_cancel_penetration_automation_execution",
+    title: "停止本次自动检测",
+    description: "停止指定的排队中或运行中自动检测；已完成结果保留，未执行部分不再调用。",
     module: "penetration",
     idempotent: true,
     requiredScope: "penetration.execute",
+    billable: false,
+    destructive: true,
+    schema: penetrationAutomationCancelSchema,
+  },
+  "penetration.automation.delete": {
+    mcpTool: "shitu_delete_penetration_automation",
+    title: "删除自动检测计划",
+    description: "删除指定客户的自动检测计划并停止未完成执行。历史检测报告不会被删除。",
+    module: "penetration",
+    idempotent: true,
+    requiredScope: "penetration.manage",
     billable: false,
     destructive: true,
     schema: penetrationAutomationDeleteSchema,
@@ -1758,13 +1780,15 @@ export function estimateAgentAction(
     case "penetration.automation.get":
       return { ...context, scope: "penetration.view", units: 1, credits: 0, label: "读取自动检测计划" }
     case "penetration.automation.save":
-      return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "保存自动检测计划" }
+      return { ...context, scope: "penetration.manage", units: 1, credits: 0, label: "保存自动检测计划" }
     case "penetration.automation.set-status":
-      return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "更新自动检测状态" }
+      return { ...context, scope: "penetration.manage", units: 1, credits: 0, label: "更新自动检测状态" }
     case "penetration.automation.run":
       return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "立即运行自动检测" }
+    case "penetration.automation.cancel":
+      return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "停止本次自动检测" }
     case "penetration.automation.delete":
-      return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "删除自动检测计划" }
+      return { ...context, scope: "penetration.manage", units: 1, credits: 0, label: "删除自动检测计划" }
     case "difficulty.run": {
       const mode = String(input.mode || "industry")
       const industry = String(input.industry || "").trim()

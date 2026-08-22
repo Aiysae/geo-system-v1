@@ -12,6 +12,7 @@ const requiredByWorkflow = {
     "penetration.automation.get",
     "penetration.automation.save",
     "penetration.automation.run",
+    "penetration.automation.cancel",
   ],
   research: ["research.run", "research.compare"],
   diagnosis: ["diagnosis.run"],

@@ -46,6 +46,8 @@ interface Props {
   identityReadOnly?: boolean
   questionReadOnly?: boolean
   canExecute?: boolean
+  canManageAutomation?: boolean
+  teamId?: string
 }
 
 type PenetrationRunParams = {
@@ -68,6 +70,8 @@ export default function PenetrationModule({
   identityReadOnly = false,
   questionReadOnly = false,
   canExecute = true,
+  canManageAutomation = true,
+  teamId,
 }: Props) {
   const subjectType = getClientSubjectType(client)
   const [loading, setLoading] = useState(Boolean(client.penetrationJobId))
@@ -416,7 +420,13 @@ export default function PenetrationModule({
               <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围，完成后将在下方展示结果和来源</div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <PenetrationAutomationPanel key={client.id} client={client} canExecute={canExecute} />
+              <PenetrationAutomationPanel
+                key={client.id}
+                client={client}
+                canExecute={canExecute}
+                canManage={canManageAutomation}
+                teamId={teamId}
+              />
               <div className="rounded-md bg-[#001D66] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
                 可审计联网 · 纯净盲测
               </div>

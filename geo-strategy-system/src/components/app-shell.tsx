@@ -953,6 +953,11 @@ function Dashboard({
               )
             }
             canExecute={access.canRunPenetration}
+            canManageAutomation={
+              access.mode === "standard"
+              || hasTeamPermission(access.permissionKeys || [], "penetration", "manage")
+            }
+            teamId={access.mode === "team" ? access.teamId : undefined}
           />
         )}
         {activeModule === "research" && (
