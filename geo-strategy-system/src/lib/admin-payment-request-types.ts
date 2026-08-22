@@ -60,6 +60,7 @@ export type UserNotificationType =
   | "payment_request_credited"
   | "payment_request_canceled"
   | "feedback_action_reminder"
+  | "penetration_automation_completed"
   | "penetration_automation_alert"
   | "penetration_automation_attention"
   | "feedback_report_sent"

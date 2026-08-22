@@ -118,6 +118,18 @@ async function routeForAction(
       payload: { clientId: payload.clientId, teamId: payload.teamId },
     }
   }
+  if (action === "penetration.automation.cancel") {
+    const route = await import("@/app/api/penetration/automations/[scheduleId]/executions/[executionId]/cancel/route")
+    const scheduleId = String(payload.scheduleId || "")
+    const executionId = String(payload.executionId || "")
+    return {
+      path: `/api/penetration/automations/${encodeURIComponent(scheduleId)}/executions/${encodeURIComponent(executionId)}/cancel`,
+      handler: request => route.POST(request, {
+        params: Promise.resolve({ scheduleId, executionId }),
+      }),
+      payload: { clientId: payload.clientId, teamId: payload.teamId },
+    }
+  }
   if (action === "penetration.automation.delete") {
     const route = await import("@/app/api/penetration/automations/[scheduleId]/route")
     const scheduleId = String(payload.scheduleId || "")

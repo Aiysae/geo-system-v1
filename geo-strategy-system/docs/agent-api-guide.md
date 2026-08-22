@@ -139,7 +139,7 @@ Agent 1.8 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 
 | 模块 | 动作 |
 | --- | --- |
-| 渗透率情报 | `penetration.run`、`penetration.questions.generate`、`penetration.automation.get`、`penetration.automation.save`、`penetration.automation.set-status`、`penetration.automation.run`、`penetration.automation.delete` |
+| 渗透率情报 | `penetration.run`、`penetration.questions.generate`、`penetration.automation.get`、`penetration.automation.save`、`penetration.automation.set-status`、`penetration.automation.run`、`penetration.automation.cancel`、`penetration.automation.delete` |
 | 独立调研 | `research.run`、`research.compare` |
 | AI 诊断 | `diagnosis.run` |
 | 难度测评 | `difficulty.run` |
@@ -156,10 +156,10 @@ Agent 1.8 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 ### 自动渗透率监测
 
 1. `penetration.automation.get` 读取当前计划和最近 12 次执行。
-2. `penetration.automation.save` 创建或更新 1–7 天间隔、执行时间、下降阈值、消息与邮件提醒。
+2. `penetration.automation.save` 创建或更新 1–7 天间隔、执行时间、固定疑问句与模型、下降阈值、消息与邮件提醒；后续执行使用保存时的检测口径。
 3. `penetration.automation.set-status` 暂停或恢复计划。
 4. `penetration.automation.run` 立即触发一次；之后通过 `penetration.automation.get` 查看执行记录，并从任务中心读取实际检测任务。
-5. `penetration.automation.delete` 只删除计划，不删除历史报告。
+5. `penetration.automation.cancel` 停止本次执行；`penetration.automation.delete` 删除计划并停止未完成执行，但不删除历史报告。
 
 ### 关键词策略自动成文
 

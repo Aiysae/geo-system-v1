@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   const origin = agentPublicOrigin(request)
   return Response.json({
     name: "势途 GEO Agent API",
-    version: "v1.10",
+    version: "v1.11",
     openapi: `${origin}/api/agent/v1/openapi.json`,
     capabilities: `${origin}/api/agent/v1/capabilities`,
     planner: `${origin}/api/agent/v1/plan`,

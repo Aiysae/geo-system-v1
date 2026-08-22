@@ -18,7 +18,7 @@ export async function GET(request: Request) {
       ))
     const availableActionNames = new Set(actions.map(action => action.name))
     return agentSuccess({
-      apiVersion: "v1.10",
+      apiVersion: "v1.11",
       planner: {
         endpoint: "/api/agent/v1/plan",
         mcpTool: "shitu_plan_request",

@@ -5,6 +5,7 @@ import path from "path"
 import { createHash, randomUUID } from "crypto"
 import { Pool, type PoolClient } from "pg"
 import { PENETRATION_AUTOMATION_SCHEMA_SQL } from "@/lib/penetration/automation-schema"
+import { normalizePenetrationAutomationDetectionConfig } from "@/lib/penetration/automation-config"
 import {
   nextPenetrationAutomationRun,
   normalizeAutomationDate,
@@ -43,6 +44,7 @@ type ScheduleRow = {
   in_app_enabled: boolean
   email_enabled: boolean
   monthly_credit_limit?: number | null
+  detection_config?: PenetrationAutomationSchedule["detectionConfig"] | null
   next_run_at?: string | Date | null
   last_scheduled_for?: string | Date | null
   last_started_at?: string | Date | null
@@ -104,6 +106,7 @@ export type UpsertPenetrationAutomationScheduleInput = PenetrationAutomationSche
   ownerUserId: string
   clientId: string
   clientName: string
+  createdByUserId?: string
   actorUserId: string
   billingUserId: string
   teamId?: string
@@ -214,6 +217,7 @@ function scheduleFromRow(row: ScheduleRow): PenetrationAutomationSchedule {
     inAppEnabled: row.in_app_enabled,
     emailEnabled: row.email_enabled,
     monthlyCreditLimit: optionalNumber(row.monthly_credit_limit),
+    detectionConfig: normalizePenetrationAutomationDetectionConfig(row.detection_config),
     nextRunAt: iso(row.next_run_at),
     lastScheduledFor: iso(row.last_scheduled_for),
     lastStartedAt: iso(row.last_started_at),
@@ -350,6 +354,7 @@ function normalizedScheduleInput(input: UpsertPenetrationAutomationScheduleInput
     relativeDropThresholdPct: normalizeAutomationThreshold(input.relativeDropThresholdPct),
     minimumAbsoluteDropPoints: normalizeMinimumAbsoluteDrop(input.minimumAbsoluteDropPoints),
     monthlyCreditLimit: normalizeMonthlyCreditLimit(input.monthlyCreditLimit),
+    detectionConfig: normalizePenetrationAutomationDetectionConfig(input.detectionConfig),
   }
 }
 
@@ -402,6 +407,7 @@ export async function upsertPenetrationAutomationSchedule(
 ): Promise<PenetrationAutomationSchedule> {
   const input = normalizedScheduleInput(rawInput)
   const current = await getPenetrationAutomationScheduleByClient(input.ownerUserId, input.clientId)
+  const detectionConfig = input.detectionConfig || current?.detectionConfig
   const now = new Date().toISOString()
   const id = current?.id || `pauto_${randomUUID().replace(/-/g, "")}`
   const nextRunAt = input.status === "active"
@@ -421,9 +427,9 @@ export async function upsertPenetrationAutomationSchedule(
          actor_user_id, billing_user_id, team_id, status, interval_days,
          time_local, timezone, start_date, relative_drop_threshold_pct,
          minimum_absolute_drop_points, in_app_enabled, email_enabled,
-         monthly_credit_limit, next_run_at, created_at, updated_at
+         monthly_credit_limit, detection_config, next_run_at, created_at, updated_at
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$20
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20,$21,$21
        )
        ON CONFLICT (owner_user_id, client_id) WHERE deleted_at IS NULL DO UPDATE SET
          client_name = EXCLUDED.client_name,
@@ -440,6 +446,7 @@ export async function upsertPenetrationAutomationSchedule(
          in_app_enabled = EXCLUDED.in_app_enabled,
          email_enabled = EXCLUDED.email_enabled,
          monthly_credit_limit = EXCLUDED.monthly_credit_limit,
+         detection_config = EXCLUDED.detection_config,
          next_run_at = EXCLUDED.next_run_at,
          last_error = NULL,
          consecutive_failures = CASE
@@ -454,7 +461,7 @@ export async function upsertPenetrationAutomationSchedule(
         id,
         input.clientId,
         input.clientName,
-        current?.createdByUserId || input.actorUserId,
+        current?.createdByUserId || input.createdByUserId || input.actorUserId,
         input.actorUserId,
         input.billingUserId,
         input.teamId || null,
@@ -468,6 +475,7 @@ export async function upsertPenetrationAutomationSchedule(
         input.inAppEnabled,
         input.emailEnabled,
         input.monthlyCreditLimit ?? null,
+        detectionConfig ? JSON.stringify(detectionConfig) : null,
         nextRunAt || null,
         now,
       ],
@@ -481,7 +489,7 @@ export async function upsertPenetrationAutomationSchedule(
         id,
         ownerUserId: input.ownerUserId,
         clientId: input.clientId,
-        createdByUserId: input.actorUserId,
+        createdByUserId: input.createdByUserId || input.actorUserId,
         createdAt: now,
         consecutiveFailures: 0,
       }),
@@ -499,6 +507,7 @@ export async function upsertPenetrationAutomationSchedule(
       inAppEnabled: input.inAppEnabled,
       emailEnabled: input.emailEnabled,
       monthlyCreditLimit: input.monthlyCreditLimit,
+      detectionConfig,
       nextRunAt,
       consecutiveFailures: input.status === "active" ? 0 : current?.consecutiveFailures || 0,
       lastError: undefined,
@@ -521,6 +530,39 @@ export async function setPenetrationAutomationScheduleStatus(input: {
     ...current,
     status: input.status,
   })
+}
+
+export async function setPenetrationAutomationDetectionConfig(input: {
+  ownerUserId: string
+  id: string
+  detectionConfig: PenetrationAutomationSchedule["detectionConfig"]
+}): Promise<PenetrationAutomationSchedule | null> {
+  const detectionConfig = normalizePenetrationAutomationDetectionConfig(input.detectionConfig)
+  if (!detectionConfig) return null
+  const now = new Date().toISOString()
+  if (backend() === "postgres") {
+    await ensurePenetrationAutomationSchema()
+    const result = await pool().query<ScheduleRow>(
+      `UPDATE geo_penetration_automation_schedules_v1
+       SET detection_config = $3::jsonb, updated_at = $4
+       WHERE owner_user_id = $1 AND id = $2 AND deleted_at IS NULL
+       RETURNING *`,
+      [input.ownerUserId, input.id, JSON.stringify(detectionConfig), now],
+    )
+    return result.rows[0] ? scheduleFromRow(result.rows[0]) : null
+  }
+  return withFileState(state => {
+    const key = scheduleKey(input.ownerUserId, input.id)
+    const current = state.schedules[key]
+    if (!current || current.deletedAt) return null
+    const next: StoredFileSchedule = {
+      ...current,
+      detectionConfig,
+      updatedAt: now,
+    }
+    state.schedules[key] = next
+    return stripStoredSchedule(next)
+  }, true)
 }
 
 export async function deletePenetrationAutomationSchedule(

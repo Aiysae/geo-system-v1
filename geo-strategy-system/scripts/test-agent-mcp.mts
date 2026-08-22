@@ -80,6 +80,7 @@ try {
     "shitu_save_penetration_automation",
     "shitu_set_penetration_automation_status",
     "shitu_run_penetration_automation",
+    "shitu_cancel_penetration_automation_execution",
     "shitu_delete_penetration_automation",
     "shitu_plan_strategy_articles",
     "shitu_extract_article_source",
@@ -115,6 +116,10 @@ try {
   ]) assert.ok(names.has(name), `${name} should be registered`)
   assert.equal(
     tools.tools.find(tool => tool.name === "shitu_get_penetration_automation")?.annotations?.readOnlyHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_cancel_penetration_automation_execution")?.annotations?.destructiveHint,
     true,
   )
   assert.equal(

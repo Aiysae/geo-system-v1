@@ -163,7 +163,7 @@ function help() {
 执行
   actions run <action> --file payload.json [--dry-run]
   penetration questions --file payload.json [--dry-run]
-  automation get|save|status|run|delete --file payload.json [--dry-run]
+  automation get|save|status|run|cancel|delete --file payload.json [--dry-run]
   research run|compare --file payload.json [--dry-run]
   diagnosis run --file payload.json [--dry-run]
   keywords extract|advantages|strategy|website-prompt|questions --file payload.json [--dry-run]
@@ -191,6 +191,7 @@ const ACTION_COMMANDS = new Map([
   ["automation:save", "penetration.automation.save"],
   ["automation:status", "penetration.automation.set-status"],
   ["automation:run", "penetration.automation.run"],
+  ["automation:cancel", "penetration.automation.cancel"],
   ["automation:delete", "penetration.automation.delete"],
   ["keywords:extract", "keyword.extract"],
   ["keywords:advantages", "keyword.advantages"],

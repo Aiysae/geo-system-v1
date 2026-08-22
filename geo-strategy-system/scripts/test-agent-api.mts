@@ -216,7 +216,7 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.10")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.11")
   assert.equal(capabilitiesBody.data.planner.endpoint, "/api/agent/v1/plan")
   assert.ok(capabilitiesBody.data.workflows.some((workflow: { key?: string }) => workflow.key === "penetration_check"))
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
@@ -228,6 +228,7 @@ try {
     "penetration.automation.save",
     "penetration.automation.set-status",
     "penetration.automation.run",
+    "penetration.automation.cancel",
     "penetration.automation.delete",
     "article.strategy.plan",
     "article.source.extract",
@@ -477,10 +478,18 @@ try {
     startDate: "2026-08-13",
     relativeDropThresholdPct: 15,
     minimumAbsoluteDropPoints: 3,
+    questions: ["企业服务软件应该如何选择？", "哪些企业服务品牌值得推荐？"],
+    questionIntents: [
+      { question: "企业服务软件应该如何选择？", category: "recommendation" },
+      { question: "哪些企业服务品牌值得推荐？", category: "recommendation" },
+    ],
+    models: ["doubao", "qwen"],
   })
   assert.equal(automationSave.status, 201)
   const automationSchedule = (await automationSave.json()).data.result.schedule
   assert.equal(automationSchedule.intervalDays, 3)
+  assert.equal(automationSchedule.detectionConfig.questionCount, 2)
+  assert.deepEqual(automationSchedule.detectionConfig.requestedModels, ["doubao", "qwen"])
   const automationGet = await callAgentAction("penetration.automation.get", {
     clientId: "client-agent-test",
     requestId: "agent_automation_get_0001",
@@ -495,6 +504,21 @@ try {
   })
   assert.equal(automationPause.status, 200)
   assert.equal((await automationPause.json()).data.result.schedule.status, "paused")
+  const { createPenetrationAutomationExecution } = await import(
+    "../src/lib/penetration/automation-store"
+  )
+  const automationExecution = await createPenetrationAutomationExecution({
+    schedule: automationSchedule,
+    trigger: "manual",
+  })
+  const automationCancel = await callAgentAction("penetration.automation.cancel", {
+    clientId: "client-agent-test",
+    requestId: "agent_automation_cancel_0001",
+    scheduleId: automationSchedule.id,
+    executionId: automationExecution.id,
+  })
+  assert.equal(automationCancel.status, 200)
+  assert.equal((await automationCancel.json()).data.result.execution.status, "cancelled")
 
   const feedbackRequestId = "agent_feedback_idempotency_0001"
   const feedbackPayload = {
