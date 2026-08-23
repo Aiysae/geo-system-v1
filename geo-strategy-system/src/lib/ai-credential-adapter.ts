@@ -395,6 +395,7 @@ async function runAuditableExternalCredentialPoolChat(
         ...externalSearchSelectionRequest(module, excludedSearchIds),
         waitTimeoutMs,
         leaseSeconds,
+        signal: args.signal,
       })
       if (!searchLease) {
         if (!lastError || excludedSearchIds.length === 0) {
@@ -412,6 +413,7 @@ async function runAuditableExternalCredentialPoolChat(
         ),
         waitTimeoutMs: pairWaitTimeoutMs,
         leaseSeconds,
+        signal: args.signal,
         ...quotaEstimate,
       })
       if (!generationLease) {
@@ -553,6 +555,7 @@ export async function runAdapterCredentialPoolChat(
       ...selectionRequest(route, module, excludedCredentialIds, selectionModel ?? null),
       waitTimeoutMs,
       leaseSeconds: Math.min(60 * 60, Math.max(60, (args.timeoutSec ?? 60) + 60)),
+      signal: args.signal,
       ...quotaEstimate,
     })
     if (!lease) {

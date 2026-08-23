@@ -59,6 +59,19 @@ const CONTENT_LABELS: Record<PublishingContentType, string> = {
   video: "短视频",
 }
 
+function recommendationStatus(recommendation: PublishingPlanRecommendation): {
+  label: string
+  className: string
+} {
+  if (recommendation.recommendationMode === "ai_enhanced") {
+    return { label: "AI 增强已完成", className: "border-[#A7E6D1] bg-[#EDFFF8] text-[#087A5B]" }
+  }
+  if (recommendation.recommendationMode === "ai_repaired") {
+    return { label: "建议已校验", className: "border-[#A9D9FF] bg-[#EEF8FF] text-[#0958D9]" }
+  }
+  return { label: "报告建议已生成", className: "border-[#D4E0EA] bg-white text-[#526A83]" }
+}
+
 function today(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -209,7 +222,7 @@ export default function PublishingPlanPanel({
       const next = body.recommendation as PublishingPlanRecommendation
       setRecommendation(next)
       updateDraft({ platformConfigs: next.platformConfigs })
-      setNotice(next.usedFallback ? "已根据现有报告生成平台建议" : "AI 已结合报告完成平台权重建议")
+      setNotice(recommendationStatus(next).label)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "平台建议生成失败")
     } finally {
@@ -539,7 +552,14 @@ function PlanEditor({
 
           <div className="rounded-lg border border-[#D7E5F2] bg-[#F8FBFF] p-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-sm font-bold text-[#102A43]">平台与执行参数</h4><p className="mt-1 text-[10px] text-[#6B8299]">重复引用会计入平台权重，所有数值仍可人工调整</p></div><div className="flex gap-2"><button type="button" onClick={addPlatform} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#C8D9E8] bg-white px-3 text-xs font-semibold text-[#526A83]"><Plus className="h-3.5 w-3.5" />添加平台</button><button type="button" onClick={onRecommend} disabled={pending === "recommend"} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white disabled:opacity-50">{pending === "recommend" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}AI读取报告推荐</button></div></div>
-            {recommendation?.notes.map(note => <p key={note} className="mt-2 text-[10px] text-amber-700">{note}</p>)}
+            {recommendation ? (() => {
+              const status = recommendationStatus(recommendation)
+              return <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className={`inline-flex min-h-7 items-center gap-1.5 rounded-md border px-2.5 text-[10px] font-semibold ${status.className}`}><Check className="h-3.5 w-3.5" />{status.label}</span>
+                {recommendation.webEvidenceUsed ? <span className="text-[10px] text-[#6B8299]">已结合 {recommendation.webSourceCount || 0} 条实时资料</span> : null}
+              </div>
+            })() : null}
+            {recommendation?.notes.map(note => <p key={note} className="mt-2 text-[10px] text-[#526A83]">{note}</p>)}
             <div className="mt-4 overflow-x-auto">
               <table className="min-w-[1160px] w-full text-left text-[10px]">
                 <thead><tr className="border-b border-[#DCE8F4] text-[#6B8299]"><th className="pb-2 pr-2">启用</th><th className="pb-2 pr-2">平台</th><th className="pb-2 pr-2">内容类型</th><th className="pb-2 pr-2">权重</th><th className="pb-2 pr-2">单账号日上限</th><th className="pb-2 pr-2">安全利用率</th><th className="pb-2 pr-2">已有账号</th><th className="pb-2 pr-2">单次发布成本</th><th className="pb-2 pr-2">最多复用平台</th><th className="pb-2">推荐依据</th></tr></thead>

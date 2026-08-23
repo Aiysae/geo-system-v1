@@ -89,6 +89,7 @@
     "test:feedback-automation": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-client-feedback-automation.mts",
     "test:action-reminders": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-action-reminders.mts",
     "test:publishing-plan": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-plan.mts",
+    "test:publishing-recommendation": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-recommendation.mts",
     "test:publishing-evidence": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-evidence-reconciliation.mts",
     "test:content-production": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-content-production.mts",
     "preview:action-reminders": "NODE_OPTIONS=--conditions=react-server tsx scripts/preview-action-reminders.mts",

@@ -1,7 +1,6 @@
 import "server-only"
 
-import { runAdapterCredentialPoolChat } from "@/lib/ai-credential-adapter"
-import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { recommendPublishingPlatformsWithAi } from "@/lib/publishing-plan/recommendation-ai"
 import {
   buildSourcePlatformSnapshot,
   resolveSourcePlatformDefinitionByName,
@@ -31,14 +30,6 @@ type Candidate = {
   reason: string
 }
 
-type AiRecommendation = {
-  platform_key?: string
-  industry_fit?: number
-  stage_value?: number
-  recommended?: boolean
-  reason?: string
-}
-
 const FALLBACK_PLATFORMS = [
   { key: "sohu", name: "搜狐" },
   { key: "zhihu", name: "知乎" },
@@ -56,57 +47,35 @@ export async function recommendPublishingPlanPlatforms(input: {
   const notes: string[] = []
   let usedFallback = false
   let model: string | undefined
+  let recommendationMode: PublishingPlanRecommendation["recommendationMode"] = "evidence_only"
+  let recommendationProvider: string | undefined
+  let webEvidenceUsed = false
+  let webSourceCount = 0
+  let cacheHit = false
+  let traceId: string | undefined
 
   if (input.useAi !== false && candidates.length > 0) {
     try {
-      const config = await getAiProviderRuntimeSetting("doubao")
-      const raw = await runAdapterCredentialPoolChat("doubao", "research", {
-        system: [
-          "你是 GEO 内容渠道规划分析师。",
-          "只判断候选平台与当前行业、客户阶段的适配度，不计算金额、篇数或账号数。",
-          "不得添加候选列表以外的平台。输出严格 JSON。",
-        ].join("\n"),
-        user: JSON.stringify({
-          task: "为候选发布平台评估行业适配度和阶段价值",
-          client: {
-            name: input.client.name,
-            subject: input.client.ourBrand,
-            industry: input.client.industry,
-            website: input.client.website,
-            customer_stage: input.customerStage,
-          },
-          candidates: candidates.map(candidate => ({
-            platform_key: candidate.platformKey,
-            platform: candidate.platformName,
-            category: candidate.category,
-            citation_share: candidate.evidence?.citation_share || 0,
-            adoption_rate: candidate.evidence?.adoption_rate || 0,
-            model_coverage: candidate.evidence?.model_keys.length || 0,
-            question_coverage: candidate.evidence?.question_count || 0,
-            strategy_role: candidate.strategyRole || "",
-            strategy_cadence: candidate.strategyCadence || "",
-          })),
-          output_schema: {
-            platforms: [{
-              platform_key: "候选平台键",
-              industry_fit: "0-100整数",
-              stage_value: "0-100整数",
-              recommended: "布尔值",
-              reason: "一句中文依据",
-            }],
-          },
-        }),
-        temperature: 0.1,
-        maxTokens: 3_000,
-        jsonMode: true,
-        timeoutSec: 90,
-        forceWebSearch: true,
-        allowWebSearch: true,
-        requireWebEvidence: true,
-        officialWebOnly: true,
+      const ai = await recommendPublishingPlatformsWithAi({
+        clientId: input.client.id,
+        clientName: input.client.name,
+        subject: input.client.ourBrand,
+        industry: input.client.industry,
+        website: input.client.website,
+        customerStage: input.customerStage,
+        candidates: candidates.map(candidate => ({
+          platformKey: candidate.platformKey,
+          platformName: candidate.platformName,
+          category: candidate.category,
+          citationShare: candidate.evidence?.citation_share || 0,
+          adoptionRate: candidate.evidence?.adoption_rate || 0,
+          modelCoverage: candidate.evidence?.model_keys.length || 0,
+          questionCoverage: candidate.evidence?.question_count || 0,
+          strategyRole: candidate.strategyRole || "",
+          strategyCadence: candidate.strategyCadence || "",
+        })),
       })
-      const aiRows = parseAiRecommendations(raw)
-      const byKey = new Map(aiRows.map(row => [String(row.platform_key || ""), row]))
+      const byKey = new Map(ai.rows.map(row => [row.platform_key, row]))
       for (const candidate of candidates) {
         const row = byKey.get(candidate.platformKey)
         if (!row) continue
@@ -115,10 +84,17 @@ export async function recommendPublishingPlanPlatforms(input: {
         candidate.reason = clean(row.reason, 300) || candidate.reason
         if (row.recommended === false && !candidate.evidence) candidate.stageValue = Math.min(candidate.stageValue, 25)
       }
-      model = config.model
-    } catch (error) {
+      model = ai.model || ai.provider
+      recommendationMode = ai.mode
+      recommendationProvider = ai.provider
+      webEvidenceUsed = ai.webEvidenceUsed
+      webSourceCount = ai.webSourceCount
+      cacheHit = ai.cacheHit
+      traceId = ai.traceId
+      notes.push(...ai.notes)
+    } catch {
       usedFallback = true
-      notes.push(`AI 平台适配判断暂不可用，已使用报告证据完成确定性推荐：${error instanceof Error ? error.message : "模型调用失败"}`)
+      notes.push("已根据现有报告与信源数据生成平台建议。")
     }
   } else {
     usedFallback = true
@@ -150,6 +126,12 @@ export async function recommendPublishingPlanPlatforms(input: {
     model,
     generatedAt: new Date().toISOString(),
     usedFallback,
+    recommendationMode,
+    recommendationProvider,
+    webEvidenceUsed,
+    webSourceCount,
+    cacheHit,
+    traceId,
     notes,
   }
 }
@@ -304,17 +286,6 @@ function contentType(
   if (["douyin", "kuaishou", "bilibili"].includes(platformKey)) return "video"
   if (category === "authority_media" || category === "government_association") return "authority_article"
   return "article"
-}
-
-function parseAiRecommendations(raw: string): AiRecommendation[] {
-  const text = String(raw || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim()
-  const start = text.indexOf("{")
-  const end = text.lastIndexOf("}")
-  if (start < 0 || end <= start) throw new Error("AI 没有返回可解析的平台建议")
-  const parsed = JSON.parse(text.slice(start, end + 1)) as { platforms?: unknown }
-  return Array.isArray(parsed.platforms)
-    ? parsed.platforms.filter(item => item && typeof item === "object") as AiRecommendation[]
-    : []
 }
 
 function clampScore(value: unknown, fallback: number): number {
