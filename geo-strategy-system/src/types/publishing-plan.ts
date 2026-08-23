@@ -206,6 +206,12 @@ export interface PublishingPlanRecommendation {
   model?: string
   generatedAt: string
   usedFallback: boolean
+  recommendationMode?: "ai_enhanced" | "ai_repaired" | "evidence_only"
+  recommendationProvider?: string
+  webEvidenceUsed?: boolean
+  webSourceCount?: number
+  cacheHit?: boolean
+  traceId?: string
   notes: string[]
 }
 
