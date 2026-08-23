@@ -15,6 +15,7 @@ import {
   UserPlus,
 } from "lucide-react"
 import DiamondStarfield from "@/components/brand/diamond-starfield"
+import FounderBusinessSection from "@/components/brand/founder-business-section"
 import SiteFooter from "@/components/site-footer"
 import type { PublicUser } from "@/lib/auth"
 
@@ -267,6 +268,8 @@ export default function BrandHome({ user }: BrandHomeProps) {
           </div>
         </div>
       </section>
+
+      <FounderBusinessSection />
 
       <section className="brand-final-cta text-white">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-6 px-4 py-12 sm:flex-row sm:items-center md:px-8 md:py-14">
