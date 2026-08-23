@@ -643,6 +643,17 @@ select {
   background: linear-gradient(112deg, #031e62 0%, #0637a6 44%, #1677ff 76%, #00aee8 100%);
 }
 
+.brand-about-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1500px;
+}
+
+.brand-founder-band {
+  background:
+    linear-gradient(112deg, rgba(2, 11, 45, 0.98) 0%, rgba(3, 30, 98, 0.98) 58%, rgba(5, 66, 153, 0.96) 100%),
+    #020b2d;
+}
+
 @keyframes brand-entry-rise {
   from {
     opacity: 0;
