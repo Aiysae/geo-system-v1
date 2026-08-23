@@ -30,6 +30,21 @@ const BUSINESS_PATHS = [
   },
 ]
 
+const DELIVERY_METHOD = [
+  {
+    title: "进入业务现场",
+    description: "从企业的客户、流程与结果出发，识别真实问题和可验收目标。",
+  },
+  {
+    title: "重构业务流程",
+    description: "让 AI 从单点工具升级为能够理解业务、参与决策与协同执行的生产力。",
+  },
+  {
+    title: "验证商业结果",
+    description: "以营收、效率与成本为结果指标，将方案做到可执行、可验证、可迭代。",
+  },
+]
+
 export default function FounderBusinessSection() {
   return (
     <section
@@ -59,7 +74,9 @@ export default function FounderBusinessSection() {
           <div className="lg:col-span-5">
             <div className="text-[11px] font-semibold uppercase text-[#8BE9FF]">Founder</div>
             <h3 className="mt-3 text-3xl font-semibold leading-tight text-white sm:text-4xl">Vantage万极</h3>
-            <p className="mt-2 text-sm font-semibold text-[#8BE9FF] sm:text-base">势途 AI 创始人</p>
+            <p className="mt-2 text-sm font-semibold leading-6 text-[#8BE9FF] sm:text-base">
+              势途 AI 创始人 · 连续创业者 · 商业哲学爱好者
+            </p>
 
             <p className="mt-6 text-sm leading-7 text-[#DDF7FF]/78 sm:text-base sm:leading-8">
               作为长期站在人工智能、商业创新与真实世界交汇处的实践者，Vantage万极聚焦如何让 AI 从“拥有能力”走向“创造商业价值”，并将模型能力转化为可执行、可验证、可迭代的商业解决方案。
@@ -94,6 +111,49 @@ export default function FounderBusinessSection() {
             </div>
             <figcaption className="mt-3 text-xs leading-5 text-[#C8DFFF]/52">
               Vantage万极讲授“AI 现实世界可信事件模型”
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <div className="bg-[#EAF3FF]">
+        <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-14 md:px-8 md:py-20 lg:grid-cols-12 lg:gap-14">
+          <div className="lg:col-span-5">
+            <div className="text-[11px] font-semibold uppercase text-[#1677FF]">Method &amp; Practice</div>
+            <h3 className="mt-3 text-3xl font-semibold leading-tight text-[#102A43] sm:text-4xl">
+              从 AI 工具应用，到商业结果交付
+            </h3>
+            <p className="mt-5 text-sm leading-7 text-slate-600 sm:text-base sm:leading-8">
+              AI Business FDE 将 AI 技术能力与企业经营需求连接起来。重点不是“如何使用 AI”，而是如何深入业务现场、识别真实问题，并将模型能力转化为真正可落地的解决方案。
+            </p>
+
+            <ol className="mt-8 border-t border-[#8CBFFF]">
+              {DELIVERY_METHOD.map((step, index) => (
+                <li key={step.title} className="grid grid-cols-[42px_1fr] gap-4 border-b border-[#A8CCF8] py-5">
+                  <span className="pt-0.5 text-sm font-semibold tabular-nums text-[#1677FF]">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <span>
+                    <span className="block text-base font-semibold text-[#102A43]">{step.title}</span>
+                    <span className="mt-1.5 block text-sm leading-6 text-slate-600">{step.description}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <figure className="lg:col-span-7">
+            <div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-[#8CBFFF] bg-white shadow-[0_34px_80px_-52px_rgba(3,55,166,0.62)]">
+              <Image
+                src="/brand/about/vantage-wanji-fde-workshop.webp"
+                alt="Vantage万极在 AI Business FDE 课程中讲授商业价值交付"
+                fill
+                sizes="(max-width: 1024px) 100vw, 58vw"
+                className="object-cover"
+              />
+            </div>
+            <figcaption className="mt-3 text-xs leading-5 text-slate-500">
+              AI Business FDE 线下课程现场：从技术部署走向商业价值交付
             </figcaption>
           </figure>
         </div>
