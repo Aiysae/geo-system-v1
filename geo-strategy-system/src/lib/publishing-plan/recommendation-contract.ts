@@ -1,19 +1,39 @@
 import { z } from "zod"
 
 const booleanValue = z.preprocess(value => {
+  if (typeof value === "number") {
+    if (value === 1) return true
+    if (value === 0) return false
+  }
   if (typeof value !== "string") return value
-  if (value.trim().toLowerCase() === "true") return true
-  if (value.trim().toLowerCase() === "false") return false
+  const normalized = value.trim().toLowerCase()
+  if (["true", "yes", "y", "1", "是", "推荐"].includes(normalized)) return true
+  if (["false", "no", "n", "0", "否", "不推荐"].includes(normalized)) return false
   return value
 }, z.boolean())
 
-const recommendationRowSchema = z.object({
+const scoreValue = z.preprocess(value => {
+  if (typeof value !== "string") return value
+  const normalized = value.trim().replace(/%$/, "")
+  return normalized ? Number(normalized) : value
+}, z.number().finite().min(0).max(100))
+
+const recommendationRowSchema = z.preprocess(value => {
+  if (!isRecord(value)) return value
+  return {
+    platform_key: firstDefined(value, ["platform_key", "platformKey", "key"]),
+    industry_fit: firstDefined(value, ["industry_fit", "industryFit", "fit_score", "fitScore"]),
+    stage_value: firstDefined(value, ["stage_value", "stageValue", "stage_score", "stageScore"]),
+    recommended: firstDefined(value, ["recommended", "is_recommended", "isRecommended"]),
+    reason: firstDefined(value, ["reason", "recommendation_reason", "recommendationReason", "rationale"]),
+  }
+}, z.object({
   platform_key: z.string().trim().min(1).max(100),
-  industry_fit: z.coerce.number().finite().min(0).max(100),
-  stage_value: z.coerce.number().finite().min(0).max(100),
+  industry_fit: scoreValue,
+  stage_value: scoreValue,
   recommended: booleanValue,
   reason: z.string().trim().max(300).optional().default(""),
-})
+}))
 
 export type PublishingPlatformAiRecommendation = z.infer<typeof recommendationRowSchema>
 
@@ -50,7 +70,12 @@ export function parsePublishingPlatformRecommendations(
   raw: string,
   allowedPlatformKeys: string[],
 ): PublishingPlatformAiRecommendation[] {
-  const allowed = new Set(allowedPlatformKeys.map(key => key.trim()).filter(Boolean))
+  const allowed = new Map(
+    allowedPlatformKeys
+      .map(key => key.trim())
+      .filter(Boolean)
+      .map(key => [normalizePlatformKey(key), key] as const),
+  )
   const parsedPayload = parsePayload(raw)
   const rows = Array.isArray(parsedPayload)
     ? parsedPayload
@@ -58,20 +83,41 @@ export function parsePublishingPlatformRecommendations(
       ? parsedPayload.platforms
       : []
   const result: PublishingPlatformAiRecommendation[] = []
-  const seen = new Set<string>()
+  const indexes = new Map<string, number>()
 
   for (const row of rows) {
     const parsed = recommendationRowSchema.safeParse(row)
     if (!parsed.success) continue
-    if (!allowed.has(parsed.data.platform_key) || seen.has(parsed.data.platform_key)) continue
-    seen.add(parsed.data.platform_key)
-    result.push(parsed.data)
+    const normalizedKey = normalizePlatformKey(parsed.data.platform_key)
+    const platformKey = allowed.get(normalizedKey)
+    if (!platformKey) continue
+    const normalizedRow = { ...parsed.data, platform_key: platformKey }
+    const existingIndex = indexes.get(normalizedKey)
+    if (existingIndex === undefined) {
+      indexes.set(normalizedKey, result.length)
+      result.push(normalizedRow)
+      continue
+    }
+    if (rowQuality(normalizedRow) > rowQuality(result[existingIndex])) {
+      result[existingIndex] = normalizedRow
+    }
   }
 
   if (result.length === 0) {
     throw new Error("AI 没有返回有效的候选平台")
   }
   return result
+}
+
+export function getMissingPublishingPlatformKeys(
+  rows: PublishingPlatformAiRecommendation[],
+  allowedPlatformKeys: string[],
+): string[] {
+  const present = new Set(rows.map(row => normalizePlatformKey(row.platform_key)))
+  return allowedPlatformKeys
+    .map(key => key.trim())
+    .filter(Boolean)
+    .filter(key => !present.has(normalizePlatformKey(key)))
 }
 
 function parsePayload(raw: string): unknown {
@@ -108,4 +154,22 @@ function parsePayload(raw: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function firstDefined(
+  record: Record<string, unknown>,
+  keys: string[],
+): unknown {
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null) return record[key]
+  }
+  return undefined
+}
+
+function normalizePlatformKey(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function rowQuality(row: PublishingPlatformAiRecommendation): number {
+  return row.reason.trim().length
 }

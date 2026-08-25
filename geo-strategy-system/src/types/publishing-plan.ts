@@ -212,6 +212,8 @@ export interface PublishingPlanRecommendation {
   webSourceCount?: number
   cacheHit?: boolean
   traceId?: string
+  aiCoveredPlatformCount?: number
+  evidenceFilledPlatformCount?: number
   notes: string[]
 }
 
