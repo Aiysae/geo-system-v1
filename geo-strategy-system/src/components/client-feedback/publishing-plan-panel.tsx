@@ -25,6 +25,7 @@ import {
 import type { Client } from "@/types"
 import type { ClientExecutionProfile } from "@/types/client-feedback"
 import type { ClientPublicationProgress } from "@/types/client-feedback"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   PublishingContentType,
   PublishingContentAsset,
@@ -218,13 +219,20 @@ export default function PublishingPlanPanel({
         }),
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "平台建议生成失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, {
+        status: response.status,
+        subject: "平台建议",
+        fallback: "平台建议暂未生成，请稍后重试。",
+      }))
       const next = body.recommendation as PublishingPlanRecommendation
       setRecommendation(next)
       updateDraft({ platformConfigs: next.platformConfigs })
       setNotice(recommendationStatus(next).label)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "平台建议生成失败")
+      setError(toUserFacingError(caught, {
+        subject: "平台建议",
+        fallback: "平台建议暂未生成，请稍后重试。",
+      }))
     } finally {
       setPending("")
     }

@@ -34,5 +34,13 @@ assert.equal(
   "邮箱验证码不正确",
 )
 assert.ok(!toUserFacingError("HTTP 500: token=secret").includes("secret"))
+assert.equal(
+  toUserFacingError("上游服务返回未知内部异常", {
+    subject: "平台建议",
+    fallback: "平台建议暂未生成，请稍后重试。",
+    hideUnknownDetails: true,
+  }),
+  "平台建议暂未生成，请稍后重试。",
+)
 
 console.log("User-facing error tests passed.")

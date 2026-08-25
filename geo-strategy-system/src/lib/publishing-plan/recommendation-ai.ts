@@ -5,10 +5,12 @@ import {
   isAdapterCredentialConfigured,
   runAdapterCredentialPoolChat,
 } from "@/lib/ai-credential-adapter"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import type { ChatArgs, SearchSourceEvent } from "@/lib/llm/openai-compat"
 import {
+  getMissingPublishingPlatformKeys,
   PUBLISHING_RECOMMENDATION_OUTPUT_SCHEMA,
   parsePublishingPlatformRecommendations,
   type PublishingPlatformAiRecommendation,
@@ -51,6 +53,7 @@ export interface PublishingRecommendationAiResult {
   cacheHit: boolean
   traceId: string
   notes: string[]
+  missingPlatformKeys: string[]
 }
 
 type RecommendationAiCoreResult = Omit<PublishingRecommendationAiResult, "cacheHit" | "traceId">
@@ -68,6 +71,7 @@ export interface RecommendationAiDependencies {
 const CACHE_TTL_MS = 10 * 60_000
 const CACHE_MAX_ENTRIES = 200
 const REQUEST_BUDGET_MS = 105_000
+const JUDGE_PROVIDERS: ModelKey[] = ["doubao", "qwen"]
 const resultCache = new Map<string, { expiresAt: number; value: RecommendationAiCoreResult }>()
 const inFlight = new Map<string, {
   traceId: string
@@ -137,46 +141,39 @@ async function executeRecommendationWithinBudget(
   const notes: string[] = []
   let webSummary = ""
   let webEvent: SearchSourceEvent | undefined
+  const evidenceArgs = researchArgs(input, signal, event => {
+    webEvent = event
+  })
 
-  try {
-    webSummary = await dependencies.chat("doubao", "research", {
-      system: [
-        "你是 GEO 内容渠道调研分析师。",
-        "请联网核实候选平台与当前行业、地域及客户阶段的适配信号。",
-        "只输出简洁的证据摘要，不计算金额、篇数、权重或账号数。",
-        "不得添加候选列表以外的平台。",
-      ].join("\n"),
-      user: JSON.stringify({
-        task: "为后续结构化裁判补充公开网络证据",
-        client: clientPayload(input),
-        candidates: input.candidates.map(candidate => ({
-          platform_key: candidate.platformKey,
-          platform: candidate.platformName,
-          category: candidate.category,
-        })),
-      }),
-      temperature: 0.1,
-      maxTokens: 1_800,
-      jsonMode: false,
-      timeoutSec: 55,
-      forceWebSearch: true,
-      allowWebSearch: true,
-      requireWebEvidence: true,
-      officialWebOnly: true,
-      signal,
-      onSearchSources: event => {
-        webEvent = event
-      },
-    })
-  } catch (error) {
-    notes.push("已基于现有报告完成 AI 平台适配；实时行业资料未参与本次增强。")
-    logStage(traceId, input.clientId, "web_evidence_unavailable", error)
+  if (await providerConfigured(dependencies, "doubao", "research", evidenceArgs, traceId, input.clientId)) {
+    try {
+      webSummary = await dependencies.chat("doubao", "research", evidenceArgs)
+    } catch (error) {
+      logStage(traceId, input.clientId, "web_evidence_unavailable", error, "doubao")
+    }
+  } else {
+    logStage(traceId, input.clientId, "web_evidence_route_unavailable", undefined, "doubao")
   }
 
   const webEvidenceUsed = Boolean(webSummary.trim() && webEvent?.searchExecuted)
   const webSourceCount = webEvent?.sources.length || 0
-  const providers: ModelKey[] = ["doubao"]
-  if (await dependencies.configured("qwen", "judge", { jsonMode: true })) providers.push("qwen")
+  if (!webEvidenceUsed) notes.push("本次建议已根据现有报告与信源数据生成。")
+  const providerAvailability = await Promise.all(JUDGE_PROVIDERS.map(async provider => ({
+    provider,
+    configured: await providerConfigured(
+      dependencies,
+      provider,
+      "judge",
+      { jsonMode: true },
+      traceId,
+      input.clientId,
+    ),
+  })))
+  const providers = providerAvailability
+    .filter(item => item.configured)
+    .map(item => item.provider)
+
+  if (providers.length === 0) throw new Error("平台建议模型当前不可用")
 
   let lastError: unknown
   for (const provider of providers) {
@@ -184,17 +181,18 @@ async function executeRecommendationWithinBudget(
     try {
       raw = await dependencies.chat(provider, "judge", judgeArgs(input, webSummary, webEvent, signal))
       const rows = parsePublishingPlatformRecommendations(raw, allowedKeys)
-      const setting = await dependencies.runtimeSetting(provider)
-      logStage(traceId, input.clientId, "schema_valid", undefined, provider)
-      return {
+      return await buildCoreResult({
         rows,
-        mode: provider === "doubao" ? "ai_enhanced" : "ai_repaired",
+        requestedMode: provider === "doubao" ? "ai_enhanced" : "ai_repaired",
         provider,
-        model: setting.model,
         webEvidenceUsed,
         webSourceCount,
         notes,
-      }
+        allowedKeys,
+        dependencies,
+        traceId,
+        clientId: input.clientId,
+      })
     } catch (error) {
       lastError = error
       logStage(traceId, input.clientId, "schema_invalid", error, provider)
@@ -205,18 +203,19 @@ async function executeRecommendationWithinBudget(
     try {
       const repaired = await dependencies.chat(provider, "judge", repairArgs(raw, allowedKeys, signal))
       const rows = parsePublishingPlatformRecommendations(repaired, allowedKeys)
-      const setting = await dependencies.runtimeSetting(provider)
-      notes.push("AI 平台建议已自动校验并完成格式修复。")
-      logStage(traceId, input.clientId, "schema_repair_success", undefined, provider)
-      return {
+      notes.push("平台建议已自动校验。")
+      return await buildCoreResult({
         rows,
-        mode: "ai_repaired",
+        requestedMode: "ai_repaired",
         provider,
-        model: setting.model,
         webEvidenceUsed,
         webSourceCount,
         notes,
-      }
+        allowedKeys,
+        dependencies,
+        traceId,
+        clientId: input.clientId,
+      })
     } catch (error) {
       lastError = error
       logStage(traceId, input.clientId, "schema_repair_failed", error, provider)
@@ -227,6 +226,40 @@ async function executeRecommendationWithinBudget(
   throw lastError instanceof Error
     ? lastError
     : new Error("AI 平台适配判断暂不可用")
+}
+
+function researchArgs(
+  input: PublishingRecommendationAiInput,
+  signal: AbortSignal,
+  onSearchSources: (event: SearchSourceEvent) => void,
+): ChatArgs {
+  return {
+    system: [
+      "你是 GEO 内容渠道调研分析师。",
+      "请联网核实候选平台与当前行业、地域及客户阶段的适配信号。",
+      "只输出简洁的证据摘要，不计算金额、篇数、权重或账号数。",
+      "不得添加候选列表以外的平台。",
+    ].join("\n"),
+    user: JSON.stringify({
+      task: "为后续结构化裁判补充公开网络证据",
+      client: clientPayload(input),
+      candidates: input.candidates.map(candidate => ({
+        platform_key: candidate.platformKey,
+        platform: candidate.platformName,
+        category: candidate.category,
+      })),
+    }),
+    temperature: 0.1,
+    maxTokens: 1_800,
+    jsonMode: false,
+    timeoutSec: 55,
+    forceWebSearch: true,
+    allowWebSearch: true,
+    requireWebEvidence: true,
+    officialWebOnly: true,
+    signal,
+    onSearchSources,
+  }
 }
 
 function judgeArgs(
@@ -297,6 +330,61 @@ function repairArgs(raw: string, allowedKeys: string[], signal: AbortSignal): Ch
   }
 }
 
+async function providerConfigured(
+  dependencies: RecommendationAiDependencies,
+  provider: ModelKey,
+  module: AiCredentialModule,
+  args: Partial<ChatArgs>,
+  traceId: string,
+  clientId: string,
+): Promise<boolean> {
+  try {
+    return await dependencies.configured(provider, module, args)
+  } catch (error) {
+    logStage(traceId, clientId, "provider_health_check_failed", error, provider)
+    return false
+  }
+}
+
+async function buildCoreResult(input: {
+  rows: PublishingPlatformAiRecommendation[]
+  requestedMode: PublishingRecommendationAiMode
+  provider: ModelKey
+  webEvidenceUsed: boolean
+  webSourceCount: number
+  notes: string[]
+  allowedKeys: string[]
+  dependencies: RecommendationAiDependencies
+  traceId: string
+  clientId: string
+}): Promise<RecommendationAiCoreResult> {
+  const missingPlatformKeys = getMissingPublishingPlatformKeys(input.rows, input.allowedKeys)
+  const mode = missingPlatformKeys.length > 0 ? "ai_repaired" : input.requestedMode
+  let model: string | undefined
+  try {
+    model = (await input.dependencies.runtimeSetting(input.provider)).model
+  } catch (error) {
+    logStage(input.traceId, input.clientId, "runtime_setting_unavailable", error, input.provider)
+  }
+  logStage(
+    input.traceId,
+    input.clientId,
+    missingPlatformKeys.length > 0 ? "coverage_partial" : "schema_valid",
+    undefined,
+    input.provider,
+  )
+  return {
+    rows: input.rows,
+    mode,
+    provider: input.provider,
+    model,
+    webEvidenceUsed: input.webEvidenceUsed,
+    webSourceCount: input.webSourceCount,
+    notes: [...input.notes],
+    missingPlatformKeys,
+  }
+}
+
 function clientPayload(input: PublishingRecommendationAiInput): Record<string, string> {
   return {
     name: input.clientName,
@@ -335,6 +423,7 @@ function cloneCoreResult(result: RecommendationAiCoreResult): RecommendationAiCo
     ...result,
     rows: result.rows.map(row => ({ ...row })),
     notes: [...result.notes],
+    missingPlatformKeys: [...result.missingPlatformKeys],
   }
 }
 
@@ -352,11 +441,14 @@ function logStage(
   const detail = error
     ? sanitizeAiUpstreamMessage(error instanceof Error ? error.message : String(error), 220)
     : undefined
+  const diagnosis = error ? classifyAiCredentialFailure(error) : undefined
   console.info("[publishing-plan-recommendation]", JSON.stringify({
     traceId,
     clientId,
     stage,
     provider,
     detail,
+    failureCode: diagnosis?.code,
+    failureScope: diagnosis?.scope,
   }))
 }

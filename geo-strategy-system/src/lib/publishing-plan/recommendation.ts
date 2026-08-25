@@ -53,6 +53,8 @@ export async function recommendPublishingPlanPlatforms(input: {
   let webSourceCount = 0
   let cacheHit = false
   let traceId: string | undefined
+  let aiCoveredPlatformCount = 0
+  let evidenceFilledPlatformCount = 0
 
   if (input.useAi !== false && candidates.length > 0) {
     try {
@@ -76,6 +78,8 @@ export async function recommendPublishingPlanPlatforms(input: {
         })),
       })
       const byKey = new Map(ai.rows.map(row => [row.platform_key, row]))
+      aiCoveredPlatformCount = byKey.size
+      evidenceFilledPlatformCount = ai.missingPlatformKeys.length
       for (const candidate of candidates) {
         const row = byKey.get(candidate.platformKey)
         if (!row) continue
@@ -92,12 +96,19 @@ export async function recommendPublishingPlanPlatforms(input: {
       cacheHit = ai.cacheHit
       traceId = ai.traceId
       notes.push(...ai.notes)
+      if (ai.missingPlatformKeys.length > 0) {
+        usedFallback = true
+        recommendationMode = "ai_repaired"
+        notes.push("部分平台已根据报告数据补齐。")
+      }
     } catch {
       usedFallback = true
+      evidenceFilledPlatformCount = candidates.length
       notes.push("已根据现有报告与信源数据生成平台建议。")
     }
   } else {
     usedFallback = true
+    evidenceFilledPlatformCount = candidates.length
   }
 
   const scored = candidates.map(candidate => ({
@@ -117,7 +128,7 @@ export async function recommendPublishingPlanPlatforms(input: {
     index,
   ))
 
-  if (snapshot.platforms.length === 0) notes.push("当前客户暂无可审计信源平台数据，建议先完成一次联网疑问句检测。")
+  if (snapshot.platforms.length === 0) notes.push("当前客户暂无历史信源数据，建议先完成一次联网疑问句检测。")
   if (platformConfigs.length === 0) throw new Error("当前客户资料不足以生成发布平台建议")
 
   return {
@@ -132,7 +143,9 @@ export async function recommendPublishingPlanPlatforms(input: {
     webSourceCount,
     cacheHit,
     traceId,
-    notes,
+    aiCoveredPlatformCount,
+    evidenceFilledPlatformCount,
+    notes: [...new Set(notes)],
   }
 }
 

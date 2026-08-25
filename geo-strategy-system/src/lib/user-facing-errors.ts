@@ -8,6 +8,7 @@ export type UserFacingErrorOptions = {
   fallback?: string
   status?: number
   subject?: string
+  hideUnknownDetails?: boolean
 }
 
 /** Convert internal service errors into short messages that are safe for product UI. */
@@ -43,6 +44,8 @@ export function toUserFacingError(
   if (TECHNICAL_DETAIL_PATTERN.test(message)) {
     return `${subject}暂时不可用，请稍后再试或联系管理员。`
   }
+
+  if (options.hideUnknownDetails) return fallback
 
   return message.trim() || fallback
 }
