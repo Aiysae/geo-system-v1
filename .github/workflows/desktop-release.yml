@@ -3,8 +3,13 @@ name: Build Shitu GEO desktop clients
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "commercial/mvp-billing"
     tags:
       - "desktop-v*"
+    paths:
+      - ".github/workflows/desktop-release.yml"
+      - "geo-strategy-system/desktop/**"
 
 permissions:
   contents: write
