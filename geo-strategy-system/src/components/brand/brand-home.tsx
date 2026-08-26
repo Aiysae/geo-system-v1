@@ -17,6 +17,7 @@ import {
 import DiamondStarfield from "@/components/brand/diamond-starfield"
 import FounderBusinessSection from "@/components/brand/founder-business-section"
 import SiteFooter from "@/components/site-footer"
+import DesktopDownloadDialog from "@/components/desktop/desktop-download-dialog"
 import type { PublicUser } from "@/lib/auth"
 
 type BrandHomeProps = {
@@ -93,9 +94,10 @@ export default function BrandHome({ user }: BrandHomeProps) {
             </Link>
 
             <div className="flex shrink-0 items-center gap-2">
+              <DesktopDownloadDialog variant="header" />
               <Link
                 href="/agent"
-                className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-cyan-200/24 bg-cyan-200/10 px-2 text-xs font-semibold text-cyan-50 transition-colors hover:bg-cyan-200/18 sm:gap-1.5 sm:px-3"
+                className="hidden h-9 items-center justify-center gap-1.5 rounded-lg border border-cyan-200/24 bg-cyan-200/10 px-3 text-xs font-semibold text-cyan-50 transition-colors hover:bg-cyan-200/18 sm:inline-flex"
                 title="Agent 接入"
               >
                 <Bot className="h-4 w-4" />
@@ -169,6 +171,7 @@ export default function BrandHome({ user }: BrandHomeProps) {
                 {primaryLabel}
                 <ArrowRight className="h-4 w-4" />
               </Link>
+              <DesktopDownloadDialog variant="hero" />
               {user ? (
                 <Link
                   href="#workspace-preview-title"
