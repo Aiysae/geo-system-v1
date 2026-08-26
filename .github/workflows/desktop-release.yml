@@ -1,0 +1,73 @@
+name: Build Shitu GEO desktop clients
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            command: npm run build:win -- --publish never
+            artifact: windows-x64
+          - os: macos-latest
+            command: npm run build:mac:universal -- --publish never
+            artifact: macos-universal
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: geo-strategy-system/desktop
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: geo-strategy-system/desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Run desktop security tests
+        run: npm test
+
+      - name: Build installer
+        shell: bash
+        run: ${{ matrix.command }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shitu-geo-${{ matrix.artifact }}
+          path: |
+            geo-strategy-system/desktop/dist/*.dmg
+            geo-strategy-system/desktop/dist/*.zip
+            geo-strategy-system/desktop/dist/*.exe
+            geo-strategy-system/desktop/dist/*.yml
+            geo-strategy-system/desktop/dist/*.blockmap
+          if-no-files-found: error
+
+      - name: Attach installer to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            geo-strategy-system/desktop/dist/*.dmg
+            geo-strategy-system/desktop/dist/*.zip
+            geo-strategy-system/desktop/dist/*.exe
+            geo-strategy-system/desktop/dist/*.yml
+            geo-strategy-system/desktop/dist/*.blockmap
+          generate_release_notes: true

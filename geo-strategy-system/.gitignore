@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+/desktop/node_modules
+/desktop/dist
+/desktop/.cache
 /.pnp
 .pnp.*
 .yarn/*
