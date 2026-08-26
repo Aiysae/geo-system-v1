@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Desktop application
+
+The Electron desktop client lives in `desktop/` as an independent package so its Chromium runtime and packaging dependencies never enter the ECS web deployment. It uses the production cloud workspace as the only business-data source while adding native downloads, system notifications, tray operation, network diagnostics, and signed-release update support. See `desktop/README.md` for development, testing, packaging, and security details.
+
 ## Getting Started
 
 First, run the development server:

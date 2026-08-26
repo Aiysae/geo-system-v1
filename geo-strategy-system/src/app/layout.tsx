@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CreditsProvider } from "@/components/credits/credits-provider";
+import { DesktopRuntimeBridge } from "@/components/desktop/desktop-runtime-bridge";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,7 +19,10 @@ export default function RootLayout({
       className="h-full antialiased"
     >
       <body className="geo-app-surface min-h-full bg-slate-50">
-        <CreditsProvider>{children}</CreditsProvider>
+        <CreditsProvider>
+          <DesktopRuntimeBridge />
+          {children}
+        </CreditsProvider>
       </body>
     </html>
   );
