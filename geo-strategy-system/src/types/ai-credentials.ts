@@ -147,6 +147,9 @@ export interface AiCredentialSelectionRequest {
   module: AiCredentialModule
   model?: string
   requiredCapabilities?: AiCredentialCapability[]
+  /** Route-health identity; capability eligibility still uses requiredCapabilities. */
+  routeHealthCapabilities?: AiCredentialCapability[]
+  spreadAcrossCredentials?: boolean
   excludeCredentialIds?: string[]
   waitTimeoutMs?: number
   leaseSeconds?: number

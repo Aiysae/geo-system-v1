@@ -225,7 +225,9 @@ export function buildAiCredentialRouteIdentity(
   context: AiCredentialRouteContext | AiCredentialSelectionRequest,
 ): AiCredentialRouteIdentity {
   const capabilityProfile = aiCredentialCapabilityProfile(
-    context.requiredCapabilities,
+    "routeHealthCapabilities" in context
+      ? context.routeHealthCapabilities || context.requiredCapabilities
+      : context.requiredCapabilities,
   )
   const requestedModel = cleanText(context.model, 240)
   const model = requestedModel

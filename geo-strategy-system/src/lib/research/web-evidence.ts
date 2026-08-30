@@ -1,6 +1,8 @@
 import "server-only"
 
+import { createHash } from "crypto"
 import { JSDOM } from "jsdom"
+import { kv } from "@/lib/kv"
 import { fetchSafeWebText, type SafeWebFetchResult } from "@/lib/safe-web-fetch"
 import {
   isAuditableSourceUrl,
@@ -12,6 +14,7 @@ import type {
   ResearchEvidenceAudit,
   ResearchEvidenceSource,
 } from "@/types"
+import { RESEARCH_EVIDENCE_CACHE_SECONDS } from "@/lib/research/runtime"
 
 const DEFAULT_MIN_SOURCES = 4
 const DEFAULT_MIN_DOMAINS = 2
@@ -233,7 +236,7 @@ function roundRobinCandidates(
   return output
 }
 
-export async function collectResearchEvidence(
+async function collectResearchEvidenceFresh(
   options: CollectResearchEvidenceOptions,
 ): Promise<ResearchEvidenceBundle> {
   const queries = unique(options.queries, 8)
@@ -350,6 +353,45 @@ export async function collectResearchEvidence(
   }
 
   return { queries, sources, audit }
+}
+
+function evidenceCacheKey(options: CollectResearchEvidenceOptions): string {
+  const digest = createHash("sha256").update(JSON.stringify({
+    version: 2,
+    queries: unique(options.queries, 8),
+    minimumSources: options.minimumSources ?? DEFAULT_MIN_SOURCES,
+    minimumDomains: options.minimumDomains ?? DEFAULT_MIN_DOMAINS,
+    maximumSources: options.maximumSources ?? DEFAULT_MAX_SOURCES,
+    maximumPerDomain: options.maximumPerDomain ?? DEFAULT_MAX_PER_DOMAIN,
+  })).digest("hex")
+  return `geo:research-evidence:v2:${digest}`
+}
+
+export async function collectResearchEvidence(
+  options: CollectResearchEvidenceOptions,
+): Promise<ResearchEvidenceBundle> {
+  // Injected dependencies are used by deterministic tests and must never hit shared cache.
+  if (options.search || options.fetch) return collectResearchEvidenceFresh(options)
+  if (options.signal?.aborted) throw new Error("联网调研已停止。")
+
+  const key = evidenceCacheKey(options)
+  try {
+    const cached = await kv.get<ResearchEvidenceBundle>(key)
+    if (cached?.audit?.passed && cached.sources?.length > 0) {
+      console.info("[research-evidence] cache hit", cached.sources.length)
+      return cached
+    }
+  } catch (error) {
+    console.warn("[research-evidence] cache read skipped", error)
+  }
+
+  const bundle = await collectResearchEvidenceFresh(options)
+  try {
+    await kv.set(key, bundle, { ex: RESEARCH_EVIDENCE_CACHE_SECONDS })
+  } catch (error) {
+    console.warn("[research-evidence] cache write skipped", error)
+  }
+  return bundle
 }
 
 export function formatResearchEvidenceForModel(bundle: ResearchEvidenceBundle): string {

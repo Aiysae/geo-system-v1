@@ -170,6 +170,21 @@ async function orderedCandidates(
     `geo:ai-credential:route-sequence:${request.vendor}:${request.module}`,
     1,
   )
+  if (request.spreadAcrossCredentials) {
+    const healthy = credentials
+      .filter(credential => routeHealth.get(credential.id)?.state !== "degraded")
+      .sort((left, right) => left.id.localeCompare(right.id))
+    const degraded = credentials
+      .filter(credential => routeHealth.get(credential.id)?.state === "degraded")
+      .sort((left, right) => left.id.localeCompare(right.id))
+    if (healthy.length <= 1) return [...healthy, ...degraded]
+    const offset = Math.abs(sequence - 1) % healthy.length
+    return [
+      ...healthy.slice(offset),
+      ...healthy.slice(0, offset),
+      ...degraded,
+    ]
+  }
   return credentials.sort((left, right) => {
     const leftDegraded = routeHealth.get(left.id)?.state === "degraded" ? 1 : 0
     const rightDegraded = routeHealth.get(right.id)?.state === "degraded" ? 1 : 0

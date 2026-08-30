@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createHash } from "crypto"
 import type {
   AnalysisSubjectType,
   CompetitorCompareResult,
@@ -23,12 +24,17 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import { kv } from "@/lib/kv"
 import {
   buildCompetitorSearchQueries,
   collectResearchEvidence,
   formatResearchEvidenceForModel,
   type ResearchEvidenceBundle,
 } from "@/lib/research/web-evidence"
+import {
+  COMPETITOR_STAGE_TIMEOUT_SECONDS,
+  DOUBAO_RESEARCH_STABLE_MODEL,
+} from "@/lib/research/runtime"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -336,38 +342,64 @@ async function generateComparison(args: {
     ...args,
     evidenceContext: formatResearchEvidenceForModel(evidenceBundle),
   })
+  const cacheKey = `geo:competitor-stage:v2:${createHash("sha256")
+    .update([DOUBAO_RESEARCH_STABLE_MODEL, system, user].join("\u001f"))
+    .digest("hex")}`
+  try {
+    const cached = await kv.get<CompetitorComparison>(cacheKey)
+    if (cached && isUsableComparison(cached)) {
+      console.info("[competitor-compare] stage cache hit", args.competitor)
+      return cached
+    }
+  } catch (error) {
+    console.warn("[competitor-compare] stage cache read skipped", args.competitor, error)
+  }
 
+  let lastError: unknown
   for (let attempt = 0; attempt < 2; attempt++) {
-    const raw = await runAdapterCredentialPoolChat("doubao", "research", {
-      system: attempt === 0
-        ? system
-        : `${system}\n\n上一次输出无法解析或缺少引用。请只输出一个完整 JSON 对象，并确保定位摘要和至少 6 条详细结论都填写有效 sourceIds。`,
-      user,
-      temperature: attempt === 0 ? 0.35 : 0.2,
-      maxTokens: 3072,
-      jsonMode: true,
-      mode: "judge",
-      allowWebSearch: false,
-      timeoutSec: 150,
-      signal: args.signal,
-    })
-
+    let upstreamCompleted = false
     try {
+      const raw = await runAdapterCredentialPoolChat("doubao", "research", {
+        system: attempt === 0
+          ? system
+          : `${system}\n\n上一次输出无法解析或缺少引用。请只输出一个完整 JSON 对象，并确保定位摘要和至少 6 条详细结论都填写有效 sourceIds。`,
+        user,
+        temperature: attempt === 0 ? 0.35 : 0.2,
+        maxTokens: 3072,
+        jsonMode: true,
+        mode: "judge",
+        allowWebSearch: false,
+        timeoutSec: COMPETITOR_STAGE_TIMEOUT_SECONDS,
+        preferredModel: DOUBAO_RESEARCH_STABLE_MODEL,
+        workloadClass: "long",
+        credentialAttemptLimit: 2,
+        signal: args.signal,
+      })
+      upstreamCompleted = true
       const parsed = parseJsonStrict<unknown>(raw, `豆包竞品对比（${args.competitor}）`)
       const comparison = normalizeComparison(parsed, args.competitor, evidenceBundle)
       if (!isUsableComparison(comparison)) {
         throw new Error("返回字段不完整")
       }
+      try {
+        await kv.set(cacheKey, comparison, { ex: 2 * 60 * 60 })
+      } catch (error) {
+        console.warn("[competitor-compare] stage cache write skipped", args.competitor, error)
+      }
       return comparison
     } catch (error) {
+      lastError = error
       console.warn(
-        `[competitor-compare] ${args.competitor} 第 ${attempt + 1} 次结构化输出无效：`,
+        `[competitor-compare] ${args.competitor} 第 ${attempt + 1} 次分析未完成：`,
         error instanceof Error ? error.message : error
       )
+      if (!upstreamCompleted) throw error
     }
   }
 
-  throw new Error(`豆包生成「${args.competitor}」对比时返回的数据格式不完整，自动重试后仍未恢复`)
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`豆包生成「${args.competitor}」对比时返回的数据格式不完整，自动重试后仍未恢复`)
 }
 
 async function mapWithConcurrency<T, R>(
@@ -408,42 +440,131 @@ function friendlyError(error: unknown): string {
   return message || "服务器错误"
 }
 
+interface CompetitorCompareTaskInput {
+  ourBrand: string
+  rawSelectedCompetitors: string[]
+  selectedCompetitors: string[]
+  industry: string
+  website: string
+  region: string
+  subjectType: AnalysisSubjectType
+  personProfile: ReturnType<typeof normalizePersonSubjectProfile>
+  competitors: string[]
+  penetration: unknown
+}
+
+export interface CompetitorCompareTaskExecutionOptions {
+  signal?: AbortSignal
+  onProgress?: (percent: number, stage: string) => void | Promise<void>
+}
+
+class CompetitorCompareInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "CompetitorCompareInputError"
+  }
+}
+
+function parseCompetitorCompareTaskInput(
+  body: Record<string, unknown>,
+): CompetitorCompareTaskInput {
+  const subjectType = normalizeAnalysisSubjectType(body.subjectType)
+  const rawSelectedCompetitors = Array.isArray(body.selectedCompetitors)
+    ? body.selectedCompetitors.map(value => String(value).trim()).filter(Boolean)
+    : [String(body.competitor || "").trim()].filter(Boolean)
+  const input: CompetitorCompareTaskInput = {
+    ourBrand: String(body.ourBrand || "").trim(),
+    rawSelectedCompetitors,
+    selectedCompetitors: rawSelectedCompetitors.slice(0, 5),
+    industry: String(body.industry || "").trim(),
+    website: String(body.website || "").trim(),
+    region: String(body.region || "").trim(),
+    subjectType,
+    personProfile: normalizePersonSubjectProfile(body.personProfile),
+    competitors: Array.isArray(body.competitors)
+      ? body.competitors.map(value => String(value).trim()).filter(Boolean).slice(0, 20)
+      : [],
+    penetration: body.penetration,
+  }
+  if (!input.ourBrand) {
+    throw new CompetitorCompareInputError(
+      subjectType === "person" ? "请填写目标人物姓名" : "请填写我方品牌名",
+    )
+  }
+  if (input.selectedCompetitors.length === 0) {
+    throw new CompetitorCompareInputError(
+      `请选择要对比的${subjectType === "person" ? "同行人物" : "竞品"}`,
+    )
+  }
+  if (rawSelectedCompetitors.length > 5) {
+    throw new CompetitorCompareInputError(
+      `最多只能选择 5 个${subjectType === "person" ? "同行人物" : "竞品"}`,
+    )
+  }
+  return input
+}
+
+export async function executeCompetitorCompareTask(
+  rawBody: unknown,
+  options: CompetitorCompareTaskExecutionOptions = {},
+): Promise<CompetitorCompareResult> {
+  const body = record(rawBody)
+  const input = parseCompetitorCompareTaskInput(body)
+  await options.onProgress?.(15, "正在准备竞品对比资料")
+  if (!(await isAdapterCredentialConfigured("doubao", "research", {
+    jsonMode: true,
+    preferredModel: DOUBAO_RESEARCH_STABLE_MODEL,
+    workloadClass: "long",
+  }))) {
+    throw new Error("豆包竞品对比通道当前不可用，请稍后重试")
+  }
+
+  let completed = 0
+  const comparisons = await mapWithConcurrency(
+    input.selectedCompetitors,
+    3,
+    async competitor => {
+      await options.onProgress?.(
+        24 + Math.round((completed / input.selectedCompetitors.length) * 56),
+        `正在联网分析「${competitor}」`,
+      )
+      const comparison = await generateComparison({
+        ourBrand: input.ourBrand,
+        competitor,
+        industry: input.industry,
+        website: input.website,
+        competitors: input.competitors,
+        penetrationContext: buildPenetrationContext(
+          input.penetration,
+          input.ourBrand,
+          [competitor],
+          input.subjectType,
+        ),
+        subjectType: input.subjectType,
+        personProfileContext: formatPersonSubjectContext(input.personProfile),
+        region: input.region,
+        signal: options.signal,
+      })
+      completed += 1
+      await options.onProgress?.(
+        24 + Math.round((completed / input.selectedCompetitors.length) * 56),
+        `已完成 ${completed}/${input.selectedCompetitors.length} 个对比分析`,
+      )
+      return comparison
+    },
+  )
+  await options.onProgress?.(90, "正在汇总竞品对比结论")
+  return normalize(comparisons, input.selectedCompetitors)
+}
+
 async function handler(req: NextRequest) {
   let reservation: CreditReservation | null = null
   try {
-    const body = await req.json()
-    const ourBrand = String(body.ourBrand || "").trim()
-    const rawSelectedCompetitors: string[] = Array.isArray(body.selectedCompetitors)
-      ? body.selectedCompetitors.map((s: unknown) => String(s).trim()).filter(Boolean)
+    const body = record(await req.json())
+    const selectedCompetitors = Array.isArray(body.selectedCompetitors)
+      ? body.selectedCompetitors.map(value => String(value).trim()).filter(Boolean).slice(0, 5)
       : [String(body.competitor || "").trim()].filter(Boolean)
-    const selectedCompetitors = rawSelectedCompetitors.slice(0, 5)
-    const industry = String(body.industry || "").trim()
-    const website = String(body.website || "").trim()
-    const region = String(body.region || "").trim()
     const subjectType = normalizeAnalysisSubjectType(body.subjectType)
-    const personProfile = normalizePersonSubjectProfile(body.personProfile)
-    const competitors: string[] = Array.isArray(body.competitors)
-      ? body.competitors.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 20)
-      : []
-
-    if (!ourBrand) {
-      return NextResponse.json({
-        error: subjectType === "person" ? "请填写目标人物姓名" : "请填写我方品牌名",
-      }, { status: 400 })
-    }
-    if (selectedCompetitors.length === 0) {
-      return NextResponse.json({
-        error: `请选择要对比的${subjectType === "person" ? "同行人物" : "竞品"}`,
-      }, { status: 400 })
-    }
-    if (rawSelectedCompetitors.length > 5) {
-      return NextResponse.json({
-        error: `最多只能选择 5 个${subjectType === "person" ? "同行人物" : "竞品"}`,
-      }, { status: 400 })
-    }
-    if (!(await isAdapterCredentialConfigured("doubao", "research", { jsonMode: true }))) {
-      return NextResponse.json({ error: "豆包 API 未配置，无法生成竞品对比报告" }, { status: 400 })
-    }
 
     const featureKey = "competitorCompareUnit"
     const cost = estimateFeatureCredits(featureKey, selectedCompetitors.length)
@@ -456,23 +577,7 @@ async function handler(req: NextRequest) {
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
-    const comparisons = await mapWithConcurrency(
-      selectedCompetitors,
-      2,
-      competitor => generateComparison({
-        ourBrand,
-        competitor,
-        industry,
-        website,
-        competitors,
-        penetrationContext: buildPenetrationContext(body.penetration, ourBrand, [competitor], subjectType),
-        subjectType,
-        personProfileContext: formatPersonSubjectContext(personProfile),
-        region,
-        signal: req.signal,
-      })
-    )
-    const result = normalize(comparisons, selectedCompetitors)
+    const result = await executeCompetitorCompareTask(body, { signal: req.signal })
 
     await settleReservedCredits(reservation, cost)
     reservation = null
@@ -484,7 +589,7 @@ async function handler(req: NextRequest) {
     console.error("[competitor-compare]", error)
     return NextResponse.json(
       { error: friendlyError(error) },
-      { status: 500 }
+      { status: error instanceof CompetitorCompareInputError ? 400 : 500 }
     )
   }
 }

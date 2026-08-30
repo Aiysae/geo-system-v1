@@ -145,15 +145,21 @@ await updateAiCredentialHealth(saved.id, {
 
 const originalFetch = globalThis.fetch
 try {
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    choices: [{
-      finish_reason: "stop",
-      message: { role: "assistant", content: '{"ok":true}' },
-    }],
-  }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  })
+  globalThis.fetch = async (_input, init) => {
+    const request = JSON.parse(String(init?.body || "{}")) as { max_tokens?: number }
+    const content = Number(request.max_tokens || 0) >= 768
+      ? JSON.stringify({ ok: true, items: Array.from({ length: 12 }, (_, index) => `长文路由检测内容 ${index + 1} ${"稳定输出".repeat(12)}`) })
+      : '{"ok":true}'
+    return new Response(JSON.stringify({
+      choices: [{
+        finish_reason: "stop",
+        message: { role: "assistant", content },
+      }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
+  }
   const sweep = await runAiCredentialHealthSweep({
     credentialId: saved.id,
     force: true,
@@ -210,6 +216,38 @@ try {
     (await listAiCredentialRouteHealth([jsonCredential.id]))
       .find(route => route.capabilityProfile === "json")?.state,
     "closed",
+  )
+
+  for (let index = 0; index < 3; index += 1) {
+    await recordAiCredentialFailure(
+      await getAiCredentialRuntime(jsonCredential.id),
+      new Error("upstream timed out during long report"),
+      {
+        module: "research",
+        model: "doubao-test-model",
+        requiredCapabilities: ["json", "long_text"],
+      },
+    )
+  }
+  assert.equal(
+    (await listAiCredentialRouteHealth([jsonCredential.id]))
+      .find(route => route.capabilityProfile === "json+long_text")?.state,
+    "open",
+  )
+  const longSweep = await runAiCredentialHealthSweep({
+    credentialId: jsonCredential.id,
+    force: true,
+    limit: 10,
+  })
+  assert.ok(longSweep.recovered >= 1)
+  assert.equal(
+    (await listAiCredentialRouteHealth([jsonCredential.id]))
+      .find(route => route.capabilityProfile === "json+long_text")?.state,
+    "closed",
+  )
+  assert.equal(
+    (await getAiCredentialRuntime(jsonCredential.id)).verifiedCapabilities.includes("long_text"),
+    true,
   )
 } finally {
   globalThis.fetch = originalFetch

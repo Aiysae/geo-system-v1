@@ -61,6 +61,14 @@ export interface ChatArgs {
   officialWebOnly?: boolean
   /** Per-provider request timeout in seconds. */
   timeoutSec?: number
+  /** Server-selected model for a module-specific route. Never accept this from a client request. */
+  preferredModel?: string
+  /** Keep long structured generation health isolated from short chat probes. */
+  workloadClass?: "short" | "long"
+  /** Spread concurrent long stages across independent credential accounts. */
+  spreadAcrossCredentials?: boolean
+  /** Bound server-side credential failover for one stage so a slow account cannot consume the whole job. */
+  credentialAttemptLimit?: number
   /** Allow a parent background task to stop the active upstream request. */
   signal?: AbortSignal
   /** Observe the public web sources used by local search adapters. */

@@ -48,6 +48,7 @@ jobs:
           npm run test:task-queue
           npm run test:ai-credential-pool
           npm run test:ai-credential-adapter
+          npm run test:research-long-tasks
           npm run test:penetration-web
           npm run test:penetration-blind-contract
           npm run test:penetration-selective-retry

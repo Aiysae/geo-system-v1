@@ -476,6 +476,96 @@ async function readJsonResponse(response: Response): Promise<unknown> {
   }
 }
 
+export function isDirectBackgroundJobKind(
+  kind: BackgroundJobKind,
+): kind is Extract<BackgroundJobKind, "research" | "competitorCompare"> {
+  return kind === "research" || kind === "competitorCompare"
+}
+
+function directTaskUserError(kind: BackgroundJobKind, error: unknown): Error {
+  const message = safeError(error)
+  if (/\u7528\u6237\u5df2\u505c\u6b62\u4efb\u52a1/.test(message)) return new Error("用户已停止任务")
+  if (/未达到生成可审计报告的最低标准|请补充更准确的主体/.test(message)) {
+    return new Error(message)
+  }
+  if (/billing|overdue|欠费|余额不足|account.*balance/i.test(message)) {
+    return new Error("豆包账号当前不可用，本次任务已停止并退回积分，请稍后重试。")
+  }
+  if (/timeout|timed out|超时|abort|fetch failed|network|socket/i.test(message)) {
+    return new Error("豆包响应时间较长，本次任务未能完成，系统已退回积分。请稍后重试。")
+  }
+  if (/JSON|字段|引用|蓝图|证据绑定|数据格式/i.test(message)) {
+    return new Error("豆包本次返回的报告结构不完整，系统自动重试后仍未通过校验，已退回积分。")
+  }
+  return new Error(
+    kind === "research"
+      ? "调研任务未能完成，系统已退回积分，请稍后重试。"
+      : "竞品对比任务未能完成，系统已退回积分，请稍后重试。",
+  )
+}
+
+async function executeDirectBackgroundRequest(
+  job: StoredBackgroundJob,
+  payload: unknown,
+): Promise<unknown> {
+  const startedAt = Date.now()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS)
+  activeControllers.set(job.id, controller)
+  const unregisterTaskController = registerTaskAbortController(
+    "background",
+    job.id,
+    controller,
+  )
+  let progressPercent = 10
+  let progressQueue: Promise<unknown> = Promise.resolve()
+  const onProgress = (percent: number, stage: string): Promise<void> => {
+    const nextPercent = Math.max(progressPercent, Math.min(95, Math.round(percent)))
+    progressPercent = nextPercent
+    progressQueue = progressQueue.then(async () => {
+      const current = await getStoredJob(job.id)
+      if (!current || current.status === "cancelled") {
+        controller.abort()
+        throw new Error("用户已停止任务")
+      }
+      await patchJob(job.id, { progressPercent: nextPercent, stage })
+    })
+    return progressQueue.then(() => undefined)
+  }
+
+  try {
+    if (job.kind === "research") {
+      const { executeResearchTask } = await import("@/app/api/research/route")
+      const result = await executeResearchTask(payload, {
+        signal: controller.signal,
+        onProgress,
+      })
+      console.info("[background-jobs] direct task completed", job.id, job.kind, `${Date.now() - startedAt}ms`)
+      return result
+    }
+    const { executeCompetitorCompareTask } = await import(
+      "@/app/api/competitor-compare/route"
+    )
+    const result = await executeCompetitorCompareTask(payload, {
+      signal: controller.signal,
+      onProgress,
+    })
+    console.info("[background-jobs] direct task completed", job.id, job.kind, `${Date.now() - startedAt}ms`)
+    return result
+  } catch (error) {
+    const current = await getStoredJob(job.id)
+    if (current?.status === "cancelled") throw new Error("用户已停止任务")
+    console.error("[background-jobs] direct task failed", job.id, safeError(error))
+    throw controller.signal.aborted
+      ? new Error("后台任务执行超时，系统已退回积分。")
+      : directTaskUserError(job.kind, error)
+  } finally {
+    clearTimeout(timer)
+    unregisterTaskController()
+    if (activeControllers.get(job.id) === controller) activeControllers.delete(job.id)
+  }
+}
+
 async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown> {
   const payload = decodePayload(job.payloadGzip)
   let lastError: unknown
@@ -529,6 +619,13 @@ async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown
   throw lastError instanceof Error ? lastError : new Error("后台任务执行失败")
 }
 
+async function executeBackgroundRequest(job: StoredBackgroundJob): Promise<unknown> {
+  if (isDirectBackgroundJobKind(job.kind)) {
+    return executeDirectBackgroundRequest(job, decodePayload(job.payloadGzip))
+  }
+  return executeInternalRequest(job)
+}
+
 async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
   if (activeJobs.has(jobId)) return
   activeJobs.add(jobId)
@@ -558,7 +655,7 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
       error: undefined,
     }) || job
 
-    const result = await executeInternalRequest(job)
+    const result = await executeBackgroundRequest(job)
     const current = await getStoredJob(jobId)
     if (!current || current.status === "cancelled") throw new Error("用户已停止任务")
 

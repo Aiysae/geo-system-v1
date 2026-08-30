@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { createHash } from "crypto"
 import type {
   AnalysisSubjectType,
   ResearchContentBlueprint,
@@ -25,12 +26,17 @@ import {
   type CreditReservation,
 } from "@/lib/with-credits"
 import { estimateFeatureCredits, getFeaturePrice } from "@/lib/pricing"
+import { kv } from "@/lib/kv"
 import {
   buildResearchSearchQueries,
   collectResearchEvidence,
   formatResearchEvidenceForModel,
   type ResearchEvidenceBundle,
 } from "@/lib/research/web-evidence"
+import {
+  DOUBAO_RESEARCH_STABLE_MODEL,
+  RESEARCH_STAGE_TIMEOUT_SECONDS,
+} from "@/lib/research/runtime"
 
 export const runtime = "nodejs"
 export const maxDuration = 180
@@ -205,41 +211,32 @@ function buildPrompt(args: {
   subjectType: AnalysisSubjectType
   personProfileContext: string
   evidenceContext: string
+  section: "analysis" | "strategy"
 }): { system: string; user: string } {
   const isPerson = args.subjectType === "person"
   const subjectNoun = isPerson ? "个人 IP / 专业人物" : "品牌"
   const peerNoun = isPerson ? "同行人物" : "竞品"
-  const system = `你是一个做 GEO / AI 搜索心智研究的资深${isPerson ? "个人 IP" : "品牌"}研究员。你只使用豆包视角进行深度调研：目标不是泛泛介绍${subjectNoun}，而是判断"当用户在豆包里问相关问题时，这个${subjectNoun}在模型心智里的形象、可信度、推荐概率、短板和可优化空间"。
-
-【研究要求】
-1. 必须基于本次服务器已打开验证的公开网页、用户给定数据、疑问句检测样本进行推断；不得使用模型记忆补造公开事实。
-2. 每一条外部事实、评价、优劣势或结论都要填写 sourceIds，只能使用证据包中的 S1、S2 等编号。无法被证据包支持时，明确写"证据不足/需要验证"。
-3. ${args.mode === "hypothesis" ? "用户会提供一个假设。请围绕这个假设做验证式研究：哪些现象支持它、哪些现象反驳它、需要补哪些证据。" : `请做 AI 深度调研：完整刻画${subjectNoun}在豆包里的心智位置、用户感知、信任信号、风险与机会。`}
-4. 结论要能指导后续内容、官网或个人资料页、第三方信源、问答和${peerNoun}对比策略。
-5. 根据研究结论输出 3-5 个后续内容任务，每项绑定真实用户问题、文章形态、标题方向和需要补齐的证据。
-${isPerson ? `6. 必须把人物与所在医院、律所、公司、学校、协会等机构分开；只把同职业、同专业方向、同地区或同类服务场景中的具名人物视作同行，不得把机构名、职称或普通形容词当成人名。
-7. 人物姓名相同但身份无法确认时必须提示同名歧义；不得凭姓名自行补造履历、资质、职称、案例或任职机构。` : ""}
-
-【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止额外文字】
-{
+  const analysisSchema = `{
   "executiveSummary": "150-220 字总体结论",
   "executiveSummarySourceIds": ["S1", "S2"],
   "brandImage": "豆包可能形成的${isPerson ? "个人 IP" : "品牌"}总体形象",
   "brandImageSourceIds": ["S1"],
-  "modelMentality": "模型为什么会/不会推荐该${isPerson ? "人物" : "品牌"}的机制性解释",
+  "modelMentality": "模型为什么会/不会推荐的机制性解释",
   "modelMentalitySourceIds": ["S1", "S3"],
   "dimensions": [
-    { "name": "认知清晰度", "score": 0-100, "insight": "具体洞察", "sourceIds": ["S1"], "evidence": [{"text": "证据或样本", "sourceIds": ["S1"]}] },
-    { "name": "可信度", "score": 0-100, "insight": "具体洞察", "sourceIds": ["S2"], "evidence": [{"text": "...", "sourceIds": ["S2"]}] },
-    { "name": "差异化", "score": 0-100, "insight": "具体洞察", "sourceIds": ["S1", "S3"], "evidence": [{"text": "...", "sourceIds": ["S3"]}] },
-    { "name": "推荐友好度", "score": 0-100, "insight": "具体洞察", "sourceIds": ["S2"], "evidence": [{"text": "...", "sourceIds": ["S2"]}] },
-    { "name": "风险暴露", "score": 0-100, "insight": "分数越高风险越低", "sourceIds": ["S1"], "evidence": [{"text": "...", "sourceIds": ["S1"]}] }
+    { "name": "认知清晰度", "score": 65, "insight": "具体洞察", "sourceIds": ["S1"], "evidence": [{"text": "证据或样本", "sourceIds": ["S1"]}] },
+    { "name": "可信度", "score": 70, "insight": "具体洞察", "sourceIds": ["S2"], "evidence": [{"text": "证据或样本", "sourceIds": ["S2"]}] },
+    { "name": "差异化", "score": 60, "insight": "具体洞察", "sourceIds": ["S1", "S3"], "evidence": [{"text": "证据或样本", "sourceIds": ["S3"]}] },
+    { "name": "推荐友好度", "score": 55, "insight": "具体洞察", "sourceIds": ["S2"], "evidence": [{"text": "证据或样本", "sourceIds": ["S2"]}] },
+    { "name": "风险暴露", "score": 75, "insight": "分数越高风险越低", "sourceIds": ["S1"], "evidence": [{"text": "证据或样本", "sourceIds": ["S1"]}] }
   ],
-  "audiencePerception": [{"text": "目标用户可能如何理解这个${isPerson ? "人物" : "品牌"}", "sourceIds": ["S1"]}],
-  "trustSignals": [{"text": "豆包可抓取/可采信的信任信号", "sourceIds": ["S2"]}],
+  "audiencePerception": [{"text": "目标用户可能如何理解", "sourceIds": ["S1"]}],
+  "trustSignals": [{"text": "可抓取的信任信号", "sourceIds": ["S2"]}],
   "evidenceGaps": [{"text": "证据缺口", "sourceIds": ["S1"]}],
-  "risks": [{"text": "AI 回答中可能出现的不利形象", "sourceIds": ["S1"]}],
-  "opportunities": [{"text": "可以放大的机会", "sourceIds": ["S2"]}],
+  "risks": [{"text": "不利形象", "sourceIds": ["S1"]}],
+  "opportunities": [{"text": "可放大机会", "sourceIds": ["S2"]}]
+}`
+  const strategySchema = `{
   "recommendations": [{"text": "具体行动建议", "sourceIds": ["S1", "S2"]}],
   "contentBlueprints": [{
     "question": "真实用户问题",
@@ -251,6 +248,23 @@ ${isPerson ? `6. 必须把人物与所在医院、律所、公司、学校、协
     "evidenceNeeded": ["生成前需要准备或核验的资料"]
   }]
 }`
+  const sectionInstruction = args.section === "analysis"
+    ? "本轮只负责心智分析和证据判断，不输出行动建议或内容蓝图。5 个维度均按 0-100 分评估，各列表输出 3-6 条。"
+    : "本轮只负责行动建议和内容蓝图，不重复输出心智分析。recommendations 输出 5-8 条，contentBlueprints 输出 3-5 条。"
+  const outputSchema = args.section === "analysis" ? analysisSchema : strategySchema
+  const system = `你是一个做 GEO / AI 搜索心智研究的资深${isPerson ? "个人 IP" : "品牌"}研究员。你只使用豆包视角进行深度调研：目标不是泛泛介绍${subjectNoun}，而是判断"当用户在豆包里问相关问题时，这个${subjectNoun}在模型心智里的形象、可信度、推荐概率、短板和可优化空间"。
+
+【研究要求】
+1. 必须基于本次服务器已打开验证的公开网页、用户给定数据、疑问句检测样本进行推断；不得使用模型记忆补造公开事实。
+2. 每一条外部事实、评价、优劣势或结论都要填写 sourceIds，只能使用证据包中的 S1、S2 等编号。无法被证据包支持时，明确写"证据不足/需要验证"。
+3. ${args.mode === "hypothesis" ? "用户会提供一个假设。请围绕这个假设做验证式研究：哪些现象支持它、哪些现象反驳它、需要补哪些证据。" : `请做 AI 深度调研：完整刻画${subjectNoun}在豆包里的心智位置、用户感知、信任信号、风险与机会。`}
+4. 结论要能指导后续内容、官网或个人资料页、第三方信源、问答和${peerNoun}对比策略。
+5. ${sectionInstruction}
+${isPerson ? `6. 必须把人物与所在医院、律所、公司、学校、协会等机构分开；只把同职业、同专业方向、同地区或同类服务场景中的具名人物视作同行，不得把机构名、职称或普通形容词当成人名。
+7. 人物姓名相同但身份无法确认时必须提示同名歧义；不得凭姓名自行补造履历、资质、职称、案例或任职机构。` : ""}
+
+【输出格式 — 严格 JSON，禁止 markdown 包裹、禁止额外文字】
+${outputSchema}`
 
   const sourceNote = args.sourceMode === "manual"
     ? `本次使用用户手动填写的地区、行业、${isPerson ? "人物姓名和姓名别名" : "品牌全称和别名"}作为独立调研输入，不依赖渗透率检测结果。`
@@ -352,43 +366,298 @@ function normalizeResult(
   return result
 }
 
+type ResearchSection = "analysis" | "strategy"
+
+interface ResearchTaskInput {
+  sourceMode: ResearchSourceMode
+  aliases: string[]
+  ourBrand: string
+  industry: string
+  website: string
+  region: string
+  mode: ResearchMode
+  hypothesis: string
+  subjectType: AnalysisSubjectType
+  personProfile: ReturnType<typeof normalizePersonSubjectProfile>
+  competitors: string[]
+  penetration: unknown
+}
+
+export interface ResearchTaskExecutionOptions {
+  signal?: AbortSignal
+  onProgress?: (percent: number, stage: string) => void | Promise<void>
+}
+
+class ResearchTaskInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ResearchTaskInputError"
+  }
+}
+
+function parseResearchTaskInput(body: Record<string, unknown>): ResearchTaskInput {
+  const sourceMode: ResearchSourceMode = body.sourceMode === "manual" ? "manual" : "module"
+  const aliases = Array.isArray(body.aliases)
+    ? body.aliases.map(value => String(value).trim()).filter(Boolean).slice(0, 12)
+    : String(body.aliases || "").split(/[\n,，、]/).map(value => value.trim()).filter(Boolean).slice(0, 12)
+  const input: ResearchTaskInput = {
+    sourceMode,
+    aliases,
+    ourBrand: String(body.ourBrand || "").trim(),
+    industry: String(body.industry || "").trim(),
+    website: String(body.website || "").trim(),
+    region: String(body.region || "").trim(),
+    mode: body.mode === "hypothesis" ? "hypothesis" : "ai",
+    hypothesis: String(body.hypothesis || "").trim(),
+    subjectType: normalizeAnalysisSubjectType(body.subjectType),
+    personProfile: normalizePersonSubjectProfile(body.personProfile),
+    competitors: Array.isArray(body.competitors)
+      ? body.competitors.map(value => String(value).trim()).filter(Boolean).slice(0, 20)
+      : [],
+    penetration: body.penetration,
+  }
+
+  if (!input.ourBrand) {
+    throw new ResearchTaskInputError(
+      input.subjectType === "person"
+        ? "请填写目标人物姓名"
+        : sourceMode === "manual" ? "请填写品牌全称" : "请填写我方品牌名",
+    )
+  }
+  if (sourceMode === "manual" && !input.industry) {
+    throw new ResearchTaskInputError("请填写行业")
+  }
+  if (input.mode === "hypothesis" && !input.hypothesis) {
+    throw new ResearchTaskInputError("请填写要验证的假设")
+  }
+  return input
+}
+
+async function reportProgress(
+  options: ResearchTaskExecutionOptions,
+  percent: number,
+  stage: string,
+): Promise<void> {
+  await options.onProgress?.(percent, stage)
+}
+
+function stageCacheKey(
+  section: ResearchSection,
+  system: string,
+  user: string,
+): string {
+  const digest = createHash("sha256")
+    .update(["research-v2", DOUBAO_RESEARCH_STABLE_MODEL, section, system, user].join("\u001f"))
+    .digest("hex")
+  return `geo:research-stage:v2:${digest}`
+}
+
+function citationCount(value: unknown, available: Set<string>): number {
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => sum + citationCount(item, available), 0)
+  }
+  const row = record(value)
+  return Object.entries(row).reduce((sum, [key, item]) => {
+    if (/sourceIds$/i.test(key) && Array.isArray(item)) {
+      return sum + sourceIds(item, available).length
+    }
+    return sum + citationCount(item, available)
+  }, 0)
+}
+
+function validateResearchSection(
+  section: ResearchSection,
+  value: Record<string, unknown>,
+  available: Set<string>,
+): void {
+  if (section === "analysis") {
+    if (
+      text(value.executiveSummary).length < 40
+      || text(value.brandImage).length < 20
+      || text(value.modelMentality).length < 20
+      || !Array.isArray(value.dimensions)
+      || value.dimensions.length < 4
+      || sourceIds(value.executiveSummarySourceIds, available).length === 0
+      || sourceIds(value.brandImageSourceIds, available).length === 0
+      || sourceIds(value.modelMentalitySourceIds, available).length === 0
+      || citationCount(value, available) < 10
+    ) {
+      throw new Error("心智分析字段或证据引用不完整")
+    }
+    return
+  }
+  if (
+    !Array.isArray(value.recommendations)
+    || value.recommendations.length < 3
+    || !Array.isArray(value.contentBlueprints)
+    || value.contentBlueprints.length < 2
+    || citationCount(value.recommendations, available) < 3
+  ) {
+    throw new Error("策略建议或内容蓝图不完整")
+  }
+}
+
+async function generateResearchSection(
+  section: ResearchSection,
+  prompt: { system: string; user: string },
+  available: Set<string>,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const cacheKey = stageCacheKey(section, prompt.system, prompt.user)
+  const startedAt = Date.now()
+  try {
+    const cached = await kv.get<Record<string, unknown>>(cacheKey)
+    if (cached) {
+      validateResearchSection(section, cached, available)
+      console.info("[research] stage cache hit", section)
+      return cached
+    }
+  } catch (error) {
+    console.warn("[research] stage cache read skipped", section, error)
+  }
+
+  let lastError: unknown
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let upstreamCompleted = false
+    try {
+      const raw = await runAdapterCredentialPoolChat("doubao", "research", {
+        system: attempt === 0
+          ? prompt.system
+          : `${prompt.system}\n\n上一次该分段输出不完整。请严格补齐字段和有效 sourceIds，只输出一个完整 JSON 对象。`,
+        user: prompt.user,
+        temperature: attempt === 0 ? 0.3 : 0.15,
+        maxTokens: section === "analysis" ? 3000 : 1800,
+        jsonMode: true,
+        mode: "judge",
+        allowWebSearch: false,
+        timeoutSec: RESEARCH_STAGE_TIMEOUT_SECONDS,
+        preferredModel: DOUBAO_RESEARCH_STABLE_MODEL,
+        workloadClass: "long",
+        credentialAttemptLimit: 2,
+        signal,
+      })
+      upstreamCompleted = true
+      const parsed = parseJsonStrict<Record<string, unknown>>(
+        raw,
+        section === "analysis" ? "豆包调研心智分析" : "豆包调研策略蓝图",
+      )
+      validateResearchSection(section, parsed, available)
+      try {
+        await kv.set(cacheKey, parsed, { ex: 2 * 60 * 60 })
+      } catch (error) {
+        console.warn("[research] stage cache write skipped", section, error)
+      }
+      console.info("[research] stage completed", section, `${Date.now() - startedAt}ms`)
+      return parsed
+    } catch (error) {
+      lastError = error
+      console.warn(
+        `[research] ${section} stage attempt ${attempt + 1} failed`,
+        error instanceof Error ? error.message : error,
+      )
+      // The adapter has already failed over across independent accounts.
+      // Only malformed structured output receives an additional stage retry.
+      if (!upstreamCompleted) throw error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("调研分段生成失败")
+}
+
+export async function executeResearchTask(
+  rawBody: unknown,
+  options: ResearchTaskExecutionOptions = {},
+): Promise<ResearchResult> {
+  const body = record(rawBody)
+  const input = parseResearchTaskInput(body)
+  await reportProgress(options, 15, "正在准备调研资料")
+
+  const adapterArgs = {
+    jsonMode: true,
+    preferredModel: DOUBAO_RESEARCH_STABLE_MODEL,
+    workloadClass: "long" as const,
+  }
+  if (!(await isAdapterCredentialConfigured("doubao", "research", adapterArgs))) {
+    throw new Error("豆包调研通道当前不可用，请稍后重试")
+  }
+
+  await reportProgress(options, 25, "正在联网检索并验证证据")
+  const evidenceBundle = await collectResearchEvidence({
+    queries: buildResearchSearchQueries({
+      subject: input.ourBrand,
+      aliases: input.aliases,
+      industry: input.industry,
+      region: input.region,
+      website: input.website,
+      competitors: input.competitors,
+      hypothesis: input.mode === "hypothesis" ? input.hypothesis : undefined,
+      subjectType: input.subjectType,
+    }),
+    minimumSources: 4,
+    minimumDomains: 2,
+    maximumSources: 12,
+    signal: options.signal,
+  })
+  await reportProgress(options, 45, `已验证 ${evidenceBundle.sources.length} 条可读联网来源`)
+
+  const promptArgs = {
+    mode: input.mode,
+    sourceMode: input.sourceMode,
+    ourBrand: input.ourBrand,
+    industry: input.industry,
+    website: input.website,
+    competitors: input.competitors,
+    region: input.region,
+    aliases: input.aliases,
+    hypothesis: input.hypothesis,
+    penetrationContext: buildPenetrationContext(input.penetration, input.subjectType),
+    subjectType: input.subjectType,
+    personProfileContext: formatPersonSubjectContext(input.personProfile),
+    evidenceContext: formatResearchEvidenceForModel(evidenceBundle),
+  }
+  const analysisPrompt = buildPrompt({ ...promptArgs, section: "analysis" })
+  const strategyPrompt = buildPrompt({ ...promptArgs, section: "strategy" })
+  const availableSourceIds = new Set(evidenceBundle.sources.map(source => source.id))
+
+  await reportProgress(options, 52, "正在并行生成心智分析与行动策略")
+  let completedSections = 0
+  const completeSection = async (stage: string) => {
+    completedSections += 1
+    await reportProgress(
+      options,
+      completedSections === 1 ? 70 : 86,
+      stage,
+    )
+  }
+  const [analysis, strategy] = await Promise.all([
+    generateResearchSection("analysis", analysisPrompt, availableSourceIds, options.signal).then(async result => {
+      await completeSection("心智分析已完成")
+      return result
+    }),
+    generateResearchSection("strategy", strategyPrompt, availableSourceIds, options.signal).then(async result => {
+      await completeSection("行动策略已完成")
+      return result
+    }),
+  ])
+
+  await reportProgress(options, 92, "正在合并结论并校验证据引用")
+  return normalizeResult(
+    { ...analysis, ...strategy },
+    input.mode,
+    input.sourceMode,
+    input.hypothesis,
+    input.region,
+    input.aliases,
+    evidenceBundle,
+  )
+}
+
 async function handler(req: NextRequest) {
   let reservation: CreditReservation | null = null
   try {
-    const body = await req.json()
+    const body = record(await req.json())
+    const mode: ResearchMode = body.mode === "hypothesis" ? "hypothesis" : "ai"
     const sourceMode: ResearchSourceMode = body.sourceMode === "manual" ? "manual" : "module"
-    const aliases: string[] = Array.isArray(body.aliases)
-      ? body.aliases.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 12)
-      : String(body.aliases || "").split(/[\n,，、]/).map(s => s.trim()).filter(Boolean).slice(0, 12)
-    const ourBrand = String(body.ourBrand || "").trim()
-    const industry = String(body.industry || "").trim()
-    const website = String(body.website || "").trim()
-    const region = String(body.region || "").trim()
-    const mode = body.mode === "hypothesis" ? "hypothesis" : "ai"
-    const hypothesis = String(body.hypothesis || "").trim()
     const subjectType = normalizeAnalysisSubjectType(body.subjectType)
-    const personProfile = normalizePersonSubjectProfile(body.personProfile)
-    const competitors: string[] = Array.isArray(body.competitors)
-      ? body.competitors.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 20)
-      : []
-
-    if (!ourBrand) {
-      return NextResponse.json({
-        error: subjectType === "person"
-          ? "请填写目标人物姓名"
-          : sourceMode === "manual" ? "请填写品牌全称" : "请填写我方品牌名",
-      }, { status: 400 })
-    }
-    if (sourceMode === "manual" && !industry) {
-      return NextResponse.json({ error: "请填写行业" }, { status: 400 })
-    }
-    if (mode === "hypothesis" && !hypothesis) {
-      return NextResponse.json({ error: "请填写要验证的假设" }, { status: 400 })
-    }
-    if (!(await isAdapterCredentialConfigured("doubao", "research", { jsonMode: true }))) {
-      return NextResponse.json({ error: "豆包 API 未配置，无法执行调研" }, { status: 400 })
-    }
-
     const featureKey = mode === "hypothesis" ? "researchHypothesis" : "researchAi"
     const cost = estimateFeatureCredits(featureKey)
     const guard = await authAndReserveCreditsForRequest(req, cost, {
@@ -400,77 +669,7 @@ async function handler(req: NextRequest) {
     if (!guard.ok) return guard.response
     reservation = guard.reservation
 
-    const evidenceBundle = await collectResearchEvidence({
-      queries: buildResearchSearchQueries({
-        subject: ourBrand,
-        aliases,
-        industry,
-        region,
-        website,
-        competitors,
-        hypothesis: mode === "hypothesis" ? hypothesis : undefined,
-        subjectType,
-      }),
-      minimumSources: 4,
-      minimumDomains: 2,
-      maximumSources: 12,
-      signal: req.signal,
-    })
-
-    const { system, user } = buildPrompt({
-      mode,
-      sourceMode,
-      ourBrand,
-      industry,
-      website,
-      competitors,
-      region,
-      aliases,
-      hypothesis,
-      penetrationContext: buildPenetrationContext(body.penetration, subjectType),
-      subjectType,
-      personProfileContext: formatPersonSubjectContext(personProfile),
-      evidenceContext: formatResearchEvidenceForModel(evidenceBundle),
-    })
-
-    let result: ResearchResult | null = null
-    let lastStructureError: unknown
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const raw = await runAdapterCredentialPoolChat("doubao", "research", {
-        system: attempt === 0
-          ? system
-          : `${system}\n\n上一次输出缺少引用映射。请确保三个核心结论和至少 6 条详细洞察都填写有效 sourceIds，并只输出完整 JSON。`,
-        user,
-        temperature: attempt === 0 ? 0.3 : 0.15,
-        maxTokens: 4600,
-        jsonMode: true,
-        mode: "judge",
-        allowWebSearch: false,
-        timeoutSec: 180,
-        signal: req.signal,
-      })
-      try {
-        const parsed = parseJsonStrict<Record<string, unknown>>(raw, "豆包调研")
-        result = normalizeResult(
-          parsed,
-          mode,
-          sourceMode,
-          hypothesis,
-          region,
-          aliases,
-          evidenceBundle,
-        )
-        break
-      } catch (error) {
-        lastStructureError = error
-        console.warn("[research] structured evidence output invalid", error)
-      }
-    }
-    if (!result) {
-      throw lastStructureError instanceof Error
-        ? lastStructureError
-        : new Error("调研结果未完整绑定联网证据")
-    }
+    const result = await executeResearchTask(body, { signal: req.signal })
 
     await settleReservedCredits(reservation, cost)
     reservation = null
@@ -482,7 +681,7 @@ async function handler(req: NextRequest) {
     console.error("[research]", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "服务器错误" },
-      { status: 500 }
+      { status: error instanceof ResearchTaskInputError ? 400 : 500 }
     )
   }
 }

@@ -64,7 +64,7 @@ function routeProbeCapabilities(
     .split("+")
     .map(value => value.trim())
     .filter((value): value is AiCredentialCapability =>
-      value === "chat" || value === "json",
+      value === "chat" || value === "json" || value === "long_text",
     )
 }
 
