@@ -75,7 +75,7 @@ export async function verifyAiCredentialChat(
     ? [...new Set(options.requiredCapabilities)]
     : ["chat" as const]
   const unsupportedCapabilities = requiredCapabilities.filter(
-    capability => capability !== "chat" && capability !== "json",
+    capability => capability !== "chat" && capability !== "json" && capability !== "long_text",
   )
   if (unsupportedCapabilities.length > 0) {
     throw new Error(`该能力暂不支持基础生成复检：${unsupportedCapabilities.join("、")}`)
@@ -87,24 +87,31 @@ export async function verifyAiCredentialChat(
   for (const model of modelsToTest) {
     const modelStartedAt = Date.now()
     try {
+      const longTextProbe = requiredCapabilities.includes("long_text")
       const content = await openaiCompatChat({
         url: chatUrl(credential.baseUrl, credential.chatPath),
         apiKey: credential.apiKey,
         model,
         system: "你是 API 连通性检测器。只执行用户要求，不补充解释。",
-        user: '只返回 JSON：{"ok":true}',
+        user: longTextProbe
+          ? '只返回 JSON：{"ok":true,"items":[12 条每条不少于 25 个中文字的 API 长文连通性检测说明]}。items 必须恰好 12 条且内容不重复。'
+          : '只返回 JSON：{"ok":true}',
         temperature: 0,
-        maxTokens: credential.vendor === "kimi" ? 512 : 64,
+        maxTokens: longTextProbe ? 768 : credential.vendor === "kimi" ? 512 : 64,
         jsonMode: true,
-        timeoutSec: 60,
+        timeoutSec: longTextProbe ? 90 : 60,
         label: `${credential.name}·连通性检测`,
         allowWebSearch: false,
       })
       if (requiredCapabilities.includes("json") && !looksLikeJson(content)) {
         throw new Error("模型连通但未返回有效 JSON，暂不恢复该 JSON 路由")
       }
+      if (longTextProbe && content.replace(/\s+/g, "").length < 300) {
+        throw new Error("模型连通但未完成长文输出，暂不恢复该长任务路由")
+      }
       const capabilities: AiCredentialCapability[] = ["chat"]
       if (looksLikeJson(content)) capabilities.push("json")
+      if (longTextProbe) capabilities.push("long_text")
       models.push({
         model,
         status: "passed",

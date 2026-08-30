@@ -11,6 +11,7 @@ import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { getClientSubjectType, getSubjectCopy } from "@/lib/analysis-subject"
 import { getGeoArticleFormat } from "@/lib/geo-methodology/article-formats"
+import { compactResearchPenetrationSnapshot } from "@/lib/research/penetration-snapshot"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type { BackgroundJobKind, BackgroundJobRef, Client, CompetitorCompareResult, CompetitorCompareSourceMode, CompetitorComparison, ResearchEvidenceReference, ResearchEvidenceSource, ResearchManualInput, ResearchMode, ResearchResult, ResearchSourceMode } from "@/types"
 import {
@@ -131,7 +132,9 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
       industry: effectiveIndustry,
       website: researchSourceMode === "manual" ? "" : client.website,
       competitors: researchSourceMode === "manual" ? [] : client.competitors,
-      penetration: researchSourceMode === "module" ? client.penetration : undefined,
+      penetration: researchSourceMode === "module"
+        ? compactResearchPenetrationSnapshot(client.penetration)
+        : undefined,
       subjectType,
       personProfile: client.personProfile,
     }
@@ -150,7 +153,9 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
       region: compareSourceMode === "manual" ? manualInput.region : "",
       competitors: allCompetitors,
       selectedCompetitors: activeSelectedCompetitors,
-      penetration: compareSourceMode === "module" ? client.penetration : undefined,
+      penetration: compareSourceMode === "module"
+        ? compactResearchPenetrationSnapshot(client.penetration)
+        : undefined,
       subjectType,
       personProfile: client.personProfile,
     }

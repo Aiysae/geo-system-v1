@@ -30,6 +30,8 @@ interface AdapterCredentialRoute {
   targetModel: string
   selectionModel?: string
   requiredCapabilities: AiCredentialCapability[]
+  healthCapabilities: AiCredentialCapability[]
+  spreadAcrossCredentials: boolean
   extra?: Record<string, string | boolean>
   exactModelRequired?: boolean
   verifiedWebModelRequired?: boolean
@@ -76,7 +78,7 @@ async function resolveAdapterCredentialRoute(
   const strictNativeWeb = strictWeb && model !== "kimi" && model !== "deepseek"
   const vendor = strictWeb ? strictCredentialVendor(model) : model
   const config = await getAiProviderRuntimeSetting(vendor)
-  let targetModel = config.model
+  let targetModel = String(args.preferredModel || "").trim() || config.model
   let selectionModel: string | undefined = targetModel
 
   if (strictWeb && model === "deepseek") {
@@ -85,23 +87,31 @@ async function resolveAdapterCredentialRoute(
   }
   if (strictNativeWeb) selectionModel = undefined
 
+  const requiredCapabilities: AiCredentialCapability[] = nativeWeb
+    ? model === "kimi" || model === "deepseek"
+      ? ["chat"]
+      : ["native_web", "auditable_sources"]
+    : args.jsonMode
+      ? ["json"]
+      : ["chat"]
+  const healthCapabilities = args.workloadClass === "long" && !nativeWeb
+    ? Array.from(new Set<AiCredentialCapability>([...requiredCapabilities, "long_text"]))
+    : requiredCapabilities
+
   return {
     vendor,
     targetModel,
     selectionModel,
-    requiredCapabilities: nativeWeb
-      ? model === "kimi" || model === "deepseek"
-        ? ["chat"]
-        : ["native_web", "auditable_sources"]
-      : args.jsonMode
-        ? ["json"]
-        : ["chat"],
+    requiredCapabilities,
+    healthCapabilities,
+    spreadAcrossCredentials: args.spreadAcrossCredentials === true
+      || args.workloadClass === "long",
     extra: strictWeb && (vendor === "qwen" || vendor === "ernie")
       ? { enableSearch: true }
       : vendor === "doubao"
         ? { botId: "" }
         : undefined,
-    exactModelRequired: strictWeb,
+    exactModelRequired: strictWeb || Boolean(String(args.preferredModel || "").trim()),
     verifiedWebModelRequired: strictNativeWeb,
   }
 }
@@ -137,6 +147,8 @@ function selectionRequest(
     module,
     model: model === null ? undefined : model,
     requiredCapabilities: route.requiredCapabilities,
+    routeHealthCapabilities: route.healthCapabilities,
+    spreadAcrossCredentials: route.spreadAcrossCredentials,
     excludeCredentialIds,
   }
 }
@@ -363,10 +375,12 @@ async function runAuditableExternalCredentialPoolChat(
   const excludedGenerationIds: string[] = []
   const excludedSearchIds: string[] = []
   const quotaEstimate = estimateAiCredentialQuota(args)
-  const maxCredentialAttempts = Math.max(
-    3,
-    Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
-  )
+  const maxCredentialAttempts = args.credentialAttemptLimit
+    ? Math.max(1, Math.min(8, Math.floor(args.credentialAttemptLimit)))
+    : Math.max(
+        3,
+        Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
+      )
   const waitTimeoutMs = Math.max(
     1_000,
     Math.min(30_000, Number(process.env.PENETRATION_CREDENTIAL_WAIT_MS) || 8_000),
@@ -457,7 +471,7 @@ async function runAuditableExternalCredentialPoolChat(
           recordAiCredentialSuccess(generationLease.credential, latencyMs, {
             module,
             model: selectedModel,
-            requiredCapabilities: route.requiredCapabilities,
+            requiredCapabilities: route.healthCapabilities,
           }),
           recordAiCredentialSuccess(searchLease.credential, latencyMs, {
             module,
@@ -480,7 +494,7 @@ async function runAuditableExternalCredentialPoolChat(
           await recordAiCredentialFailure(generationLease.credential, error, {
             module,
             model: selectedModel,
-            requiredCapabilities: route.requiredCapabilities,
+            requiredCapabilities: route.healthCapabilities,
           })
           if (
             generationModel
@@ -538,14 +552,20 @@ export async function runAdapterCredentialPoolChat(
     && !route.verifiedWebModelRequired
     && !selectionModel
   ) {
-    throw new Error(`${ADAPTERS[model].label} 当前模型尚未通过严格联网验证`)
+    throw new Error(
+      args.preferredModel
+        ? `${ADAPTERS[model].label} 指定的长任务模型当前暂无可用账号`
+        : `${ADAPTERS[model].label} 当前模型尚未通过严格联网验证`,
+    )
   }
   let lastError: unknown
   const quotaEstimate = estimateAiCredentialQuota(args)
-  const maxCredentialAttempts = Math.max(
-    3,
-    Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
-  )
+  const maxCredentialAttempts = args.credentialAttemptLimit
+    ? Math.max(1, Math.min(8, Math.floor(args.credentialAttemptLimit)))
+    : Math.max(
+        3,
+        Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
+      )
   const waitTimeoutMs = module === "penetration"
     ? Math.max(1_000, Math.min(30_000, Number(process.env.PENETRATION_CREDENTIAL_WAIT_MS) || 8_000))
     : Math.min(60_000, Math.max(5_000, (args.timeoutSec ?? 60) * 1000))
@@ -590,7 +610,7 @@ export async function runAdapterCredentialPoolChat(
       await recordAiCredentialSuccess(lease.credential, Date.now() - startedAt, {
         module,
         model: credentialModel,
-        requiredCapabilities: route.requiredCapabilities,
+        requiredCapabilities: route.healthCapabilities,
       })
       return result
     } catch (error) {
@@ -598,7 +618,7 @@ export async function runAdapterCredentialPoolChat(
       await recordAiCredentialFailure(lease.credential, error, {
         module,
         model: resolveRouteCredentialModel(route, lease.credential, selectionModel),
-        requiredCapabilities: route.requiredCapabilities,
+        requiredCapabilities: route.healthCapabilities,
       })
       if (!shouldFailOverAiCredential(error)) throw error
       console.warn(
