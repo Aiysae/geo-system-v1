@@ -162,6 +162,55 @@ try {
   assert.equal(sweep.inspected, 1)
   assert.equal(sweep.recovered, 1)
   assert.equal((await getAiCredentialRuntime(saved.id)).healthStatus, "healthy")
+
+  const jsonCredential = await saveAiCredential({
+    vendor: "doubao",
+    name: "豆包 JSON 自愈测试账号",
+    accountLabel: "JSON 自愈账号",
+    quotaGroup: "doubao-json-self-healing",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    chatPath: "/chat/completions",
+    apiKey: "test-doubao-json-self-healing",
+    enabled: false,
+    maxConcurrency: 1,
+    quotaGroupMaxConcurrency: 1,
+    allowedModels: ["doubao-test-model"],
+    allowedModules: ["research"],
+    declaredCapabilities: ["chat", "json"],
+  }, "self-healing-test")
+  await updateAiCredentialHealth(jsonCredential.id, {
+    status: "healthy",
+    verifiedCapabilities: ["chat", "json"],
+    consecutiveFailures: 0,
+  })
+  await setAiCredentialEnabled(jsonCredential.id, true, "self-healing-test")
+  const jsonRuntime = await getAiCredentialRuntime(jsonCredential.id)
+  await recordAiCredentialFailure(
+    jsonRuntime,
+    new Error("HTTP 403 Forbidden [AccountOverdueError]: overdue balance"),
+    {
+      module: "research",
+      model: "doubao-test-model",
+      requiredCapabilities: ["json"],
+    },
+  )
+  assert.equal(
+    (await listAiCredentialRouteHealth([jsonCredential.id]))
+      .find(route => route.capabilityProfile === "json")?.state,
+    "action_required",
+  )
+
+  const jsonSweep = await runAiCredentialHealthSweep({
+    credentialId: jsonCredential.id,
+    force: true,
+    limit: 10,
+  })
+  assert.equal(jsonSweep.failed, 0)
+  assert.equal(
+    (await listAiCredentialRouteHealth([jsonCredential.id]))
+      .find(route => route.capabilityProfile === "json")?.state,
+    "closed",
+  )
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })

@@ -57,6 +57,7 @@ export async function verifyAiCredentialChat(
     model?: string
     module?: AiCredentialModule
     isProbe?: boolean
+    requiredCapabilities?: AiCredentialCapability[]
   } = {},
 ): Promise<AiCredentialVerificationResult> {
   const credential = await getAiCredentialRuntime(credentialId)
@@ -70,6 +71,15 @@ export async function verifyAiCredentialChat(
     throw new Error("指定模型不在该账号的允许模型列表中")
   }
   const routeModule = options.module || credential.allowedModules[0] || "article"
+  const requiredCapabilities = options.requiredCapabilities?.length
+    ? [...new Set(options.requiredCapabilities)]
+    : ["chat" as const]
+  const unsupportedCapabilities = requiredCapabilities.filter(
+    capability => capability !== "chat" && capability !== "json",
+  )
+  if (unsupportedCapabilities.length > 0) {
+    throw new Error(`该能力暂不支持基础生成复检：${unsupportedCapabilities.join("、")}`)
+  }
   const modelsToTest = requestedModel ? [requestedModel] : credential.allowedModels
   const startedAt = Date.now()
   let lastError: unknown
@@ -90,6 +100,9 @@ export async function verifyAiCredentialChat(
         label: `${credential.name}·连通性检测`,
         allowWebSearch: false,
       })
+      if (requiredCapabilities.includes("json") && !looksLikeJson(content)) {
+        throw new Error("模型连通但未返回有效 JSON，暂不恢复该 JSON 路由")
+      }
       const capabilities: AiCredentialCapability[] = ["chat"]
       if (looksLikeJson(content)) capabilities.push("json")
       models.push({
@@ -102,7 +115,7 @@ export async function verifyAiCredentialChat(
         buildAiCredentialRouteIdentity(credential, {
           module: routeModule,
           model,
-          requiredCapabilities: ["chat"],
+          requiredCapabilities,
         }),
         Date.now() - modelStartedAt,
         options.isProbe === true,
@@ -114,7 +127,7 @@ export async function verifyAiCredentialChat(
         buildAiCredentialRouteIdentity(credential, {
           module: routeModule,
           model,
-          requiredCapabilities: ["chat"],
+          requiredCapabilities,
         }),
         classifyAiCredentialFailure(error),
         options.isProbe === true,

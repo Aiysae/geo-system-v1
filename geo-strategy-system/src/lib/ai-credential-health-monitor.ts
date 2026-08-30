@@ -19,6 +19,7 @@ import {
 import { verifyAiCredentialChat } from "@/lib/ai-credential-verification"
 import { verifyAiCredentialWeb } from "@/lib/ai-credential-web-verification"
 import type {
+  AiCredentialCapability,
   AiCredentialRouteHealth,
   AiCredentialRuntime,
 } from "@/types/ai-credentials"
@@ -54,6 +55,17 @@ function probeLimit(value: unknown): number {
 
 function isStrictWebRoute(route: AiCredentialRouteHealth): boolean {
   return route.capabilityProfile === "strict_web"
+}
+
+function routeProbeCapabilities(
+  route: AiCredentialRouteHealth,
+): AiCredentialCapability[] {
+  return route.capabilityProfile
+    .split("+")
+    .map(value => value.trim())
+    .filter((value): value is AiCredentialCapability =>
+      value === "chat" || value === "json",
+    )
 }
 
 function routeProbeKey(routeId: string): string {
@@ -179,6 +191,7 @@ async function probeRoute(route: AiCredentialRouteHealth): Promise<boolean> {
           model: route.model,
           module: route.module,
           isProbe: true,
+          requiredCapabilities: routeProbeCapabilities(route),
         })
       }
       console.info(
