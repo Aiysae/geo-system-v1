@@ -2,7 +2,15 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Desktop application
 
-The Electron desktop client lives in `desktop/` as an independent package so its Chromium runtime and packaging dependencies never enter the ECS web deployment. It uses the production cloud workspace as the only business-data source while adding native downloads, system notifications, tray operation, network diagnostics, and signed-release update support. See `desktop/README.md` for development, testing, packaging, and security details.
+The installable PWA is the default zero-cost desktop distribution for macOS and Windows. Its manifest, conservative static-only service worker, offline fallback, and install UI live in the main Next.js application. It never caches authenticated HTML, API responses, billing data, reports, or customer workspaces.
+
+The Electron desktop client remains in `desktop/` as an independent package for native downloads, system notifications, tray operation, network diagnostics, and signed-release updates. Until commercial Apple and Windows code signing is configured, these installers must remain secondary internal-test downloads rather than the default public install path. See `desktop/README.md` for development, testing, packaging, and security details.
+
+Regenerate the tracked PWA icons after changing the brand mark:
+
+```bash
+npm run pwa:icons
+```
 
 ## Getting Started
 

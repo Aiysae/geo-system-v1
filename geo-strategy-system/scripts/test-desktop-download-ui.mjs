@@ -6,12 +6,46 @@ const browser = await chromium.launch({ headless: true })
 
 async function verifyDesktop() {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  await page.addInitScript(() => {
+    window.__shituPwaInstallPrompt = {
+      prompt: async () => undefined,
+      userChoice: Promise.resolve({ outcome: "accepted", platform: "web" }),
+    }
+  })
   await page.goto(baseUrl, { waitUntil: "networkidle" })
-  await page.getByRole("button", { name: "下载桌面端", exact: true }).click()
-  const dialog = page.getByRole("dialog", { name: "下载势途 GEO 桌面端" })
+  await page.getByRole("button", { name: "安装桌面端", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "安装势途 GEO 桌面端" })
   await dialog.waitFor()
+  await dialog.getByRole("button", { name: "立即免费安装" }).click()
+  await dialog.getByText("安装完成", { exact: false }).waitFor()
+  await dialog.getByText("原生内测安装包").click()
   assert.equal(await dialog.locator('a[href="/api/desktop/download/windows"]').count(), 1)
   assert.equal(await dialog.locator('a[href="/api/desktop/download/mac"]').count(), 1)
+  const manifest = await page.request.get(`${baseUrl}/manifest.webmanifest`)
+  assert.equal(manifest.ok(), true)
+  const manifestBody = await manifest.json()
+  assert.equal(manifestBody.display, "standalone")
+  assert.equal(manifestBody.short_name, "势途 GEO")
+  assert.equal(manifestBody.icons.some(icon => icon.sizes === "512x512"), true)
+  const serviceWorker = await page.request.get(`${baseUrl}/sw.js`)
+  assert.equal(serviceWorker.ok(), true)
+  assert.match(await serviceWorker.text(), /\/api\//)
+  const registration = await page.evaluate(async () => {
+    const ready = await navigator.serviceWorker.ready
+    return {
+      scope: ready.scope,
+      active: ready.active?.state,
+      controlled: Boolean(navigator.serviceWorker.controller),
+    }
+  })
+  assert.equal(registration.scope, `${baseUrl}/`)
+  assert.equal(registration.active, "activated")
+  assert.equal(registration.controlled, true)
+  const devtools = await page.context().newCDPSession(page)
+  const appManifest = await devtools.send("Page.getAppManifest")
+  const installability = await devtools.send("Page.getInstallabilityErrors")
+  assert.deepEqual(appManifest.errors, [])
+  assert.deepEqual(installability.installabilityErrors, [])
   await page.screenshot({ path: "/tmp/shitu-desktop-download-desktop.png", fullPage: false })
   await page.close()
 }
@@ -22,8 +56,8 @@ async function verifyMobile() {
   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   assert.ok(horizontalOverflow <= 1, `mobile page overflows horizontally by ${horizontalOverflow}px`)
 
-  await page.locator('header nav button[title="下载桌面端"]').click()
-  const dialog = page.getByRole("dialog", { name: "下载势途 GEO 桌面端" })
+  await page.locator('header nav button[title="安装桌面端"]').click()
+  const dialog = page.getByRole("dialog", { name: "安装势途 GEO 桌面端" })
   await dialog.waitFor()
   const box = await dialog.boundingBox()
   assert.ok(

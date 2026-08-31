@@ -26,8 +26,23 @@ interface ShituDesktopBridge {
 }
 
 declare global {
+  type ShituPwaInstallChoice = {
+    outcome: "accepted" | "dismissed"
+    platform: string
+  }
+
+  interface ShituPwaInstallPromptEvent extends Event {
+    prompt(): Promise<void>
+    readonly userChoice: Promise<ShituPwaInstallChoice>
+  }
+
+  interface Navigator {
+    readonly standalone?: boolean
+  }
+
   interface Window {
     shituDesktop?: ShituDesktopBridge
+    __shituPwaInstallPrompt?: ShituPwaInstallPromptEvent
   }
 }
 
