@@ -31,6 +31,8 @@ import { CreditsAdjustForm } from "../../credits-adjust-form"
 import { UserStatusForm } from "../../user-status-form"
 import { AdminHeader } from "@/components/admin/admin-header"
 import { ClientAccountForm } from "../../client-account-form"
+import { getAdminInternalUser } from "@/lib/admin-internal-dataset"
+import { AdminInternalUserDetail } from "./internal-user-detail"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -105,6 +107,10 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
   }
 
   const { userId } = await params
+  const internalUser = getAdminInternalUser(userId)
+  if (internalUser) {
+    return <AdminInternalUserDetail record={internalUser} />
+  }
   const user = await getUserById(userId)
   if (!user) notFound()
 
