@@ -38,6 +38,7 @@ jobs:
         run: |
           npm ci --include=dev
           npx tsc --noEmit
+          npm run test:admin-internal-dataset
           npm run test:agent-api
           npm run test:agent-mcp
           npm run test:agent-cli
