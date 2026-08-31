@@ -2,6 +2,8 @@
 
 桌面端使用 Electron 承载线上势途 GEO 工作台。登录、客户数据、积分、AI 调用、长任务和历史报告仍以 ECS 服务端为唯一数据源，因此网页版和桌面版会始终使用同一份结果。
 
+对外默认使用主站提供的免费 PWA 安装方式。Electron 安装包在完成 Apple Developer ID、公证和 Windows 商业代码签名之前，只作为折叠展示的原生内测包，不能替代 PWA 成为普通用户的默认入口。
+
 ## 安全边界
 
 - 远程页面始终使用 `nodeIntegration: false`、`contextIsolation: true` 和渲染进程沙箱。

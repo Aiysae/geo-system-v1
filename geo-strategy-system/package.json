@@ -11,6 +11,7 @@
     "desktop:test": "npm --prefix desktop test",
     "desktop:test:smoke": "npm --prefix desktop run test:smoke",
     "test:desktop-download-ui": "node scripts/test-desktop-download-ui.mjs",
+    "pwa:icons": "node scripts/generate-pwa-icons.mjs",
     "desktop:build:mac": "npm --prefix desktop run build:mac",
     "desktop:build:win": "npm --prefix desktop run build:win",
     "prebuild": "npm run sync:agent-assets",
