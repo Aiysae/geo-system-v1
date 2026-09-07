@@ -4,9 +4,11 @@ import type {
   AnalysisSubjectType,
   ArticleComparisonBrand,
   ArticlePromptKey,
+  GeoArticleFormatKey,
 } from "@/types"
+import { getGeoArticleFormat } from "@/lib/geo-methodology/article-formats"
 
-export const ARTICLE_CONTENT_PIPELINE_VERSION = "shitu-article-2026.08.2"
+export const ARTICLE_CONTENT_PIPELINE_VERSION = "shitu-article-2026.09.1"
 
 export type ArticleEvidenceMode =
   | "verified"
@@ -206,21 +208,21 @@ export function buildArticlePlanningUserPrompt(taskDossier: string): string {
 function fallbackPlan(args: {
   coreQuestion: string
   primarySubject: string
+  articleFormat?: Exclude<GeoArticleFormatKey, "auto">
 }): ArticleContentPlan {
+  const format = getGeoArticleFormat(args.articleFormat || "directAnswerGuide")
   return {
     version: ARTICLE_CONTENT_PIPELINE_VERSION,
     directAnswer: `直接回答“${args.coreQuestion}”，并仅在有证据时引入${args.primarySubject}。`,
-    contentAngle: "从用户决策标准和可核验证据展开",
+    contentAngle: `按${format.title}回应本题的用户决策与证据需求`,
     evidenceMode: "framework",
     audienceDecision: "帮助读者形成可执行、可核验的判断",
     titleDirection: "使用核心问题中的实体和决策词生成准确标题",
-    sections: [
-      { heading: "直接结论", purpose: "先回答核心问题", evidenceRefs: ["核心疑问句"] },
-      { heading: "判断标准", purpose: "说明决策应依据的维度", evidenceRefs: ["用户资料"] },
-      { heading: "证据与核验", purpose: "将可用资料与结论逐项对应", evidenceRefs: ["知识资产与联网资料"] },
-      { heading: "适用场景与边界", purpose: "说明适合谁、哪些结论仍需核验", evidenceRefs: ["业务和地域资料"] },
-      { heading: "行动建议", purpose: "给出下一步可执行操作", evidenceRefs: ["本篇结论"] },
-    ],
+    sections: format.answerPattern.map(heading => ({
+      heading,
+      purpose: `围绕本题展开“${heading}”；标题应具体化，资料缺口不得补造事实`,
+      evidenceRefs: ["任务档案与直接相关的联网资料"],
+    })),
     requiredFacts: [args.primarySubject, args.coreQuestion].filter(Boolean),
     prohibitedClaims: ["无证据的排名、数据、资质、案例或第三方背书"],
     differentiation: ["紧扣本题的用户决策，避免通用营销表达"],
@@ -229,7 +231,7 @@ function fallbackPlan(args: {
 
 export function parseArticleContentPlan(
   value: string,
-  args: { coreQuestion: string; primarySubject: string },
+  args: { coreQuestion: string; primarySubject: string; articleFormat?: Exclude<GeoArticleFormatKey, "auto"> },
 ): ParsedArticleContentPlan {
   try {
     const parsed = parseJsonObject(value)
@@ -328,12 +330,22 @@ export function buildArticleSemanticJudgePrompt(args: {
   taskDossier: string
   plan: ArticleContentPlan
   article: string
+  articleFormat?: Exclude<GeoArticleFormatKey, "auto">
 }): string {
+  const format = args.articleFormat ? getGeoArticleFormat(args.articleFormat) : undefined
   return [
     "请从真实读者和专业编辑视角审核本篇文章。不要改写文章，只输出 JSON。",
     "不得因为文章字数长、有标题或有表格就给高分。必须判断内容是否真正有用、有依据、有深度。",
     "重点检查：是否直接回答问题；事实与证据是否对应；文章类型是否成立；是否有重复空话；是否像正常成熟文章；是否有独立角度。",
     "证据不足、主体资料混用、出现无依据数据/排名/案例、文章类型与资料不成立时，必须标为 blocking。",
+    "用户资料和选定知识资产是本次任务的可用事实来源；不能仅因它未被公开网页再次印证，就判为虚构或要求删除。仍须核对主体归属、适用范围、时点与矛盾。",
+    "主体自述不能扩展为独立第三方认证、公开验证结果、行业排名或普遍保证；新增的事实断言仍必须有对应依据。",
+    "逐项核对来源与缺失信息：仅有内部输入资料，不能写成‘公开规则’‘公开可核验’‘已检索’；没有实际检索记录，不能声称‘未检索到’。",
+    "未提供价格不能推出‘更便宜’或‘成本更低’；未提供某项服务、资质或范围，不等于该主体没有或不提供。把未知扩写成肯定或否定结论应标为 blocking。",
+    "区分事实断言与编辑建议：‘建议核验某项资质’不等于‘该企业已经取得该资质’。一般核验步骤、合理推理和条件性建议不要求每句都有第三方出处；具体法规要求、技术阈值和已发生事件须有依据。",
+    "按任务档案中已经解析的文章形态评判结构，不强行要求每一篇都写成榜单、实测或白皮书；缺少材料不能靠编造补齐。",
+    "score 和六项 dimensions 必须填写实际判断的 0-100 分，不能照抄格式示例中的 0。80 分以上且无阻断问题才通过。",
+    "只列真实且可执行的问题，合并同一根因；优先列最多 4 个主要问题，每条 message 与 repairInstruction 各不超过 80 字。不要复述全文。",
     "只输出：",
     JSON.stringify({
       score: 0,
@@ -353,6 +365,12 @@ export function buildArticleSemanticJudgePrompt(args: {
         blocking: true,
       }],
     }, null, 2),
+    ...(format ? [
+      "【本次已解析的形态规则，与正文生成相同】",
+      `文章形态：${format.title}；表格策略：${format.tablePolicy}；标准结构：${format.answerPattern.join("、")}`,
+      ...format.instructions,
+      "只按照这些规则审核，不额外要求模板已允许省略的材料或结构。",
+    ] : []),
     "",
     "【任务档案】",
     args.taskDossier,

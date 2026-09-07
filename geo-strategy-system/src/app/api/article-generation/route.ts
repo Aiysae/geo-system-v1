@@ -640,7 +640,9 @@ export async function POST(req: NextRequest) {
     let effectiveConfig = config
 
     if (isLongForm) {
-      const fallback = parseArticleContentPlan("", { coreQuestion, primarySubject })
+      const fallback = parseArticleContentPlan("", {
+        coreQuestion, primarySubject, articleFormat: methodology.trace.articleFormat,
+      })
       contentPlan = fallback.plan
       planUsedFallback = true
     }
@@ -671,6 +673,7 @@ export async function POST(req: NextRequest) {
         const parsedPlan = parseArticleContentPlan(planning.content, {
           coreQuestion,
           primarySubject,
+          articleFormat: methodology.trace.articleFormat,
         })
         contentPlan = parsedPlan.plan
         planUsedFallback = parsedPlan.usedFallback
@@ -808,6 +811,7 @@ export async function POST(req: NextRequest) {
               taskDossier: withWebEvidence(taskDossier),
               plan: contentPlan,
               article: candidate,
+              articleFormat: methodology.trace.articleFormat,
             }),
             temperature: 0,
             maxTokens: 1_400,

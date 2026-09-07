@@ -194,6 +194,7 @@ async function executeModel(
           maxTokens: input.maxTokens,
           jsonMode: input.jsonMode,
           mode: input.mode,
+          timeContextPosition: "end",
           transportRetries: input.mode === "judge" ? 0 : 1,
           extraBody: input.mode === "judge" && model.providerKey === "qwen" && model.model === "qwen-plus"
             ? { enable_thinking: false } : undefined,
