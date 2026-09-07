@@ -26,7 +26,7 @@ const { saveAiCredential, updateAiCredentialHealth, setAiCredentialEnabled, getA
 const { runArticleModelChat } = await import("../src/lib/article-model-runtime")
 const { runAiCredentialHealthSweep } = await import("../src/lib/ai-credential-health-monitor")
 const { recordAiCredentialFailure } = await import("../src/lib/ai-credential-router")
-const { emitTokenUsage } = await import("../src/lib/llm/openai-compat")
+const { emitTokenUsage, openaiCompatChat } = await import("../src/lib/llm/openai-compat")
 const { chatDoubao } = await import("../src/lib/llm/doubao")
 const { addTokenUsage } = await import("../src/lib/ai-usage")
 const { createInternalApiHeaders, INTERNAL_API_USER_HEADER } = await import("../src/lib/internal-api")
@@ -43,6 +43,33 @@ function completion(content: string) {
 }
 
 try {
+  const stableSystem = "Keep the original template and evidence. ".repeat(150)
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body))
+    if (body.model === "raw-test") {
+      assert.deepEqual(body.messages, [{ role: "user", content: "原始问题" }],
+        "blind calls must not receive time or business instructions")
+    } else {
+      const system = body.messages[0].content as string
+      if (body.model === "suffix-test") {
+        assert.equal(system, stableSystem, "reusable prompt must precede the changing clock")
+        assert.match(body.messages[1].content, /^unchanged input\n\n【当前北京时间】[^\n]+$/)
+      } else {
+        assert.match(system, /^【当前北京时间】/)
+        assert.equal(body.messages[1].content, "unchanged input")
+      }
+    }
+    return completion("ok")
+  }
+  for (const model of ["suffix-test", "legacy-test", "raw-test"]) {
+    await openaiCompatChat({
+      url: "https://example.com/chat/completions", apiKey: "test", model, label: "time-test",
+      system: model === "raw-test" ? "" : stableSystem,
+      user: model === "raw-test" ? "原始问题" : "unchanged input",
+      rawQuestionOnly: model === "raw-test",
+      timeContextPosition: model === "legacy-test" ? undefined : "end",
+    })
+  }
   assert.equal(classifyAiCredentialFailure(overdue).failureClass, "billing")
   assert.equal(classifyAiCredentialFailure(overdue).scope, "credential")
   const credential = await saveAiCredential({
@@ -129,6 +156,8 @@ try {
     const body = JSON.parse(String(init?.body || "{}"))
     if (!body.model || !body.messages) return Response.json({ results: [] })
     const system = body.messages.find((message: { role: string }) => message.role === "system")?.content || ""
+    assert.ok(!system.startsWith("【当前北京时间】"), "article runtime must opt into stable-prefix layout")
+    assert.match(body.messages.at(-1).content, /【当前北京时间】[^\n]+$/)
     if (body.model === "qwen-plus") {
       assert.equal(body.enable_thinking, false)
       stages.push("judge")

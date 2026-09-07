@@ -17,7 +17,7 @@ import type {
 import type { AiCredentialVendor } from "@/types/ai-credentials"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { extractSourcesFromUnknown, normalizeSourceDomain } from "./source-extract"
-import { withBeijingTime } from "./time-context"
+import { buildBeijingTimeHeader, withBeijingTime } from "./time-context"
 import { formatHitsForLLM, webSearch, type SearchHit } from "./web-search"
 
 export interface SearchSourceEvent {
@@ -55,6 +55,8 @@ export interface ChatArgs {
   allowWebSearch?: boolean
   /** Send only the user's question as conversation context; do not inject time/system hints. */
   rawQuestionOnly?: boolean
+  /** Append the clock after user data for provider-side prefix caching; ignored in blind mode. */
+  timeContextPosition?: "start" | "end"
   /** Reject consumer answers that cannot be tied to at least one auditable public web source. */
   requireWebEvidence?: boolean
   /** Do not fall back to local search when provider-native web search returns no auditable sources. */
@@ -515,6 +517,7 @@ export async function openaiCompatChat({
   mode,
   forceWebSearch,
   rawQuestionOnly,
+  timeContextPosition,
   requireWebEvidence,
   officialWebOnly,
   label,
@@ -546,21 +549,23 @@ export async function openaiCompatChat({
     }
   }
 
+  const trailingTime = !rawQuestionOnly && timeContextPosition === "end"
+    ? `\n\n${buildBeijingTimeHeader()}` : ""
   const userContent = trimmedImages.length > 0
     ? [
-        { type: "text" as const, text: user },
+        { type: "text" as const, text: user + trailingTime },
         ...trimmedImages.map(url => ({
           type: "image_url" as const,
           image_url: { url, detail: "auto" as const },
         })),
       ]
-    : user
+    : user + trailingTime
 
   const timeoutMs = (timeoutSec && timeoutSec > 0 ? timeoutSec : 300) * 1000
 
   try {
     const messages: Array<Record<string, unknown>> = []
-    const systemContent = rawQuestionOnly ? system : withBeijingTime(system)
+    const systemContent = rawQuestionOnly || trailingTime ? system : withBeijingTime(system)
     if (!rawQuestionOnly || systemContent.trim()) {
       messages.push({ role: "system", content: systemContent })
     }
@@ -632,13 +637,13 @@ export async function openaiCompatChat({
       }
 
       const fallbackMessages: Array<Record<string, unknown>> = []
-      const fallbackSystem = rawQuestionOnly ? system : withBeijingTime(system)
+      const fallbackSystem = rawQuestionOnly || trailingTime ? system : withBeijingTime(system)
       if (!rawQuestionOnly || fallbackSystem.trim()) {
         fallbackMessages.push({ role: "system", content: fallbackSystem })
       }
       fallbackMessages.push({
         role: "user",
-        content: `${String(user)}\n\n${formatHitsForLLM(fallbackQuery, hits)}\n\n${WEB_EVIDENCE_STYLE_DIRECTIVE}`,
+        content: `${String(user)}\n\n${formatHitsForLLM(fallbackQuery, hits)}\n\n${WEB_EVIDENCE_STYLE_DIRECTIVE}${trailingTime}`,
       })
 
       const fallbackData = await openaiCompatRaw({

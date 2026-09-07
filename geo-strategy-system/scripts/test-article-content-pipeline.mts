@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 const {
   ARTICLE_CONTENT_PIPELINE_VERSION,
   buildArticleDraftUserPrompt,
+  buildArticleSemanticJudgePrompt,
   buildArticleSemanticRepairPrompt,
   buildArticleTaskDossier,
   parseArticleContentPlan,
@@ -82,6 +83,30 @@ const fallback = parseArticleContentPlan("这不是 JSON", {
 })
 assert.equal(fallback.usedFallback, true)
 assert.ok(fallback.plan.sections.length >= 4)
+
+const { GEO_ARTICLE_FORMATS } = await import("../src/lib/geo-methodology/article-formats")
+for (const format of Object.values(GEO_ARTICLE_FORMATS)) {
+  const planned = parseArticleContentPlan("", {
+    coreQuestion: "企业 GEO 服务商应该怎么选？",
+    primarySubject: "势途测试品牌",
+    articleFormat: format.key,
+  })
+  assert.deepEqual(planned.plan.sections.map(section => section.heading), format.answerPattern,
+    `${format.key}: fallback must not override the resolved article format`)
+}
+
+const judgePrompt = buildArticleSemanticJudgePrompt({ taskDossier: dossier, plan: parsed.plan, article: "# 测试正文" })
+assert.match(judgePrompt, /用户资料.*可用事实来源/)
+assert.match(judgePrompt, /建议核验.*不等于.*已经取得/)
+assert.match(judgePrompt, /不能.*扩展.*独立第三方认证/)
+assert.match(judgePrompt, /未提供价格不能推出/)
+assert.match(judgePrompt, /没有实际检索记录/)
+assert.match(judgePrompt, /score.*实际.*0-100/)
+const observationJudge = buildArticleSemanticJudgePrompt({
+  taskDossier: dossier, plan: parsed.plan, article: "# 资料观察稿", articleFormat: "fieldReviewQa",
+})
+assert.match(observationJudge, /资料不足时改为资料核验或观察型表达/)
+assert.match(observationJudge, /与正文生成相同/)
 
 const draftPrompt = buildArticleDraftUserPrompt(dossier, parsed.plan)
 assert.match(draftPrompt, /写作计划/)
