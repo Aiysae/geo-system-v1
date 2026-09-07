@@ -13,6 +13,7 @@ import {
   updateAiCredentialHealth,
 } from "@/lib/ai-credential-store"
 import { ADAPTERS } from "@/lib/llm"
+import { observeAiUsage } from "@/lib/ai-usage"
 import type { ModelKey } from "@/types"
 import type {
   AiCredentialCapability,
@@ -67,46 +68,60 @@ export async function verifyAiCredentialWeb(
   const routeModule = options.module || "penetration"
   const models: AiCredentialModelVerification[] = []
   let lastError: unknown
+  let accountFailure = false
+  const failedWebModels = new Set<string>()
   for (const model of modelsToTest) {
     const modelStartedAt = Date.now()
     const sourceUrls = new Set<string>()
     const requestIds = new Set<string>()
     let searchExecuted = false
     try {
-      const answer = await ADAPTERS[modelKey].chat({
-        system: "",
-        user: "请联网查询今天的日期，并给出至少一个可访问的公开网页来源。",
-        temperature: 0,
-        maxTokens: 512,
-        mode: "consumer",
-        forceWebSearch: true,
-        rawQuestionOnly: true,
-        requireWebEvidence: true,
-        officialWebOnly: true,
-        timeoutSec: 120,
-        runtimeOverride: {
-          vendor: credential.vendor,
-          baseUrl: credential.baseUrl,
-          chatPath: credential.chatPath,
-          apiKey: credential.apiKey,
-          model,
-          timeout: 120,
-          extra: credential.vendor === "qwen" || credential.vendor === "ernie"
-            ? { enableSearch: true }
-            : undefined,
-        },
-        onSearchSources: event => {
-          searchExecuted ||= event.searchExecuted === true || event.sources.length > 0
-          for (const source of event.sources) {
-            if (/^https?:\/\//i.test(source.url)) sourceUrls.add(source.url)
-          }
-          if (event.providerRequestId?.trim()) requestIds.add(event.providerRequestId.trim())
-        },
+      await observeAiUsage({
+        userId: options.isProbe ? "system-health-monitor" : "system-credential-verification",
+        task: options.isProbe ? "credential_health_probe_web" : "credential_verify_web",
+        providerKey: credential.vendor,
+        providerName: credential.vendor,
+        modelId: model,
+        credentialId: credential.id,
+        usedFallback: false,
+      }, async onUsage => {
+        const answer = await ADAPTERS[modelKey].chat({
+          system: "",
+          user: "请联网查询今天的日期，并给出至少一个可访问的公开网页来源。",
+          temperature: 0,
+          maxTokens: 512,
+          mode: "consumer",
+          forceWebSearch: true,
+          rawQuestionOnly: true,
+          requireWebEvidence: true,
+          officialWebOnly: true,
+          timeoutSec: 120,
+          transportRetries: 0,
+          onUsage,
+          runtimeOverride: {
+            vendor: credential.vendor,
+            baseUrl: credential.baseUrl,
+            chatPath: credential.chatPath,
+            apiKey: credential.apiKey,
+            model,
+            timeout: 120,
+            extra: credential.vendor === "qwen" || credential.vendor === "ernie"
+              ? { enableSearch: true }
+              : undefined,
+          },
+          onSearchSources: event => {
+            searchExecuted ||= event.searchExecuted === true || event.sources.length > 0
+            for (const source of event.sources) {
+              if (/^https?:\/\//i.test(source.url)) sourceUrls.add(source.url)
+            }
+            if (event.providerRequestId?.trim()) requestIds.add(event.providerRequestId.trim())
+          },
+        })
+        if (!answer.trim()) throw new Error("官方联网返回空内容")
+        if (!searchExecuted) throw new Error("厂商未确认执行官方联网搜索")
+        if (sourceUrls.size === 0) throw new Error("官方联网未返回可点击的网页信源")
+        if (requestIds.size === 0) throw new Error("厂商未返回可审计请求编号")
       })
-      if (!answer.trim()) throw new Error("官方联网返回空内容")
-      if (!searchExecuted) throw new Error("厂商未确认执行官方联网搜索")
-      if (sourceUrls.size === 0) throw new Error("官方联网未返回可点击的网页信源")
-      if (requestIds.size === 0) throw new Error("厂商未返回可审计请求编号")
       models.push({
         model,
         status: "passed",
@@ -125,13 +140,14 @@ export async function verifyAiCredentialWeb(
       if (!options.allModels) break
     } catch (error) {
       lastError = error
+      const failure = classifyAiCredentialFailure(error)
       await recordAiCredentialRouteFailure(
         buildAiCredentialRouteIdentity(credential, {
           module: routeModule,
           model,
           requiredCapabilities: ["native_web", "auditable_sources"],
         }),
-        classifyAiCredentialFailure(error),
+        failure,
         options.isProbe === true,
       )
       models.push({
@@ -144,16 +160,21 @@ export async function verifyAiCredentialWeb(
           240,
         ),
       })
+      if (failure.scope === "credential") {
+        accountFailure = true
+        break
+      }
+      failedWebModels.add(model)
     }
   }
 
   const passedModels = models.filter(item => item.status === "passed")
   const verifiedWebModels = new Set(credential.verifiedWebModels)
   for (const result of models) {
-    verifiedWebModels.delete(result.model)
+    if (failedWebModels.has(result.model)) verifiedWebModels.delete(result.model)
     if (result.status === "passed") verifiedWebModels.add(result.model)
   }
-  if (passedModels.length > 0) {
+  if (passedModels.length > 0 && !accountFailure) {
     const preferred = passedModels[0]
     if (!requestedModel) {
       if (!options.isProbe) await prioritizeAiCredentialModel(credential.id, preferred.model)
@@ -190,14 +211,17 @@ export async function verifyAiCredentialWeb(
     : credential.verifiedCapabilities.filter(
         capability => capability !== "native_web" && capability !== "auditable_sources",
       )
+  const diagnosis = classifyAiCredentialFailure(lastError)
   await updateAiCredentialHealth(credential.id, {
-    status: verified.includes("chat") || verifiedWebModels.size > 0
-      ? "healthy"
-      : "degraded",
+    status: accountFailure ? "unhealthy"
+      : verified.includes("chat") || verifiedWebModels.size > 0 ? "healthy" : "degraded",
     verifiedCapabilities: verified,
     verifiedWebModels: [...verifiedWebModels],
     latencyMs: Date.now() - startedAt,
-    consecutiveFailures: credential.consecutiveFailures,
+    consecutiveFailures: credential.consecutiveFailures + (accountFailure ? 1 : 0),
+    cooldownUntil: accountFailure
+      ? new Date(Date.now() + Math.max(30 * 60_000, diagnosis.cooldownMs)).toISOString()
+      : undefined,
   })
   throw new Error(message || "严格联网能力检测失败")
 }
