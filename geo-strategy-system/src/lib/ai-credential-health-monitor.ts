@@ -99,6 +99,7 @@ async function seedCredentialRoutes(
 ): Promise<AiCredentialRouteHealth[]> {
   const seeded: AiCredentialRouteHealth[] = []
   const now = new Date().toISOString()
+  const existing = await listAiCredentialRouteHealth(credentials.map(item => item.id))
 
   for (const credential of credentials) {
     if (!credentialSelected(credential, options)) continue
@@ -108,7 +109,8 @@ async function seedCredentialRoutes(
         credential.cooldownUntil
         && new Date(credential.cooldownUntil).getTime() <= Date.now(),
       )
-    const includeBasicSeed = options.force || needsBasicRecovery
+    const knownRoutes = existing.filter(route => route.credentialId === credential.id)
+    const includeBasicSeed = options.force || (needsBasicRecovery && knownRoutes.length === 0)
     if (includeBasicSeed) {
       const basicModels = credential.allowedModels.slice(0, 1)
       const routeModule = credential.allowedModules[0] || "article"
@@ -125,8 +127,8 @@ async function seedCredentialRoutes(
             failureScope: "route",
             lastErrorCode: "LEGACY_HEALTH_RECHECK",
             lastErrorMessage: "账号等待自动恢复检测",
-            nextProbeAt: now,
-            reopenClosed: needsBasicRecovery,
+            nextProbeAt: !options.force && credential.cooldownUntil
+              ? credential.cooldownUntil : now,
           },
         ))
       }
@@ -137,7 +139,10 @@ async function seedCredentialRoutes(
       && STRICT_NATIVE_WEB_VENDORS.has(credential.vendor)
     if (
       !declaresStrictWeb
-      || (!options.force && !needsBasicRecovery && credential.verifiedWebModels.length > 0)
+      || (!options.force && (
+        knownRoutes.length > 0
+        || (!needsBasicRecovery && credential.verifiedWebModels.length > 0)
+      ))
     ) continue
     const strictModels = credential.verifiedWebModels.length > 0
       ? credential.verifiedWebModels
@@ -155,8 +160,8 @@ async function seedCredentialRoutes(
           failureScope: "capability",
           lastErrorCode: "STRICT_WEB_RECHECK",
           lastErrorMessage: "严格联网通道等待自动恢复检测",
-          nextProbeAt: now,
-          reopenClosed: needsBasicRecovery || credential.verifiedWebModels.length === 0,
+          nextProbeAt: !options.force && credential.cooldownUntil
+            ? credential.cooldownUntil : now,
         },
       ))
     }
@@ -256,17 +261,24 @@ export async function runAiCredentialHealthSweep(
         [...seeded, ...existing].map(route => [route.id, route]),
       )
       candidates = [...unique.values()]
+      const priority = (route: AiCredentialRouteHealth) => route.state === "closed"
+        ? 3 : route.failureScope === "credential" ? 0 : route.failureCount > 0 ? 1 : 2
+      candidates.sort((a, b) => priority(a) - priority(b))
     } else {
-      candidates = await listDueAiCredentialRouteProbes(
-        probeLimit(options.limit || process.env.AI_CREDENTIAL_HEALTH_PROBE_BATCH),
-      )
+      candidates = (await listDueAiCredentialRouteProbes(100)).filter(route => {
+        const credential = credentials.find(item => item.id === route.credentialId)
+        return credential && credentialSelected(credential, options)
+          && (!credential.cooldownUntil || Date.parse(credential.cooldownUntil) <= Date.now())
+      })
     }
     if (options.credentialId) {
       candidates = candidates.filter(
         route => route.credentialId === options.credentialId,
       )
     }
-    candidates = candidates.slice(0, probeLimit(options.limit || candidates.length || 1))
+    candidates = candidates.slice(0, probeLimit(
+      options.limit || process.env.AI_CREDENTIAL_HEALTH_PROBE_BATCH,
+    ))
 
     let recovered = 0
     let failed = 0

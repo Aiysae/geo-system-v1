@@ -436,6 +436,7 @@ export interface ArticleGenerationConnectivity {
 }
 
 export interface ArticleGenerationQualityAudit {
+  semanticJudgeModel?: string
   pipelineVersion: string
   planUsedFallback: boolean
   evidenceMode: "verified" | "public_evidence" | "framework" | "insufficient"

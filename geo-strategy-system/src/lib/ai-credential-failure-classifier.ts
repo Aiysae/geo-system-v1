@@ -86,7 +86,7 @@ export function classifyAiCredentialFailure(
     })
   }
 
-  if (/HTTP\s*402|payment required|insufficient.{0,24}(?:balance|credit)|余额不足|欠费/i.test(message)) {
+  if (/HTTP\s*402|payment required|AccountOverdue|overdue.{0,24}balance|insufficient.{0,24}(?:balance|credit)|余额不足|欠费/i.test(message)) {
     return diagnosis({
       failureClass: "billing",
       scope: "credential",

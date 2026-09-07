@@ -156,7 +156,7 @@ export async function verifyAiCredentialWeb(
   if (passedModels.length > 0) {
     const preferred = passedModels[0]
     if (!requestedModel) {
-      await prioritizeAiCredentialModel(credential.id, preferred.model)
+      if (!options.isProbe) await prioritizeAiCredentialModel(credential.id, preferred.model)
     }
     const verified = new Set<AiCredentialCapability>(credential.verifiedCapabilities)
     verified.add("chat")

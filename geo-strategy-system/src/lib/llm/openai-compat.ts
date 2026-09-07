@@ -69,6 +69,9 @@ export interface ChatArgs {
   spreadAcrossCredentials?: boolean
   /** Bound server-side credential failover for one stage so a slow account cannot consume the whole job. */
   credentialAttemptLimit?: number
+  /** Bound transport retries when a pool already provides account failover. */
+  transportRetries?: number
+  usageContext?: { userId: string; task: string }
   /** Allow a parent background task to stop the active upstream request. */
   signal?: AbortSignal
   /** Observe the public web sources used by local search adapters. */
@@ -87,6 +90,8 @@ export interface LlmTokenUsage {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  cachedPromptTokens?: number
+  reasoningTokens?: number
 }
 
 const WEB_EVIDENCE_RESULTS_PER_CALL = 12
@@ -236,6 +241,10 @@ export interface RawChatCompletion {
     total_tokens?: number
     input_tokens?: number
     output_tokens?: number
+    prompt_tokens_details?: { cached_tokens?: number }
+    input_tokens_details?: { cached_tokens?: number }
+    completion_tokens_details?: { reasoning_tokens?: number }
+    output_tokens_details?: { reasoning_tokens?: number }
   }
   choices: Array<{
     finish_reason?: string
@@ -244,6 +253,7 @@ export interface RawChatCompletion {
 }
 
 export interface OpenAICompatRawArgs {
+  transportRetries?: number
   url: string
   apiKey: string
   authType?: "bearer" | "x-api-key"
@@ -266,6 +276,7 @@ export interface OpenAICompatRawArgs {
 
 // 底层：发请求并返回原始 ChatCompletion（供需要工具循环的场景使用，如 Kimi 联网）
 export async function openaiCompatRaw({
+  transportRetries = 3,
   url,
   apiKey,
   authType,
@@ -315,13 +326,14 @@ export async function openaiCompatRaw({
     signal,
   })
   const retryableStatuses = new Set([429, 500, 502, 503, 504])
-  for (let retry = 0; retry < 3 && retryableStatuses.has(res.status); retry++) {
+  const retryLimit = Math.max(0, Math.min(3, Math.floor(transportRetries)))
+  for (let retry = 0; retry < retryLimit && retryableStatuses.has(res.status); retry++) {
     const status = res.status
     const rawTxt = await res.text().catch(() => "")
     const txt = sanitizeAiUpstreamMessage(rawTxt, 5_000)
     const delay = retryDelayMs(res.headers, txt, retry)
     console.warn(
-      `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`,
+      `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/${retryLimit})。`,
     )
     await sleep(delay, signal)
     res = await postChatCompletionWithTimeout({
@@ -431,8 +443,8 @@ function extractMessageContent(message: RawChatCompletionMessage | undefined, la
   return String(content)
 }
 
-function emitTokenUsage(
-  data: RawChatCompletion,
+export function emitTokenUsage(
+  data: Pick<RawChatCompletion, "usage">,
   onUsage?: (usage: LlmTokenUsage) => void,
 ): void {
   if (!onUsage || !data.usage) return
@@ -442,7 +454,15 @@ function emitTokenUsage(
     0,
     Number(data.usage.total_tokens) || promptTokens + completionTokens,
   )
-  onUsage({ promptTokens, completionTokens, totalTokens })
+  const cached = data.usage.prompt_tokens_details?.cached_tokens
+    ?? data.usage.input_tokens_details?.cached_tokens
+  const reasoning = data.usage.completion_tokens_details?.reasoning_tokens
+    ?? data.usage.output_tokens_details?.reasoning_tokens
+  onUsage({
+    promptTokens, completionTokens, totalTokens,
+    ...(cached !== undefined ? { cachedPromptTokens: Math.max(0, Number(cached) || 0) } : {}),
+    ...(reasoning !== undefined ? { reasoningTokens: Math.max(0, Number(reasoning) || 0) } : {}),
+  })
 }
 
 function toPenetrationSources(query: string, hits: SearchHit[]): PenetrationSource[] {
@@ -481,6 +501,7 @@ function trimDataUrl(dataUrl: string, maxBytes: number): { url: string; trimmed:
 
 // 标准对外接口：单轮 system + user，返回 content 文本
 export async function openaiCompatChat({
+  transportRetries,
   url,
   apiKey,
   authType,
@@ -546,6 +567,7 @@ export async function openaiCompatChat({
     messages.push({ role: "user", content: userContent })
 
     const data = await openaiCompatRaw({
+      transportRetries,
       url,
       apiKey,
       authType,
