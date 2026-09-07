@@ -35,7 +35,9 @@ export async function collectArticleWebContext(args: {
   maxAttempts?: number
   maxResults?: number
   search?: ArticleWebSearchRunner
+  signal?: AbortSignal
 }): Promise<ArticleWebContextResult> {
+  args.signal?.throwIfAborted()
   const maxAttempts = Math.max(1, Math.min(4, Math.floor(args.maxAttempts || 3)))
   const maxResults = Math.max(3, Math.min(12, Math.floor(args.maxResults || 8)))
   const queries = Array.from(new Set(args.queries.map(cleanQuery).filter(Boolean)))
@@ -46,6 +48,7 @@ export async function collectArticleWebContext(args: {
   const search = args.search || webSearch
 
   for (const query of queries) {
+    args.signal?.throwIfAborted()
     attemptedQueries.push(query)
     try {
         const hits = (await search(query, maxResults))
@@ -56,8 +59,10 @@ export async function collectArticleWebContext(args: {
             return true
           })
           .slice(0, maxResults)
+        args.signal?.throwIfAborted()
         if (hits.length > 0) resultGroups.push(hits)
     } catch (error) {
+      args.signal?.throwIfAborted()
       console.warn(
         "[article-web-context] live search failed",
         query.slice(0, 80),

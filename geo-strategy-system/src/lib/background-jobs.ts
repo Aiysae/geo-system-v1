@@ -2,6 +2,7 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { gzipSync, gunzipSync } from "zlib"
+import { NextRequest } from "next/server"
 import { kv } from "@/lib/kv"
 import { syncBackgroundJobTask } from "@/lib/task-center/adapters"
 import {
@@ -478,13 +479,14 @@ async function readJsonResponse(response: Response): Promise<unknown> {
 
 export function isDirectBackgroundJobKind(
   kind: BackgroundJobKind,
-): kind is Extract<BackgroundJobKind, "research" | "competitorCompare"> {
-  return kind === "research" || kind === "competitorCompare"
+): kind is Extract<BackgroundJobKind, "research" | "competitorCompare" | "articleGeneration"> {
+  return kind === "research" || kind === "competitorCompare" || kind === "articleGeneration"
 }
 
 function directTaskUserError(kind: BackgroundJobKind, error: unknown): Error {
   const message = safeError(error)
   if (/\u7528\u6237\u5df2\u505c\u6b62\u4efb\u52a1/.test(message)) return new Error("用户已停止任务")
+  if (kind === "articleGeneration") return new Error(message)
   if (/未达到生成可审计报告的最低标准|请补充更准确的主体/.test(message)) {
     return new Error(message)
   }
@@ -534,6 +536,28 @@ async function executeDirectBackgroundRequest(
   }
 
   try {
+    if (job.kind === "articleGeneration") {
+      await onProgress(15, "正在生成文章")
+      const { POST } = await import("@/app/api/article-generation/route")
+      // Keep the same validation, runtime user and credit bypass without replaying a paid pipeline over HTTP.
+      const response = await POST(new NextRequest("http://localhost/api/article-generation", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...createInternalApiHeaders("background-job"),
+          [INTERNAL_API_USER_HEADER]: job.runtimeUserId || job.ownerUserId,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      }))
+      const result = await readJsonResponse(response)
+      if (!response.ok) {
+        throw new Error(String(record(result).error || `文章任务执行失败（HTTP ${response.status}）`))
+      }
+      controller.signal.throwIfAborted()
+      console.info("[background-jobs] direct task completed", job.id, job.kind, `${Date.now() - startedAt}ms`)
+      return result
+    }
     if (job.kind === "research") {
       const { executeResearchTask } = await import("@/app/api/research/route")
       const result = await executeResearchTask(payload, {
@@ -655,7 +679,10 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
       error: undefined,
     }) || job
 
-    const result = await executeBackgroundRequest(job)
+    // A recovered article may have finished generation but not output persistence or settlement.
+    const result = job.kind === "articleGeneration" && job.result !== undefined
+      ? job.result
+      : await executeBackgroundRequest(job)
     const current = await getStoredJob(jobId)
     if (!current || current.status === "cancelled") throw new Error("用户已停止任务")
 

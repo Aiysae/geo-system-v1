@@ -410,6 +410,7 @@ async function runArticleModelChatWithinBudget(
   let connectivity: ArticleGenerationConnectivity | undefined
   if (input.webPolicy === "required_with_fallback") {
     const context = await collectArticleWebContext({
+      signal: input.signal,
       queries: input.webSearchQueries?.length
         ? input.webSearchQueries
         : [input.user],

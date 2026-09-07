@@ -60,6 +60,7 @@
     "test:ai-credential-quotas": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-credential-quotas.mts",
     "test:article-credential-pool": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-credential-pool.mts",
     "test:ai-cost-controls": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-cost-controls.mts",
+    "test:article-background-execution": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-background-execution.mts",
     "test:ai-health-probe-cost": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-ai-health-probe-cost.mts",
     "test:openai-compat-timeout": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-openai-compat-timeout.mts",
     "ai-credentials:verify": "NODE_OPTIONS=--conditions=react-server tsx scripts/verify-ai-credentials.mts",
