@@ -68,8 +68,8 @@ function routeProbeCapabilities(
     )
 }
 
-function routeProbeKey(routeId: string): string {
-  return `geo:ai-credential-health-monitor:probe:${routeId}`
+function routeProbeKey(credentialId: string): string {
+  return `geo:ai-credential-health-monitor:probe-credential:${credentialId}`
 }
 
 async function acquireLock(key: string, seconds: number): Promise<string | null> {
@@ -176,13 +176,19 @@ async function routeWasUpdatedByVerifier(
   return current.get(route.id)?.state !== "half_open"
 }
 
-async function probeRoute(route: AiCredentialRouteHealth): Promise<boolean> {
-  const lockKey = routeProbeKey(route.id)
+async function probeRoute(route: AiCredentialRouteHealth, force: boolean): Promise<boolean | null> {
+  const lockKey = routeProbeKey(route.credentialId)
   const token = await acquireLock(lockKey, 4 * 60)
-  if (!token) return false
+  if (!token) return null
   try {
     const credential = await getAiCredentialRuntime(route.credentialId)
-    if (!credential.enabled || !credential.apiKey) return false
+    if (!credential.enabled || !credential.apiKey) return null
+    if (!credential.allowedModels.includes(route.model)
+      || (credential.allowedModules.length > 0 && !credential.allowedModules.includes(route.module))) return null
+    // Candidate lists can go stale after another route discovers account-level failure.
+    if (!force && credential.cooldownUntil && Date.parse(credential.cooldownUntil) > Date.now()) return null
+    const current = (await getAiCredentialRouteHealthMap([route])).get(route.id)
+    if (!force && current?.state === "closed") return null
     await markAiCredentialRouteHalfOpen(route)
     try {
       if (isStrictWebRoute(route)) {
@@ -276,21 +282,24 @@ export async function runAiCredentialHealthSweep(
         route => route.credentialId === options.credentialId,
       )
     }
-    candidates = candidates.slice(0, probeLimit(
+    const limit = probeLimit(
       options.limit || process.env.AI_CREDENTIAL_HEALTH_PROBE_BATCH,
-    ))
+    )
 
     let recovered = 0
     let failed = 0
     let skipped = 0
+    const attemptedCredentials = new Set<string>()
     for (const route of candidates) {
-      const succeeded = await probeRoute(route)
+      if (recovered + failed >= limit) break
+      const succeeded = await probeRoute(route, force && !attemptedCredentials.has(route.credentialId))
+      if (succeeded === null) { skipped += 1; continue }
+      attemptedCredentials.add(route.credentialId)
       if (succeeded) recovered += 1
-      else if (route.state === "half_open") skipped += 1
       else failed += 1
     }
     return {
-      inspected: candidates.length,
+      inspected: recovered + failed,
       recovered,
       failed,
       skipped,

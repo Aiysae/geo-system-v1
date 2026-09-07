@@ -13,6 +13,7 @@ import {
 } from "@/lib/ai-credential-route-health"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import { observeAiUsage } from "@/lib/ai-usage"
 import type {
   AiCredentialCapability,
   AiCredentialModule,
@@ -83,32 +84,46 @@ export async function verifyAiCredentialChat(
   const modelsToTest = requestedModel ? [requestedModel] : credential.allowedModels
   const startedAt = Date.now()
   let lastError: unknown
+  let accountFailure = false
   const models: AiCredentialModelVerification[] = []
   for (const model of modelsToTest) {
     const modelStartedAt = Date.now()
     try {
       const longTextProbe = requiredCapabilities.includes("long_text")
-      const content = await openaiCompatChat({
-        url: chatUrl(credential.baseUrl, credential.chatPath),
-        apiKey: credential.apiKey,
-        model,
-        system: "你是 API 连通性检测器。只执行用户要求，不补充解释。",
-        user: longTextProbe
-          ? '只返回 JSON：{"ok":true,"items":[12 条每条不少于 25 个中文字的 API 长文连通性检测说明]}。items 必须恰好 12 条且内容不重复。'
-          : '只返回 JSON：{"ok":true}',
-        temperature: 0,
-        maxTokens: longTextProbe ? 768 : credential.vendor === "kimi" ? 512 : 64,
-        jsonMode: true,
-        timeoutSec: longTextProbe ? 90 : 60,
-        label: `${credential.name}·连通性检测`,
-        allowWebSearch: false,
+      const content = await observeAiUsage({
+        userId: options.isProbe ? "system-health-monitor" : "system-credential-verification",
+        task: options.isProbe ? "credential_health_probe_chat" : "credential_verify_chat",
+        providerKey: credential.vendor,
+        providerName: credential.vendor,
+        modelId: model,
+        credentialId: credential.id,
+        usedFallback: false,
+      }, async onUsage => {
+        const result = await openaiCompatChat({
+          url: chatUrl(credential.baseUrl, credential.chatPath),
+          apiKey: credential.apiKey,
+          model,
+          system: "你是 API 连通性检测器。只执行用户要求，不补充解释。",
+          user: longTextProbe
+            ? '只返回 JSON：{"ok":true,"items":[12 条每条不少于 25 个中文字的 API 长文连通性检测说明]}。items 必须恰好 12 条且内容不重复。'
+            : '只返回 JSON：{"ok":true}',
+          temperature: 0,
+          maxTokens: longTextProbe ? 768 : credential.vendor === "kimi" ? 512 : 64,
+          jsonMode: true,
+          timeoutSec: longTextProbe ? 90 : 60,
+          label: `${credential.name}·连通性检测`,
+          allowWebSearch: false,
+          transportRetries: 0,
+          onUsage,
+        })
+        if (requiredCapabilities.includes("json") && !looksLikeJson(result)) {
+          throw new Error("模型连通但未返回有效 JSON，暂不恢复该 JSON 路由")
+        }
+        if (longTextProbe && result.replace(/\s+/g, "").length < 300) {
+          throw new Error("模型连通但未完成长文输出，暂不恢复该长任务路由")
+        }
+        return result
       })
-      if (requiredCapabilities.includes("json") && !looksLikeJson(content)) {
-        throw new Error("模型连通但未返回有效 JSON，暂不恢复该 JSON 路由")
-      }
-      if (longTextProbe && content.replace(/\s+/g, "").length < 300) {
-        throw new Error("模型连通但未完成长文输出，暂不恢复该长任务路由")
-      }
       const capabilities: AiCredentialCapability[] = ["chat"]
       if (looksLikeJson(content)) capabilities.push("json")
       if (longTextProbe) capabilities.push("long_text")
@@ -130,13 +145,14 @@ export async function verifyAiCredentialChat(
       if (!options.allModels) break
     } catch (error) {
       lastError = error
+      const failure = classifyAiCredentialFailure(error)
       await recordAiCredentialRouteFailure(
         buildAiCredentialRouteIdentity(credential, {
           module: routeModule,
           model,
           requiredCapabilities,
         }),
-        classifyAiCredentialFailure(error),
+        failure,
         options.isProbe === true,
       )
       models.push({
@@ -149,11 +165,15 @@ export async function verifyAiCredentialChat(
           240,
         ),
       })
+      if (failure.scope === "credential") {
+        accountFailure = true
+        break
+      }
     }
   }
 
   const passedModels = models.filter(item => item.status === "passed")
-  if (passedModels.length > 0) {
+  if (passedModels.length > 0 && !accountFailure) {
     const preferred = passedModels[0]
     const prioritized = options.isProbe
       ? credential
