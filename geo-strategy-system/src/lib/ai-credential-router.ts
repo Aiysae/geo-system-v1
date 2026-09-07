@@ -395,6 +395,8 @@ async function acquireFromPool(
   do {
     throwIfCredentialWaitAborted(request.signal)
     const candidates = await orderedCandidates(request)
+    // No eligible account is different from a busy account with an available route.
+    if (candidates.length === 0 && !sawCandidate) break
     sawCandidate ||= candidates.length > 0
     for (const credential of candidates) {
       throwIfCredentialWaitAborted(request.signal)
@@ -568,6 +570,16 @@ export async function hasAiCredentialCandidate(
   request: AiCredentialSelectionRequest,
 ): Promise<boolean> {
   return (await eligibleCredentials(request)).length > 0
+}
+
+// Configuration presence must not disappear when an account is cooling down.
+export async function hasConfiguredAiCredential(
+  vendor: AiCredentialSelectionRequest["vendor"],
+  module: AiCredentialSelectionRequest["module"],
+): Promise<boolean> {
+  return (await listAiCredentialRuntimes(vendor)).some(credential =>
+    credential.allowedModules.length === 0 || credential.allowedModules.includes(module),
+  )
 }
 
 export async function tryAcquireAiCredential(

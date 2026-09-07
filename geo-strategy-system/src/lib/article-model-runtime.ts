@@ -9,7 +9,7 @@ import { resolveArticleModel, type ResolvedArticleModel } from "@/lib/article-mo
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import type { LlmTokenUsage } from "@/lib/llm/openai-compat"
 import { nativeModelChat } from "@/lib/llm/native-chat"
-import { recordAiUsageQuietly } from "@/lib/ai-usage"
+import { addTokenUsage, recordAiUsageQuietly } from "@/lib/ai-usage"
 import {
   buildArticleWebEnhancedPrompt,
   collectArticleWebContext,
@@ -19,7 +19,7 @@ import type {
   LlmMode,
 } from "@/types"
 import {
-  hasAiCredentialCandidate,
+  hasConfiguredAiCredential,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
   resolveAiCredentialModel,
@@ -110,7 +110,7 @@ function credentialVendor(model: ResolvedArticleModel): AiCredentialVendor | nul
 }
 
 function circuitKey(model: ResolvedArticleModel): string {
-  return model.providerId || String(model.providerKey)
+  return `${model.providerId || model.providerKey}:${model.model}`
 }
 
 function circuitIsOpen(model: ResolvedArticleModel): boolean {
@@ -180,13 +180,7 @@ async function executeModel(
     )
     const requestTimeoutSec = Math.max(1, Math.ceil(requestTimeoutMs / 1000))
     const onUsage = (value: LlmTokenUsage) => {
-      usage = usage
-        ? {
-            promptTokens: usage.promptTokens + value.promptTokens,
-            completionTokens: usage.completionTokens + value.completionTokens,
-            totalTokens: usage.totalTokens + value.totalTokens,
-          }
-        : value
+      usage = addTokenUsage(usage, value)
     }
     const content = model.protocol === "openai_chat"
       ? await openaiCompatChat({
@@ -200,6 +194,9 @@ async function executeModel(
           maxTokens: input.maxTokens,
           jsonMode: input.jsonMode,
           mode: input.mode,
+          transportRetries: input.mode === "judge" ? 0 : 1,
+          extraBody: input.mode === "judge" && model.providerKey === "qwen" && model.model === "qwen-plus"
+            ? { enable_thinking: false } : undefined,
           timeoutSec: requestTimeoutSec,
           signal: input.signal,
           label: `${model.label}·${input.label}`,
@@ -229,6 +226,10 @@ async function executeModel(
         providerKey: model.providerKey,
         providerName: model.label,
         modelId: model.model,
+        credentialId: model.providerId,
+        usageReported: Boolean(usage),
+        cachedPromptTokens: usage?.cachedPromptTokens,
+        reasoningTokens: usage?.reasoningTokens,
         promptTokens: usage?.promptTokens,
         completionTokens: usage?.completionTokens,
         totalTokens: usage?.totalTokens,
@@ -240,14 +241,21 @@ async function executeModel(
     return content
   } catch (error) {
     const stopped = input.signal.aborted || isAbortFailure(error)
-    if (!stopped) recordFailure(model, error)
-    if (input.usageContext && !stopped) {
+    const deadlineExpired = Boolean(input.deadlineAt && Date.now() >= input.deadlineAt)
+    if (!stopped || deadlineExpired) recordFailure(
+      model, deadlineExpired ? new Error("upstream timed out at article stage deadline") : error,
+    )
+    if (input.usageContext) {
       await recordAiUsageQuietly({
         userId: input.usageContext.userId,
         task: input.usageContext.task,
         providerKey: model.providerKey,
         providerName: model.label,
         modelId: model.model,
+        credentialId: model.providerId,
+        usageReported: Boolean(usage),
+        cachedPromptTokens: usage?.cachedPromptTokens,
+        reasoningTokens: usage?.reasoningTokens,
         promptTokens: usage?.promptTokens,
         completionTokens: usage?.completionTokens,
         totalTokens: usage?.totalTokens,
@@ -275,16 +283,8 @@ async function callModel(
   const excludedCredentialIds: string[] = []
   let lastError: unknown
   const quotaEstimate = estimateAiCredentialQuota(input)
-  const preferredRequest = {
-    vendor,
-    module: "article" as const,
-    model: model.model,
-    requiredCapabilities: ["chat" as const],
-  }
+  const hasPool = await hasConfiguredAiCredential(vendor, "article")
   const selectionModel = model.model
-    && await hasAiCredentialCandidate(preferredRequest)
-    ? model.model
-    : undefined
   for (let attempt = 0; attempt < 3; attempt += 1) {
     throwIfArticleStageStopped(input)
     const lease = await tryAcquireAiCredential({
@@ -303,7 +303,7 @@ async function callModel(
       ...quotaEstimate,
     })
     if (!lease) {
-      if (attempt === 0) {
+      if (attempt === 0 && !hasPool) {
         return executeModel(model, input, usedFallback)
       }
       break
@@ -350,7 +350,14 @@ async function callModel(
       return content
     } catch (error) {
       lastError = error
-      if (input.signal.aborted || isAbortFailure(error)) throw error
+      if (input.signal.aborted || isAbortFailure(error)) {
+        if (input.deadlineAt && Date.now() >= input.deadlineAt) {
+          await recordAiCredentialFailure(lease.credential, new Error("upstream timed out at article stage deadline"), {
+            module: "article", model: credentialModel, requiredCapabilities: ["chat"],
+          })
+        }
+        throw error
+      }
       await recordAiCredentialFailure(lease.credential, error, {
         module: "article",
         model: credentialModel,

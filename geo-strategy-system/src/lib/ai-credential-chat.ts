@@ -3,8 +3,9 @@ import "server-only"
 import { buildAiChatUrl } from "@/lib/ai-settings"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
+import { observeAiUsage } from "@/lib/ai-usage"
 import {
-  hasAiCredentialCandidate,
+  hasConfiguredAiCredential,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
   resolveAiCredentialModel,
@@ -18,6 +19,7 @@ import type {
 } from "@/types/ai-credentials"
 
 interface LegacyChatRoute {
+  credentialId?: string
   url: string
   apiKey: string
   label: string
@@ -44,8 +46,17 @@ async function callRoute(
   route: LegacyChatRoute,
   model = input.model,
 ): Promise<string> {
-  return openaiCompatChat({
+  return observeAiUsage({
+    userId: input.chat.usageContext?.userId || "unattributed",
+    task: input.chat.usageContext?.task || `pool:${input.module}`,
+    providerKey: input.vendor,
+    providerName: route.label,
+    modelId: model,
+    credentialId: route.credentialId,
+    usedFallback: false,
+  }, onUsage => openaiCompatChat({
     ...input.chat,
+    onUsage,
     url: route.url,
     apiKey: route.apiKey,
     authType: input.authType,
@@ -54,7 +65,7 @@ async function callRoute(
     extraBody: input.extraBody,
     extraHeaders: input.extraHeaders,
     images: input.images,
-  })
+  }), input.chat.onUsage)
 }
 
 export async function runCredentialPoolChat(
@@ -66,16 +77,8 @@ export async function runCredentialPoolChat(
   const requiredCapabilities = input.requiredCapabilities
     ?? [input.chat.jsonMode ? "json" : "chat"]
   const quotaEstimate = estimateAiCredentialQuota(input.chat)
-  const preferredRequest = {
-    vendor: input.vendor,
-    module: input.module,
-    model: input.model,
-    requiredCapabilities,
-  }
+  const hasPool = await hasConfiguredAiCredential(input.vendor, input.module)
   const selectionModel = input.model
-    && await hasAiCredentialCandidate(preferredRequest)
-    ? input.model
-    : undefined
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const lease = await tryAcquireAiCredential({
@@ -89,7 +92,7 @@ export async function runCredentialPoolChat(
       ...quotaEstimate,
     })
     if (!lease) {
-      if (attempt === 0 && input.legacy.apiKey) {
+      if (attempt === 0 && !hasPool && input.legacy.apiKey) {
         return callRoute(input, input.legacy)
       }
       break
@@ -105,6 +108,7 @@ export async function runCredentialPoolChat(
       )
       if (!credentialModel) throw new Error(`${input.legacy.label} 可用账号未配置模型`)
       const result = await callRoute(input, {
+        credentialId: lease.credential.id,
         url: buildAiChatUrl(lease.credential),
         apiKey: lease.credential.apiKey,
         label: `${input.legacy.label}·${lease.credential.accountLabel}`,

@@ -4,10 +4,12 @@ import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
 import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
+import { observeAiUsage } from "@/lib/ai-usage"
 import {
   getAiCredentialPoolCapacity,
   getAiCredentialPoolSnapshot,
   hasAiCredentialCandidate,
+  hasConfiguredAiCredential,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
   resolveAiCredentialModel,
@@ -169,39 +171,21 @@ async function hasRouteCandidate(
   route: AdapterCredentialRoute,
   module: AiCredentialModule,
 ): Promise<boolean> {
-  if (await hasAiCredentialCandidate(selectionRequest(route, module))) return true
-  if (route.exactModelRequired) return false
-  return route.selectionModel
-    ? hasAiCredentialCandidate(selectionRequest(route, module, undefined, null))
-    : false
+  return hasAiCredentialCandidate(selectionRequest(route, module))
 }
 
 async function routePoolCapacity(
   route: AdapterCredentialRoute,
   module: AiCredentialModule,
 ) {
-  let capacity = await getAiCredentialPoolCapacity(selectionRequest(route, module))
-  if (route.exactModelRequired) return capacity
-  if (capacity.candidateCount === 0 && route.selectionModel) {
-    capacity = await getAiCredentialPoolCapacity(
-      selectionRequest(route, module, undefined, null),
-    )
-  }
-  return capacity
+  return getAiCredentialPoolCapacity(selectionRequest(route, module))
 }
 
 async function routePoolSnapshot(
   route: AdapterCredentialRoute,
   module: AiCredentialModule,
 ) {
-  let snapshot = await getAiCredentialPoolSnapshot(selectionRequest(route, module))
-  if (route.exactModelRequired) return snapshot
-  if (snapshot.candidateCount === 0 && route.selectionModel) {
-    snapshot = await getAiCredentialPoolSnapshot(
-      selectionRequest(route, module, undefined, null),
-    )
-  }
-  return snapshot
+  return getAiCredentialPoolSnapshot(selectionRequest(route, module))
 }
 
 export async function hasAdapterCredentialPoolCandidate(
@@ -538,19 +522,17 @@ export async function runAdapterCredentialPoolChat(
   }
   const route = await resolveAdapterCredentialRoute(model, module, args)
   const hasPoolCandidate = await hasRouteCandidate(route, module)
-  if (!hasPoolCandidate && !route.exactModelRequired) {
+  const hasPool = await hasConfiguredAiCredential(route.vendor, module)
+  if (!hasPoolCandidate && !hasPool && !route.exactModelRequired) {
     return ADAPTERS[model].chat(args)
   }
   const excludedCredentialIds: string[] = []
   const exactRequest = selectionRequest(route, module)
   const selectionModel = route.selectionModel
-    && await hasAiCredentialCandidate(exactRequest)
-    ? route.selectionModel
-    : undefined
   if (
     route.exactModelRequired
     && !route.verifiedWebModelRequired
-    && !selectionModel
+    && !(await hasAiCredentialCandidate(exactRequest))
   ) {
     throw new Error(
       args.preferredModel
@@ -582,7 +564,7 @@ export async function runAdapterCredentialPoolChat(
       if (route.exactModelRequired) {
         throw new Error(`${ADAPTERS[model].label} 当前独立账号并发已满，请等待空闲通道`)
       }
-      if (attempt === 0) return ADAPTERS[model].chat(args)
+      if (attempt === 0 && !hasPool) return ADAPTERS[model].chat(args)
       break
     }
 
@@ -595,8 +577,17 @@ export async function runAdapterCredentialPoolChat(
         selectionModel,
       )
       if (!credentialModel) throw new Error(`${ADAPTERS[model].label} 可用账号未配置模型`)
-      const result = await ADAPTERS[model].chat({
+      const result = await observeAiUsage({
+        userId: args.usageContext?.userId || "unattributed",
+        task: args.usageContext?.task || `adapter:${module}:${args.mode || "chat"}`,
+        providerKey: route.vendor,
+        providerName: lease.credential.accountLabel,
+        modelId: credentialModel,
+        credentialId: lease.credential.id,
+        usedFallback: attempt > 0,
+      }, onUsage => ADAPTERS[model].chat({
         ...args,
+        onUsage,
         runtimeOverride: {
           vendor: route.vendor,
           baseUrl: lease.credential.baseUrl,
@@ -606,7 +597,7 @@ export async function runAdapterCredentialPoolChat(
           timeout: args.timeoutSec,
           extra: route.extra,
         },
-      })
+      }), args.onUsage)
       await recordAiCredentialSuccess(lease.credential, Date.now() - startedAt, {
         module,
         model: credentialModel,
