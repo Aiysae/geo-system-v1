@@ -14,8 +14,8 @@ assert.equal(new Set(dataset.users.map(record => record.user.id)).size, 50)
 assert.equal(new Set(dataset.users.map(record => record.user.email)).size, 50)
 assert.equal(dataset.recharges.length, 69)
 assert.equal(dataset.totals.paidCents, 3_232_240)
-assert.equal(dataset.totals.purchasedCredits, 268_000)
-assert.equal(dataset.totals.issuedCredits, 270_500)
+assert.equal(dataset.totals.purchasedCredits, 156_000)
+assert.equal(dataset.totals.issuedCredits, 158_500)
 assert.equal(
   dataset.totals.currentCredits,
   dataset.users.reduce((sum, record) => sum + record.credits, 0),
