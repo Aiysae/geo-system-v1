@@ -14,7 +14,7 @@ const { saveAiCredential, updateAiCredentialHealth, setAiCredentialEnabled, getA
 const { buildAiCredentialRouteIdentity, recordAiCredentialRouteFailure, listAiCredentialRouteHealth } =
   await import("../src/lib/ai-credential-route-health")
 const { classifyAiCredentialFailure } = await import("../src/lib/ai-credential-failure-classifier")
-const { runAiCredentialHealthSweep } = await import("../src/lib/ai-credential-health-monitor")
+const { runAiCredentialHealthSweep, recoverAiCredentialAfterRecharge } = await import("../src/lib/ai-credential-health-monitor")
 const { verifyAiCredentialWeb } = await import("../src/lib/ai-credential-web-verification")
 const originalFetch = globalThis.fetch
 const originalNow = Date.now
@@ -132,6 +132,7 @@ try {
     const competing = await runAiCredentialHealthSweep({ credentialId: saved.id, force: true, limit: 20 })
     assert.equal(competing.inspected, 0)
     assert.ok(competing.skipped > 0)
+    await assert.rejects(recoverAiCredentialAfterRecharge(saved.id, "probe-test"), /正在复检/)
   } finally { finish() }
   assert.equal((await running).recovered, 1)
   assert.equal(calls, 3)
@@ -152,6 +153,47 @@ try {
   assert.equal(usageEvents[4][14], true)
   assert.deepEqual(usageEvents[4].slice(6, 9), [40, 10, 50],
     "rejecting unauditable output must not hide consumed tokens")
+
+  // The admin top-up action works for disabled accounts but requires real evidence.
+  await setAiCredentialEnabled(saved.id, false, "probe-test")
+  await assert.rejects(recoverAiCredentialAfterRecharge(saved.id, "probe-test"), /未返回可审计/)
+  assert.equal((await getAiCredentialRuntime(saved.id)).enabled, false)
+  const billing = classifyAiCredentialFailure(new Error("HTTP 402 insufficient balance"))
+  for (const route of [web, chat]) await recordAiCredentialRouteFailure(route, billing)
+  globalThis.fetch = async () => {
+    calls++
+    return meteredResponse({ error: { message: "insufficient balance" } }, 402)
+  }
+  const beforeFailedRecovery = calls
+  await assert.rejects(recoverAiCredentialAfterRecharge(saved.id, "probe-test"), /insufficient balance/)
+  assert.equal(calls - beforeFailedRecovery, 1, "failed top-up check must not retry multiple models")
+  assert.equal((await getAiCredentialRuntime(saved.id)).enabled, false)
+  assert.ok((await listAiCredentialRouteHealth([saved.id])).filter(r => r.failureClass === "billing").length >= 2)
+
+  globalThis.fetch = async (_input, init) => {
+    calls++
+    const request = JSON.parse(String(init?.body || "{}"))
+    assert.equal(request.model, "doubao-test-web")
+    return meteredResponse({ id: "top-up-web-request", usage: {
+      input_tokens: 23, output_tokens: 7, total_tokens: 30,
+    }, output: [
+      { type: "web_search_call", status: "completed" },
+      { type: "message", content: [{ type: "output_text", text: "联网测试回答", annotations: [
+        { type: "url_citation", title: "测试来源", url: "https://example.com/articles/date" },
+      ] }] },
+    ] })
+  }
+  const beforeRecovery = calls
+  const message = await recoverAiCredentialAfterRecharge(saved.id, "probe-test")
+  assert.match(message, /账号已启用/)
+  assert.equal(calls - beforeRecovery, 1, "one real web call is sufficient after top-up")
+  const restored = await getAiCredentialRuntime(saved.id)
+  assert.equal(restored.enabled, true)
+  assert.equal(restored.healthStatus, "healthy")
+  assert.equal(restored.cooldownUntil, undefined)
+  assert.deepEqual(restored.verifiedWebModels, ["doubao-test-web"])
+  assert.deepEqual(restored.allowedModels, credential.allowedModels)
+  assert.ok((await listAiCredentialRouteHealth([saved.id])).every(r => r.state === "closed"))
   console.log("Probe cost controls: stale candidates, credential cooldown, manual recovery and account lock passed")
 } finally {
   globalThis.fetch = originalFetch

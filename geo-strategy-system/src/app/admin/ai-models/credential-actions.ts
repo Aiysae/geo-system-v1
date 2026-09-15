@@ -11,7 +11,7 @@ import {
 import { AI_CREDENTIAL_PRESET_BY_VENDOR } from "@/lib/ai-credential-presets"
 import { verifyAiCredentialChat } from "@/lib/ai-credential-verification"
 import { verifyAiCredentialWeb } from "@/lib/ai-credential-web-verification"
-import { runAiCredentialHealthSweep } from "@/lib/ai-credential-health-monitor"
+import { recoverAiCredentialAfterRecharge } from "@/lib/ai-credential-health-monitor"
 import type {
   AiCredentialCapability,
   AiCredentialModule,
@@ -141,34 +141,16 @@ export async function probeCredentialHealthAction(
   id: string,
 ): Promise<CredentialActionResult> {
   try {
-    await assertAdmin()
-    const result = await runAiCredentialHealthSweep({
-      credentialId: id,
-      force: true,
-      limit: 2,
-    })
+    const adminId = await assertAdmin()
+    const message = await recoverAiCredentialAfterRecharge(id, adminId)
     refreshPaths()
-    if (result.inspected === 0) {
-      return { ok: true, id, message: "该账号暂无需要恢复的通道" }
-    }
-    if (result.recovered > 0) {
-      return {
-        ok: true,
-        id,
-        message: `自动复检完成：恢复 ${result.recovered} 条，仍需观察 ${result.failed + result.skipped} 条`,
-      }
-    }
-    return {
-      ok: false,
-      id,
-      error: `自动复检尚未恢复：${result.failed} 条失败，${result.skipped} 条由其他 Worker 检测中`,
-    }
+    return { ok: true, id, message }
   } catch (error) {
     refreshPaths()
     return {
       ok: false,
       id,
-      error: error instanceof Error ? error.message : "自动复检失败",
+      error: error instanceof Error ? error.message : "充值恢复复检失败",
     }
   }
 }

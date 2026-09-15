@@ -4,6 +4,7 @@ import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import {
   buildAiCredentialRouteIdentity,
+  clearAiCredentialBillingFailures,
   recordAiCredentialRouteFailure,
   recordAiCredentialRouteSuccess,
 } from "@/lib/ai-credential-route-health"
@@ -175,6 +176,7 @@ export async function verifyAiCredentialWeb(
     if (result.status === "passed") verifiedWebModels.add(result.model)
   }
   if (passedModels.length > 0 && !accountFailure) {
+    await clearAiCredentialBillingFailures(credential.id, startedAt)
     const preferred = passedModels[0]
     if (!requestedModel) {
       if (!options.isProbe) await prioritizeAiCredentialModel(credential.id, preferred.model)
