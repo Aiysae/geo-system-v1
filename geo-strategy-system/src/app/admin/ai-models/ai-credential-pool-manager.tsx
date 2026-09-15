@@ -308,8 +308,8 @@ export function AiCredentialPoolManager({
     if (result.ok) {
       setEditingId(null)
       setShowCreate(false)
-      router.refresh()
     }
+    router.refresh()
   }
 
   async function runAction(
@@ -333,7 +333,7 @@ export function AiCredentialPoolManager({
           </span>
           <div>
             <h2 className="text-sm font-bold text-slate-900">多账号调度池</h2>
-            <p className="mt-0.5 text-xs text-slate-500">新增账号保存后先检测，通过后再启用。</p>
+            <p className="mt-0.5 text-xs text-slate-500">新增账号先检测再启用。欠费充值后，点击对应账号的“充值后恢复”，验证通过后自动恢复启用。</p>
           </div>
         </div>
         <button
@@ -425,20 +425,21 @@ export function AiCredentialPoolManager({
                           ))}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         <button
                           type="button"
-                          title="立即复检并尝试恢复异常通道"
-                          disabled={workingId === credential.id || !credential.enabled}
+                          title="充值后立即验证 API，成功后解除旧欠费拦截并恢复启用"
+                          disabled={workingId === credential.id}
                           onClick={() => runAction(
                             credential.id,
                             () => probeCredentialHealthAction(credential.id),
                           )}
-                          className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-cyan-600 disabled:opacity-40"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-cyan-700 hover:bg-white disabled:opacity-40"
                         >
                           {workingId === credential.id
                             ? <Loader2 className="h-4 w-4 animate-spin" />
                             : <RefreshCw className="h-4 w-4" />}
+                          充值后恢复
                         </button>
                         <button
                           type="button"

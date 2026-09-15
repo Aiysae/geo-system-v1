@@ -23,12 +23,13 @@ const {
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
 } = await import("../src/lib/ai-credential-router")
-const { listAiCredentialRouteHealth } = await import(
+const { buildAiCredentialRouteIdentity, listAiCredentialRouteHealth, recordAiCredentialRouteFailure } = await import(
   "../src/lib/ai-credential-route-health"
 )
-const { runAiCredentialHealthSweep } = await import(
+const { runAiCredentialHealthSweep, recoverAiCredentialAfterRecharge } = await import(
   "../src/lib/ai-credential-health-monitor"
 )
+const { verifyAiCredentialChat } = await import("../src/lib/ai-credential-verification")
 
 assert.equal(classifyAiCredentialFailure(new DOMException("Aborted", "AbortError")).scope, "ignored")
 assert.equal(classifyAiCredentialFailure(new Error("HTTP 429 too many requests")).failureClass, "rate_limited")
@@ -249,6 +250,71 @@ try {
     (await getAiCredentialRuntime(jsonCredential.id)).verifiedCapabilities.includes("long_text"),
     true,
   )
+
+  // Reproduce a paid-up account still blocked by another model/module's old bill.
+  const toppedUp = await saveAiCredential({
+    vendor: "deepseek", name: "充值恢复测试", accountLabel: "充值恢复测试",
+    apiKey: "test-recharge-key", enabled: false,
+    baseUrl: "https://api.deepseek.com", chatPath: "/chat/completions", quotaGroup: "recharge-test",
+    allowedModels: ["deepseek-chat", "deepseek-v4-pro"],
+    allowedModules: ["article", "penetration"], declaredCapabilities: ["chat"],
+  }, "self-healing-test")
+  await updateAiCredentialHealth(toppedUp.id, {
+    status: "healthy", verifiedCapabilities: ["chat"], consecutiveFailures: 0,
+  })
+  await setAiCredentialEnabled(toppedUp.id, true, "self-healing-test")
+  const toppedUpRuntime = await getAiCredentialRuntime(toppedUp.id)
+  const oldBill = buildAiCredentialRouteIdentity(toppedUpRuntime, {
+    module: "article", model: "deepseek-v4-pro", requiredCapabilities: ["chat"],
+  })
+  const billing = classifyAiCredentialFailure(new Error("HTTP 402 insufficient balance"))
+  await recordAiCredentialRouteFailure(oldBill, billing)
+  const detection = {
+    vendor: "deepseek" as const, module: "penetration" as const,
+    model: "deepseek-chat", requiredCapabilities: ["chat" as const],
+  }
+  assert.equal((await getAiCredentialPoolCapacity(detection)).candidateCount, 0)
+  await verifyAiCredentialChat(toppedUp.id, { model: "deepseek-chat", module: "penetration", isProbe: true })
+  assert.equal((await getAiCredentialPoolCapacity(detection)).candidateCount, 1,
+    "a successful top-up recheck must clear stale account billing blocks across models and modules")
+  const clearedBill = (await listAiCredentialRouteHealth([toppedUp.id])).find(r => r.model === oldBill.model)!
+  assert.equal(clearedBill.state, "closed")
+  assert.equal(clearedBill.successCount, 0, "clearing an account bill must not invent a model probe")
+  assert.equal(clearedBill.lastSuccessAt, undefined)
+  assert.equal(clearedBill.failureCount, 1)
+  assert.deepEqual((await getAiCredentialRuntime(toppedUp.id)).verifiedWebModels, [])
+  await setAiCredentialEnabled(toppedUp.id, false, "self-healing-test")
+  await recordAiCredentialRouteFailure(oldBill, billing)
+  await recoverAiCredentialAfterRecharge(toppedUp.id, "self-healing-test")
+  assert.equal((await getAiCredentialRuntime(toppedUp.id)).enabled, true)
+  assert.equal((await getAiCredentialPoolCapacity(detection)).candidateCount, 1)
+
+  const permission = { ...oldBill, module: "research" as const, capabilityProfile: "strict_web" }
+  await recordAiCredentialRouteFailure(permission, classifyAiCredentialFailure(new Error("ToolNotOpen: web search is not activated")))
+  await recordAiCredentialRouteFailure(oldBill, billing)
+  const workingFetch = globalThis.fetch
+  globalThis.fetch = async () => Response.json({ error: { message: "insufficient balance" } }, { status: 402 })
+  await assert.rejects(verifyAiCredentialChat(toppedUp.id, { model: "deepseek-chat", module: "penetration" }), /insufficient balance/)
+  assert.equal((await listAiCredentialRouteHealth([toppedUp.id])).find(r => r.model === oldBill.model && r.module === "article")?.state, "action_required")
+
+  // A new failure arriving during the check must survive that check's success.
+  const originalNow = Date.now
+  const checkStarted = originalNow()
+  Date.now = () => checkStarted
+  try {
+    globalThis.fetch = async (...args) => {
+      Date.now = () => checkStarted + 1_000
+      await recordAiCredentialRouteFailure(oldBill, billing)
+      return workingFetch(...args)
+    }
+    await verifyAiCredentialChat(toppedUp.id, { model: "deepseek-chat", module: "penetration", isProbe: true })
+    assert.equal((await getAiCredentialPoolCapacity(detection)).candidateCount, 0)
+    assert.equal((await listAiCredentialRouteHealth([toppedUp.id])).find(r => r.capabilityProfile === "strict_web")?.state, "action_required",
+      "a paid account does not prove web permissions")
+  } finally {
+    Date.now = originalNow
+    globalThis.fetch = workingFetch
+  }
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })

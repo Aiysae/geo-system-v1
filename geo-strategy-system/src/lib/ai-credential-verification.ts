@@ -8,6 +8,7 @@ import {
 import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import {
   buildAiCredentialRouteIdentity,
+  clearAiCredentialBillingFailures,
   recordAiCredentialRouteFailure,
   recordAiCredentialRouteSuccess,
 } from "@/lib/ai-credential-route-health"
@@ -174,6 +175,7 @@ export async function verifyAiCredentialChat(
 
   const passedModels = models.filter(item => item.status === "passed")
   if (passedModels.length > 0 && !accountFailure) {
+    await clearAiCredentialBillingFailures(credential.id, startedAt)
     const preferred = passedModels[0]
     const prioritized = options.isProbe
       ? credential

@@ -520,6 +520,36 @@ export async function recordAiCredentialRouteSuccess(
   })
 }
 
+export async function clearAiCredentialBillingFailures(
+  credentialId: string,
+  verificationStartedAt: number,
+): Promise<void> {
+  const isOldBill = (route: AiCredentialRouteHealth) =>
+    route.failureClass === "billing"
+    && route.failureScope === "credential"
+    && Boolean(route.lastFailureAt && Date.parse(route.lastFailureAt) <= verificationStartedAt)
+  const routes = await listAiCredentialRouteHealth([credentialId])
+  for (const route of routes.filter(isOldBill)) {
+    await mutateRoute(route, current => {
+      // Recheck under the route lock: a new failure must survive an older probe.
+      if (!isOldBill(current)) return current
+      return {
+        ...current,
+        state: "closed",
+        failureClass: "none",
+        failureScope: "route",
+        consecutiveFailures: 0,
+        lastErrorCode: undefined,
+        lastErrorMessage: undefined,
+        openUntil: undefined,
+        nextProbeAt: undefined,
+        // Shared billing recovered; this is not a successful probe of this model.
+        updatedAt: new Date().toISOString(),
+      }
+    })
+  }
+}
+
 export async function recordAiCredentialRouteFailure(
   identity: AiCredentialRouteIdentity,
   failure: AiCredentialFailureDiagnosis,

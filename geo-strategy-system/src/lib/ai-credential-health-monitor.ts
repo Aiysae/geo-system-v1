@@ -15,6 +15,7 @@ import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classif
 import {
   getAiCredentialRuntime,
   listAiCredentialRuntimes,
+  setAiCredentialEnabled,
 } from "@/lib/ai-credential-store"
 import { verifyAiCredentialChat } from "@/lib/ai-credential-verification"
 import { verifyAiCredentialWeb } from "@/lib/ai-credential-web-verification"
@@ -240,6 +241,42 @@ async function probeRoute(route: AiCredentialRouteHealth, force: boolean): Promi
     return false
   } finally {
     await releaseLock(lockKey, token).catch(() => undefined)
+  }
+}
+
+export async function recoverAiCredentialAfterRecharge(
+  credentialId: string,
+  adminUserId: string,
+): Promise<string> {
+  const lockKey = routeProbeKey(credentialId)
+  const token = await acquireLock(lockKey, 4 * 60)
+  if (!token) throw new Error("该账号正在复检，请稍后刷新查看结果")
+  try {
+    const credential = await getAiCredentialRuntime(credentialId)
+    if (!credential.apiKey) throw new Error("该模型账号尚未配置 API Key")
+    if (credential.allowedModels.length === 0) throw new Error("请先为该账号填写至少一个可用模型")
+    const strictWeb = STRICT_NATIVE_WEB_VENDORS.has(credential.vendor)
+      && credential.declaredCapabilities.includes("native_web")
+      && credential.declaredCapabilities.includes("auditable_sources")
+    // One real call, bypassing cooldown even for a disabled account. Prefer a
+    // previously verified web model without changing the configured model order.
+    const model = (strictWeb && credential.verifiedWebModels.find(
+      item => credential.allowedModels.includes(item),
+    )) || credential.allowedModels[0]
+    const result = strictWeb
+      ? await verifyAiCredentialWeb(credentialId, { model, module: "penetration", isProbe: true })
+      : await verifyAiCredentialChat(credentialId, { model, isProbe: true })
+    const blockingFailure = (await listAiCredentialRouteHealth([credentialId])).find(
+      route => route.failureScope === "credential"
+        && route.state !== "closed" && route.state !== "degraded",
+    )
+    if (blockingFailure) {
+      throw new Error(`账号仍有未解除的异常：${blockingFailure.lastErrorMessage || blockingFailure.lastErrorCode}`)
+    }
+    await setAiCredentialEnabled(credentialId, true, adminUserId)
+    return `复检通过，旧欠费拦截已解除，账号已启用。${result.message}`
+  } finally {
+    await releaseLock(lockKey, token)
   }
 }
 
