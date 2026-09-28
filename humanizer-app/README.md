@@ -18,9 +18,17 @@
    ```bash
    pip install -r requirements.txt
    ```
-5. 启动应用：
+5. 在当前终端输入供应商后台新建的 API Key，再启动应用。输入不会回显，也不会作为命令写入 shell 历史：
    ```bash
+   read -r -s HUMANIZER_API_KEY
+   export HUMANIZER_API_KEY
    streamlit run app.py
    ```
+   密钥通过 `HUMANIZER_API_KEY` 环境变量读取；缺少配置时页面提示管理员配置，并停止执行。终端中按回车完成密钥输入。
+   当前服务地址为 `https://api.b.ai/v1`，请使用该服务的密钥。部署时通过运行环境的密钥配置传入相同变量。
 6. 浏览器会自动打开 `http://localhost:8501`。如果没有自动打开，请手动复制该地址到浏览器。
-7. 在左侧面板输入你的 OpenAI API Key，在左侧文本框粘贴初稿，点击"开始清洗"即可。
+7. 在左侧文本框粘贴初稿，点击"开始清洗"即可。
+
+## 旧密钥处置
+
+旧版本曾将 API Key 写入 Git。移除源码中的值不会使旧密钥失效：替代密钥配置并验证正常后，应在供应商后台撤销旧密钥；若有异常调用，应优先撤销。完整密钥不要写入代码、文档或提交。
