@@ -22,6 +22,8 @@
     "mcp:stdio": "NODE_OPTIONS=--conditions=react-server tsx src/agent/mcp-stdio.ts",
     "sync:agent-assets": "node scripts/sync-agent-assets.mjs",
     "lint": "eslint",
+    "test": "node scripts/run-all-tests.mjs",
+    "test:report-export-compatibility": "tsx scripts/test-report-export-compatibility.mts",
     "db:migrate:payments": "tsx scripts/migrate-payment-db.mts",
     "db:migrate:workspace": "tsx scripts/migrate-workspace-db.mts",
     "db:migrate:penetration-history": "tsx scripts/migrate-penetration-history-db.mts",
