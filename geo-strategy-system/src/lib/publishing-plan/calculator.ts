@@ -102,14 +102,7 @@ export function calculatePublishingPlan(
       const platformCounts = configs.map(config => allocation.counts.get(config.id) || 0)
       const totalCount = platformCounts.reduce((sum, count) => sum + count, 0)
       if (totalCount === 0) continue
-      const reuseLimit = Math.max(
-        1,
-        Math.min(
-          configs.length,
-          ...configs.map(config => config.maxReusePlatforms),
-        ),
-      )
-      const assetCount = requiredAssetCount(platformCounts, reuseLimit)
+      const assetCount = requiredAssetCount(platformCounts, configs)
       const typedAssets: PublishingContentAsset[] = Array.from({ length: assetCount }, (_, index) => {
         const material = questionMaterials.length > 0
           ? questionMaterials[materialCursor++ % questionMaterials.length]
@@ -421,11 +414,7 @@ function allocationCost(
     const typedCounts = typedConfigs.map(config => counts.get(config.id) || 0)
     const total = typedCounts.reduce((sum, count) => sum + count, 0)
     if (total === 0) continue
-    const reuseLimit = Math.max(1, Math.min(
-      typedConfigs.length,
-      ...typedConfigs.map(config => config.maxReusePlatforms),
-    ))
-    cost += requiredAssetCount(typedCounts, reuseLimit) * input.contentCreationCostsCents[contentType]
+    cost += requiredAssetCount(typedCounts, typedConfigs) * input.contentCreationCostsCents[contentType]
     typedConfigs.forEach((config, index) => {
       cost += typedCounts[index] * config.publishUnitCostCents
     })
@@ -433,11 +422,15 @@ function allocationCost(
   return cost
 }
 
-function requiredAssetCount(platformCounts: number[], reuseLimit: number): number {
+function requiredAssetCount(platformCounts: number[], configs: PublishingPlatformConfig[]): number {
+  const reuseLimit = Math.max(1, Math.min(
+    configs.length,
+    ...configs.map(config => config.maxReusePlatforms),
+  ))
   const total = platformCounts.reduce((sum, count) => sum + count, 0)
   return Math.max(
     ...platformCounts,
-    Math.ceil(total / Math.max(1, reuseLimit)),
+    Math.ceil(total / reuseLimit),
   )
 }
 
