@@ -131,6 +131,48 @@ assert.throws(() => calculator.calculatePublishingPlan({
   planVersion: 1,
 }), /不能同时为 0/)
 
+// Reuse must respect both the strictest platform limit and the busiest platform.
+for (const scenario of [
+  { capacities: [5, 2], reuseLimits: [4, 2], assets: 5 },
+  { capacities: [5, 2], reuseLimits: [4, 1], assets: 7 },
+  { capacities: [2, 2, 2], reuseLimits: [2, 2, 2], assets: 3 },
+]) {
+  const result = calculator.calculatePublishingPlan({
+    ...input,
+    totalServiceFeeCents: 100_000,
+    startDate: "2026-09-01",
+    endDate: "2026-09-01",
+    customerStage: "maintenance",
+    contentCreationCostsCents: { article: 100, authority_article: 0, video: 0 },
+    platformConfigs: scenario.capacities.map((capacity, index) => ({
+      ...input.platformConfigs[0],
+      id: `reuse-${index}`,
+      platformKey: `reuse-${index}`,
+      dailyLimitPerAccount: capacity,
+      safeUtilizationBps: 10_000,
+      publishUnitCostCents: 10,
+      maxReusePlatforms: scenario.reuseLimits[index],
+    })),
+  }, {
+    ownerUserId: "owner-a",
+    clientId: "client-a",
+    planId: "plan-reuse",
+    planVersion: 1,
+    now: "2026-08-17T00:00:00.000Z",
+  })
+  const publications = scenario.capacities.reduce((sum, count) => sum + count, 0)
+  const expectedCost = scenario.assets * 100 + publications * 10
+  assert.equal(result.assets.length, scenario.assets)
+  assert.equal(result.tasks.length, publications)
+  assert.equal(result.summary.plannedCostCents, expectedCost)
+  assert.equal(result.windows[0].allocatedCostCents, expectedCost, "Budget estimate matches generated tasks")
+  for (const asset of result.assets) {
+    const uses = result.tasks.filter(task => task.assetId === asset.id)
+    assert.ok(uses.length <= Math.min(...scenario.reuseLimits))
+    assert.equal(new Set(uses.map(task => task.platformKey)).size, uses.length)
+  }
+}
+
 const uniquePairs = new Set(calculated.tasks.map(task => `${task.assetId}\u0000${task.platformKey}`))
 assert.equal(uniquePairs.size, calculated.tasks.length, "同一内容不能在相同平台重复")
 const calculatedLoads = new Map<string, number>()
