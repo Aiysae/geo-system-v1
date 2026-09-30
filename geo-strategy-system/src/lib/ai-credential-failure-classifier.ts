@@ -110,6 +110,18 @@ export function classifyAiCredentialFailure(
     })
   }
 
+  if (/ModelNotOpen|has not activated.{0,30}model|model service not activated|model.{0,24}(?:not found|unavailable|does not exist)|模型.{0,12}(?:不存在|已下线|不可用)|unknown model/i.test(message)) {
+    return diagnosis({
+      failureClass: "model_unavailable",
+      scope: "model",
+      code: "MODEL_UNAVAILABLE",
+      message,
+      actionRequired: true,
+      retryable: false,
+      cooldownMs: 12 * HOUR,
+    })
+  }
+
   if (
     /ToolNotOpen|web search is not activated|联网搜索(?:服务|插件|资源包)?.{0,12}(?:未开通|未启用|无权限)|未开通.{0,12}联网搜索|HTTP\s*403|forbidden|permission denied|无权限/i.test(message)
   ) {
@@ -121,18 +133,6 @@ export function classifyAiCredentialFailure(
       actionRequired: true,
       retryable: false,
       cooldownMs: 6 * HOUR,
-    })
-  }
-
-  if (/model.{0,24}(?:not found|unavailable|does not exist)|模型.{0,12}(?:不存在|已下线|不可用)|unknown model/i.test(message)) {
-    return diagnosis({
-      failureClass: "model_unavailable",
-      scope: "model",
-      code: "MODEL_UNAVAILABLE",
-      message,
-      actionRequired: true,
-      retryable: false,
-      cooldownMs: 12 * HOUR,
     })
   }
 
