@@ -127,6 +127,8 @@ const repairPrompt = buildArticleSemanticRepairPrompt({
 })
 assert.match(repairPrompt, /唯一 H1 后/)
 assert.match(repairPrompt, /完整URL/)
+assert.match(repairPrompt, /有合适来源时.*没有时说明资料边界/)
+assert.doesNotMatch(repairPrompt, /至少\s*1\s*条/)
 
 const semantic = parseArticleSemanticQualityReport(JSON.stringify({
   score: 82,
@@ -152,3 +154,19 @@ assert.equal(semantic?.passed, false)
 assert.equal(semantic?.issues[0]?.blocking, true)
 
 console.log("article content pipeline contracts passed")
+
+const { ARTICLE_FACT_BOUNDARY_RULES } = await import("../src/lib/article-fact-rules")
+assert.ok(judgePrompt.includes(ARTICLE_FACT_BOUNDARY_RULES))
+assert.ok(repairPrompt.includes(ARTICLE_FACT_BOUNDARY_RULES))
+
+const { compileGeoArticleMethodology } = await import("../src/lib/geo-methodology/compiler")
+const comparisonBrands = [{ id: "b", name: "对照主体", aliases: [], materials: "独立事实只出现一次", sourceUrls: [] }]
+const compiled = compileGeoArticleMethodology({
+  promptKey: "selectionPitfallGuide", coreQuestion: "怎么选？", primarySubject: "主主体", comparisonBrands,
+  comparisonMaterialsInDossier: true,
+})
+assert.ok(!compiled.userAddendum.includes("独立事实只出现一次"))
+const standalone = compileGeoArticleMethodology({
+  promptKey: "selectionPitfallGuide", coreQuestion: "怎么选？", primarySubject: "主主体", comparisonBrands,
+})
+assert.ok(standalone.userAddendum.includes("独立事实只出现一次"))

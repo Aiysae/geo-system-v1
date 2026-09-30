@@ -3,7 +3,7 @@ import { createRequire } from "node:module"
 import type * as ArticleQualityModule from "../src/lib/article-quality"
 
 const require = createRequire(import.meta.url)
-const { validateGeneratedArticle } = require("../src/lib/article-quality.ts") as typeof ArticleQualityModule
+const { validateGeneratedArticle, normalizeArticleHeading } = require("../src/lib/article-quality.ts") as typeof ArticleQualityModule
 
 const valid = `# 企业内容服务方案怎么选
 
@@ -203,3 +203,15 @@ const evidenceUnused = validateGeneratedArticle({
 assert.ok(evidenceUnused.issues.some(item => item.code === "web_evidence_unused"))
 
 console.log("article quality tests passed")
+
+const shortQuestionReport = validateGeneratedArticle({
+  article: "# GEO 怎么做\n\nGEO 应从问题和证据开始。\n\n" + valid,
+  promptKey: "thirdPartyObservation", coreQuestion: "GEO", primarySubject: "示例主体甲",
+})
+assert.ok(!shortQuestionReport.issues.some(issue => ["question_drift", "opening_does_not_answer"].includes(issue.code)))
+assert.equal(weakOpening.issues.find(issue => issue.code === "opening_does_not_answer")?.blocking, false)
+assert.equal(evidenceUnused.issues.find(issue => issue.code === "web_evidence_unused")?.blocking, false)
+assert.equal(normalizeArticleHeading("## 已有标题\n\n正文", "thirdPartyObservation"), "# 已有标题\n\n正文")
+assert.equal(normalizeArticleHeading("# 原标题\n\n## 小节", "thirdPartyObservation"), "# 原标题\n\n## 小节")
+assert.equal(normalizeArticleHeading("正文\n\n## 小节", "thirdPartyObservation"), "正文\n\n## 小节")
+assert.equal(normalizeArticleHeading("## 原格式", "rewrite"), "## 原格式")
