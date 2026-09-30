@@ -152,13 +152,22 @@ async function postChatCompletionWithTimeout(args: {
   else args.signal?.addEventListener("abort", abortFromParent, { once: true })
 
   try {
-    return await postChatCompletion({
+    const response = await postChatCompletion({
       url: args.url,
       apiKey: args.apiKey,
       authType: args.authType,
       payload: args.payload,
       extraHeaders: args.extraHeaders,
       signal: controller.signal,
+    })
+    // fetch resolves at headers. Keep timeout/cancellation active until the body
+    // is consumed, including error bodies and compatibility retries.
+    const body = response.body ? await response.arrayBuffer() : null
+    controller.signal.throwIfAborted()
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
     })
   } catch (fetchErr) {
     if (
@@ -369,7 +378,8 @@ export async function openaiCompatRaw({
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
     // 部分供应商不支持 response_format=json_object，遇到 400/422 时去掉重试一次
-    if (jsonMode && (res.status === 400 || res.status === 422)) {
+    if (jsonMode && (res.status === 400 || res.status === 422)
+      && /response[_ -]?format|json[_ -]?object|json mode/i.test(txt)) {
       const fallback = { ...payload }
       delete (fallback as Record<string, unknown>).response_format
       const retry = await postChatCompletionWithTimeout({

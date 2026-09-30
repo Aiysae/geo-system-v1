@@ -7,9 +7,14 @@ process.env.ALLOW_UNSAFE_AI_BASE_URLS = "true"
 const { runArticleModelChat } = await import("../src/lib/article-model-runtime")
 
 let requests = 0
-const server = createServer(request => {
+let sendHeaders = false
+const server = createServer((request, response) => {
   requests += 1
   request.resume()
+  if (sendHeaders) {
+    response.writeHead(200, { "Content-Type": "application/json" })
+    response.flushHeaders()
+  }
 })
 
 await new Promise<void>((resolve, reject) => {
@@ -52,7 +57,13 @@ try {
       `${protocol} should honor the whole-stage deadline`,
     )
   }
-  assert.equal(requests, 2)
+  sendHeaders = true
+  const start = Date.now()
+  await assert.rejects(runArticleModelChat(slowModel("openai_chat"), {
+    system: "测试", user: "测试", label: "正文读取总时限", totalTimeoutMs: 180,
+  }), /处理超时/)
+  assert(Date.now() - start < 2_000, "stage deadline must also abort body reads")
+  assert.equal(requests, 3)
 } finally {
   server.closeAllConnections?.()
   await new Promise<void>(resolve => server.close(() => resolve()))
