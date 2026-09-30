@@ -22,12 +22,8 @@ import {
   createInternalApiHeaders,
   INTERNAL_API_USER_HEADER,
 } from "@/lib/internal-api"
-import {
-  ARTICLE_PROMPT_PRICE_KEYS,
-  estimateFeatureCredits,
-  getFeaturePrice,
-  type FeaturePriceKey,
-} from "@/lib/pricing"
+import { estimateFeatureCredits } from "@/lib/pricing"
+import { resolveBackgroundTask } from "@/lib/background-job-definitions"
 import {
   refundReservedCredits,
   reserveCreditsForUser,
@@ -43,10 +39,15 @@ import {
   type BackgroundWorkspacePhase,
 } from "@/lib/background-job-workspace-state"
 import type {
-  ArticlePromptKey,
   BackgroundJobKind,
   BackgroundJobRecord,
 } from "@/types"
+
+export {
+  estimateBackgroundJob,
+  isBackgroundJobKind,
+  type BackgroundJobEstimate,
+} from "@/lib/background-job-definitions"
 
 type StoredBackgroundJob = BackgroundJobRecord & {
   ownerUserId: string
@@ -62,17 +63,6 @@ type StoredBackgroundJob = BackgroundJobRecord & {
   articleWaitStartedAt?: string
   articleRetryAt?: string
   articleCheckpoint?: ArticleCheckpoint
-}
-
-type TaskDefinition = {
-  endpoint: string
-  featureKey: FeaturePriceKey
-  units: number
-  label: string
-}
-
-export type BackgroundJobEstimate = TaskDefinition & {
-  credits: number
 }
 
 export type CreateBackgroundJobResult =
@@ -150,107 +140,6 @@ function isRetryable(error: unknown): boolean {
   return /(408|425|429|500|502|503|504|timeout|timed out|超时|ECONN|fetch failed|network|socket|temporar)/i.test(
     safeError(error),
   )
-}
-
-function resolveTask(kind: BackgroundJobKind, payload: unknown): TaskDefinition {
-  const body = record(payload)
-  switch (kind) {
-    case "articleGeneration": {
-      const promptKey = String(body.promptKey || "") as ArticlePromptKey
-      const featureKey = ARTICLE_PROMPT_PRICE_KEYS[promptKey]
-      if (!featureKey) throw new Error("请选择有效的文章 Prompt")
-      return {
-        endpoint: "/api/article-generation",
-        featureKey,
-        units: 1,
-        label: getFeaturePrice(featureKey).label,
-      }
-    }
-    case "queryGeneration": {
-      const categoryCounts = record(body.categoryCounts)
-      const customUnits = body.allocationMode === "custom"
-        ? Object.values(categoryCounts).reduce<number>(
-            (sum, value) => sum + Math.max(0, Math.floor(Number(value) || 0)),
-            0,
-          )
-        : 0
-      const requestedUnits = customUnits > 0 ? customUnits : Number(body.count) || 28
-      const units = Math.min(84, Math.max(1, Math.floor(requestedUnits)))
-      return {
-        endpoint: "/api/generate-queries",
-        featureKey: "legacyQueryGenerateUnit",
-        units,
-        label: getFeaturePrice("legacyQueryGenerateUnit").label,
-      }
-    }
-    case "research": {
-      const featureKey = body.mode === "hypothesis" ? "researchHypothesis" : "researchAi"
-      return {
-        endpoint: "/api/research",
-        featureKey,
-        units: 1,
-        label: getFeaturePrice(featureKey).label,
-      }
-    }
-    case "diagnosis":
-      return {
-        endpoint: "/api/diagnose",
-        featureKey: "diagnose",
-        units: 1,
-        label: getFeaturePrice("diagnose").label,
-      }
-    case "competitorCompare": {
-      const competitors = Array.isArray(body.selectedCompetitors)
-        ? body.selectedCompetitors.filter(Boolean).slice(0, 5)
-        : []
-      return {
-        endpoint: "/api/competitor-compare",
-        featureKey: "competitorCompareUnit",
-        units: Math.max(1, competitors.length),
-        label: getFeaturePrice("competitorCompareUnit").label,
-      }
-    }
-    case "keywordExtract":
-    case "knowledgeImport":
-      return {
-        endpoint: "/api/geo-strategy/extract",
-        featureKey: "keywordExtract",
-        units: 1,
-        label: getFeaturePrice("keywordExtract").label,
-      }
-    case "keywordAdvantages":
-      return {
-        endpoint: "/api/geo-strategy/advantages",
-        featureKey: "keywordAdvantages",
-        units: 1,
-        label: getFeaturePrice("keywordAdvantages").label,
-      }
-    case "keywordStrategy":
-      return {
-        endpoint: "/api/geo-strategy/generate",
-        featureKey: "keywordStrategyGenerate",
-        units: 1,
-        label: getFeaturePrice("keywordStrategyGenerate").label,
-      }
-    case "keywordWebsitePrompt":
-      return {
-        endpoint: "/api/geo-strategy/website-prompt",
-        featureKey: "keywordWebsitePrompt",
-        units: 1,
-        label: getFeaturePrice("keywordWebsitePrompt").label,
-      }
-  }
-}
-
-export function estimateBackgroundJob(
-  kind: BackgroundJobKind,
-  payload: unknown,
-): BackgroundJobEstimate {
-  const definition = resolveTask(kind, payload)
-  return {
-    ...definition,
-    credits: estimateFeatureCredits(definition.featureKey, definition.units),
-  }
 }
 
 function encodePayload(payload: unknown): string {
@@ -858,21 +747,6 @@ function removePendingJob(jobId: string, kind: BackgroundJobKind): void {
   }
 }
 
-export function isBackgroundJobKind(value: unknown): value is BackgroundJobKind {
-  return [
-    "articleGeneration",
-    "queryGeneration",
-    "research",
-    "diagnosis",
-    "competitorCompare",
-    "keywordExtract",
-    "knowledgeImport",
-    "keywordAdvantages",
-    "keywordStrategy",
-    "keywordWebsitePrompt",
-  ].includes(String(value))
-}
-
 export async function createBackgroundJob(args: {
   kind: BackgroundJobKind
   clientId: string
@@ -891,7 +765,7 @@ export async function createBackgroundJob(args: {
     }
   }
 
-  const definition = resolveTask(args.kind, args.payload)
+  const definition = resolveBackgroundTask(args.kind, args.payload)
   const key = requestKey(args.ownerUserId, args.kind, args.requestId)
   const existingPointer = await kv.get<string>(key)
   if (existingPointer) {
@@ -1007,7 +881,7 @@ export async function createBackgroundJobsBatch(args: {
     if (!/^[A-Za-z0-9_-]{16,160}$/.test(item.requestId)) {
       throw new Error("批次任务请求编号无效，请刷新后重试")
     }
-    const definition = resolveTask(args.kind, item.payload)
+    const definition = resolveBackgroundTask(args.kind, item.payload)
     return {
       ...item,
       definition,
@@ -1146,7 +1020,7 @@ export async function createUnchargedBackgroundJob(args: {
   if (!/^[A-Za-z0-9_-]{16,160}$/.test(args.requestId)) {
     throw new Error("任务请求编号无效，请刷新后重试")
   }
-  const definition = resolveTask(args.kind, args.payload)
+  const definition = resolveBackgroundTask(args.kind, args.payload)
   const key = requestKey(args.ownerUserId, args.kind, args.requestId)
   const existingPointer = await kv.get<string>(key)
   if (existingPointer && !existingPointer.startsWith("pending:")) {
