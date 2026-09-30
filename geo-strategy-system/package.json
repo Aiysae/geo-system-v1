@@ -24,6 +24,7 @@
     "lint": "eslint",
     "test": "node scripts/run-all-tests.mjs",
     "test:report-export-compatibility": "tsx scripts/test-report-export-compatibility.mts",
+    "test:background-job-definitions": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-background-job-definitions.mts",
     "db:migrate:payments": "tsx scripts/migrate-payment-db.mts",
     "db:migrate:workspace": "tsx scripts/migrate-workspace-db.mts",
     "db:migrate:penetration-history": "tsx scripts/migrate-penetration-history-db.mts",

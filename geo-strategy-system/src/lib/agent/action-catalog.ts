@@ -1,7 +1,7 @@
 import "server-only"
 
 import * as z from "zod/v4"
-import { estimateBackgroundJob, isBackgroundJobKind } from "@/lib/background-jobs"
+import { estimateBackgroundJob, isBackgroundJobKind } from "@/lib/background-job-definitions"
 import { estimateQuestionJobCredits } from "@/lib/geo-strategy/question-jobs"
 import { moduleForBackgroundJob } from "@/lib/team-job-modules"
 import {
