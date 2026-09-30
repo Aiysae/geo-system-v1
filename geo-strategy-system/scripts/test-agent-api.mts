@@ -750,6 +750,35 @@ try {
     requestId: "agent_article_batch_delete_0001",
     batchId: "batch-agent-test",
   }).scope, "article.manage")
+  const invalidArticle = await callAgentAction("article.generate", {
+    clientId: "client-agent-test", requestId: "agent_invalid_prompt_0001",
+    promptKey: "not-a-supported-prompt", coreQuestion: "如何选择？", dryRun: true,
+  })
+  assert.equal(invalidArticle.status, 400, "invalid prompt must not become a retryable server failure")
+  const invalidArticleBody = await invalidArticle.json()
+  assert.equal(invalidArticleBody.error.code, "INVALID_ARGUMENT")
+  assert.equal(invalidArticleBody.error.retryable, false)
+  assert.match(invalidArticleBody.error.message, /promptKey/)
+  const promptSchema = articleGenerateAction?.inputSchema?.properties?.promptKey as { enum?: string[] }
+  assert.ok(promptSchema.enum?.includes("selectionPitfallGuide"), "Agent tools must advertise valid prompt identifiers")
+  for (const promptKey of promptSchema.enum || []) {
+    assert.doesNotThrow(() => parseAgentActionInput("article.generate", {
+      clientId: "client-agent-test", requestId: "agent_valid_prompt_0001",
+      promptKey, coreQuestion: "如何选择？",
+    }))
+  }
+  const articleBatchInput = {
+    clientId: "client-agent-test", requestId: "agent_article_batch_schema_0001",
+    count: 1, topicMode: "questions", basePayload: { promptKey: "selectionPitfallGuide" },
+    questionTasks: [{ question: "如何选择？", promptKey: "selectionPitfallGuide" }],
+  }
+  assert.doesNotThrow(() => parseAgentActionInput("article.batch.run", articleBatchInput))
+  assert.throws(() => parseAgentActionInput("article.batch.run", {
+    ...articleBatchInput, basePayload: { promptKey: "not-a-supported-prompt" },
+  }), /promptKey/)
+  assert.throws(() => parseAgentActionInput("article.batch.run", {
+    ...articleBatchInput, questionTasks: [{ question: "如何选择？", promptKey: "not-a-supported-prompt" }],
+  }), /promptKey/)
   const parsedQuestions = parseAgentActionInput("keyword.questions.run", {
     clientId: "client-agent-test",
     requestId: "agent_question_schema_0001",

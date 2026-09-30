@@ -196,6 +196,10 @@ const backgroundSchema = z.looseObject({
   payload: z.record(z.string(), z.unknown()).describe("兼容旧版后台任务参数；新接入应优先使用对应的专用动作"),
 })
 
+const articlePromptKeySchema = z.enum(
+  Object.keys(ARTICLE_PROMPT_PRICE_KEYS) as [keyof typeof ARTICLE_PROMPT_PRICE_KEYS, ...(keyof typeof ARTICLE_PROMPT_PRICE_KEYS)[]],
+).describe("文章类型标识，必须使用枚举值；不是自定义提示词或类型中文名称")
+
 const articleQuestionTaskSchema = z.looseObject({
   questionId: z.string().optional(),
   materialId: z.string().optional(),
@@ -203,7 +207,7 @@ const articleQuestionTaskSchema = z.looseObject({
   matchedAdvantage: z.string().max(3_000).optional(),
   intent: z.string().max(300).optional(),
   category: z.string().max(120).optional(),
-  promptKey: z.string().min(1),
+  promptKey: articlePromptKeySchema,
 })
 
 const articleVideoScriptConfigSchema = z.looseObject({
@@ -240,7 +244,7 @@ const articleBatchSchema = z.looseObject({
   questionTasks: z.array(articleQuestionTaskSchema).max(50).optional(),
   similarityRetry: z.boolean().optional().default(true),
   basePayload: z.looseObject({
-    promptKey: z.string().min(1),
+    promptKey: articlePromptKeySchema,
     modelProvider: z.string().min(1).optional().default("doubao"),
     model: z.string().optional(),
     clientName: z.string().optional(),
@@ -445,7 +449,7 @@ const keywordQuestionsSchema = z.looseObject({
 
 const articleGenerationSchema = z.looseObject({
   ...clientContextShape,
-  promptKey: z.string().min(1).max(100),
+  promptKey: articlePromptKeySchema,
   modelProvider: z.string().min(1).max(100).optional().default("doubao"),
   model: z.string().max(200).optional(),
   clientName: z.string().max(300).optional(),
