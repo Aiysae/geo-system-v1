@@ -20,7 +20,18 @@ process.env.ARTICLE_WEB_SEARCH_ATTEMPTS = "1"
 process.env.ARTICLE_AUXILIARY_MODEL_PROVIDER = "qwen"
 process.env.ARTICLE_AUXILIARY_MODEL = "qwen-plus"
 
+const { shouldFailOverAiCredential } = await import("../src/lib/ai-credential-errors")
+assert.equal(shouldFailOverAiCredential(new Error("HTTP 400 invalid parameter")), false)
+assert.equal(shouldFailOverAiCredential(new Error("HTTP 400 Bad Request")), false)
+assert.equal(shouldFailOverAiCredential(new DOMException("cancelled", "AbortError")), false)
+assert.equal(shouldFailOverAiCredential(new Error("HTTP 403 AccountOverdueError overdue balance")), true)
+assert.equal(shouldFailOverAiCredential(new Error("HTTP 429 rate limit")), true)
+
 const { classifyAiCredentialFailure } = await import("../src/lib/ai-credential-failure-classifier")
+const notOpen = classifyAiCredentialFailure(new Error("HTTP 404 [ModelNotOpen]: model service not activated"))
+assert.equal(notOpen.failureClass, "model_unavailable")
+assert.equal(notOpen.actionRequired, true)
+assert.equal(classifyAiCredentialFailure(new Error("HTTP 403 [ModelNotOpen]: model service not activated")).failureClass, "model_unavailable")
 const { saveAiCredential, updateAiCredentialHealth, setAiCredentialEnabled, getAiCredentialRuntime } =
   await import("../src/lib/ai-credential-store")
 const { runArticleModelChat } = await import("../src/lib/article-model-runtime")
