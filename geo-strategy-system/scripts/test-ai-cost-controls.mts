@@ -107,7 +107,7 @@ try {
   }
   const input = { system: "test", user: "test", label: "test", totalTimeoutMs: 1_000 }
   await assert.rejects(runArticleModelChat(writer, input), /403/)
-  await assert.rejects(runArticleModelChat(writer, input), /暂无可用账号/)
+  await assert.rejects(runArticleModelChat(writer, input), /欠费或余额不足/)
   assert.equal(calls, 1, "cooldown must not switch to Pro or bypass the pool")
   assert.equal((await getAiCredentialRuntime(credential.id)).enabled, true)
   assert.equal((await runAiCredentialHealthSweep()).inspected, 0)
@@ -162,7 +162,7 @@ try {
     ["结论与适用范围", "判断依据和风险核验", "执行方法与步骤清单", "适用边界和注意事项"]
       .map(title => "## " + title + "\n\n" + paragraph.repeat(7)).join("\n\n")
   const missingSubject = good.replaceAll("示例主体甲", "其他主体")
-  let scenario: "normal" | "local-fail" | "judge-fail" | "repair-fail" | "heading-only" | "repair-worse" | "repair-equal-worse" = "normal"
+  let scenario: "normal" | "local-fail" | "judge-fail" | "repair-fail" | "heading-only" | "repair-worse" | "repair-equal-worse" | "model-not-open" = "normal"
   const stages: string[] = []
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body || "{}"))
@@ -186,6 +186,9 @@ try {
     assert.equal(body.model, "doubao-test-writer")
     const repair = system.includes("质量校对器")
     stages.push(repair ? "repair" : "draft")
+    if (scenario === "model-not-open") return Response.json({ error: {
+      code: "ModelNotOpen", message: "model service not activated",
+    } }, { status: 404 })
     if (repair && scenario === "repair-fail") return completion("")
     if (repair && scenario === "repair-worse") return completion("仅返回了一个片段")
     if (repair && scenario === "repair-equal-worse") return completion(good + "\n\n{{品牌名}}")
@@ -195,7 +198,7 @@ try {
       ? "# 企业内容服务怎么选择？\n示例主体甲的待复核草稿。"
       : good)
   }
-  for (scenario of ["normal", "local-fail", "judge-fail", "repair-fail", "heading-only", "repair-worse", "repair-equal-worse"] as const) {
+  for (scenario of ["normal", "local-fail", "judge-fail", "repair-fail", "heading-only", "repair-worse", "repair-equal-worse", "model-not-open"] as const) {
     stages.length = 0
     const response = await POST(new NextRequest("http://localhost/api/article-generation", {
       method: "POST", headers: {
@@ -210,6 +213,12 @@ try {
       }),
     }))
     const result = await response.json()
+    if (scenario === "model-not-open") {
+      assert.equal(response.status, 400)
+      assert.match(result.error, /尚未开通/)
+      assert.deepEqual(stages, ["draft"])
+      continue
+    }
     assert.equal(response.status, 200, JSON.stringify(result))
     assert.ok(result.article)
     assert.equal(result.model, "doubao-test-writer", "judge must never change writer identity")

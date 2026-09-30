@@ -1,3 +1,4 @@
+import { prepareArticleModelSelection } from "@/lib/article-model-runtime"
 import "server-only"
 
 import { randomUUID } from "crypto"
@@ -413,6 +414,12 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
         continue
       }
 
+      if ((job.status === "failed" || job.status === "cancelled") && job.partialArticle) {
+        item.markdown = job.partialArticle
+        item.qualityStatus = "review_required"
+        item.qualityAudit = undefined
+      }
+
       if (job.status === "failed") {
         if (item.attempt > 1 && item.fallbackMarkdown) {
           await finalizeArticle(
@@ -516,6 +523,13 @@ export async function createArticleBatch(
   if (existing) {
     scheduleArticleBatchMonitor(existing.id)
     return { ok: true, batch: toPublicArticleBatch(existing), reused: true }
+  }
+
+  try {
+    const selection = await prepareArticleModelSelection(input.basePayload.modelProvider, input.basePayload.model)
+    input = { ...input, basePayload: { ...input.basePayload, ...selection } }
+  } catch (error) {
+    return { ok: false, response: Response.json({ error: safeError(error) }, { status: 400 }) }
   }
 
   const planned = planArticleBatch({

@@ -694,17 +694,19 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
       }
       persistArticleAndJob(next)
     },
-    onFailed: message => {
+    onFailed: (message, job) => {
       persistArticleAndJob({
         ...article,
+        ...(job?.partialArticle ? { output: job.partialArticle, qualityAudit: undefined, lineage: undefined } : {}),
         status: "error",
         error: message,
       })
     },
-    onCancelled: () => {
+    onCancelled: job => {
       persistArticleAndJob({
         ...article,
-        status: "idle",
+        ...(job?.partialArticle ? { output: job.partialArticle, qualityAudit: undefined, lineage: undefined } : {}),
+        status: job?.partialArticle ? "error" : "idle",
         error: "文章任务已停止，预扣积分会自动退回。",
       })
     },
@@ -1255,6 +1257,10 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
                 )}
               </Label>
             </div>
+            <p className="break-all text-xs text-slate-500">
+              新任务使用：{article.model || activeProvider?.model || "请填写具体型号"}。
+              已有批次及其重试沿用创建时的型号；切换型号后请新建批次。
+            </p>
             {settingsError && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                 {settingsError}
@@ -1834,7 +1840,9 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
               onChange={value => updateField("output", value)}
               fileBaseName={buildFileBaseName(client, activePrompt)}
               title={client.ourBrand || client.name || activePrompt.title || "文章生成"}
-              statusText={article.status === "done"
+              statusText={article.status === "error" && article.output
+                ? "任务未完成，已保留草稿；可编辑和导出，发布前请复核"
+                : article.status === "done"
                 ? article.qualityAudit?.finalPassed === false
                   ? "已生成，等待人工复核；仍可编辑、预览和导出"
                   : isBrandVideoScript

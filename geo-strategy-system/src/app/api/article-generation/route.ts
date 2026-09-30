@@ -1,3 +1,5 @@
+import { ArticleModelWaitError, assertArticleModelPoolAvailable } from "@/lib/article-model-runtime"
+import { articleCheckpointContext, saveArticleCheckpoint, ArticleCheckpointError } from "@/lib/article-checkpoint"
 import { NextRequest, NextResponse } from "next/server"
 import { randomUUID } from "crypto"
 import {
@@ -511,6 +513,7 @@ export async function POST(req: NextRequest) {
     })
     const methodology = compileGeoArticleMethodology({
       promptKey,
+      comparisonMaterialsInDossier: LONG_FORM_ARTICLE_PROMPTS.has(promptKey),
       selection: methodologySelection,
       knowledgeBase,
       coreQuestion,
@@ -520,7 +523,6 @@ export async function POST(req: NextRequest) {
       matchedAdvantage: text(body.advantages, 3000),
       primarySubject,
       comparisonBrands,
-      comparisonMaterialsInDossier: LONG_FORM_ARTICLE_PROMPTS.has(promptKey),
       knowledgeAssetIds: Array.isArray(body.knowledgeAssetIds)
         ? body.knowledgeAssetIds.map((value: unknown) => text(value, 140)).filter(Boolean).slice(0, 30)
         : undefined,
@@ -546,6 +548,7 @@ export async function POST(req: NextRequest) {
 
     const modelProvider = normalizeArticleModelProviderKey(body.modelProvider)
     const config = await resolveArticleModel(modelProvider, text(body.model, 200))
+    if (!articleCheckpointContext.getStore()?.checkpoint) await assertArticleModelPoolAvailable(config)
     const model = config.model
 
     if (!config.apiKey) {
@@ -610,11 +613,12 @@ export async function POST(req: NextRequest) {
       knowledgeBase,
       selectedKnowledgeAssetIds: methodology.trace.knowledgeAssetIds,
     })
+    const checkpoint = articleCheckpointContext.getStore()?.checkpoint
     const shouldCollectWebContext = !isRewrite && (
       !isBrandVideoScriptPrompt(promptKey)
       || videoScriptConfig.evidencePolicy === "verifiedPublicSupplement"
     )
-    const webContext = !shouldCollectWebContext
+    const webContext = checkpoint ? checkpoint.webContext : !shouldCollectWebContext
       ? undefined
       : await collectArticleWebContext({
           signal: req.signal,
@@ -639,12 +643,14 @@ export async function POST(req: NextRequest) {
       ? buildArticleWebEnhancedPrompt(prompt, webContext)
       : prompt
     const isLongForm = LONG_FORM_ARTICLE_PROMPTS.has(promptKey)
-    let contentPlan: ArticleContentPlan | undefined
-    let planUsedFallback = false
-    let plannerIssue = ""
-    let effectiveConfig = config
+    let contentPlan: ArticleContentPlan | undefined = checkpoint?.contentPlan
+    let planUsedFallback = checkpoint?.planUsedFallback || false
+    let plannerIssue = checkpoint?.plannerIssue || ""
+    let effectiveConfig = checkpoint
+      ? await resolveArticleModel(checkpoint.modelProvider, checkpoint.model)
+      : config
 
-    if (isLongForm) {
+    if (isLongForm && !checkpoint) {
       const fallback = parseArticleContentPlan("", {
         coreQuestion, primarySubject, articleFormat: methodology.trace.articleFormat,
       })
@@ -652,7 +658,7 @@ export async function POST(req: NextRequest) {
       planUsedFallback = true
     }
 
-    if (isLongForm && ARTICLE_AI_PLANNER_ENABLED) {
+    if (isLongForm && !checkpoint && ARTICLE_AI_PLANNER_ENABLED) {
       try {
         const planning = await runArticleModelChat(effectiveConfig, {
           signal: req.signal,
@@ -691,7 +697,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const generation = await runArticleModelChat(effectiveConfig, {
+    const generation = checkpoint
+      ? { content: checkpoint.repairedDraft || checkpoint.draft, model: effectiveConfig }
+      : await runArticleModelChat(effectiveConfig, {
       signal: req.signal,
       system: buildSystemPrompt(
         template.template,
@@ -725,6 +733,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "AI 未返回有效文章内容，请重试" }, { status: 502 })
     }
 
+    const originalDraft = checkpoint?.draft || article
+    const persistStage = async (repairedDraft?: string, semanticQuality?: ArticleSemanticQualityReport,
+      semanticJudgeModel?: string) => saveArticleCheckpoint({
+      draft: originalDraft, repairedDraft,
+      modelProvider: effectiveConfig.providerKey, model: effectiveConfig.model,
+      contentPlan, webContext, planUsedFallback, plannerIssue,
+      semanticQuality, semanticJudgeModel,
+    })
+    if (!checkpoint) await persistStage()
+
     let rewriteAudit: ArticleRewriteAudit | undefined
     if (isRewrite && rewriteAnalysis) {
       let validation = validateRewriteOutput({
@@ -733,9 +751,9 @@ export async function POST(req: NextRequest) {
         mappings: rewriteMappings,
         analysis: rewriteAnalysis,
       })
-      let repaired = false
+      let repaired = Boolean(checkpoint?.repairedDraft)
 
-      if (validation.issues.length > 0) {
+      if (validation.issues.length > 0 && !repaired) {
         const repairResult = await runArticleModelChat(effectiveConfig, {
           signal: req.signal,
           system: "你是文章品牌映射校对器。只修复明确列出的品牌替换错误，严格保留文章结构和未映射品牌，输出完整 Markdown，不作解释。",
@@ -760,6 +778,7 @@ export async function POST(req: NextRequest) {
         effectiveConfig = repairResult.model
         article = stripCodeFence(repairResult.content)
         repaired = true
+        await persistStage(article)
         validation = validateRewriteOutput({
           sourceMarkdown,
           output: article,
@@ -800,11 +819,13 @@ export async function POST(req: NextRequest) {
         webSources: webContext?.hits,
         videoScriptConfig,
       })
-      let semanticQuality: ArticleSemanticQualityReport | null = null
+      let semanticQuality: ArticleSemanticQualityReport | null =
+        checkpoint?.contentPlan?.version === ARTICLE_CONTENT_PIPELINE_VERSION
+          ? checkpoint.semanticQuality || null : null
       let semanticJudgeIssue = ""
       let repairIssue = ""
-      let semanticJudgeModel: string | undefined
-      let repaired = false
+      let semanticJudgeModel: string | undefined = checkpoint?.semanticJudgeModel
+      let repaired = Boolean(checkpoint?.repairedDraft)
 
       const judgeArticle = async (candidate: string): Promise<ArticleSemanticQualityReport | null> => {
         if (!isLongForm || !contentPlan) return null
@@ -839,19 +860,21 @@ export async function POST(req: NextRequest) {
           })
           const parsed = parseArticleSemanticQualityReport(result.content)
           semanticJudgeIssue = parsed ? "" : "语义质量裁判未返回有效结果"
+          if (parsed) await persistStage(repaired ? article : undefined, parsed, semanticJudgeModel)
           return parsed
         } catch (error) {
           req.signal.throwIfAborted()
+          if (error instanceof ArticleCheckpointError || error instanceof ArticleModelWaitError) throw error
           semanticJudgeIssue = `语义质量裁判未完成：${error instanceof Error ? error.message : String(error)}`
           console.warn("[article-generation] semantic judge unavailable", semanticJudgeIssue)
           return null
         }
       }
 
-      if (isLongForm && quality.passed) semanticQuality = await judgeArticle(article)
+      if (isLongForm && quality.passed && !semanticQuality) semanticQuality = await judgeArticle(article)
       const requiresRepair = !quality.passed || semanticQuality?.passed === false
 
-      if (requiresRepair) {
+      if (requiresRepair && !repaired) {
         try {
           const semanticIssues = semanticQuality?.issues || []
           const repairResult = await runArticleModelChat(effectiveConfig, {
@@ -923,6 +946,7 @@ export async function POST(req: NextRequest) {
           article = candidate
           quality = candidateQuality
           repaired = true
+          await persistStage(article)
           // A previous verdict cannot approve a different, repaired draft.
           semanticQuality = null
           if (isLongForm && quality.passed) {
@@ -930,6 +954,7 @@ export async function POST(req: NextRequest) {
           }
         } catch (error) {
           req.signal.throwIfAborted()
+          if (error instanceof ArticleCheckpointError || error instanceof ArticleModelWaitError) throw error
           repairIssue = `质量修复未完成，已保留原稿：${error instanceof Error ? error.message : String(error)}`
           console.warn("[article-generation] repair unavailable", repairIssue)
         }
@@ -1051,12 +1076,20 @@ export async function POST(req: NextRequest) {
     if (req.signal.aborted) {
       return NextResponse.json({ error: "文章任务已停止" }, { status: 499 })
     }
+    if (error instanceof ArticleModelWaitError) {
+      return NextResponse.json({ error: error.message, code: "ARTICLE_MODEL_WAIT" }, { status: 503 })
+    }
     console.error("[article-generation]", error)
     const message = error instanceof Error ? error.message : "服务器错误"
 
+    if (/ModelNotOpen|has not activated.{0,30}model|model service not activated/i.test(message)) {
+      return NextResponse.json({
+        error: "当前模型账号尚未开通所选型号，请在供应商控制台确认开通状态，或选择已开通的型号。",
+      }, { status: 400 })
+    }
     if (/timeout|timed out|超时/i.test(message)) {
       return NextResponse.json(
-        { error: `${isRewriteRequest ? "文章改写" : "文章生成"}超时，请稍后重试，或在后台增加文章生成模型超时时间。` },
+        { error: `${isRewriteRequest ? "文章改写" : "文章生成"}超时：${message}。请稍后重试；后台配置仍受当前阶段总时限约束。` },
         { status: 504 }
       )
     }

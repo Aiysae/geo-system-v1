@@ -1,5 +1,8 @@
 import "server-only"
 
+import { ArticleModelWaitError, prepareArticleModelSelection } from "@/lib/article-model-runtime"
+
+import { articleCheckpointContext, type ArticleCheckpoint } from "@/lib/article-checkpoint"
 import { randomUUID } from "crypto"
 import { gzipSync, gunzipSync } from "zlib"
 import { NextRequest } from "next/server"
@@ -56,6 +59,9 @@ type StoredBackgroundJob = BackgroundJobRecord & {
   reservation: CreditReservation
   creditCost: number
   creditsSettledAt?: string
+  articleWaitStartedAt?: string
+  articleRetryAt?: string
+  articleCheckpoint?: ArticleCheckpoint
 }
 
 type TaskDefinition = {
@@ -271,6 +277,9 @@ function toPublicJob(job: StoredBackgroundJob): BackgroundJobRecord {
   delete publicJob.endpoint
   delete publicJob.reservation
   delete publicJob.creditCost
+  delete publicJob.articleWaitStartedAt
+  delete publicJob.articleRetryAt
+  delete publicJob.articleCheckpoint
   delete publicJob.creditsSettledAt
   return publicJob as BackgroundJobRecord
 }
@@ -486,6 +495,7 @@ export function isDirectBackgroundJobKind(
 function directTaskUserError(kind: BackgroundJobKind, error: unknown): Error {
   const message = safeError(error)
   if (/\u7528\u6237\u5df2\u505c\u6b62\u4efb\u52a1/.test(message)) return new Error("用户已停止任务")
+  if (error instanceof ArticleModelWaitError) return error
   if (kind === "articleGeneration") return new Error(message)
   if (/未达到生成可审计报告的最低标准|请补充更准确的主体/.test(message)) {
     return new Error(message)
@@ -540,7 +550,17 @@ async function executeDirectBackgroundRequest(
       await onProgress(15, "正在生成文章")
       const { POST } = await import("@/app/api/article-generation/route")
       // Keep the same validation, runtime user and credit bypass without replaying a paid pipeline over HTTP.
-      const response = await POST(new NextRequest("http://localhost/api/article-generation", {
+      const response = await articleCheckpointContext.run({
+        jobId: job.id,
+        checkpoint: job.articleCheckpoint,
+        save: async checkpoint => {
+          const saved = await patchJob(job.id, {
+            articleCheckpoint: checkpoint,
+            partialArticle: checkpoint.repairedDraft || checkpoint.draft,
+          })
+          if (!saved) throw new Error("文章任务不存在")
+        },
+      }, () => POST(new NextRequest("http://localhost/api/article-generation", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -549,9 +569,10 @@ async function executeDirectBackgroundRequest(
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
-      }))
+      })))
       const result = await readJsonResponse(response)
       if (!response.ok) {
+        if (record(result).code === "ARTICLE_MODEL_WAIT") throw new ArticleModelWaitError(String(record(result).error))
         throw new Error(String(record(result).error || `文章任务执行失败（HTTP ${response.status}）`))
       }
       controller.signal.throwIfAborted()
@@ -669,8 +690,13 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
 
     let job = await getStoredJob(jobId)
     if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) return
+    if (job.result === undefined && job.articleRetryAt && Date.parse(job.articleRetryAt) > Date.now()) return
+    if (job.result === undefined && job.articleWaitStartedAt && Date.now() - Date.parse(job.articleWaitStartedAt) >= JOB_TIMEOUT_MS) {
+      throw new Error("模型线路等待恢复已超过 15 分钟，请检查账号状态后重试")
+    }
     job = await patchJob(jobId, {
       status: "running",
+      articleRetryAt: undefined,
       progressPercent: 10,
       stage: job.kind === "diagnosis"
         ? "正在读取网站并核验页面结构"
@@ -729,6 +755,18 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
       return
     }
 
+    if (current && error instanceof ArticleModelWaitError) {
+      const waitStartedAt = current.articleWaitStartedAt || nowIso()
+      if (Date.now() - Date.parse(waitStartedAt) < JOB_TIMEOUT_MS) {
+        await patchJob(jobId, {
+          status: "queued", stage: "模型线路暂时不可用，等待恢复后继续（最多 15 分钟）",
+          articleWaitStartedAt: waitStartedAt,
+          articleRetryAt: new Date(Math.min(Date.now() + 30_000, Date.parse(waitStartedAt) + JOB_TIMEOUT_MS)).toISOString(),
+          error: undefined,
+        })
+        return
+      }
+    }
     console.error("[background-jobs] job failed", jobId, safeError(error))
     const failedAt = nowIso()
     if (current) {
@@ -760,6 +798,13 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
     activeJobs.delete(jobId)
     activeKindJobs.delete(jobId)
     activeControllers.delete(jobId)
+    if (!durableTaskQueueEnabled("background")) {
+      const latest = await getStoredJob(jobId)
+      if (latest?.status === "queued" && latest.articleRetryAt) {
+        const timer = setTimeout(() => scheduleLocalJob(jobId, kind), Math.max(1, Date.parse(latest.articleRetryAt) - Date.now()))
+        timer.unref()
+      }
+    }
     drainQueue()
   }
 }
@@ -847,7 +892,6 @@ export async function createBackgroundJob(args: {
   }
 
   const definition = resolveTask(args.kind, args.payload)
-  const payloadGzip = encodePayload(args.payload)
   const key = requestKey(args.ownerUserId, args.kind, args.requestId)
   const existingPointer = await kv.get<string>(key)
   if (existingPointer) {
@@ -858,6 +902,17 @@ export async function createBackgroundJob(args: {
       return { ok: true, job: toPublicJob(existing), reused: true }
     }
   }
+
+  let payload = args.payload
+  if (args.kind === "articleGeneration") {
+    try {
+      const selection = await prepareArticleModelSelection(record(payload).modelProvider, record(payload).model)
+      payload = { ...record(payload), ...selection }
+    } catch (error) {
+      return { ok: false, response: Response.json({ error: safeError(error) }, { status: 400 }) }
+    }
+  }
+  const payloadGzip = encodePayload(payload)
 
   const claim = `pending:${randomUUID()}`
   const claimed = await kv.set(key, claim, { nx: true, ex: IDEMPOTENCY_CLAIM_SECONDS })
@@ -968,6 +1023,24 @@ export async function createBackgroundJobsBatch(args: {
         ok: false,
         response: Response.json({ error: "该批次任务已经创建，请刷新任务列表" }, { status: 409 }),
       }
+    }
+  }
+
+  if (args.kind === "articleGeneration") {
+    const selections = new Map<string, Awaited<ReturnType<typeof prepareArticleModelSelection>>>()
+    try {
+      for (const item of prepared) {
+        const payload = record(item.payload)
+        const selectionKey = JSON.stringify([payload.modelProvider, payload.model])
+        let selection = selections.get(selectionKey)
+        if (!selection) {
+          selection = await prepareArticleModelSelection(payload.modelProvider, payload.model)
+          selections.set(selectionKey, selection)
+        }
+        item.payloadGzip = encodePayload({ ...payload, ...selection })
+      }
+    } catch (error) {
+      return { ok: false, response: Response.json({ error: safeError(error) }, { status: 400 }) }
     }
   }
 
@@ -1195,7 +1268,8 @@ export async function runBackgroundJobFromWorker(
   if (!latest || ["succeeded", "failed", "cancelled"].includes(latest.status)) {
     return {}
   }
-  return { requeue: true, delayMs: 2_000 }
+  return { requeue: true, delayMs: latest.articleRetryAt
+    ? Math.max(1, Date.parse(latest.articleRetryAt) - Date.now()) : 2_000 }
 }
 
 export async function cancelBackgroundJob(
