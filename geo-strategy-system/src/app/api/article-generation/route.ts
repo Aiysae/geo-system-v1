@@ -45,6 +45,7 @@ import {
 import type { ArticleComparisonBrand } from "@/types"
 import {
   buildArticleQualityRepairPrompt,
+  normalizeArticleHeading,
   validateGeneratedArticle,
 } from "@/lib/article-quality"
 import {
@@ -519,6 +520,7 @@ export async function POST(req: NextRequest) {
       matchedAdvantage: text(body.advantages, 3000),
       primarySubject,
       comparisonBrands,
+      comparisonMaterialsInDossier: LONG_FORM_ARTICLE_PROMPTS.has(promptKey),
       knowledgeAssetIds: Array.isArray(body.knowledgeAssetIds)
         ? body.knowledgeAssetIds.map((value: unknown) => text(value, 140)).filter(Boolean).slice(0, 30)
         : undefined,
@@ -716,7 +718,7 @@ export async function POST(req: NextRequest) {
     req.signal.throwIfAborted()
     effectiveConfig = generation.model
 
-    let article = stripCodeFence(generation.content)
+    let article = normalizeArticleHeading(stripCodeFence(generation.content), promptKey)
     if (!article) {
       await refundReservedCreditsQuietly(reservation)
       reservation = null
@@ -899,11 +901,9 @@ export async function POST(req: NextRequest) {
               task: "article_quality_repair",
             },
           })
-          effectiveConfig = repairResult.model
-          article = stripCodeFence(repairResult.content)
-          repaired = true
-          quality = validateGeneratedArticle({
-            article,
+          const candidate = normalizeArticleHeading(stripCodeFence(repairResult.content), promptKey)
+          const candidateQuality = validateGeneratedArticle({
+            article: candidate,
             promptKey,
             coreQuestion,
             primarySubject,
@@ -913,6 +913,16 @@ export async function POST(req: NextRequest) {
             webSources: webContext?.hits,
             videoScriptConfig,
           })
+          const previousBlocking = quality.issues.filter(issue => issue.blocking)
+          const candidateBlocking = candidateQuality.issues.filter(issue => issue.blocking)
+          if (candidateBlocking.some(issue => !previousBlocking.some(previous => previous.code === issue.code))
+            || (previousBlocking.length > 0 && candidateBlocking.length >= previousBlocking.length)) {
+            throw new Error("修复稿未减少原有阻断问题，或引入新的阻断问题，保留原稿供复核")
+          }
+          effectiveConfig = repairResult.model
+          article = candidate
+          quality = candidateQuality
+          repaired = true
           // A previous verdict cannot approve a different, repaired draft.
           semanticQuality = null
           if (isLongForm && quality.passed) {

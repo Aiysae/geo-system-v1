@@ -161,7 +161,8 @@ try {
   const good = "# 企业内容服务怎么选择？\n\n" + paragraph + "\n\n" +
     ["结论与适用范围", "判断依据和风险核验", "执行方法与步骤清单", "适用边界和注意事项"]
       .map(title => "## " + title + "\n\n" + paragraph.repeat(7)).join("\n\n")
-  let scenario: "normal" | "local-fail" | "judge-fail" | "repair-fail" = "normal"
+  const missingSubject = good.replaceAll("示例主体甲", "其他主体")
+  let scenario: "normal" | "local-fail" | "judge-fail" | "repair-fail" | "heading-only" | "repair-worse" | "repair-equal-worse" = "normal"
   const stages: string[] = []
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body || "{}"))
@@ -174,6 +175,9 @@ try {
       stages.push("judge")
       assert.match(system, /质量裁判/)
       if (scenario === "judge-fail") return completion("invalid json")
+      if (scenario === "repair-worse") return completion(JSON.stringify({
+        score: 60, passed: false, issues: [{ code: "unsupported", message: "事实缺少依据", repairInstruction: "删除该断言", blocking: true }],
+      }))
       return completion(JSON.stringify({
         score: 90, passed: true, issues: [],
         dimensions: { questionAnswer: 90, evidenceGrounding: 90, articleTypeFit: 90, depth: 90, naturalness: 90, differentiation: 90 },
@@ -183,11 +187,15 @@ try {
     const repair = system.includes("质量校对器")
     stages.push(repair ? "repair" : "draft")
     if (repair && scenario === "repair-fail") return completion("")
+    if (repair && scenario === "repair-worse") return completion("仅返回了一个片段")
+    if (repair && scenario === "repair-equal-worse") return completion(good + "\n\n{{品牌名}}")
+    if (!repair && scenario === "heading-only") return completion(good.replace(/^# /, "## "))
+    if (!repair && scenario === "repair-equal-worse") return completion(missingSubject)
     return completion(!repair && ["local-fail", "repair-fail"].includes(scenario)
       ? "# 企业内容服务怎么选择？\n示例主体甲的待复核草稿。"
       : good)
   }
-  for (scenario of ["normal", "local-fail", "judge-fail", "repair-fail"] as const) {
+  for (scenario of ["normal", "local-fail", "judge-fail", "repair-fail", "heading-only", "repair-worse", "repair-equal-worse"] as const) {
     stages.length = 0
     const response = await POST(new NextRequest("http://localhost/api/article-generation", {
       method: "POST", headers: {
@@ -206,6 +214,21 @@ try {
     assert.ok(result.article)
     assert.equal(result.model, "doubao-test-writer", "judge must never change writer identity")
     if (scenario === "normal" || scenario === "local-fail") assert.equal(result.qualityAudit.finalPassed, true)
+    if (scenario === "heading-only") {
+      assert.equal(result.article, good)
+      assert.equal(result.qualityAudit.finalPassed, true)
+      assert.deepEqual(stages, ["draft", "judge"], "format-only fix must not call a paid repair")
+    }
+    if (scenario === "repair-worse") {
+      assert.equal(result.article, good, "a worse repair must not replace the original")
+      assert.equal(result.qualityAudit.finalPassed, false, "factual concerns still block approval")
+      assert.deepEqual(stages, ["draft", "judge", "repair"])
+    }
+    if (scenario === "repair-equal-worse") {
+      assert.equal(result.article, missingSubject, "an equally blocked repair with a new defect must not replace the original")
+      assert.equal(result.qualityAudit.finalPassed, false)
+      assert.deepEqual(stages, ["draft", "repair"])
+    }
     if (scenario === "normal") assert.deepEqual(stages, ["draft", "judge"])
     if (scenario === "local-fail") assert.deepEqual(stages, ["draft", "repair", "judge"])
     if (scenario === "judge-fail") {

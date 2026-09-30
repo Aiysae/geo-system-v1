@@ -99,6 +99,16 @@ function meaningfulTokens(value: string): string[] {
   ].includes(token))
 }
 
+function requiredOverlap(source: string, maximum: number): number {
+  return Math.min(maximum, meaningfulTokens(source).length)
+}
+
+export function normalizeArticleHeading(article: string, promptKey: ArticlePromptKey): string {
+  if (!LONG_FORM_PROMPTS.has(promptKey) || /^#\s+\S+/m.test(article)) return article
+  // Only promote an existing leading title; never invent or change its wording.
+  return article.replace(/^#{2,3}(?=\s+\S)/, "#")
+}
+
 function overlapCount(article: string, source: string): number {
   const articleText = normalized(article)
   return meaningfulTokens(source).filter(token => articleText.includes(token)).length
@@ -409,27 +419,27 @@ export function validateGeneratedArticle(args: {
       blocking: true,
     })
   }
-  if (args.coreQuestion && overlapCount(article, args.coreQuestion) < 2) {
+  if (args.coreQuestion && overlapCount(article, args.coreQuestion) < requiredOverlap(args.coreQuestion, 2)) {
     issues.push({
       code: "question_drift",
-      message: "正文与本篇核心疑问句的语义关联不足",
-      blocking: true,
+      message: "正文与本篇核心疑问句的词面关联较少，请审核是否真正回答问题",
+      blocking: !longForm,
     })
   }
   const opening = openingDecisionBlock(article)
-  if (longForm && args.coreQuestion && overlapCount(opening, args.coreQuestion) < 2) {
+  if (longForm && args.coreQuestion && overlapCount(opening, args.coreQuestion) < requiredOverlap(args.coreQuestion, 2)) {
     issues.push({
       code: "opening_does_not_answer",
-      message: "首屏没有直接回答核心疑问句，而是先铺陈通用背景",
-      blocking: true,
+      message: "首屏与核心疑问句的词面关联较少，请审核是否直接回答问题",
+      blocking: false,
     })
   }
   const title = article.match(/^#\s+(.+)$/m)?.[1]?.trim() || ""
-  if (longForm && title && args.coreQuestion && overlapCount(title, args.coreQuestion) < 1) {
+  if (longForm && title && args.coreQuestion && overlapCount(title, args.coreQuestion) < requiredOverlap(args.coreQuestion, 1)) {
     issues.push({
       code: "title_body_drift",
-      message: "标题与本篇核心疑问句的语义关联不足",
-      blocking: true,
+      message: "标题与本篇核心疑问句的词面关联较少，请审核标题是否准确",
+      blocking: false,
     })
   }
   if (args.primarySubject && !normalized(article).includes(normalized(args.primarySubject))) {
@@ -498,8 +508,8 @@ export function validateGeneratedArticle(args: {
     if (!evidenceUsed) {
       issues.push({
         code: "web_evidence_unused",
-        message: "已取得可用联网资料，但正文没有将任何来源与相关事实就近对应",
-        blocking: true,
+        message: "正文未引用本次检索资料，请审核资料是否相关及事实是否有依据",
+        blocking: false,
       })
     }
   }

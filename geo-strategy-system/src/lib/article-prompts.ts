@@ -1,5 +1,7 @@
 import "server-only"
 
+import { ARTICLE_FACT_BOUNDARY_RULES } from "@/lib/article-fact-rules"
+
 import {
   CLIENT_CASE_STUDY_PROMPT,
   CREDENTIALS_ANALYSIS_PROMPT,
@@ -48,6 +50,8 @@ function compileLongformPrompt(specializedPrompt: string): string {
     "",
     "【当前创作类型专用规范】",
     specializedPrompt,
+    "【统一事实边界】",
+    ARTICLE_FACT_BOUNDARY_RULES,
   ].join("\n")
 }
 
