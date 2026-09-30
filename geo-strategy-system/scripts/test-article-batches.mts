@@ -3,6 +3,7 @@ import fs from "node:fs/promises"
 import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
+import { gzipSync } from "node:zlib"
 import JSZip from "jszip"
 import type * as ArticleDocxModule from "../src/lib/article-batches/docx"
 import type * as ArticlePlanningModule from "../src/lib/article-batches/planning"
@@ -55,12 +56,16 @@ const technicalFailure = {
   status: "failed" as const,
   qualityAudit: qualityAudit(false),
 }
+const stoppedDraft = { status: "cancelled" as const, markdown: "# 已停止草稿" }
 assert.equal(hasArticleBatchDraft(reviewDraft), true)
 assert.equal(resolveArticleBatchQualityStatus(passedDraft), "passed")
 assert.equal(resolveArticleBatchQualityStatus(reviewDraft), "review_required")
 assert.equal(resolveArticleBatchQualityStatus(technicalFailure), "not_available")
 assert.equal(isArticleBatchDraftDownloadable(reviewDraft), true)
 assert.equal(isArticleBatchDraftDownloadable(technicalFailure), false)
+assert.equal(isArticleBatchDraftDownloadable(stoppedDraft), true)
+assert.equal(resolveArticleBatchQualityStatus(stoppedDraft), "review_required")
+assert.equal(isArticleBatchQualityPassed(stoppedDraft), false)
 assert.equal(isArticleBatchQualityPassed(passedDraft), true)
 assert.equal(isArticleBatchQualityPassed(reviewDraft), false)
 
@@ -171,9 +176,12 @@ const {
   toPublicArticleBatch,
 } = await import("../src/lib/article-batches/store")
 const {
+  cancelArticleBatch,
   deleteArticleBatch,
+  getArticleBatchDocx,
   getArticleBatchDownloadItems,
 } = await import("../src/lib/article-batches/manager")
+const { kv } = await import("../src/lib/kv")
 
 function storedBatch(id: string, status: "running" | "succeeded") {
   const markdown = "# 待清理文章\n\n这是批量任务删除测试。"
@@ -246,6 +254,37 @@ assert.equal(await deleteArticleBatch(finished.id, "another-owner"), "not_found"
 assert.equal(await deleteArticleBatch(finished.id, finished.ownerUserId), "deleted")
 assert.equal(await getOwnedStoredArticleBatch(finished.id, finished.ownerUserId), null)
 await assert.rejects(() => fs.access(artifact.artifactPath))
+
+const cancelledDraft = storedBatch("abatch_cancelled_draft_test", "running")
+const cancelledJobId = "job_cancelled_draft_test"
+const draftMarkdown = "# 已停止文章草稿\n\n这段正文在任务停止前已经保存。"
+cancelledDraft.items[0].jobId = cancelledJobId
+cancelledDraft.items[0].markdown = undefined
+await saveStoredArticleBatch(cancelledDraft)
+await kv.set(`geo:background-jobs:${cancelledJobId}`, {
+  id: cancelledJobId,
+  kind: "articleGeneration",
+  ownerUserId: cancelledDraft.ownerUserId,
+  clientId: cancelledDraft.clientId,
+  status: "cancelled",
+  payloadGzip: gzipSync(JSON.stringify(cancelledDraft.basePayload)).toString("base64"),
+  partialArticle: draftMarkdown,
+})
+const cancelled = await cancelArticleBatch(cancelledDraft.id, cancelledDraft.ownerUserId)
+assert.equal(cancelled?.items[0].status, "cancelled")
+assert.equal(cancelled?.items[0].hasDraft, true)
+assert.equal(cancelled?.items[0].qualityStatus, "review_required")
+assert.equal((await getOwnedStoredArticleBatch(cancelledDraft.id, cancelledDraft.ownerUserId))?.items[0].markdown, draftMarkdown)
+const cancelledDocx = await getArticleBatchDocx({
+  batchId: cancelledDraft.id,
+  itemId: cancelledDraft.items[0].id,
+  ownerUserId: cancelledDraft.ownerUserId,
+})
+assert.equal(cancelledDocx?.buffer.subarray(0, 2).toString(), "PK")
+const cancelledDownloads = await getArticleBatchDownloadItems(cancelledDraft.id, cancelledDraft.ownerUserId, "all")
+assert.equal(cancelledDownloads?.length, 1)
+assert.equal(cancelledDownloads?.[0].qualityStatus, "review_required")
+assert.equal((await getArticleBatchDownloadItems(cancelledDraft.id, cancelledDraft.ownerUserId, "passed"))?.length, 0)
 
 const qualityBatch = createStoredArticleBatchInput({
   id: "abatch_quality_download_test",

@@ -1,6 +1,9 @@
 import "server-only"
 
+import { articleCheckpointContext } from "@/lib/article-checkpoint"
+
 import { buildAiChatUrl } from "@/lib/ai-settings"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
 import { listAiGatewayProvidersPublic } from "@/lib/ai-gateways"
@@ -20,6 +23,7 @@ import type {
 } from "@/types"
 import {
   hasConfiguredAiCredential,
+  getAiCredentialPoolAvailability,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
   resolveAiCredentialModel,
@@ -30,6 +34,13 @@ import type { AiCredentialVendor } from "@/types/ai-credentials"
 interface CircuitState {
   failures: number
   openedUntil: number
+}
+
+export class ArticleModelWaitError extends Error {
+  constructor(message = "模型线路暂时冷却，等待恢复后继续") {
+    super(message)
+    this.name = "ArticleModelWaitError"
+  }
 }
 
 export interface ArticleModelChatInput {
@@ -54,6 +65,7 @@ export interface ArticleModelChatInput {
 interface RuntimeArticleModelChatInput extends ArticleModelChatInput {
   signal: AbortSignal
   deadlineAt?: number
+  timing: { queueMs: number; requestMs: number; attempts: number }
 }
 
 export interface ArticleModelChatResult {
@@ -166,7 +178,10 @@ async function executeModel(
   if (circuitIsOpen(model)) {
     throw new Error(`${model.label} 线路正在短暂恢复中`)
   }
-  const release = await acquireProviderSlot(model, input)
+  const queueStartedAt = Date.now()
+  const release = await acquireProviderSlot(model, input).finally(() => {
+    input.timing.queueMs += Date.now() - queueStartedAt
+  })
   const startedAt = Date.now()
   let usage: LlmTokenUsage | undefined
   try {
@@ -182,6 +197,7 @@ async function executeModel(
     const onUsage = (value: LlmTokenUsage) => {
       usage = addTokenUsage(usage, value)
     }
+    input.timing.attempts += 1
     const content = model.protocol === "openai_chat"
       ? await openaiCompatChat({
           url: buildAiChatUrl(model),
@@ -268,8 +284,33 @@ async function executeModel(
     }
     throw error
   } finally {
+    input.timing.requestMs += Date.now() - startedAt
     await release()
   }
+}
+
+export async function assertArticleModelPoolAvailable(model: ResolvedArticleModel): Promise<void> {
+  const vendor = credentialVendor(model)
+  if (!vendor || !await hasConfiguredAiCredential(vendor, "article")) return
+  const availability = await getAiCredentialPoolAvailability({
+    vendor, module: "article", model: model.model, requiredCapabilities: ["chat"],
+  })
+  if (availability.state === "temporary") throw new ArticleModelWaitError(availability.message)
+  if (availability.state === "blocked") throw new Error(availability.message)
+}
+
+/** Pin the requested/default model before reserving credits or saving a new batch. */
+export async function prepareArticleModelSelection(provider: unknown, requestedModel?: unknown) {
+  const model = await resolveArticleModel(provider, requestedModel)
+  if (!model.model) throw new Error("请先配置文章生成的具体型号")
+  if (!model.apiKey) throw new Error(`${model.label} API Key 未配置，请先在后台补全`)
+  try {
+    await assertArticleModelPoolAvailable(model)
+  } catch (error) {
+    // Temporary health state does not invalidate the user's model selection.
+    if (!(error instanceof ArticleModelWaitError)) throw error
+  }
+  return { modelProvider: model.providerKey, model: model.model }
 }
 
 async function callModel(
@@ -288,6 +329,7 @@ async function callModel(
   const selectionModel = model.model
   for (let attempt = 0; attempt < 3; attempt += 1) {
     throwIfArticleStageStopped(input)
+    const queueStartedAt = Date.now()
     const lease = await tryAcquireAiCredential({
       vendor,
       module: "article",
@@ -302,10 +344,24 @@ async function callModel(
       leaseSeconds: Math.min(60 * 60, Math.max(60, model.timeout + 60)),
       signal: input.signal,
       ...quotaEstimate,
+    }).catch(error => {
+      if (attempt === 0 && !input.signal.aborted && classifyAiCredentialFailure(error).failureClass === "local_capacity") {
+        throw new ArticleModelWaitError("模型账号当前繁忙，等待空闲通道后继续")
+      }
+      throw error
+    }).finally(() => {
+      input.timing.queueMs += Date.now() - queueStartedAt
     })
     if (!lease) {
       if (attempt === 0 && !hasPool) {
         return executeModel(model, input, usedFallback)
+      }
+      if (attempt === 0 && hasPool) {
+        const availability = await getAiCredentialPoolAvailability({
+          vendor, module: "article", model: selectionModel, requiredCapabilities: ["chat"],
+        })
+        if (availability.state === "temporary") throw new ArticleModelWaitError(availability.message)
+        if (availability.state === "blocked") throw new Error(availability.message)
       }
       break
     }
@@ -462,7 +518,7 @@ async function runArticleModelChatWithinBudget(
     } catch (error) {
       lastError = error
       if (input.signal.aborted || isAbortFailure(error)) throw error
-      if (!retryableFailure(error) || index === candidates.length - 1) throw error
+      if (error instanceof ArticleModelWaitError || !retryableFailure(error) || index === candidates.length - 1) throw error
       console.warn(
         `[article-model-fallback] ${model.label}/${model.model} 暂时不可用，尝试同模型备用线路。`,
       )
@@ -482,6 +538,7 @@ export async function runArticleModelChat(
     : undefined
   const deadlineAt = totalTimeoutMs ? Date.now() + totalTimeoutMs : undefined
   let timedOut = false
+  const timing = { queueMs: 0, requestMs: 0, attempts: 0 }
   const abortFromParent = () => controller.abort()
   if (input.signal?.aborted) controller.abort()
   else input.signal?.addEventListener("abort", abortFromParent, { once: true })
@@ -497,13 +554,14 @@ export async function runArticleModelChat(
       ...input,
       signal: controller.signal,
       deadlineAt,
+      timing,
     })
     if (timedOut) throw articleAbortError()
     return result
   } catch (error) {
     if (timedOut) {
       const timeoutError = new Error(
-        `${input.label}处理超时（超过 ${Math.ceil((totalTimeoutMs || 0) / 1000)} 秒），已停止当前阶段的排队与线路重试`,
+        `${input.label}处理超时（超过 ${Math.ceil((totalTimeoutMs || 0) / 1000)} 秒），已停止当前阶段的排队与线路重试（排队 ${Math.ceil(timing.queueMs / 1000)} 秒，请求 ${Math.ceil(timing.requestMs / 1000)} 秒，线路尝试 ${timing.attempts} 次）`,
       )
       timeoutError.name = "ArticleStageTimeoutError"
       throw timeoutError
@@ -511,6 +569,11 @@ export async function runArticleModelChat(
     if (input.signal?.aborted) throw articleAbortError()
     throw error
   } finally {
+    if (input.usageContext) console.info("[article-stage]", JSON.stringify({
+      jobId: articleCheckpointContext.getStore()?.jobId,
+      task: input.usageContext.task, label: input.label,
+      budgetMs: totalTimeoutMs, ...timing, timedOut,
+    }))
     if (timeout) clearTimeout(timeout)
     input.signal?.removeEventListener("abort", abortFromParent)
   }

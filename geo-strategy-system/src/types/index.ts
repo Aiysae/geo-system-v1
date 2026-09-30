@@ -339,6 +339,8 @@ export interface BackgroundJobRecord<TResult = unknown> {
   progressPercent: number
   stage: string
   result?: TResult
+  /** Saved article draft; not a completed or quality-approved result. */
+  partialArticle?: string
   error?: string
   createdAt: string
   updatedAt: string

@@ -97,10 +97,12 @@ function satisfiesRequest(
 type AiCredentialCandidate = {
   credential: AiCredentialRuntime
   routeHealth?: AiCredentialRouteHealth
+  blockingRoutes: AiCredentialRouteHealth[]
 }
 
 async function eligibleCredentials(
   request: AiCredentialSelectionRequest,
+  includeUnavailable = false,
 ): Promise<AiCredentialCandidate[]> {
   const credentials = await listAiCredentialRuntimes(request.vendor)
   const identities = credentials.map(credential =>
@@ -114,7 +116,7 @@ async function eligibleCredentials(
     .map((credential, index) => {
       const identity = identities[index]
       const exactRoute = routeHealth.get(aiCredentialRouteHealthId(identity))
-      const blockedByRouteScope = routes.some(route => {
+      const blockingRoutes = routes.filter(route => {
         if (route.credentialId !== credential.id) return false
         if (route.state === "closed" || route.state === "degraded") return false
         if (route.id === exactRoute?.id) return true
@@ -128,15 +130,38 @@ async function eligibleCredentials(
       return {
         credential,
         routeHealth: exactRoute,
-        blockedByRouteScope,
+        blockingRoutes,
       }
     })
-    .filter(candidate => satisfiesRequest(
+    .filter(candidate => includeUnavailable || satisfiesRequest(
       candidate.credential,
       request,
       candidate.routeHealth,
-      candidate.blockedByRouteScope,
+      candidate.blockingRoutes.length > 0,
     ))
+}
+
+/** Diagnose configured routes without acquiring a slot or sending a paid probe. */
+export async function getAiCredentialPoolAvailability(request: AiCredentialSelectionRequest): Promise<{
+  state: "available" | "temporary" | "blocked"
+  message?: string
+}> {
+  const candidates = await eligibleCredentials(request, true)
+  if (candidates.some(candidate => satisfiesRequest(candidate.credential, request,
+    candidate.routeHealth, candidate.blockingRoutes.length > 0))) return { state: "available" }
+  const configured = candidates.filter(candidate => satisfiesRequest({
+    ...candidate.credential, healthStatus: "healthy", consecutiveFailures: 0, cooldownUntil: undefined,
+  }, request))
+  const recoverable = configured.some(candidate => {
+    if (candidate.blockingRoutes.length > 0) return candidate.blockingRoutes.every(route =>
+      route.state !== "action_required" && ["rate_limited", "transient_upstream"].includes(route.failureClass))
+    return Boolean(candidate.credential.cooldownUntil)
+  })
+  if (recoverable) return { state: "temporary", message: "模型线路暂时冷却，等待恢复后继续" }
+  const billing = configured.some(candidate => candidate.blockingRoutes.some(route => route.failureClass === "billing"))
+  return { state: "blocked", message: billing
+    ? "所选模型的账号存在欠费或余额不足，请在后台检查账号状态"
+    : "所选模型暂无可用线路，请检查账号启用状态、允许型号及模型权限" }
 }
 
 function stableHash(value: string): number {

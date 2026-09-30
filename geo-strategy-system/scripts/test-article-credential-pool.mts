@@ -75,7 +75,7 @@ try {
   assert.equal(result.usedFallback, false)
   await assert.rejects(runArticleModelChat({ ...primary, model: "deepseek-chat" }, {
     system: "test", user: "test", label: "exact model",
-  }), /暂无可用账号/)
+  }), /账号启用状态、允许型号及模型权限/)
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })

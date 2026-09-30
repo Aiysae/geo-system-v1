@@ -106,7 +106,11 @@ function failedModulePatch(
   if (job.kind === "articleGeneration" && client.articleGeneration) {
     return {
       ...jobState,
-      articleGeneration: { ...client.articleGeneration, status: "error", error: message },
+      articleGeneration: {
+        ...client.articleGeneration,
+        ...(job.partialArticle ? { output: job.partialArticle, qualityAudit: undefined, lineage: undefined } : {}),
+        status: "error", error: message,
+      },
     }
   }
   if (client.keywordStrategy) {

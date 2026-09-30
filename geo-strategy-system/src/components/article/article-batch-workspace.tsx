@@ -637,6 +637,11 @@ export default function ArticleBatchWorkspace({
               ))}
             </select>
             {selectedBatch && (
+              <p className="break-all text-xs text-slate-500">
+                批次型号：{selectedBatch.model || "创建时未固定型号"}；重试沿用本批次设置。
+              </p>
+            )}
+            {selectedBatch && (
               <div className="flex flex-wrap justify-end gap-2">
                 {!selectedBatchVideoScript && (
                   <Button
