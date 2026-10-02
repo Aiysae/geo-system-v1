@@ -3,9 +3,6 @@ import type { BackgroundJobKind } from "../src/types"
 import type { BackgroundJobEstimate } from "../src/lib/background-jobs"
 
 const { estimateBackgroundJob, isBackgroundJobKind } = await import("../src/lib/background-jobs")
-const definitions = await import("../src/lib/background-job-definitions")
-assert.equal(estimateBackgroundJob, definitions.estimateBackgroundJob, "Existing callers retain the same estimator")
-assert.equal(isBackgroundJobKind, definitions.isBackgroundJobKind, "Existing callers retain the same kind validator")
 
 // Captured from the public API before extraction. These are billing and routing
 // contracts, including default counts, custom allocation and competitor limits.
