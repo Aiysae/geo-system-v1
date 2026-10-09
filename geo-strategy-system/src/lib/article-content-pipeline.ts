@@ -1,6 +1,6 @@
 import "server-only"
 
-import { ARTICLE_FACT_BOUNDARY_RULES } from "@/lib/article-fact-rules"
+import { ARTICLE_FACT_BOUNDARY_RULES, ARTICLE_SUBJECT_EVIDENCE_RULES } from "@/lib/article-fact-rules"
 
 import type {
   AnalysisSubjectType,
@@ -10,7 +10,7 @@ import type {
 } from "@/types"
 import { getGeoArticleFormat } from "@/lib/geo-methodology/article-formats"
 
-export const ARTICLE_CONTENT_PIPELINE_VERSION = "shitu-article-2026.09.2"
+export const ARTICLE_CONTENT_PIPELINE_VERSION = "shitu-article-2026.10.1"
 
 export type ArticleEvidenceMode =
   | "verified"
@@ -88,6 +88,50 @@ export interface ArticleTaskDossierInput {
   questionContentAngle?: string
   methodologyAddendum?: string
   batchVariation?: string
+  selectedKnowledgeAssetIds?: string[]
+}
+
+export type ArticleSubjectEvidenceLevel = "evidenced" | "self_described" | "none"
+
+// Signals that the materials hold something a comparison can rest on, rather
+// than the subject's own description of what it offers.
+const COMPARATIVE_EVIDENCE =
+  /案例|客户|排名|名次|第三方|认证|评测|测评|检测|报告|获奖|奖项|资质|证书|专利|中标|\d+(?:\.\d+)?\s*(?:%|％|万|亿|家|位|个|年|项|次|倍)/
+
+export function assessArticleSubjectEvidence(args: {
+  advantages: string
+  knowledgeAssetCount?: number
+  comparisonBrands?: ArticleComparisonBrand[]
+}): ArticleSubjectEvidenceLevel {
+  const advantages = String(args.advantages || "").trim()
+  if ((args.knowledgeAssetCount || 0) > 0 || COMPARATIVE_EVIDENCE.test(advantages)) return "evidenced"
+  if ((args.comparisonBrands || []).some(brand => String(brand.materials || "").trim())) return "evidenced"
+  return advantages ? "self_described" : "none"
+}
+
+/**
+ * Templates ask for "priority list" or "tier one" conclusions. An abstract
+ * rule did not stop drafts from writing them on thin materials, so the
+ * dossier states this task's evidence level and the wording to use instead.
+ */
+function subjectEvidenceSection(level: ArticleSubjectEvidenceLevel, subjectName: string): string[] {
+  if (level === "evidenced") {
+    return [
+      "【主体证据等级】资料中含有可用于比较的证据。",
+      "比较或优先结论只能建立在这些证据上，并在结论旁写明依据；证据没有覆盖的维度不作比较。",
+    ]
+  }
+  if (level === "self_described") {
+    return [
+      "【主体证据等级】只有主体自述的能力描述，没有第三方评价、可比数据、案例或排名。",
+      `本篇不写“优先比较名单”“第一梯队”“更靠谱”“风险更低”等比较或优先结论。专用规范要求写推荐结论时，改为：在重视上述能力的选型口径下，${subjectName}提供的资料可以作为核验依据之一，最终仍需按本文标准与其他候选对象比较。`,
+      `专用规范要求在每个坑点或标准后点名主体时，不逐条附加；改为在核验步骤或结论中集中说明一次${subjectName}的资料分别对应哪些核验动作。主体资料缺口合并为一段说明。`,
+    ]
+  }
+  return [
+    "【主体证据等级】未提供主体优势资料。",
+    `${subjectName}只作为需要按本文标准核验的对象出现，不写推荐结论。`,
+  ]
 }
 
 function text(value: unknown, max = 4_000): string {
@@ -168,6 +212,11 @@ export function buildArticleTaskDossier(args: ArticleTaskDossierInput): string {
     `本篇匹配优势/可验证事实：${args.advantages || "未提供，必须保守表达"}`,
     `独立对比主体：${comparisonBrands.length > 0 ? JSON.stringify(comparisonBrands, null, 2) : "未提供"}`,
     `用户补充要求/发布限制：${args.extraRequirements || "无"}`,
+    ...subjectEvidenceSection(assessArticleSubjectEvidence({
+      advantages: args.advantages,
+      knowledgeAssetCount: args.selectedKnowledgeAssetIds?.length,
+      comparisonBrands: args.comparisonBrands,
+    }), subjectName),
     ...(args.batchVariation
       ? [
           "",
@@ -284,6 +333,16 @@ export function buildArticleDraftUserPrompt(
     "硬事实必须与任务档案或可核验联网资料对应。任务档案含有实时联网资料时，仅选用与主题直接相关且确实支持事实的资料，以“[资料原标题](完整URL)”就近引用；没有可用资料时明确资料边界，不为满足引用数量牵强引用。",
     "不得输出写作计划、资料清单、方法论名称、内部字段或生成过程。",
     "",
+    // Mirrors the semantic judge's dimensions so the first draft is written
+    // against the same standard it will be reviewed by.
+    "【成稿前逐条自查，不要输出自查内容】",
+    "1. 直接回答：开头第一句就回答核心疑问句，读者不读后文也能得到可执行的结论。",
+    "2. 证据对应：每次提到主体，都能在任务档案中找到对应的原句；没有资料不支持的比较、达标、优先或风险更低的结论。",
+    "3. 资料缺口：资料没覆盖的事项已写明需要向对方确认，没有把未知写成有或没有。",
+    "4. 文章类型：结构符合本次文章形态，表格是否使用与形态规则一致。",
+    "5. 深度与差异：每个小节都提供新的判断方法或核验动作，没有重复同一结论或空泛表态。",
+    "6. 自然度：读起来像独立编辑写的指南，而不是主体的宣传稿。",
+    "",
     "【写作计划】",
     JSON.stringify(plan, null, 2),
     "",
@@ -341,6 +400,8 @@ export function buildArticleSemanticJudgePrompt(args: {
     "重点检查：是否直接回答问题；事实与证据是否对应；文章类型是否成立；是否有重复空话；是否像正常成熟文章；是否有独立角度。",
     "证据不足、主体资料混用、出现无依据数据/排名/案例、文章类型与资料不成立时，必须标为 blocking。",
     ARTICLE_FACT_BOUNDARY_RULES,
+    "写作方与审核方共用以下主体证据规则，按同一口径判断：",
+    ARTICLE_SUBJECT_EVIDENCE_RULES,
     "按任务档案中已经解析的文章形态评判结构，不强行要求每一篇都写成榜单、实测或白皮书；缺少材料不能靠编造补齐。",
     "score 和六项 dimensions 必须填写实际判断的 0-100 分，不能照抄格式示例中的 0。80 分以上且无阻断问题才通过。",
     "只列真实且可执行的问题，合并同一根因；优先列最多 4 个主要问题，每条 message 与 repairInstruction 各不超过 80 字。不要复述全文。",
@@ -393,6 +454,9 @@ export function buildArticleSemanticRepairPrompt(args: {
     ...(issueCodes.has("opening_does_not_answer")
       ? ["在唯一 H1 后、第一个 H2 前重写 1-2 段直接结论；第一句必须复用核心问题的关键实体和决策词，不得用通用背景开场。"]
       : []),
+    ...(issueCodes.has("non_authoritative_citation")
+      ? ["删除结构检查列出的非权威信源链接；只靠这些链接支撑的说法要么改用【实时联网资料】中的权威信源，要么改写为无需外部来源的编辑建议或直接删除。"]
+      : []),
     ...(issueCodes.has("web_evidence_unused")
       ? ["核对【实时联网资料】是否与主题直接相关且能支撑正文事实；有合适来源时用“[资料原标题](完整URL)”就近引用，没有时说明资料边界，不为凑数引用。"]
       : []),
@@ -401,8 +465,10 @@ export function buildArticleSemanticRepairPrompt(args: {
     "请按明确列出的问题修复文章，直接输出修复后的完整 Markdown 正文。",
     "保留原文中已经成立的事实和有价值内容，不得通过补造数据、排名、案例、资质或第三方背书来“修好”文章。",
     ARTICLE_FACT_BOUNDARY_RULES,
+    ARTICLE_SUBJECT_EVIDENCE_RULES,
     "不得输出修改说明、评分、计划或审核过程。",
     "必须真正执行每条修复动作，不得只换同义词或保留原问题。",
+    "修复指令与【统一事实边界】或【主体证据与推荐强度】冲突时以规则为准；不要为回应问题给段落逐条添加来源或资料缺口标注。",
     "",
     "【必须执行的定向修复动作】",
     requiredActions.length > 0 ? requiredActions.join("\n") : "按下方质量问题逐项修复。",

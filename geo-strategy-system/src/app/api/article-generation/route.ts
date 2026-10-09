@@ -8,6 +8,10 @@ import {
   resolveArticleAuxiliaryModel,
 } from "@/lib/article-models"
 import { runArticleModelChat } from "@/lib/article-model-runtime"
+import {
+  articleSourcePlanQueries,
+  planArticleAuthoritativeSources,
+} from "@/lib/article-source-planner"
 import { getArticlePromptTemplate } from "@/lib/article-prompts"
 import {
   createRewriteAudit,
@@ -72,6 +76,7 @@ import {
 } from "@/lib/article-content-pipeline"
 import {
   buildArticleWebEnhancedPrompt,
+  buildAuthoritativeSearchQueries,
   collectArticleWebContext,
   type ArticleWebContextResult,
 } from "@/lib/article-web-context"
@@ -137,26 +142,6 @@ function text(value: unknown, max = 4000): string {
   return String(value ?? "")
     .trim()
     .slice(0, max)
-}
-
-function articleWebSearchQueries(args: {
-  coreQuestion: string
-  primarySubject: string
-  industry: string
-  region: string
-  keywords: string
-}): string[] {
-  const keywordSummary = args.keywords
-    .split(/[\r\n,，;；]+/)
-    .map(item => item.trim())
-    .filter(Boolean)
-    .slice(0, 4)
-    .join(" ")
-  return [
-    args.coreQuestion,
-    [args.primarySubject, args.industry, args.region, "最新"].filter(Boolean).join(" "),
-    [keywordSummary, args.coreQuestion].filter(Boolean).join(" "),
-  ].filter(Boolean)
 }
 
 function connectivityForWebContext(
@@ -618,21 +603,35 @@ export async function POST(req: NextRequest) {
       !isBrandVideoScriptPrompt(promptKey)
       || videoScriptConfig.evidencePolicy === "verifiedPublicSupplement"
     )
+    // One cheap auxiliary call names the laws and national standards behind the
+    // question, so the search can reach their official texts.
+    const sourcePlanQueries = checkpoint || !shouldCollectWebContext
+      ? []
+      : articleSourcePlanQueries(await planArticleAuthoritativeSources({
+          coreQuestion,
+          industry: text(body.industry, 160),
+          region: text(body.region, 160),
+          signal: req.signal,
+          userId: creditGuard.userId,
+        }))
+    const baseSearchQueries = Math.max(
+      1,
+      Math.min(4, Math.floor(Number(process.env.ARTICLE_WEB_SEARCH_ATTEMPTS) || 3)),
+    )
     const webContext = checkpoint ? checkpoint.webContext : !shouldCollectWebContext
       ? undefined
       : await collectArticleWebContext({
           signal: req.signal,
-          queries: articleWebSearchQueries({
-            coreQuestion,
-            primarySubject,
-            industry: text(body.industry, 160),
-            region: text(body.region, 160),
-            keywords: text(body.keywords, 2_000),
-          }),
-          maxAttempts: Math.max(
-            1,
-            Math.min(4, Math.floor(Number(process.env.ARTICLE_WEB_SEARCH_ATTEMPTS) || 3)),
-          ),
+          queries: [
+            ...sourcePlanQueries,
+            ...buildAuthoritativeSearchQueries({
+              coreQuestion,
+              industry: text(body.industry, 160),
+              keywords: text(body.keywords, 2_000),
+            }),
+          ],
+          priorityQueryCount: sourcePlanQueries.length,
+          maxAttempts: sourcePlanQueries.length + baseSearchQueries,
           maxResults: Math.max(
             3,
             Math.min(12, Math.floor(Number(process.env.ARTICLE_WEB_SEARCH_RESULTS) || 8)),
@@ -808,6 +807,14 @@ export async function POST(req: NextRequest) {
     let qualityAudit: ArticleGenerationQualityAudit | undefined
     if (!isRewrite) {
       const advantage = text(body.advantages, 3000)
+      // The user's own materials may be cited even when the site is not an
+      // authoritative public source; every other external link must be.
+      const userSourceUrls = [
+        text(body.website, 300),
+        ...comparisonBrands.flatMap(brand => brand.sourceUrls),
+        ...(knowledgeBase?.sources || []).map(source => source.url || ""),
+        ...(knowledgeBase?.assets || []).flatMap(asset => asset.sourceUrls),
+      ].filter(Boolean)
       let quality = validateGeneratedArticle({
         article,
         promptKey,
@@ -817,6 +824,7 @@ export async function POST(req: NextRequest) {
         comparisonBrands,
         methodologyTrace: methodology.trace,
         webSources: webContext?.hits,
+        userSourceUrls,
         videoScriptConfig,
       })
       let semanticQuality: ArticleSemanticQualityReport | null =
@@ -934,6 +942,7 @@ export async function POST(req: NextRequest) {
             comparisonBrands,
             methodologyTrace: methodology.trace,
             webSources: webContext?.hits,
+            userSourceUrls,
             videoScriptConfig,
           })
           const previousBlocking = quality.issues.filter(issue => issue.blocking)
@@ -1077,7 +1086,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "文章任务已停止" }, { status: 499 })
     }
     if (error instanceof ArticleModelWaitError) {
-      return NextResponse.json({ error: error.message, code: "ARTICLE_MODEL_WAIT" }, { status: 503 })
+      return NextResponse.json(
+        { error: error.message, code: "ARTICLE_MODEL_WAIT", waitReason: error.reason },
+        { status: 503 },
+      )
     }
     console.error("[article-generation]", error)
     const message = error instanceof Error ? error.message : "服务器错误"

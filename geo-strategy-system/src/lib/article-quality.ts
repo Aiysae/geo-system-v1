@@ -1,3 +1,4 @@
+import { findNonAuthoritativeCitations, sourceHosts } from "@/lib/source-authority"
 import { supportsArticleComparisonBrands } from "@/lib/article-comparison-brands"
 import {
   estimateVideoScriptDurationSeconds,
@@ -50,6 +51,7 @@ export interface ArticleQualityIssue {
     | "insufficient_sections"
     | "opening_does_not_answer"
     | "web_evidence_unused"
+    | "non_authoritative_citation"
     | "video_missing_section"
     | "video_duplicate_section"
     | "video_invalid_section_order"
@@ -342,6 +344,7 @@ export function validateGeneratedArticle(args: {
   comparisonBrands?: ArticleComparisonBrand[]
   methodologyTrace?: ArticleMethodologyTrace
   webSources?: Array<{ title: string; url: string }>
+  userSourceUrls?: string[]
   videoScriptConfig?: ArticleVideoScriptConfig
 }): ArticleQualityReport {
   const article = String(args.article || "").trim()
@@ -514,12 +517,22 @@ export function validateGeneratedArticle(args: {
     }
   }
 
+  const weakCitations = findNonAuthoritativeCitations(article, sourceHosts(args.userSourceUrls || []))
+  if (weakCitations.length > 0) {
+    issues.push({
+      code: "non_authoritative_citation",
+      message: `正文引用了非权威信源（${weakCitations.slice(0, 3).join("、")}），外部引用只能来自国家机关、权威机构、权威媒体或用户提供的资料`,
+      blocking: true,
+    })
+  }
+
   const factualInput = normalized([
     args.advantage,
     ...(args.comparisonBrands || []).map(brand => brand.materials),
   ].filter(Boolean).join(" "))
+  // "第一" followed by a counter or punctuation is an ordinal ("第一步", "第一个坑", "第一，"), not a ranking claim.
   const superlatives = article.match(
-    /(?:全国|全國|行业|行業|市场|市場)?(?:第一|唯一|最强|最強|最佳|绝对领先|絕對領先|百分之百|100%|零风险|零風險|保证有效|保證有效)/g,
+    /(?:全国|全國|行业|行業|市场|市場)?(?:第一(?![个個步项項条條点點次种種类類轮輪批阶階期周天年月层層部章节節段时時手眼件份张張页頁行列组組环環，,、：:；;。\s])|唯一|最强|最強|最佳|绝对领先|絕對領先|百分之百|100%|零风险|零風險|保证有效|保證有效)/g,
   ) || []
   if (superlatives.some(claim => !factualInput.includes(normalized(claim)))) {
     issues.push({

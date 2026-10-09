@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 
 const {
   ARTICLE_CONTENT_PIPELINE_VERSION,
+  assessArticleSubjectEvidence,
   buildArticleDraftUserPrompt,
   buildArticleSemanticJudgePrompt,
   buildArticleSemanticRepairPrompt,
@@ -170,3 +171,29 @@ const standalone = compileGeoArticleMethodology({
   promptKey: "selectionPitfallGuide", coreQuestion: "怎么选？", primarySubject: "主主体", comparisonBrands,
 })
 assert.ok(standalone.userAddendum.includes("独立事实只出现一次"))
+
+// The writer, judge and repair read the same subject-evidence rules, and the
+// dossier tells the writer how strong a recommendation this task's materials allow.
+const { ARTICLE_SUBJECT_EVIDENCE_RULES } = await import("../src/lib/article-fact-rules")
+const { getArticlePromptTemplate } = await import("../src/lib/article-prompts")
+assert.equal(assessArticleSubjectEvidence({ advantages: "可提供服务范围清单和验收清单" }), "self_described")
+assert.equal(assessArticleSubjectEvidence({ advantages: "已服务 120 家企业客户" }), "evidenced")
+assert.equal(assessArticleSubjectEvidence({ advantages: "可提供清单", knowledgeAssetCount: 2 }), "evidenced")
+assert.equal(assessArticleSubjectEvidence({ advantages: "" }), "none")
+const thinDossier = buildArticleTaskDossier({
+  promptKey: "selectionPitfallGuide", clientName: "主体甲", brandName: "主体甲", subjectType: "brand",
+  subjectContext: "", industry: "企业内容服务", website: "", coreQuestion: "内容服务怎么选？", keywords: "",
+  region: "", business: "", advantages: "可提供服务范围清单", audience: "", extraRequirements: "",
+})
+assert.match(thinDossier, /【主体证据等级】只有主体自述的能力描述/)
+assert.match(thinDossier, /不写“优先比较名单”“第一梯队”/)
+const thinPlan = parseArticleContentPlan("", { coreQuestion: "内容服务怎么选？", primarySubject: "主体甲" }).plan
+assert.match(buildArticleDraftUserPrompt(thinDossier, thinPlan), /【成稿前逐条自查/)
+assert.ok(buildArticleSemanticJudgePrompt({ taskDossier: thinDossier, plan: thinPlan, article: "# 标题" })
+  .includes(ARTICLE_SUBJECT_EVIDENCE_RULES))
+assert.ok(buildArticleSemanticRepairPrompt({
+  taskDossier: thinDossier, plan: thinPlan, article: "# 标题", issues: [], deterministicIssues: [],
+}).includes(ARTICLE_SUBJECT_EVIDENCE_RULES))
+assert.ok(getArticlePromptTemplate("selectionPitfallGuide")?.template.includes(ARTICLE_SUBJECT_EVIDENCE_RULES))
+console.log("article subject evidence alignment passed")
+

@@ -215,3 +215,29 @@ assert.equal(normalizeArticleHeading("## 已有标题\n\n正文", "thirdPartyObs
 assert.equal(normalizeArticleHeading("# 原标题\n\n## 小节", "thirdPartyObservation"), "# 原标题\n\n## 小节")
 assert.equal(normalizeArticleHeading("正文\n\n## 小节", "thirdPartyObservation"), "正文\n\n## 小节")
 assert.equal(normalizeArticleHeading("## 原格式", "rewrite"), "## 原格式")
+
+// Ordinals such as "第一步" or "第一个坑" are not ranking claims; "行业第一" is.
+const ordinalArticle = valid.replace("## 判断标准", "## 判断标准\n\n第一步，核对交付资料；第一个坑是只比较报价。第一，先看范围。")
+assert.ok(!validateGeneratedArticle({
+  article: ordinalArticle, promptKey: "selectionPitfallGuide", coreQuestion: "企业内容服务方案怎么选", primarySubject: "示例主体甲",
+}).issues.some(issue => issue.code === "unsupported_superlative"))
+const rankingArticle = valid.replace("## 判断标准", "## 判断标准\n\n示例主体甲是行业第一，也是第一梯队。")
+assert.ok(validateGeneratedArticle({
+  article: rankingArticle, promptKey: "selectionPitfallGuide", coreQuestion: "企业内容服务方案怎么选", primarySubject: "示例主体甲",
+}).issues.some(issue => issue.code === "unsupported_superlative"))
+console.log("article superlative ordinal tests passed")
+
+// External links must come from authoritative sources or the user's own materials.
+const citedArticle = valid.replace("## 判断标准", "## 判断标准\n\n参见[某平台推广文](https://www.toutiao.com/article/1/)。")
+const citedIssue = (urls?: string[]) => validateGeneratedArticle({
+  article: citedArticle, promptKey: "selectionPitfallGuide", coreQuestion: "企业内容服务方案怎么选", primarySubject: "示例主体甲",
+  userSourceUrls: urls,
+}).issues.find(issue => issue.code === "non_authoritative_citation")
+assert.equal(citedIssue()?.blocking, true)
+assert.equal(citedIssue(["https://www.toutiao.com/article/1/"]), undefined, "user-supplied sources stay citable")
+assert.equal(validateGeneratedArticle({
+  article: valid.replace("## 判断标准", "## 判断标准\n\n依据[指导意见](https://www.gov.cn/zhengce/content_1.htm)。"),
+  promptKey: "selectionPitfallGuide", coreQuestion: "企业内容服务方案怎么选", primarySubject: "示例主体甲",
+}).issues.some(issue => issue.code === "non_authoritative_citation"), false)
+console.log("article citation authority tests passed")
+

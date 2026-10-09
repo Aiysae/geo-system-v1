@@ -82,6 +82,9 @@ try {
     const body = JSON.parse(String(init?.body || "{}"))
     if (!body.model || !body.messages) return Response.json({ results: [] })
     const system = body.messages.find((message: { role: string }) => message.role === "system")?.content || ""
+    if (body.model === "qwen-plus" && system.includes("检索助理")) {
+      return Response.json({ choices: [{ finish_reason: "stop", message: { role: "assistant", content: '{"laws":[],"standards":[]}' } }] })
+    }
     const stage = body.model === "qwen-plus" ? "judge"
       : system.includes("质量校对器") ? "repair" : "draft"
     stages.push(stage)
@@ -109,13 +112,27 @@ try {
     assert.deepEqual(stages, target === "draft" ? ["draft"] : ["draft", target])
   }
 
-  const searchController = new AbortController()
+  // Queries run in parallel; a stopped task starts none, and stopping during
+  // search returns at once instead of waiting for the slowest query.
+  const stoppedSearch = new AbortController()
+  stoppedSearch.abort()
   let searches = 0
   await assert.rejects(collectArticleWebContext({
-    queries: ["first", "second", "third"], signal: searchController.signal,
-    search: async () => { searches++; searchController.abort(); return [] },
+    queries: ["first", "second"], signal: stoppedSearch.signal,
+    search: async () => { searches++; return [] },
   }), /abort/i)
-  assert.equal(searches, 1, "cancelled research must not continue the remaining query list")
+  assert.equal(searches, 0, "a stopped task must not start web searches")
+  const searchController = new AbortController()
+  const searchStartedAt = Date.now()
+  await assert.rejects(collectArticleWebContext({
+    queries: ["first", "second", "third"], signal: searchController.signal,
+    search: async () => {
+      setTimeout(() => searchController.abort(), 10)
+      await new Promise(resolve => setTimeout(resolve, 2_000))
+      return []
+    },
+  }), /abort/i)
+  assert.ok(Date.now() - searchStartedAt < 1_000, "cancellation must not wait for slow searches")
   stages.length = 0
   const stopped = new AbortController()
   stopped.abort()
@@ -263,6 +280,8 @@ try {
   await runBackgroundJobFromWorker("cooling-expired")
   assert.equal((await getBackgroundJob("cooling-expired", "background-cost-test"))?.status, "failed")
   assert.equal((await getBackgroundJob("cooling-expired", "background-cost-test"))?.creditsRefunded, true)
+  assert.match((await getBackgroundJob("cooling-expired", "background-cost-test"))?.error || "", /超过 15 分钟/,
+    "an expired wait must report why it ended, not the transient waiting message")
   assert.equal(await kv.get("user_credits:background-cost-test"), 100, "expired wait refunds once")
   await kv.set("user_credits:background-cost-test", 92)
   await recordAiCredentialSuccess(accountRuntime, 10, routeContext)
@@ -274,6 +293,22 @@ try {
   await runBackgroundJobFromWorker("cooling")
   assert.deepEqual(stages, ["draft", "judge"], "recovery must settle only once and not regenerate")
   assert.equal(await kv.get("user_credits:background-cost-test"), 92, "successful recovery keeps the original charge only")
+  // Capacity waits mean healthy accounts are busy with other articles; they are
+  // not failed at the 15-minute cooldown limit.
+  stages.length = 0
+  await seedJob("capacity-long-wait", {
+    articleWaitReason: "capacity", articleWaitStartedAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+  })
+  await runBackgroundJobFromWorker("capacity-long-wait")
+  assert.equal((await getBackgroundJob("capacity-long-wait", "background-cost-test"))?.status, "succeeded")
+  await seedJob("capacity-expired", {
+    articleWaitReason: "capacity", articleWaitStartedAt: new Date(Date.now() - 61 * 60_000).toISOString(),
+  })
+  await runBackgroundJobFromWorker("capacity-expired")
+  const capacityExpired = await getBackgroundJob("capacity-expired", "background-cost-test")
+  assert.equal(capacityExpired?.status, "failed")
+  assert.match(capacityExpired?.error || "", /排队已超过 60 分钟/)
+  stages.length = 0
   await recordAiCredentialFailure(accountRuntime, new Error("HTTP 403 AccountOverdueError"), routeContext)
   stages.length = 0
   await seedJob("billing-blocked")
@@ -295,9 +330,15 @@ try {
   const judgeContext = { ...routeContext, model: "qwen-plus" }
   for (let i = 0; i < 3; i++) await recordAiCredentialFailure(judgeRuntime, new Error("HTTP 503 upstream unavailable"), judgeContext)
   stages.length = 0
-  await seedJob("judge-wait")
-  assert.equal((await runBackgroundJobFromWorker("judge-wait")).requeue, true)
+  // The wait clock started before the draft; saving the draft is progress and
+  // must reset it, otherwise the judge stage inherits almost no time.
+  await seedJob("judge-wait", { articleWaitStartedAt: new Date(Date.now() - 14 * 60_000).toISOString() })
+  const judgeRequeue = await runBackgroundJobFromWorker("judge-wait")
+  assert.equal(judgeRequeue.requeue, true)
+  assert.ok((judgeRequeue.delayMs || 0) <= 10_000, "a task holding a paid draft retries sooner")
   assert.deepEqual(stages, ["draft"])
+  const judgeWaitStarted = (await kv.get<Record<string, unknown>>("geo:background-jobs:judge-wait"))?.articleWaitStartedAt
+  assert.ok(Date.now() - Date.parse(String(judgeWaitStarted)) < 60_000, "saving the draft resets the wait clock")
   assert.ok((await getBackgroundJob("judge-wait", "background-cost-test"))?.partialArticle)
   await recordAiCredentialSuccess(judgeRuntime, 10, judgeContext)
   const judgeWaiting = await kv.get<Record<string, unknown>>("geo:background-jobs:judge-wait")
