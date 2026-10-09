@@ -18,10 +18,28 @@ export function unregisterCreditsHandlers() {
   handlers = null
 }
 
+// 任务轮询每 2-3 秒发一次 GET；每次成功都刷新余额会让 /api/credits 请求量翻倍。
+// GET 只按此间隔刷新（任务结算后余额仍能及时更新），写操作成功则立即刷新。
+const READ_REFRESH_INTERVAL_MS = 10_000
+let lastReadRefreshAt = 0
+
+function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
+  const method = init?.method || (input instanceof Request ? input.method : "GET")
+  return method.toUpperCase()
+}
+
+function shouldRefreshCredits(method: string): boolean {
+  if (method !== "GET" && method !== "HEAD") return true
+  const now = Date.now()
+  if (now - lastReadRefreshAt < READ_REFRESH_INTERVAL_MS) return false
+  lastReadRefreshAt = now
+  return true
+}
+
 /**
  * 包裹 fetch：
  *  - 收到 403 Insufficient credits → 触发全局弹窗
- *  - 成功（2xx）→ 通知 provider 刷新余额
+ *  - 成功（2xx）→ 通知 provider 刷新余额（GET 按间隔节流）
  *  - 其它情况照常返回 Response 给调用者继续处理
  */
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -51,7 +69,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     } catch {
       /* 非 JSON，忽略 */
     }
-  } else if (res.ok) {
+  } else if (res.ok && shouldRefreshCredits(requestMethod(input, init))) {
     handlers?.onSuccess()
   }
 

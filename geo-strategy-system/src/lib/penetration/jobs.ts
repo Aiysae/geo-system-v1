@@ -2,6 +2,7 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
+import { acquireJobSettlementLock } from "@/lib/distributed-concurrency"
 import { syncPenetrationJobTask } from "@/lib/task-center/adapters"
 import {
   clearTaskCancellation,
@@ -174,7 +175,6 @@ const activeOwnerCounts = new Map<string, number>()
 const queuedJobs: string[] = []
 const queuedJobIds = new Set<string>()
 const activeAbortControllers = new Map<string, AbortController>()
-const settlingJobs = new Set<string>()
 const historySavingJobs = new Set<string>()
 const resumeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let schedulerRunning = false
@@ -541,8 +541,7 @@ function successfulNewSlotCount(job: StoredPenetrationJob | null | undefined): n
 }
 
 async function settleJobCredits(id: string, usedSlots: number): Promise<void> {
-  if (settlingJobs.has(id)) return
-  settlingJobs.add(id)
+  const release = await acquireJobSettlementLock("penetration", id)
   try {
     const job = await getStoredJob(id)
     if (!job || job.creditsSettledAt) return
@@ -567,7 +566,7 @@ async function settleJobCredits(id: string, usedSlots: number): Promise<void> {
     )
     await patchJob(id, { creditsSettledAt: nowIso() })
   } finally {
-    settlingJobs.delete(id)
+    await release()
   }
 }
 

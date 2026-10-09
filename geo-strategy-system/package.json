@@ -117,6 +117,7 @@
     "system-outputs:backfill": "NODE_OPTIONS=--conditions=react-server tsx scripts/backfill-system-outputs.mts",
     "test:email-verification": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-email-verification.mts",
     "test:account-security": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-account-security.mts",
+    "test:request-security": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-request-security.mts",
     "test:agent-api": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-agent-api.mts",
     "test:agent-mcp": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-agent-mcp.mts",
     "test:agent-cli": "tsx scripts/test-agent-cli.mts",

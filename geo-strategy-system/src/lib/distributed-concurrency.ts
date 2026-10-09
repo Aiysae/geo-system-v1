@@ -115,3 +115,21 @@ export async function acquireDistributedConcurrency(
     await release(slot)
   }
 }
+
+/**
+ * Serializes credit settlement for one job across the web and worker
+ * processes. Callers re-read the job after acquiring it and skip when it was
+ * already settled, so a refund or charge is applied exactly once.
+ */
+export function acquireJobSettlementLock(
+  jobType: string,
+  jobId: string,
+): Promise<() => Promise<void>> {
+  return acquireDistributedConcurrency({
+    scope: `job-settlement:${jobType}:${jobId}`,
+    limit: 1,
+    waitTimeoutMs: 10_000,
+    leaseSeconds: 60,
+    label: "任务积分结算",
+  })
+}

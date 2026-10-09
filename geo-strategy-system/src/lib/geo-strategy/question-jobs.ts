@@ -1260,12 +1260,18 @@ export async function resumePendingQuestionJobs(): Promise<void> {
   }
 
   for (const id of ids) {
-    const job = await getStoredQuestionJob(id)
-    if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
-      await kv.srem(QUESTION_PENDING_SET_KEY, id)
-      continue
+    // Recover each item independently so one unreadable or undispatchable
+    // record cannot leave every later pending job stranded.
+    try {
+      const job = await getStoredQuestionJob(id)
+      if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+        await kv.srem(QUESTION_PENDING_SET_KEY, id)
+        continue
+      }
+      await dispatchQuestionJob(id)
+    } catch (error) {
+      console.error("[question-jobs] failed to resume pending item", id, error instanceof Error ? error.message : error)
     }
-    await dispatchQuestionJob(id)
   }
 }
 

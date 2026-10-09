@@ -305,35 +305,24 @@ const workers = workerDefinitions.map(definition =>
 )
 
 async function recoverPendingTasks(): Promise<void> {
-  const [
-    { resumePendingPenetrationJobs },
-    { resumePendingDifficultyJobs },
-    { resumePendingBackgroundJobs },
-    { resumePendingQuestionJobs },
-    { resumePendingArticleBatchMonitors },
-    { resumePendingContentProductionRuns },
-    { resumePendingArticleMediaJobs },
-    { resumePendingReportJobs },
-  ] = await Promise.all([
-    import("@/lib/penetration/jobs"),
-    import("@/lib/difficulty/jobs"),
-    import("@/lib/background-jobs"),
-    import("@/lib/geo-strategy/question-jobs"),
-    import("@/lib/article-batches/manager"),
-    import("@/lib/content-production/service"),
-    import("@/lib/article-media/jobs"),
-    import("@/lib/reports/report-jobs"),
-  ])
-  await Promise.all([
-    resumePendingPenetrationJobs(),
-    resumePendingDifficultyJobs(),
-    resumePendingBackgroundJobs(),
-    resumePendingQuestionJobs(),
-    resumePendingArticleBatchMonitors(),
-    resumePendingContentProductionRuns(),
-    resumePendingArticleMediaJobs(),
-    resumePendingReportJobs(),
-  ])
+  const recoveries: Array<[string, () => Promise<unknown>]> = [
+    ["penetration", async () => (await import("@/lib/penetration/jobs")).resumePendingPenetrationJobs()],
+    ["difficulty", async () => (await import("@/lib/difficulty/jobs")).resumePendingDifficultyJobs()],
+    ["background", async () => (await import("@/lib/background-jobs")).resumePendingBackgroundJobs()],
+    ["questions", async () => (await import("@/lib/geo-strategy/question-jobs")).resumePendingQuestionJobs()],
+    ["article-batches", async () => (await import("@/lib/article-batches/manager")).resumePendingArticleBatchMonitors()],
+    ["content-production", async () => (await import("@/lib/content-production/service")).resumePendingContentProductionRuns()],
+    ["article-media", async () => (await import("@/lib/article-media/jobs")).resumePendingArticleMediaJobs()],
+    ["reports", async () => (await import("@/lib/reports/report-jobs")).resumePendingReportJobs()],
+  ]
+  // A failure in one recovery must not exit the worker: PM2 would restart it
+  // into the same failure and stop every queue from being processed.
+  const results = await Promise.allSettled(recoveries.map(([, recover]) => recover()))
+  results.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error(`[geo-worker] failed to resume ${recoveries[index][0]} tasks`, result.reason)
+    }
+  })
 }
 
 async function waitForWebProcess(): Promise<void> {

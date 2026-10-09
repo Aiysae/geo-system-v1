@@ -32,7 +32,7 @@ const { articleCheckpointContext } = await import("../src/lib/article-checkpoint
 const { kv } = await import("../src/lib/kv")
 const { POST } = await import("../src/app/api/article-generation/route")
 const { collectArticleWebContext } = await import("../src/lib/article-web-context")
-const { createInternalApiHeaders, INTERNAL_API_USER_HEADER } = await import("../src/lib/internal-api")
+const { createInternalApiHeaders } = await import("../src/lib/internal-api")
 const { runBackgroundJobFromWorker, cancelBackgroundJob, getBackgroundJob } =
   await import("../src/lib/background-jobs")
 const originalFetch = globalThis.fetch
@@ -102,8 +102,7 @@ try {
     onStage = async stage => { if (stage === target) controller.abort() }
     const response = await POST(new NextRequest("http://localhost/api/article-generation", {
       method: "POST", signal: controller.signal,
-      headers: { "Content-Type": "application/json", ...createInternalApiHeaders("background-job"),
-        [INTERNAL_API_USER_HEADER]: "background-cost-test" },
+      headers: { "Content-Type": "application/json", ...createInternalApiHeaders("background-job", "background-cost-test") },
       body: JSON.stringify(payload),
     }))
     assert.equal(response.status, 499, `${target}: cancellation must not return a successful article`)
@@ -191,8 +190,7 @@ try {
   const saveFailure = await articleCheckpointContext.run({
     save: async () => { throw new Error("storage unavailable") },
   }, () => POST(new NextRequest("http://localhost/api/article-generation", {
-    method: "POST", headers: { "Content-Type": "application/json", ...createInternalApiHeaders("background-job"),
-      [INTERNAL_API_USER_HEADER]: "background-cost-test" }, body: JSON.stringify(payload),
+    method: "POST", headers: { "Content-Type": "application/json", ...createInternalApiHeaders("background-job", "background-cost-test") }, body: JSON.stringify(payload),
   })))
   assert.equal(saveFailure.status, 500)
   assert.deepEqual(stages, ["draft"], "checkpoint failure must stop before more paid stages")

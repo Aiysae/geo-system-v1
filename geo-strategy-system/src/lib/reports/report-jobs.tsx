@@ -665,12 +665,18 @@ export async function resumePendingReportJobs(): Promise<void> {
   }
 
   for (const id of ids) {
-    const job = await getStoredJob(id)
-    if (!job || isTerminalStatus(job.status)) {
-      await kv.srem(REPORT_PENDING_SET_KEY, id)
-      continue
+    // Recover each item independently so one unreadable or undispatchable
+    // record cannot leave every later pending job stranded.
+    try {
+      const job = await getStoredJob(id)
+      if (!job || isTerminalStatus(job.status)) {
+        await kv.srem(REPORT_PENDING_SET_KEY, id)
+        continue
+      }
+      await dispatchReportJob(id)
+    } catch (error) {
+      console.error("[commercial-report-jobs] failed to resume pending item", id, error instanceof Error ? error.message : error)
     }
-    await dispatchReportJob(id)
   }
 }
 
