@@ -1,6 +1,10 @@
 import "server-only"
 
-import { ArticleModelWaitError, prepareArticleModelSelection } from "@/lib/article-model-runtime"
+import {
+  ArticleModelWaitError,
+  prepareArticleModelSelection,
+  type ArticleModelWaitReason,
+} from "@/lib/article-model-runtime"
 
 import { articleCheckpointContext, type ArticleCheckpoint } from "@/lib/article-checkpoint"
 import { randomUUID } from "crypto"
@@ -59,6 +63,7 @@ type StoredBackgroundJob = BackgroundJobRecord & {
   creditCost: number
   creditsSettledAt?: string
   articleWaitStartedAt?: string
+  articleWaitReason?: ArticleModelWaitReason
   articleRetryAt?: string
   articleCheckpoint?: ArticleCheckpoint
 }
@@ -75,6 +80,22 @@ const JOB_TTL_SECONDS = 60 * 60 * 24 * 7
 const IDEMPOTENCY_CLAIM_SECONDS = 120
 const MAX_PAYLOAD_BYTES = 22 * 1024 * 1024
 const JOB_TIMEOUT_MS = 15 * 60 * 1000
+// A cooling route may be broken, so waiting is capped tightly. A capacity wait
+// means healthy accounts are busy with other articles: the queue is moving,
+// so it gets a longer, configurable cap instead of failing paid drafts.
+const ARTICLE_COOLDOWN_WAIT_MS = JOB_TIMEOUT_MS
+function articleCapacityWaitMs(): number {
+  const minutes = Number(process.env.ARTICLE_CAPACITY_WAIT_MINUTES)
+  return Math.max(15, Math.min(240, Number.isFinite(minutes) && minutes > 0 ? minutes : 60)) * 60_000
+}
+function articleWaitLimitMs(reason: ArticleModelWaitReason | undefined): number {
+  return reason === "capacity" ? articleCapacityWaitMs() : ARTICLE_COOLDOWN_WAIT_MS
+}
+function articleWaitExpiredMessage(reason: ArticleModelWaitReason | undefined): string {
+  return reason === "capacity"
+    ? `模型账号持续繁忙，排队已超过 ${Math.round(articleCapacityWaitMs() / 60_000)} 分钟，积分已退回；请稍后重试或在后台增加该型号的账号并发`
+    : "模型线路等待恢复已超过 15 分钟，请检查账号状态后重试"
+}
 const JOB_RUN_LEASE_SECONDS = Math.ceil(JOB_TIMEOUT_MS / 1000) + 120
 const PENDING_SET_KEY = "geo:background-jobs:pending"
 const MAX_ATTEMPTS = 2
@@ -164,6 +185,7 @@ function toPublicJob(job: StoredBackgroundJob): BackgroundJobRecord {
   delete publicJob.reservation
   delete publicJob.creditCost
   delete publicJob.articleWaitStartedAt
+  delete publicJob.articleWaitReason
   delete publicJob.articleRetryAt
   delete publicJob.articleCheckpoint
   delete publicJob.creditsSettledAt
@@ -438,9 +460,13 @@ async function executeDirectBackgroundRequest(
         jobId: job.id,
         checkpoint: job.articleCheckpoint,
         save: async checkpoint => {
+          // A saved stage is progress: later waits start a fresh clock
+          // instead of inheriting time spent before the draft existed.
           const saved = await patchJob(job.id, {
             articleCheckpoint: checkpoint,
             partialArticle: checkpoint.repairedDraft || checkpoint.draft,
+            articleWaitStartedAt: undefined,
+            articleWaitReason: undefined,
           })
           if (!saved) throw new Error("文章任务不存在")
         },
@@ -455,7 +481,12 @@ async function executeDirectBackgroundRequest(
       })))
       const result = await readJsonResponse(response)
       if (!response.ok) {
-        if (record(result).code === "ARTICLE_MODEL_WAIT") throw new ArticleModelWaitError(String(record(result).error))
+        if (record(result).code === "ARTICLE_MODEL_WAIT") {
+          throw new ArticleModelWaitError(
+            String(record(result).error),
+            record(result).waitReason === "capacity" ? "capacity" : "cooldown",
+          )
+        }
         throw new Error(String(record(result).error || `文章任务执行失败（HTTP ${response.status}）`))
       }
       controller.signal.throwIfAborted()
@@ -573,8 +604,12 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
     let job = await getStoredJob(jobId)
     if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) return
     if (job.result === undefined && job.articleRetryAt && Date.parse(job.articleRetryAt) > Date.now()) return
-    if (job.result === undefined && job.articleWaitStartedAt && Date.now() - Date.parse(job.articleWaitStartedAt) >= JOB_TIMEOUT_MS) {
-      throw new Error("模型线路等待恢复已超过 15 分钟，请检查账号状态后重试")
+    if (
+      job.result === undefined
+      && job.articleWaitStartedAt
+      && Date.now() - Date.parse(job.articleWaitStartedAt) >= articleWaitLimitMs(job.articleWaitReason)
+    ) {
+      throw new Error(articleWaitExpiredMessage(job.articleWaitReason))
     }
     job = await patchJob(jobId, {
       status: "running",
@@ -639,15 +674,25 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
 
     if (current && error instanceof ArticleModelWaitError) {
       const waitStartedAt = current.articleWaitStartedAt || nowIso()
-      if (Date.now() - Date.parse(waitStartedAt) < JOB_TIMEOUT_MS) {
+      const limitMs = articleWaitLimitMs(error.reason)
+      if (Date.now() - Date.parse(waitStartedAt) < limitMs) {
+        // Tasks that already hold a paid draft retry sooner so new drafts
+        // cannot keep taking the only free account ahead of them.
+        const retryDelayMs = current.articleCheckpoint ? 10_000 : 30_000
         await patchJob(jobId, {
-          status: "queued", stage: "模型线路暂时不可用，等待恢复后继续（最多 15 分钟）",
+          status: "queued",
+          stage: error.reason === "capacity"
+            ? `模型账号正在处理其他文章，排队等待空闲通道（最多 ${Math.round(limitMs / 60_000)} 分钟）`
+            : "模型线路暂时不可用，等待恢复后继续（最多 15 分钟）",
           articleWaitStartedAt: waitStartedAt,
-          articleRetryAt: new Date(Math.min(Date.now() + 30_000, Date.parse(waitStartedAt) + JOB_TIMEOUT_MS)).toISOString(),
+          articleWaitReason: error.reason,
+          articleRetryAt: new Date(Math.min(Date.now() + retryDelayMs, Date.parse(waitStartedAt) + limitMs)).toISOString(),
           error: undefined,
         })
         return
       }
+      // Report why the task ended, not the transient "waiting" message.
+      error = new Error(articleWaitExpiredMessage(error.reason))
     }
     console.error("[background-jobs] job failed", jobId, safeError(error))
     const failedAt = nowIso()

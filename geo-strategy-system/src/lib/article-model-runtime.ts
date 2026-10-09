@@ -36,10 +36,20 @@ interface CircuitState {
   openedUntil: number
 }
 
+/**
+ * "capacity": every healthy account is busy serving other article tasks, so
+ * the task is simply queued. "cooldown": the route is recovering from
+ * upstream failures. They get different wait limits in background jobs.
+ */
+export type ArticleModelWaitReason = "capacity" | "cooldown"
+
 export class ArticleModelWaitError extends Error {
-  constructor(message = "模型线路暂时冷却，等待恢复后继续") {
+  readonly reason: ArticleModelWaitReason
+
+  constructor(message = "模型线路暂时冷却，等待恢复后继续", reason: ArticleModelWaitReason = "cooldown") {
     super(message)
     this.name = "ArticleModelWaitError"
+    this.reason = reason
   }
 }
 
@@ -150,6 +160,31 @@ function recordFailure(model: ResolvedArticleModel, error: unknown): void {
   })
 }
 
+/**
+ * Doubao Seed models think by default. On article calls that spent about 78%
+ * of output tokens and 120-170 s per draft, so drafts hit the 180 s request
+ * limit. The writer now receives explicit evidence rules and a self-check
+ * list instead, so thinking is off unless ARTICLE_DOUBAO_THINKING enables it.
+ */
+export function articleDoubaoThinkingMode(): "enabled" | "disabled" | "auto" {
+  const value = String(process.env.ARTICLE_DOUBAO_THINKING || "").trim().toLowerCase()
+  return value === "enabled" || value === "auto" ? value : "disabled"
+}
+
+function articleModelExtraBody(
+  model: ResolvedArticleModel,
+  input: RuntimeArticleModelChatInput,
+): Record<string, unknown> | undefined {
+  if (input.mode === "judge" && model.providerKey === "qwen" && model.model === "qwen-plus") {
+    return { enable_thinking: false }
+  }
+  // Only Seed models accept the thinking switch; older Doubao models do not.
+  if (model.providerKey === "doubao" && /seed/i.test(model.model)) {
+    return { thinking: { type: articleDoubaoThinkingMode() } }
+  }
+  return undefined
+}
+
 async function acquireProviderSlot(
   model: ResolvedArticleModel,
   input: RuntimeArticleModelChatInput,
@@ -212,8 +247,7 @@ async function executeModel(
           mode: input.mode,
           timeContextPosition: "end",
           transportRetries: input.mode === "judge" ? 0 : 1,
-          extraBody: input.mode === "judge" && model.providerKey === "qwen" && model.model === "qwen-plus"
-            ? { enable_thinking: false } : undefined,
+          extraBody: articleModelExtraBody(model, input),
           timeoutSec: requestTimeoutSec,
           signal: input.signal,
           label: `${model.label}·${input.label}`,
@@ -346,7 +380,7 @@ async function callModel(
       ...quotaEstimate,
     }).catch(error => {
       if (attempt === 0 && !input.signal.aborted && classifyAiCredentialFailure(error).failureClass === "local_capacity") {
-        throw new ArticleModelWaitError("模型账号当前繁忙，等待空闲通道后继续")
+        throw new ArticleModelWaitError("模型账号当前繁忙，等待空闲通道后继续", "capacity")
       }
       throw error
     }).finally(() => {
