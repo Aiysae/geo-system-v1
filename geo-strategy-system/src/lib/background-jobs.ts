@@ -7,6 +7,7 @@ import { randomUUID } from "crypto"
 import { gzipSync, gunzipSync } from "zlib"
 import { NextRequest } from "next/server"
 import { kv } from "@/lib/kv"
+import { acquireJobSettlementLock } from "@/lib/distributed-concurrency"
 import { syncBackgroundJobTask } from "@/lib/task-center/adapters"
 import {
   clearTaskCancellation,
@@ -18,10 +19,7 @@ import {
   durableTaskQueueEnabled,
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
-import {
-  createInternalApiHeaders,
-  INTERNAL_API_USER_HEADER,
-} from "@/lib/internal-api"
+import { createInternalApiHeaders } from "@/lib/internal-api"
 import { estimateFeatureCredits } from "@/lib/pricing"
 import { resolveBackgroundTask } from "@/lib/background-job-definitions"
 import {
@@ -105,7 +103,6 @@ const scheduledJobs = new Set<string>()
 const pendingArticleJobs: string[] = []
 const pendingGeneralJobs: string[] = []
 const activeControllers = new Map<string, AbortController>()
-const settlingJobs = new Set<string>()
 const outputSavingJobs = new Set<string>()
 
 const jobKey = (id: string) => `geo:background-jobs:${id}`
@@ -333,12 +330,10 @@ async function waitForClaimedJob(
 }
 
 async function settleJobCredits(jobId: string, successful: boolean): Promise<void> {
-  for (let attempt = 0; settlingJobs.has(jobId) && attempt < 100; attempt++) {
-    await sleep(50)
-  }
-  if (settlingJobs.has(jobId)) throw new Error("任务积分结算繁忙，请稍后自动重试")
-
-  settlingJobs.add(jobId)
+  // The web process (cancel) and the worker process (completion or abort) can
+  // settle the same job at once; the lock must be shared across processes or
+  // both would see creditsSettledAt unset and refund twice.
+  const release = await acquireJobSettlementLock("background", jobId)
   try {
     const job = await getStoredJob(jobId)
     if (!job || job.creditsSettledAt) return
@@ -353,7 +348,7 @@ async function settleJobCredits(jobId: string, successful: boolean): Promise<voi
       creditsRefunded: !shouldCharge,
     })
   } finally {
-    settlingJobs.delete(jobId)
+    await release()
   }
 }
 
@@ -453,8 +448,7 @@ async function executeDirectBackgroundRequest(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...createInternalApiHeaders("background-job"),
-          [INTERNAL_API_USER_HEADER]: job.runtimeUserId || job.ownerUserId,
+          ...createInternalApiHeaders("background-job", job.runtimeUserId || job.ownerUserId),
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
@@ -523,8 +517,7 @@ async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown
           cache: "no-store",
           headers: {
             "Content-Type": "application/json",
-            ...createInternalApiHeaders("background-job"),
-            [INTERNAL_API_USER_HEADER]: job.runtimeUserId || job.ownerUserId,
+            ...createInternalApiHeaders("background-job", job.runtimeUserId || job.ownerUserId),
           },
           body: JSON.stringify(payload),
           signal: controller.signal,
@@ -1118,12 +1111,18 @@ export async function resumePendingBackgroundJobs(): Promise<void> {
   }
 
   for (const id of ids) {
-    const job = await getStoredJob(id)
-    if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
-      await kv.srem(PENDING_SET_KEY, id)
-      continue
+    // Recover each item independently so one unreadable or undispatchable
+    // record cannot leave every later pending job stranded.
+    try {
+      const job = await getStoredJob(id)
+      if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+        await kv.srem(PENDING_SET_KEY, id)
+        continue
+      }
+      await dispatchBackgroundJob(id, job.kind)
+    } catch (error) {
+      console.error("[background-jobs] failed to resume pending item", id, error instanceof Error ? error.message : error)
     }
-    await dispatchBackgroundJob(id, job.kind)
   }
 }
 

@@ -487,16 +487,22 @@ export async function resumePendingArticleBatchMonitors(): Promise<void> {
   }
 
   for (const id of ids) {
-    const batch = await getStoredArticleBatch(id)
-    if (!batch || TERMINAL_BATCH_STATUSES.has(batch.status)) {
-      await kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, id)
-      continue
+    // Recover each item independently so one unreadable or undispatchable
+    // record cannot leave every later pending job stranded.
+    try {
+      const batch = await getStoredArticleBatch(id)
+      if (!batch || TERMINAL_BATCH_STATUSES.has(batch.status)) {
+        await kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, id)
+        continue
+      }
+      await dispatchDurableTaskOrFallback(
+        "articleBatch",
+        id,
+        () => scheduleLocalArticleBatchMonitor(id),
+      )
+    } catch (error) {
+      console.error("[article-batches] failed to resume pending item", id, error instanceof Error ? error.message : error)
     }
-    await dispatchDurableTaskOrFallback(
-      "articleBatch",
-      id,
-      () => scheduleLocalArticleBatchMonitor(id),
-    )
   }
 }
 

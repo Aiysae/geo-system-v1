@@ -11,6 +11,7 @@ import {
   type DifficultyStageContext,
 } from "@/lib/difficulty/assessment"
 import { kv } from "@/lib/kv"
+import { acquireJobSettlementLock } from "@/lib/distributed-concurrency"
 import { MODEL_LABELS } from "@/lib/llm"
 import { syncDifficultyJobTask } from "@/lib/task-center/adapters"
 import {
@@ -65,7 +66,6 @@ const memoryJobs = new Map<string, StoredDifficultyJob>()
 const activeJobs = new Set<string>()
 const scheduledJobs = new Set<string>()
 const pendingJobs: string[] = []
-const settlingJobs = new Set<string>()
 const outputSavingJobs = new Set<string>()
 
 const jobKey = (id: string) => `geo:difficulty-jobs:${id}`
@@ -174,30 +174,30 @@ async function assertNotCancelled(id: string): Promise<void> {
 }
 
 async function settleSuccessfulJob(id: string): Promise<void> {
-  if (settlingJobs.has(id)) return
-  settlingJobs.add(id)
+  const release = await acquireJobSettlementLock("difficulty", id)
   try {
     const job = await getStoredJob(id)
     if (!job || job.creditsSettledAt) return
     await settleReservedCredits(job.reservation, job.reservation.amount)
     await patchJob(id, { creditsSettledAt: nowIso(), creditsRefunded: false })
   } finally {
-    settlingJobs.delete(id)
+    await release()
   }
 }
 
 async function refundJob(id: string): Promise<void> {
-  if (settlingJobs.has(id)) return
-  settlingJobs.add(id)
   try {
-    const job = await getStoredJob(id)
-    if (!job || job.creditsSettledAt) return
-    await refundReservedCredits(job.reservation)
-    await patchJob(id, { creditsSettledAt: nowIso(), creditsRefunded: true })
+    const release = await acquireJobSettlementLock("difficulty", id)
+    try {
+      const job = await getStoredJob(id)
+      if (!job || job.creditsSettledAt) return
+      await refundReservedCredits(job.reservation)
+      await patchJob(id, { creditsSettledAt: nowIso(), creditsRefunded: true })
+    } finally {
+      await release()
+    }
   } catch (error) {
     console.error("[difficulty-jobs] credit refund failed", id, safeError(error))
-  } finally {
-    settlingJobs.delete(id)
   }
 }
 
@@ -583,12 +583,18 @@ export async function resumePendingDifficultyJobs(): Promise<void> {
   }
 
   for (const id of ids) {
-    const job = await getStoredJob(id)
-    if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
-      await kv.srem(PENDING_SET_KEY, id)
-      continue
+    // Recover each item independently so one unreadable or undispatchable
+    // record cannot leave every later pending job stranded.
+    try {
+      const job = await getStoredJob(id)
+      if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+        await kv.srem(PENDING_SET_KEY, id)
+        continue
+      }
+      await dispatchDifficultyJob(id)
+    } catch (error) {
+      console.error("[difficulty-jobs] failed to resume pending item", id, error instanceof Error ? error.message : error)
     }
-    await dispatchDifficultyJob(id)
   }
 }
 

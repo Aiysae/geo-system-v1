@@ -6,6 +6,17 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    rules: {
+      // Destructuring `{ secret: _secret, ...rest }` is the codebase's way to
+      // omit fields; underscore names mark intentionally unused bindings.
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        ignoreRestSiblings: true,
+      }],
+    },
+  },
+  {
     files: ["desktop/**/*.cjs"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",

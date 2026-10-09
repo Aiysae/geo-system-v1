@@ -14,6 +14,8 @@ process.env.ARTICLE_BATCH_STORE = "kv"
 process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = path.join(directory, "kv.json")
 process.env.ARTICLE_ARTIFACTS_DIR = path.join(directory, "artifacts")
+process.env.SYSTEM_OUTPUT_STORE = "file"
+process.env.SYSTEM_OUTPUT_FILE = path.join(directory, "system-outputs.json")
 
 const require = createRequire(import.meta.url)
 const { buildArticleDocxBuffer, writeArticleDocxArtifact } = require("../src/lib/article-batches/docx.ts") as typeof ArticleDocxModule

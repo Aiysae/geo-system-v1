@@ -5,7 +5,10 @@ import path from "node:path"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "geo-publishing-plan-"))
 process.env.PUBLISHING_PLAN_STORE = "file"
-process.env.PUBLISHING_PLAN_FILE = path.join(tempDir, "plans.json")
+const plansDir = path.join(tempDir, "plans")
+process.env.PUBLISHING_PLAN_FILE = path.join(plansDir, "plans.json")
+process.env.KV_BACKEND = "file"
+process.env.LOCAL_KV_FILE = path.join(tempDir, "kv.json")
 
 const calculator = await import("../src/lib/publishing-plan/calculator")
 const store = await import("../src/lib/publishing-plan/store")
@@ -297,6 +300,48 @@ const completed = await store.completePublishingTask({
 })
 assert.equal(completed.status, "completed")
 assert.equal(completed.evidence[0].url, "https://example.com/article-1")
+
+// When the task store rejects the completion, the client-visible action that
+// was written first must be rolled back instead of claiming a false completion.
+const feedbackStore = await import("../src/lib/client-feedback/store")
+const rollbackInput = {
+  ownerUserId: "owner-a",
+  clientId: "client-a",
+  planId: second.id,
+  taskId: claimed[1].id,
+  actorUserId: "agent-a",
+  claimToken: claimed[1].claimToken,
+  publishedUrl: "https://example.com/article-2",
+}
+fs.chmodSync(plansDir, 0o555)
+try {
+  await assert.rejects(taskService.completePublishingTaskWithFeedback(rollbackInput))
+} finally {
+  fs.chmodSync(plansDir, 0o755)
+}
+assert.equal(
+  await feedbackStore.getClientExecutionAction("owner-a", "client-a", `cact_${claimed[1].id}`),
+  null,
+)
+assert.notEqual((await store.getPublishingTask("owner-a", claimed[1].id))?.status, "completed")
+
+// Two submissions of the same claim race: exactly one completes the task, and
+// the losing submission must not roll back the winner's client-visible action.
+const race = await Promise.allSettled([
+  taskService.completePublishingTaskWithFeedback(rollbackInput),
+  taskService.completePublishingTaskWithFeedback(rollbackInput),
+])
+assert.ok(race.some(result => result.status === "fulfilled"))
+const racedTask = await store.getPublishingTask("owner-a", claimed[1].id)
+assert.equal(racedTask?.status, "completed")
+assert.ok(racedTask?.executionActionId)
+const racedAction = await feedbackStore.getClientExecutionAction(
+  "owner-a",
+  "client-a",
+  racedTask.executionActionId,
+)
+assert.equal(racedAction?.status, "completed")
+assert.equal(racedAction?.evidence[0]?.url, "https://example.com/article-2")
 
 await store.closePublishingPlanStoreConnection()
 fs.rmSync(tempDir, { recursive: true, force: true })

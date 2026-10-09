@@ -22,6 +22,23 @@ type MemoryBucket = {
 }
 
 const memoryBuckets = new Map<string, MemoryBucket>()
+const MEMORY_BUCKET_LIMIT = 10_000
+
+// The memory fallback only runs while KV is unavailable; drop expired buckets
+// so a long outage under unique identifiers cannot grow the map without bound.
+function pruneMemoryBuckets(now: number): void {
+  if (memoryBuckets.size < MEMORY_BUCKET_LIMIT) return
+  for (const [key, bucket] of memoryBuckets) {
+    if (bucket.resetAt <= now) memoryBuckets.delete(key)
+  }
+  if (memoryBuckets.size < MEMORY_BUCKET_LIMIT) return
+  const overflow = memoryBuckets.size - MEMORY_BUCKET_LIMIT + 1
+  let removed = 0
+  for (const key of memoryBuckets.keys()) {
+    if (removed++ >= overflow) break
+    memoryBuckets.delete(key)
+  }
+}
 
 const HIT_SCRIPT = `
 local current = redis.call("INCR", KEYS[1])
@@ -58,6 +75,7 @@ function cleanKey(value: string): string {
 
 function memoryHit(key: string, limit: number, windowSec: number): RateLimitResult {
   const now = Date.now()
+  pruneMemoryBuckets(now)
   const current = memoryBuckets.get(key)
   const bucket = current && current.resetAt > now
     ? current
@@ -79,6 +97,7 @@ function memoryReserve(
   windowSec: number,
 ): RateLimitResult {
   const now = Date.now()
+  pruneMemoryBuckets(now)
   const current = memoryBuckets.get(key)
   const bucket = current && current.resetAt > now
     ? current
@@ -102,10 +121,22 @@ function memoryRelease(key: string, amount: number): void {
   memoryBuckets.set(key, current)
 }
 
+/**
+ * The reverse proxy (deploy/nginx) overwrites X-Real-IP with $remote_addr and
+ * appends the peer address to X-Forwarded-For. The leftmost X-Forwarded-For
+ * entry is client-controlled, so trusting it lets anyone rotate a fake IP to
+ * bypass every per-IP limit. Prefer X-Real-IP, then the proxy-appended
+ * rightmost entry.
+ */
 export function getClientIp(request: Request): string {
+  const realIp = request.headers.get("x-real-ip")?.trim()
+  if (realIp) return realIp
   const forwarded = request.headers.get("x-forwarded-for")
-  if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown"
-  return request.headers.get("x-real-ip")?.trim() || "unknown"
+  if (forwarded) {
+    const entries = forwarded.split(",").map(entry => entry.trim()).filter(Boolean)
+    return entries[entries.length - 1] || "unknown"
+  }
+  return "unknown"
 }
 
 export async function hitRateLimit(

@@ -40,7 +40,7 @@ const { recordAiCredentialFailure } = await import("../src/lib/ai-credential-rou
 const { emitTokenUsage, openaiCompatChat } = await import("../src/lib/llm/openai-compat")
 const { chatDoubao } = await import("../src/lib/llm/doubao")
 const { addTokenUsage } = await import("../src/lib/ai-usage")
-const { createInternalApiHeaders, INTERNAL_API_USER_HEADER } = await import("../src/lib/internal-api")
+const { createInternalApiHeaders } = await import("../src/lib/internal-api")
 const { POST } = await import("../src/app/api/article-generation/route")
 const originalFetch = globalThis.fetch
 const originalNow = Date.now
@@ -202,8 +202,7 @@ try {
     stages.length = 0
     const response = await POST(new NextRequest("http://localhost/api/article-generation", {
       method: "POST", headers: {
-        "Content-Type": "application/json", ...createInternalApiHeaders("background-job"),
-        [INTERNAL_API_USER_HEADER]: "cost-test",
+        "Content-Type": "application/json", ...createInternalApiHeaders("background-job", "cost-test"),
       },
       body: JSON.stringify({
         promptKey: "selectionPitfallGuide", modelProvider: "doubao", model: "doubao-test-writer",
