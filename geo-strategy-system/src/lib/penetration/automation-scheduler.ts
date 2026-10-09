@@ -2,8 +2,6 @@ import "server-only"
 
 import { createHash, randomUUID } from "crypto"
 import { Job, Queue, Worker, type ConnectionOptions } from "bullmq"
-import { getUserById } from "@/lib/auth"
-import { ADAPTERS } from "@/lib/llm"
 import { kv } from "@/lib/kv"
 import {
   durableTaskQueueConnection,
@@ -13,8 +11,14 @@ import {
   buildPenetrationComparisonSignature,
   comparePenetrationAutomationResult,
 } from "@/lib/penetration/automation-comparison"
-import { sendPenetrationAutomationAlertEmail } from "@/lib/penetration/automation-email"
 import {
+  sendPenetrationAutomationAlertEmail,
+  sendPenetrationAutomationAttentionEmail,
+  sendPenetrationAutomationCompletedEmail,
+} from "@/lib/penetration/automation-email"
+import { resolvePenetrationAutomationRecipients } from "@/lib/penetration/automation-recipients"
+import {
+  setPenetrationAutomationDetectionConfig,
   claimDuePenetrationAutomationExecutions,
   getPenetrationAutomationExecution,
   getPenetrationAutomationSchedule,
@@ -23,6 +27,7 @@ import {
   recordPenetrationAutomationScheduleProgress,
   sumPenetrationAutomationCredits,
 } from "@/lib/penetration/automation-store"
+import { buildPenetrationAutomationDetectionConfig } from "@/lib/penetration/automation-config"
 import { shanghaiMonthRange } from "@/lib/penetration/automation-time"
 import type {
   PenetrationAutomationExecution,
@@ -34,7 +39,6 @@ import {
   submitPenetrationJob,
 } from "@/lib/penetration/job-creation"
 import { getPenetrationJob } from "@/lib/penetration/jobs"
-import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
 import {
   getPenetrationHistoryRecord,
   listPenetrationHistoryComparisonRecords,
@@ -43,6 +47,7 @@ import { estimateFeatureCredits } from "@/lib/pricing"
 import {
   notifyPenetrationAutomationAlert,
   notifyPenetrationAutomationAttention,
+  notifyPenetrationAutomationCompleted,
 } from "@/lib/user-notifications"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import type { Client, ModelKey, PenetrationHistoryRequestSnapshot } from "@/types"
@@ -117,6 +122,18 @@ function executionLockKey(ownerUserId: string, executionId: string): string {
     .digest("hex")}`
 }
 
+function deterministicMessageId(
+  event: "completed" | "alert" | "attention",
+  executionId: string,
+  email: string,
+): string {
+  const digest = createHash("sha256")
+    .update(`${event}\u0000${executionId}\u0000${email.toLowerCase()}`)
+    .digest("hex")
+    .slice(0, 40)
+  return `<penetration-${digest}@shitugeo.top>`
+}
+
 function retryAt(attempt: number): string {
   const delays = [60_000, 3 * 60_000, 10 * 60_000, 30 * 60_000]
   return new Date(Date.now() + delays[Math.min(attempt, delays.length - 1)]).toISOString()
@@ -130,33 +147,47 @@ function terminalExecutionStatus(status: string): boolean {
   return ["succeeded", "partial", "failed", "skipped", "cancelled"].includes(status)
 }
 
-function modelList(value: unknown): ModelKey[] {
-  return Array.from(new Set(
-    (Array.isArray(value) ? value : [])
-      .map(item => String(item).trim())
-      .filter((model): model is ModelKey => model in ADAPTERS),
-  ))
-}
-
-function questionList(value: unknown): string[] {
-  return (Array.isArray(value) ? value : [])
-    .map(item => String(item).trim())
-    .filter(Boolean)
-}
-
 async function currentClient(schedule: PenetrationAutomationSchedule): Promise<Client | null> {
   return (await listWorkspaceClients(schedule.ownerUserId))
     .find(item => item.client.id === schedule.clientId)?.client || null
 }
 
 async function estimateScheduledCredits(schedule: PenetrationAutomationSchedule): Promise<number> {
+  if (schedule.detectionConfig) {
+    return estimateFeatureCredits("penetrationSlot", schedule.detectionConfig.slotCount)
+  }
   const client = await currentClient(schedule)
   if (!client) return 0
-  const questions = questionList(client.questions)
-  const requestedModels = modelList(client.selectedModels)
-  const readiness = await Promise.all(requestedModels.map(getPenetrationModelReadiness))
-  const activeModelCount = readiness.filter(item => item.ready).length
-  return estimateFeatureCredits("penetrationSlot", questions.length * activeModelCount)
+  const config = buildPenetrationAutomationDetectionConfig({ client })
+  return estimateFeatureCredits("penetrationSlot", config.slotCount)
+}
+
+async function resolvedDetectionConfig(
+  schedule: PenetrationAutomationSchedule,
+  client: Client,
+): Promise<NonNullable<PenetrationAutomationSchedule["detectionConfig"]>> {
+  if (schedule.detectionConfig) return schedule.detectionConfig
+  const detectionConfig = buildPenetrationAutomationDetectionConfig({ client })
+  if (!detectionConfig.questionCount) {
+    throw new PenetrationJobSubmissionError(
+      "请先为自动检测保存至少一个疑问句",
+      400,
+      "PENETRATION_NO_SAVED_QUESTIONS",
+    )
+  }
+  if (!detectionConfig.modelCount) {
+    throw new PenetrationJobSubmissionError(
+      "请先为自动检测选择至少一个模型",
+      400,
+      "PENETRATION_NO_SAVED_MODELS",
+    )
+  }
+  await setPenetrationAutomationDetectionConfig({
+    ownerUserId: schedule.ownerUserId,
+    id: schedule.id,
+    detectionConfig,
+  })
+  return detectionConfig
 }
 
 function buildInputSnapshot(input: {
@@ -222,14 +253,78 @@ async function notifyAttention(
   execution: PenetrationAutomationExecution,
   message: string,
 ): Promise<void> {
-  if (!schedule.inAppEnabled) return
-  await notifyPenetrationAutomationAttention({
-    userId: schedule.actorUserId,
-    executionId: execution.id,
-    clientId: schedule.clientId,
-    clientName: schedule.clientName,
-    message,
+  const recipients = await resolvePenetrationAutomationRecipients(schedule).catch(error => {
+    console.error("[penetration-automation] recipient resolution failed", execution.id, error)
+    return []
   })
+  await Promise.allSettled(recipients.flatMap(recipient => {
+    const deliveries: Promise<unknown>[] = []
+    if (schedule.inAppEnabled) {
+      deliveries.push(notifyPenetrationAutomationAttention({
+        userId: recipient.userId,
+        executionId: execution.id,
+        clientId: schedule.clientId,
+        clientName: schedule.clientName,
+        message,
+      }))
+    }
+    if (schedule.emailEnabled && recipient.email && recipient.emailVerified) {
+      deliveries.push(sendPenetrationAutomationAttentionEmail({
+        to: recipient.email,
+        accountName: recipient.name,
+        clientName: schedule.clientName,
+        clientId: schedule.clientId,
+        message,
+        messageId: deterministicMessageId("attention", execution.id, recipient.email),
+      }))
+    }
+    return deliveries
+  }))
+}
+
+async function notifyCompletion(input: {
+  schedule: PenetrationAutomationSchedule
+  execution: PenetrationAutomationExecution
+  historyRecordId: string
+  currentRate?: number
+  partial: boolean
+}): Promise<void> {
+  const recipients = await resolvePenetrationAutomationRecipients(input.schedule).catch(error => {
+    console.error("[penetration-automation] recipient resolution failed", input.execution.id, error)
+    return []
+  })
+  const questionCount = input.execution.inputSnapshot?.questionCount || 0
+  const modelCount = input.execution.inputSnapshot?.modelCount || 0
+  await Promise.allSettled(recipients.flatMap(recipient => {
+    const deliveries: Promise<unknown>[] = []
+    if (input.schedule.inAppEnabled) {
+      deliveries.push(notifyPenetrationAutomationCompleted({
+        userId: recipient.userId,
+        executionId: input.execution.id,
+        clientId: input.schedule.clientId,
+        clientName: input.schedule.clientName,
+        historyRecordId: input.historyRecordId,
+        currentRate: input.currentRate,
+        questionCount,
+        modelCount,
+        partial: input.partial,
+      }))
+    }
+    if (input.schedule.emailEnabled && recipient.email && recipient.emailVerified) {
+      deliveries.push(sendPenetrationAutomationCompletedEmail({
+        to: recipient.email,
+        accountName: recipient.name,
+        clientName: input.schedule.clientName,
+        historyRecordId: input.historyRecordId,
+        currentRate: input.currentRate,
+        questionCount,
+        modelCount,
+        partial: input.partial,
+        messageId: deterministicMessageId("completed", input.execution.id, recipient.email),
+      }))
+    }
+    return deliveries
+  }))
 }
 
 async function finishSkipped(
@@ -311,13 +406,28 @@ async function submitExecution(
   }
 
   try {
+    const client = await currentClient(schedule)
+    if (!client) {
+      throw new PenetrationJobSubmissionError("当前客户不存在或已被删除", 404)
+    }
+    const detectionConfig = await resolvedDetectionConfig(schedule, client)
     const result = await submitPenetrationJob({
-      actorUserId: schedule.actorUserId,
+      actorUserId: schedule.teamId ? schedule.billingUserId : schedule.actorUserId,
       clientId: schedule.clientId,
       teamId: schedule.teamId,
       requestId: `pauto_${execution.id}`,
       operation: "replace",
-      useSavedInputs: true,
+      questions: detectionConfig.questions,
+      questionIntents: detectionConfig.questionIntents,
+      models: detectionConfig.requestedModels,
+      subjectType: client.subjectType,
+      personProfile: client.personProfile,
+      ourBrand: client.ourBrand,
+      brandAliases: client.brandAliases,
+      industry: client.industry,
+      competitors: client.competitors,
+      useSavedInputs: false,
+      requireAllModelsReady: true,
       origin: "automation",
       automationScheduleId: schedule.id,
       automationExecutionId: execution.id,
@@ -388,40 +498,42 @@ async function dispatchDropAlert(input: {
   absoluteDropPoints: number
 }): Promise<string | undefined> {
   let sent = false
-  if (input.schedule.inAppEnabled) {
-    await notifyPenetrationAutomationAlert({
-      userId: input.schedule.actorUserId,
-      executionId: input.execution.id,
-      clientId: input.schedule.clientId,
-      clientName: input.schedule.clientName,
-      historyRecordId: input.historyRecordId,
-      baselineRate: input.baselineRate,
-      currentRate: input.currentRate,
-      relativeDropPct: input.relativeDropPct,
-      absoluteDropPoints: input.absoluteDropPoints,
-    })
-    sent = true
-  }
-  if (input.schedule.emailEnabled) {
-    const user = await getUserById(input.schedule.actorUserId)
-    if (user?.email && user.emailVerifiedAt) {
-      try {
-        await sendPenetrationAutomationAlertEmail({
-          to: user.email,
-          accountName: user.name,
-          clientName: input.schedule.clientName,
-          historyRecordId: input.historyRecordId,
-          baselineRate: input.baselineRate,
-          currentRate: input.currentRate,
-          relativeDropPct: input.relativeDropPct,
-          absoluteDropPoints: input.absoluteDropPoints,
-        })
-        sent = true
-      } catch (error) {
-        console.error("[penetration-automation] alert email failed", input.execution.id, error)
-      }
+  const recipients = await resolvePenetrationAutomationRecipients(input.schedule).catch(error => {
+    console.error("[penetration-automation] recipient resolution failed", input.execution.id, error)
+    return []
+  })
+  const deliveries = recipients.flatMap(recipient => {
+    const pending: Promise<unknown>[] = []
+    if (input.schedule.inAppEnabled) {
+      pending.push(notifyPenetrationAutomationAlert({
+        userId: recipient.userId,
+        executionId: input.execution.id,
+        clientId: input.schedule.clientId,
+        clientName: input.schedule.clientName,
+        historyRecordId: input.historyRecordId,
+        baselineRate: input.baselineRate,
+        currentRate: input.currentRate,
+        relativeDropPct: input.relativeDropPct,
+        absoluteDropPoints: input.absoluteDropPoints,
+      }))
     }
-  }
+    if (input.schedule.emailEnabled && recipient.email && recipient.emailVerified) {
+      pending.push(sendPenetrationAutomationAlertEmail({
+        to: recipient.email,
+        accountName: recipient.name,
+        clientName: input.schedule.clientName,
+        historyRecordId: input.historyRecordId,
+        baselineRate: input.baselineRate,
+        currentRate: input.currentRate,
+        relativeDropPct: input.relativeDropPct,
+        absoluteDropPoints: input.absoluteDropPoints,
+        messageId: deterministicMessageId("alert", input.execution.id, recipient.email),
+      }))
+    }
+    return pending
+  })
+  const outcomes = await Promise.allSettled(deliveries)
+  sent = outcomes.some(outcome => outcome.status === "fulfilled")
   return sent ? new Date().toISOString() : undefined
 }
 
@@ -533,6 +645,13 @@ async function reconcileExecution(
         execution: saved,
         outcome: "succeeded",
         error: job.error,
+      })
+      await notifyCompletion({
+        schedule,
+        execution: saved,
+        historyRecordId,
+        currentRate: comparison.currentRate,
+        partial: executionStatus === "partial",
       })
     }
     return

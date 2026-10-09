@@ -29,6 +29,21 @@ const {
 const {
   penetrationAutomationSchedule,
 } = await import("../src/lib/penetration/automation-scheduler")
+const {
+  cancelPenetrationAutomationExecution,
+} = await import("../src/lib/penetration/automation-cancel")
+
+const fixedDetectionConfig = {
+  version: 1 as const,
+  capturedAt: "2026-08-13T00:00:00.000Z",
+  questions: ["测试问题一", "测试问题一", "测试问题二"],
+  questionIntents: [],
+  requestedModels: ["doubao", "qwen"] as Array<"doubao" | "qwen">,
+  questionCount: 3,
+  modelCount: 2,
+  slotCount: 6,
+  configHash: "legacy-value-is-normalized",
+}
 
 function historyRecord(input: {
   id: string
@@ -157,6 +172,7 @@ try {
     ownerUserId: "owner-1",
     clientId: "client-1",
     clientName: "测试客户",
+    createdByUserId: "creator-1",
     actorUserId: "actor-1",
     billingUserId: "billing-1",
     intervalDays: 2,
@@ -167,15 +183,21 @@ try {
     inAppEnabled: true,
     emailEnabled: true,
     monthlyCreditLimit: 3000,
+    detectionConfig: fixedDetectionConfig,
   })
   assert.equal(schedule.status, "active")
+  assert.equal(schedule.createdByUserId, "creator-1")
+  assert.equal(schedule.actorUserId, "actor-1")
   assert.equal(schedule.intervalDays, 2)
+  assert.equal(schedule.detectionConfig?.questionCount, 3)
+  assert.equal(schedule.detectionConfig?.slotCount, 6)
+  assert.deepEqual(schedule.detectionConfig?.questions, fixedDetectionConfig.questions)
 
   const updated = await upsertPenetrationAutomationSchedule({
     ownerUserId: "owner-1",
     clientId: "client-1",
     clientName: "测试客户（更新）",
-    actorUserId: "actor-1",
+    actorUserId: "actor-2",
     billingUserId: "billing-1",
     intervalDays: 3,
     timeLocal: "10:00",
@@ -186,7 +208,10 @@ try {
     emailEnabled: false,
   })
   assert.equal(updated.id, schedule.id)
+  assert.equal(updated.createdByUserId, "creator-1")
+  assert.equal(updated.actorUserId, "actor-2")
   assert.equal(updated.intervalDays, 3)
+  assert.equal(updated.detectionConfig?.configHash, schedule.detectionConfig?.configHash)
 
   const paused = await setPenetrationAutomationScheduleStatus({
     ownerUserId: "owner-1",
@@ -333,6 +358,34 @@ try {
   })
   assert.equal(afterStaleCompletion?.status, "paused")
   assert.equal(afterStaleCompletion?.nextRunAt, undefined)
+
+  const cancellableSchedule = await upsertPenetrationAutomationSchedule({
+    ownerUserId: "owner-4",
+    clientId: "client-4",
+    clientName: "取消测试",
+    actorUserId: "owner-4",
+    billingUserId: "owner-4",
+    intervalDays: 1,
+    timeLocal: "11:00",
+    startDate: "2026-08-01",
+    relativeDropThresholdPct: 20,
+    minimumAbsoluteDropPoints: 3,
+    inAppEnabled: true,
+    emailEnabled: false,
+    detectionConfig: fixedDetectionConfig,
+  })
+  const cancellableExecution = await createPenetrationAutomationExecution({
+    schedule: cancellableSchedule,
+    trigger: "manual",
+    scheduledFor: "2026-08-13T03:00:00.000Z",
+  })
+  const cancelled = await cancelPenetrationAutomationExecution({
+    ownerUserId: cancellableSchedule.ownerUserId,
+    executionId: cancellableExecution.id,
+  })
+  assert.equal(cancelled?.status, "cancelled")
+  assert.equal(cancelled?.nextAttemptAt, undefined)
+  assert.match(cancelled?.error || "", /停止/)
 
   console.log("penetration automation storage tests passed")
 } finally {

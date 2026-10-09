@@ -12,6 +12,7 @@ import {
   type FeaturePriceKey,
 } from "@/lib/pricing"
 import { listAllRequests, type RechargeRequest } from "@/lib/recharge"
+import { getAdminInternalDataset } from "@/lib/admin-internal-dataset"
 
 const METRICS_TIME_ZONE = "Asia/Shanghai"
 const DAILY_WINDOW_DAYS = 14
@@ -156,12 +157,19 @@ function moneyCentsOf(record: RechargeRequest): number {
 }
 
 export async function getAdminOperationsMetrics(): Promise<AdminOperationsMetrics> {
-  const [ledger, recharges, users] = await Promise.all([
+  const [realLedger, realRecharges, realUsers] = await Promise.all([
     listAllCreditLedger(10000),
     listAllRequests(5000),
     listUsers(),
   ])
-  const balances = await Promise.all(users.map(user => getCredits(user.id)))
+  const realBalances = await Promise.all(realUsers.map(user => getCredits(user.id)))
+  const internalDataset = getAdminInternalDataset()
+  const users = [...realUsers, ...internalDataset.users.map(record => record.user)]
+  const balances = [...realBalances, ...internalDataset.users.map(record => record.credits)]
+  const ledger = [...realLedger, ...internalDataset.ledger]
+    .sort((left, right) => right.createdAt - left.createdAt)
+  const recharges = [...realRecharges, ...internalDataset.recharges]
+    .sort((left, right) => right.createdAt - left.createdAt)
   const balanceByUserId = new Map(users.map((user, index) => [user.id, balances[index] || 0]))
   const userMetrics = new Map<string, UserOperationsMetric>()
   const featureMetrics = new Map<FeatureMetricKey, FeatureOperationsMetric>()

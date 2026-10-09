@@ -15,6 +15,8 @@ process.env.PENETRATION_AUTOMATION_STORE = "file"
 process.env.PENETRATION_AUTOMATION_FILE = path.join(directory, "penetration-automations.json")
 process.env.CLIENT_FEEDBACK_AUTOMATION_STORE = "file"
 process.env.CLIENT_FEEDBACK_AUTOMATION_FILE = path.join(directory, "feedback-automations.json")
+process.env.SYSTEM_OUTPUT_STORE = "file"
+process.env.SYSTEM_OUTPUT_FILE = path.join(directory, "system-outputs.json")
 process.env.AUTH_SECRET = "agent-test-secret-with-at-least-thirty-two-characters"
 process.env.ADMIN_EMAILS = "agent-admin@example.com"
 process.env.AGENT_API_ENABLED = "true"
@@ -216,7 +218,9 @@ try {
   assert.equal(capabilities.status, 200)
   const capabilitiesBody = await capabilities.json()
   assert.equal(capabilitiesBody.ok, true)
-  assert.equal(capabilitiesBody.data.apiVersion, "v1.7")
+  assert.equal(capabilitiesBody.data.apiVersion, "v1.11")
+  assert.equal(capabilitiesBody.data.planner.endpoint, "/api/agent/v1/plan")
+  assert.ok(capabilitiesBody.data.workflows.some((workflow: { key?: string }) => workflow.key === "penetration_check"))
   assert.ok(capabilitiesBody.data.actions.every((action: { inputSchema?: unknown }) => action.inputSchema))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "keyword.questions.run"))
   assert.ok(capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.action.create"))
@@ -226,6 +230,7 @@ try {
     "penetration.automation.save",
     "penetration.automation.set-status",
     "penetration.automation.run",
+    "penetration.automation.cancel",
     "penetration.automation.delete",
     "article.strategy.plan",
     "article.source.extract",
@@ -239,6 +244,8 @@ try {
     "article.production.run",
     "article.production.get",
     "article.production.cancel",
+    "article.batch.delete",
+    "feedback.action.delete",
     "feedback.report.options",
     "feedback.report.manage",
     "feedback.profile.update",
@@ -255,6 +262,7 @@ try {
     "publishing.plan.recommend",
     "publishing.plan.create",
     "publishing.plan.activate",
+    "publishing.plan.delete",
     "publishing.tasks.list",
     "publishing.tasks.claim",
     "publishing.task.complete",
@@ -277,11 +285,30 @@ try {
   assert.ok(articleGenerateAction?.inputSchema?.properties?.videoScriptConfig)
   assert.ok(articleBatchAction?.inputSchema?.properties?.basePayload?.properties?.videoScriptConfig)
   assert.ok(articleStrategyAction?.inputSchema?.properties?.outputTrack)
+  const publishingCreateAction = AGENT_ACTIONS.find(
+    (action: { name?: string }) => action.name === "publishing.plan.create",
+  ) as { inputSchema?: { properties?: Record<string, { properties?: Record<string, unknown> }> } } | undefined
+  assert.ok(publishingCreateAction?.inputSchema?.properties?.input?.properties?.capacityMode)
   assert.equal(
     capabilitiesBody.data.actions.some((action: { name?: string }) => action.name === "feedback.report.manage"),
     false,
     "operator tokens must not receive feedback.manage actions",
   )
+
+  const plannerRoute = await import("../src/app/api/agent/v1/plan/route")
+  const planned = await plannerRoute.POST(new Request("http://localhost/api/agent/v1/plan", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${created.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ request: "帮我看看测试品牌在 AI 里有没有被推荐" }),
+  }))
+  assert.equal(planned.status, 200)
+  const plannedBody = await planned.json()
+  assert.equal(plannedBody.data.plan.primaryWorkflow.key, "penetration_check")
+  assert.equal(plannedBody.data.plan.clientResolution.clientId, "client-agent-test")
+  assert.equal(plannedBody.data.plan.executionPolicy.mustDryRunFirst, true)
 
   const articleSettingsRoute = await import("../src/app/api/agent/v1/articles/settings/route")
   const articleSettings = await articleSettingsRoute.GET(new Request(
@@ -453,10 +480,18 @@ try {
     startDate: "2026-08-13",
     relativeDropThresholdPct: 15,
     minimumAbsoluteDropPoints: 3,
+    questions: ["企业服务软件应该如何选择？", "哪些企业服务品牌值得推荐？"],
+    questionIntents: [
+      { question: "企业服务软件应该如何选择？", category: "recommendation" },
+      { question: "哪些企业服务品牌值得推荐？", category: "recommendation" },
+    ],
+    models: ["doubao", "qwen"],
   })
   assert.equal(automationSave.status, 201)
   const automationSchedule = (await automationSave.json()).data.result.schedule
   assert.equal(automationSchedule.intervalDays, 3)
+  assert.equal(automationSchedule.detectionConfig.questionCount, 2)
+  assert.deepEqual(automationSchedule.detectionConfig.requestedModels, ["doubao", "qwen"])
   const automationGet = await callAgentAction("penetration.automation.get", {
     clientId: "client-agent-test",
     requestId: "agent_automation_get_0001",
@@ -471,6 +506,21 @@ try {
   })
   assert.equal(automationPause.status, 200)
   assert.equal((await automationPause.json()).data.result.schedule.status, "paused")
+  const { createPenetrationAutomationExecution } = await import(
+    "../src/lib/penetration/automation-store"
+  )
+  const automationExecution = await createPenetrationAutomationExecution({
+    schedule: automationSchedule,
+    trigger: "manual",
+  })
+  const automationCancel = await callAgentAction("penetration.automation.cancel", {
+    clientId: "client-agent-test",
+    requestId: "agent_automation_cancel_0001",
+    scheduleId: automationSchedule.id,
+    executionId: automationExecution.id,
+  })
+  assert.equal(automationCancel.status, 200)
+  assert.equal((await automationCancel.json()).data.result.execution.status, "cancelled")
 
   const feedbackRequestId = "agent_feedback_idempotency_0001"
   const feedbackPayload = {
@@ -670,6 +720,19 @@ try {
   }, fullToken.token)
   assert.equal(feedbackAutomationDelete.status, 200)
 
+  const feedbackActionDelete = await callAgentAction("feedback.action.delete", {
+    clientId: "client-agent-test",
+    requestId: "agent_feedback_action_delete_0001",
+    actionId: storedFeedback[0]!.id,
+  }, fullToken.token)
+  assert.equal(feedbackActionDelete.status, 200)
+  assert.equal((await feedbackActionDelete.json()).data.result.ok, true)
+  assert.equal(
+    (await listClientExecutionActions(user.id, "client-agent-test"))
+      .some(action => action.id === storedFeedback[0]!.id),
+    false,
+  )
+
   const automationDelete = await callAgentAction("penetration.automation.delete", {
     clientId: "client-agent-test",
     requestId: "agent_automation_delete_0001",
@@ -684,6 +747,40 @@ try {
     kind: "knowledgeImport",
     payload: {},
   }).scope, "keyword.execute")
+  assert.equal(estimateAgentAction("article.batch.delete", {
+    clientId: "client-agent-test",
+    requestId: "agent_article_batch_delete_0001",
+    batchId: "batch-agent-test",
+  }).scope, "article.manage")
+  const invalidArticle = await callAgentAction("article.generate", {
+    clientId: "client-agent-test", requestId: "agent_invalid_prompt_0001",
+    promptKey: "not-a-supported-prompt", coreQuestion: "如何选择？", dryRun: true,
+  })
+  assert.equal(invalidArticle.status, 400, "invalid prompt must not become a retryable server failure")
+  const invalidArticleBody = await invalidArticle.json()
+  assert.equal(invalidArticleBody.error.code, "INVALID_ARGUMENT")
+  assert.equal(invalidArticleBody.error.retryable, false)
+  assert.match(invalidArticleBody.error.message, /promptKey/)
+  const promptSchema = articleGenerateAction?.inputSchema?.properties?.promptKey as { enum?: string[] }
+  assert.ok(promptSchema.enum?.includes("selectionPitfallGuide"), "Agent tools must advertise valid prompt identifiers")
+  for (const promptKey of promptSchema.enum || []) {
+    assert.doesNotThrow(() => parseAgentActionInput("article.generate", {
+      clientId: "client-agent-test", requestId: "agent_valid_prompt_0001",
+      promptKey, coreQuestion: "如何选择？",
+    }))
+  }
+  const articleBatchInput = {
+    clientId: "client-agent-test", requestId: "agent_article_batch_schema_0001",
+    count: 1, topicMode: "questions", basePayload: { promptKey: "selectionPitfallGuide" },
+    questionTasks: [{ question: "如何选择？", promptKey: "selectionPitfallGuide" }],
+  }
+  assert.doesNotThrow(() => parseAgentActionInput("article.batch.run", articleBatchInput))
+  assert.throws(() => parseAgentActionInput("article.batch.run", {
+    ...articleBatchInput, basePayload: { promptKey: "not-a-supported-prompt" },
+  }), /promptKey/)
+  assert.throws(() => parseAgentActionInput("article.batch.run", {
+    ...articleBatchInput, questionTasks: [{ question: "如何选择？", promptKey: "not-a-supported-prompt" }],
+  }), /promptKey/)
   const parsedQuestions = parseAgentActionInput("keyword.questions.run", {
     clientId: "client-agent-test",
     requestId: "agent_question_schema_0001",
@@ -761,17 +858,21 @@ try {
     externalDocs: { url: string }
     components: { schemas: { AgentScope: { enum: string[] } } }
   }
-  assert.equal(openapi.info.version, "1.7.0")
+  assert.equal(openapi.info.version, "1.10.0")
+  assert.ok(openapi.paths["/plan"])
   assert.ok(openapi.paths["/actions/{action}"])
   assert.ok(openapi.paths["/actions/penetration.run"])
   assert.ok(openapi.paths["/actions/penetration.automation.save"])
   assert.ok(openapi.paths["/actions/article.batch.run"])
+  assert.ok(openapi.paths["/actions/article.batch.delete"])
   assert.ok(openapi.paths["/actions/article.strategy.plan"])
   assert.ok(openapi.paths["/actions/article.media.run"])
   assert.ok(openapi.paths["/actions/feedback.report.manage"])
+  assert.ok(openapi.paths["/actions/feedback.action.delete"])
   assert.ok(openapi.paths["/actions/feedback.automation.save"])
   assert.ok(openapi.paths["/actions/feedback.automation.retry"])
   assert.ok(openapi.paths["/actions/publishing.plan.create"])
+  assert.ok(openapi.paths["/actions/publishing.plan.delete"])
   assert.ok(openapi.paths["/actions/publishing.tasks.claim"])
   assert.ok(openapi.paths["/actions/publishing.task.complete"])
   assert.ok(openapi.paths["/actions/keyword.questions.run"])
@@ -784,6 +885,7 @@ try {
   assert.equal(openapi.externalDocs.url, "https://shitugeo.top/agent")
   assert.ok(openapi.components.schemas.AgentScope.enum.includes("knowledge.view"))
   assert.ok(openapi.components.schemas.AgentScope.enum.includes("feedback.manage"))
+  assert.ok(openapi.components.schemas.AgentScope.enum.includes("article.manage"))
   const openapiRoute = await import("../src/app/api/agent/v1/openapi.json/route")
   const trustedOpenapi = await openapiRoute.GET(new Request("https://malicious-host.example/api/agent/v1/openapi.json"))
   assert.equal((await trustedOpenapi.json()).externalDocs.url, "https://shitugeo.top/agent")

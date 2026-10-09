@@ -165,13 +165,13 @@ function resolveTitleStrategy(
   return value && value !== "auto" ? value : fallback
 }
 
-function comparisonPayload(brands: ArticleComparisonBrand[]): unknown[] {
+function comparisonPayload(brands: ArticleComparisonBrand[], includeMaterials: boolean): unknown[] {
   return brands.map((brand, index) => ({
     position: index + 2,
     name: brand.name,
     aliases: brand.aliases,
     role: brand.role || "supporting",
-    materials: brand.materials,
+    materials: includeMaterials ? brand.materials : undefined,
     sourceUrls: brand.sourceUrls,
   }))
 }
@@ -188,6 +188,7 @@ export function compileGeoArticleMethodology(args: {
   primarySubject: string
   comparisonBrands?: ArticleComparisonBrand[]
   knowledgeAssetIds?: string[]
+  comparisonMaterialsInDossier?: boolean
 }): CompiledGeoMethodology {
   const methodKey = resolveMethodKey(args.promptKey, args.selection)
   const method = GEO_METHODOLOGIES[methodKey]
@@ -321,7 +322,7 @@ export function compileGeoArticleMethodology(args: {
       `品牌结构：${brandLayout}`,
       `主主体：${args.primarySubject || "未填写"}`,
       `独立辅助主体：${args.comparisonBrands?.length
-        ? JSON.stringify(comparisonPayload(args.comparisonBrands))
+        ? JSON.stringify(comparisonPayload(args.comparisonBrands, !args.comparisonMaterialsInDossier))
         : "未提供"}`,
       "",
       "【本篇可用知识资产】",

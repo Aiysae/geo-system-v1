@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import {
   deletePenetrationAutomationSchedule,
   getPenetrationAutomationSchedule,
+  listPenetrationAutomationExecutions,
   setPenetrationAutomationScheduleStatus,
   upsertPenetrationAutomationSchedule,
 } from "@/lib/penetration/automation-store"
+import { buildPenetrationAutomationDetectionConfig } from "@/lib/penetration/automation-config"
+import { cancelPenetrationAutomationExecution } from "@/lib/penetration/automation-cancel"
 import { requireOperationAccess, isOperationAccessError } from "@/lib/team-access"
 import { requireUserId } from "@/lib/with-credits"
 import { listWorkspaceClients } from "@/lib/workspace-store"
@@ -31,7 +34,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       clientId,
       teamId,
       module: "penetration",
-      action: "execute",
+      action: "manage",
     })
     const current = await getPenetrationAutomationSchedule(access.dataOwnerUserId, scheduleId)
     if (!current || current.clientId !== clientId) {
@@ -48,11 +51,29 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const client = (await listWorkspaceClients(access.dataOwnerUserId))
       .find(item => item.client.id === clientId)?.client
     if (!client) return NextResponse.json({ error: "当前客户不存在" }, { status: 404 })
+    const detectionConfigChanged = body.questions !== undefined
+      || body.questionIntents !== undefined
+      || body.models !== undefined
+    const detectionConfig = detectionConfigChanged || !current.detectionConfig
+      ? buildPenetrationAutomationDetectionConfig({
+          client,
+          questions: body.questions,
+          questionIntents: body.questionIntents,
+          requestedModels: body.models,
+        })
+      : current.detectionConfig
+    if (!detectionConfig.questionCount) {
+      return NextResponse.json({ error: "请为自动检测至少选择一个疑问句" }, { status: 400 })
+    }
+    if (!detectionConfig.modelCount) {
+      return NextResponse.json({ error: "请为自动检测至少选择一个模型" }, { status: 400 })
+    }
     const schedule = await upsertPenetrationAutomationSchedule({
       ownerUserId: access.dataOwnerUserId,
       clientId,
       clientName: client.name,
-      actorUserId: access.actorUserId,
+      createdByUserId: access.actorUserId,
+      actorUserId: access.teamId ? access.billingUserId : access.actorUserId,
       billingUserId: access.billingUserId,
       teamId: access.teamId,
       intervalDays: body.intervalDays ?? current.intervalDays,
@@ -71,6 +92,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       monthlyCreditLimit: body.monthlyCreditLimit === null
         ? undefined
         : body.monthlyCreditLimit ?? current.monthlyCreditLimit,
+      detectionConfig,
       status: current.status,
     })
     return NextResponse.json({ schedule })
@@ -94,11 +116,23 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       clientId,
       teamId,
       module: "penetration",
-      action: "execute",
+      action: "manage",
     })
     const current = await getPenetrationAutomationSchedule(access.dataOwnerUserId, scheduleId)
     if (!current || current.clientId !== clientId) {
       return NextResponse.json({ error: "自动检测计划不存在" }, { status: 404 })
+    }
+    const active = (await listPenetrationAutomationExecutions({
+      ownerUserId: access.dataOwnerUserId,
+      scheduleId,
+      limit: 100,
+    })).filter(execution => ["pending", "submitted", "running"].includes(execution.status))
+    for (const execution of active) {
+      await cancelPenetrationAutomationExecution({
+        ownerUserId: access.dataOwnerUserId,
+        executionId: execution.id,
+        reason: "自动检测计划已删除",
+      })
     }
     await deletePenetrationAutomationSchedule(access.dataOwnerUserId, scheduleId)
     return NextResponse.json({ ok: true })

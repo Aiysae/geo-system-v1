@@ -66,6 +66,7 @@ export type PenetrationJobSubmissionInput = {
   industry?: unknown
   competitors?: unknown
   useSavedInputs?: boolean
+  requireAllModelsReady?: boolean
   origin?: "manual" | "automation"
   automationScheduleId?: string
   automationExecutionId?: string
@@ -335,6 +336,14 @@ export async function submitPenetrationJob(
     const skipped = readiness
       .filter(item => !item.ready)
       .map(item => `${ADAPTERS[item.model].label}（${item.reason || "严格联网预检未通过"}）`)
+    if (input.requireAllModelsReady && skipped.length > 0) {
+      throw new PenetrationJobSubmissionError(
+        `固定检测模型暂未全部就绪：${skipped.join("、")}`,
+        503,
+        "PENETRATION_CONFIGURED_MODELS_UNAVAILABLE",
+        { skipped },
+      )
+    }
     if (activeModels.length === 0) {
       throw new PenetrationJobSubmissionError(
         `所选模型均未通过严格联网预检：${skipped.join("、")}`,

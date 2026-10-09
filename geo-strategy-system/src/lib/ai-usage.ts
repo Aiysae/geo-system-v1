@@ -2,8 +2,13 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { Pool } from "pg"
+import type { LlmTokenUsage } from "@/lib/llm/openai-compat"
 
 export interface AiUsageEvent {
+  credentialId?: string
+  usageReported?: boolean
+  cachedPromptTokens?: number
+  reasoningTokens?: number
   userId: string
   task: string
   providerKey: string
@@ -47,6 +52,10 @@ CREATE INDEX IF NOT EXISTS geo_ai_usage_v1_provider_model_idx
   ON geo_ai_usage_v1 (provider_key, model_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS geo_ai_usage_v1_user_created_idx
   ON geo_ai_usage_v1 (user_id, created_at DESC);
+ALTER TABLE geo_ai_usage_v1 ADD COLUMN IF NOT EXISTS credential_id TEXT;
+ALTER TABLE geo_ai_usage_v1 ADD COLUMN IF NOT EXISTS usage_reported BOOLEAN;
+ALTER TABLE geo_ai_usage_v1 ADD COLUMN IF NOT EXISTS cached_prompt_tokens INTEGER;
+ALTER TABLE geo_ai_usage_v1 ADD COLUMN IF NOT EXISTS reasoning_tokens INTEGER;
 `
 
 function pool(): Pool | null {
@@ -66,7 +75,10 @@ function pool(): Pool | null {
 
 async function ensureSchema(db: Pool): Promise<void> {
   if (!globalState.__geoAiUsageSchemaPromise) {
-    globalState.__geoAiUsageSchemaPromise = db.query(AI_USAGE_SCHEMA_SQL)
+    globalState.__geoAiUsageSchemaPromise = db.query(AI_USAGE_SCHEMA_SQL).catch(error => {
+      globalState.__geoAiUsageSchemaPromise = undefined
+      throw error
+    })
   }
   await globalState.__geoAiUsageSchemaPromise
 }
@@ -94,8 +106,9 @@ export async function recordAiUsageQuietly(event: AiUsageEvent): Promise<void> {
       `INSERT INTO geo_ai_usage_v1
         (id, user_id, task, provider_key, provider_name, model_id,
          prompt_tokens, completion_tokens, total_tokens, latency_ms,
-         success, used_fallback, error)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         success, used_fallback, error, credential_id, usage_reported,
+         cached_prompt_tokens, reasoning_tokens)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
       [
         `aiu_${randomUUID().replace(/-/g, "")}`,
         safeText(event.userId, 160),
@@ -110,6 +123,10 @@ export async function recordAiUsageQuietly(event: AiUsageEvent): Promise<void> {
         event.success,
         event.usedFallback,
         event.error ? safeText(event.error, 300) : null,
+        event.credentialId ? safeText(event.credentialId, 160) : null,
+        event.usageReported ?? (event.totalTokens !== undefined),
+        event.cachedPromptTokens === undefined ? null : safeInteger(event.cachedPromptTokens),
+        event.reasoningTokens === undefined ? null : safeInteger(event.reasoningTokens),
       ],
     )
   } catch (error) {
@@ -118,3 +135,43 @@ export async function recordAiUsageQuietly(event: AiUsageEvent): Promise<void> {
 }
 
 export { AI_USAGE_SCHEMA_SQL }
+
+export function addTokenUsage(previous: LlmTokenUsage | undefined, next: LlmTokenUsage): LlmTokenUsage {
+  if (!previous) return next
+  return {
+    promptTokens: previous.promptTokens + next.promptTokens,
+    completionTokens: previous.completionTokens + next.completionTokens,
+    totalTokens: previous.totalTokens + next.totalTokens,
+    cachedPromptTokens: previous.cachedPromptTokens === undefined || next.cachedPromptTokens === undefined
+      ? undefined : previous.cachedPromptTokens + next.cachedPromptTokens,
+    reasoningTokens: previous.reasoningTokens === undefined || next.reasoningTokens === undefined
+      ? undefined : previous.reasoningTokens + next.reasoningTokens,
+  }
+}
+
+export async function observeAiUsage<T>(
+  event: Pick<AiUsageEvent, "userId" | "task" | "providerKey" | "providerName" | "modelId" | "credentialId" | "usedFallback">,
+  run: (onUsage: (usage: LlmTokenUsage) => void) => Promise<T>,
+  onUsage?: (usage: LlmTokenUsage) => void,
+): Promise<T> {
+  const startedAt = Date.now()
+  let usage: LlmTokenUsage | undefined
+  let success = false
+  let errorMessage: string | undefined
+  try {
+    const result = await run(value => {
+      usage = addTokenUsage(usage, value)
+      onUsage?.(value)
+    })
+    success = true
+    return result
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : String(error)
+    throw error
+  } finally {
+    await recordAiUsageQuietly({
+      ...event, ...usage, usageReported: Boolean(usage),
+      latencyMs: Date.now() - startedAt, success, error: errorMessage,
+    })
+  }
+}

@@ -21,6 +21,7 @@ import {
   type TaskCenterTask,
 } from "@/types/task-center"
 import { WORKSPACE_NAVIGATION_EVENT } from "@/lib/workspace-navigation"
+import { notifyDesktop } from "@/lib/desktop-runtime"
 
 const EMPTY_RESPONSE: TaskCenterListResponse = {
   tasks: [],
@@ -186,6 +187,14 @@ export function GlobalTaskCenter({ userId }: { userId: string }) {
 
     for (const task of completed) rememberDisplayed(task.id)
     if (completed.length > 0) {
+      for (const task of completed) {
+        void notifyDesktop({
+          id: `task:${task.id}:${task.status}`,
+          title: task.title,
+          body: task.error || task.stage || STATUS_LABELS[task.status],
+          actionUrl: task.resultUrl,
+        })
+      }
       setToasts(current => {
         const known = new Set(current.map(task => task.id))
         return [...current, ...completed.filter(task => !known.has(task.id))].slice(-3)

@@ -11,6 +11,7 @@ import {
 import { AI_CREDENTIAL_PRESET_BY_VENDOR } from "@/lib/ai-credential-presets"
 import { verifyAiCredentialChat } from "@/lib/ai-credential-verification"
 import { verifyAiCredentialWeb } from "@/lib/ai-credential-web-verification"
+import { recoverAiCredentialAfterRecharge } from "@/lib/ai-credential-health-monitor"
 import type {
   AiCredentialCapability,
   AiCredentialModule,
@@ -132,6 +133,24 @@ export async function testCredentialWebAction(
       ok: false,
       id,
       error: error instanceof Error ? error.message : "严格联网能力检测失败",
+    }
+  }
+}
+
+export async function probeCredentialHealthAction(
+  id: string,
+): Promise<CredentialActionResult> {
+  try {
+    const adminId = await assertAdmin()
+    const message = await recoverAiCredentialAfterRecharge(id, adminId)
+    refreshPaths()
+    return { ok: true, id, message }
+  } catch (error) {
+    refreshPaths()
+    return {
+      ok: false,
+      id,
+      error: error instanceof Error ? error.message : "充值恢复复检失败",
     }
   }
 }

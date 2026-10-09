@@ -1,3 +1,4 @@
+import { findNonAuthoritativeCitations, sourceHosts } from "@/lib/source-authority"
 import { supportsArticleComparisonBrands } from "@/lib/article-comparison-brands"
 import {
   estimateVideoScriptDurationSeconds,
@@ -50,6 +51,7 @@ export interface ArticleQualityIssue {
     | "insufficient_sections"
     | "opening_does_not_answer"
     | "web_evidence_unused"
+    | "non_authoritative_citation"
     | "video_missing_section"
     | "video_duplicate_section"
     | "video_invalid_section_order"
@@ -97,6 +99,16 @@ function meaningfulTokens(value: string): string[] {
     "怎么", "什么", "哪些", "是否", "可以", "需要", "品牌", "用户", "行业",
     "服务", "产品", "一个", "进行", "相关", "问题", "企业", "应该", "應該",
   ].includes(token))
+}
+
+function requiredOverlap(source: string, maximum: number): number {
+  return Math.min(maximum, meaningfulTokens(source).length)
+}
+
+export function normalizeArticleHeading(article: string, promptKey: ArticlePromptKey): string {
+  if (!LONG_FORM_PROMPTS.has(promptKey) || /^#\s+\S+/m.test(article)) return article
+  // Only promote an existing leading title; never invent or change its wording.
+  return article.replace(/^#{2,3}(?=\s+\S)/, "#")
 }
 
 function overlapCount(article: string, source: string): number {
@@ -332,6 +344,7 @@ export function validateGeneratedArticle(args: {
   comparisonBrands?: ArticleComparisonBrand[]
   methodologyTrace?: ArticleMethodologyTrace
   webSources?: Array<{ title: string; url: string }>
+  userSourceUrls?: string[]
   videoScriptConfig?: ArticleVideoScriptConfig
 }): ArticleQualityReport {
   const article = String(args.article || "").trim()
@@ -409,27 +422,27 @@ export function validateGeneratedArticle(args: {
       blocking: true,
     })
   }
-  if (args.coreQuestion && overlapCount(article, args.coreQuestion) < 2) {
+  if (args.coreQuestion && overlapCount(article, args.coreQuestion) < requiredOverlap(args.coreQuestion, 2)) {
     issues.push({
       code: "question_drift",
-      message: "正文与本篇核心疑问句的语义关联不足",
-      blocking: true,
+      message: "正文与本篇核心疑问句的词面关联较少，请审核是否真正回答问题",
+      blocking: !longForm,
     })
   }
   const opening = openingDecisionBlock(article)
-  if (longForm && args.coreQuestion && overlapCount(opening, args.coreQuestion) < 2) {
+  if (longForm && args.coreQuestion && overlapCount(opening, args.coreQuestion) < requiredOverlap(args.coreQuestion, 2)) {
     issues.push({
       code: "opening_does_not_answer",
-      message: "首屏没有直接回答核心疑问句，而是先铺陈通用背景",
-      blocking: true,
+      message: "首屏与核心疑问句的词面关联较少，请审核是否直接回答问题",
+      blocking: false,
     })
   }
   const title = article.match(/^#\s+(.+)$/m)?.[1]?.trim() || ""
-  if (longForm && title && args.coreQuestion && overlapCount(title, args.coreQuestion) < 1) {
+  if (longForm && title && args.coreQuestion && overlapCount(title, args.coreQuestion) < requiredOverlap(args.coreQuestion, 1)) {
     issues.push({
       code: "title_body_drift",
-      message: "标题与本篇核心疑问句的语义关联不足",
-      blocking: true,
+      message: "标题与本篇核心疑问句的词面关联较少，请审核标题是否准确",
+      blocking: false,
     })
   }
   if (args.primarySubject && !normalized(article).includes(normalized(args.primarySubject))) {
@@ -498,18 +511,28 @@ export function validateGeneratedArticle(args: {
     if (!evidenceUsed) {
       issues.push({
         code: "web_evidence_unused",
-        message: "已取得可用联网资料，但正文没有将任何来源与相关事实就近对应",
-        blocking: true,
+        message: "正文未引用本次检索资料，请审核资料是否相关及事实是否有依据",
+        blocking: false,
       })
     }
+  }
+
+  const weakCitations = findNonAuthoritativeCitations(article, sourceHosts(args.userSourceUrls || []))
+  if (weakCitations.length > 0) {
+    issues.push({
+      code: "non_authoritative_citation",
+      message: `正文引用了非权威信源（${weakCitations.slice(0, 3).join("、")}），外部引用只能来自国家机关、权威机构、权威媒体或用户提供的资料`,
+      blocking: true,
+    })
   }
 
   const factualInput = normalized([
     args.advantage,
     ...(args.comparisonBrands || []).map(brand => brand.materials),
   ].filter(Boolean).join(" "))
+  // "第一" followed by a counter or punctuation is an ordinal ("第一步", "第一个坑", "第一，"), not a ranking claim.
   const superlatives = article.match(
-    /(?:全国|全國|行业|行業|市场|市場)?(?:第一|唯一|最强|最強|最佳|绝对领先|絕對領先|百分之百|100%|零风险|零風險|保证有效|保證有效)/g,
+    /(?:全国|全國|行业|行業|市场|市場)?(?:第一(?![个個步项項条條点點次种種类類轮輪批阶階期周天年月层層部章节節段时時手眼件份张張页頁行列组組环環，,、：:；;。\s])|唯一|最强|最強|最佳|绝对领先|絕對領先|百分之百|100%|零风险|零風險|保证有效|保證有效)/g,
   ) || []
   if (superlatives.some(claim => !factualInput.includes(normalized(claim)))) {
     issues.push({

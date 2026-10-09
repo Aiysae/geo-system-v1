@@ -53,6 +53,26 @@ export interface ClientExecutionEvidence {
   url: string
 }
 
+export type ClientPublicationReconciliationStatus =
+  | "matched"
+  | "over_quota"
+  | "unplanned"
+  | "needs_review"
+
+export interface ClientPublicationReconciliation {
+  normalizedUrl: string
+  platformKey: string
+  platformName: string
+  quotaDate: string
+  status: ClientPublicationReconciliationStatus
+  detectionMethod: "manual" | "domain" | "hostname"
+  confidence: "high" | "medium" | "low"
+  planId?: string
+  planVersion?: number
+  taskId?: string
+  reconciledAt: string
+}
+
 export interface ClientExecutionContentTrace {
   generationId: string
   promptKey: string
@@ -98,8 +118,10 @@ export interface ClientExecutionAction {
   quantity?: number
   unit?: string
   platform?: string
+  platformKey?: string
   evidence: ClientExecutionEvidence[]
   sourceRecordId?: string
+  publicationReconciliation?: ClientPublicationReconciliation
   contentTrace?: ClientExecutionContentTrace
   resultRef?: ClientExecutionResultRef
   publication?: ClientExecutionActionPublication
@@ -160,6 +182,7 @@ export interface ClientEvidenceImportRowInput {
   title: string
   url: string
   platform?: string
+  platformKey?: string
 }
 
 export interface ClientEvidenceImportDefaults {
@@ -183,6 +206,58 @@ export interface ClientEvidenceImportResult {
   skipped: ClientEvidenceImportSkippedRow[]
   createdCount: number
   skippedCount: number
+  reconciliation?: ClientEvidenceReconciliationSummary
+}
+
+export interface ClientEvidenceImportPreviewRow {
+  rowNumber: number
+  normalizedUrl: string
+  platformKey: string
+  platformName: string
+  confidence: "high" | "medium" | "low"
+  status: ClientPublicationReconciliationStatus
+  plannedCount: number
+  completedCount: number
+  availableCount: number
+  taskId?: string
+}
+
+export interface ClientEvidenceReconciliationSummary {
+  matchedCount: number
+  overQuotaCount: number
+  unplannedCount: number
+  needsReviewCount: number
+}
+
+export interface ClientEvidenceImportPreview {
+  rows: ClientEvidenceImportPreviewRow[]
+  summary: ClientEvidenceReconciliationSummary
+  planId?: string
+  planVersion?: number
+}
+
+export interface ClientPublicationProgressPlatform {
+  platformKey: string
+  platformName: string
+  plannedCount: number
+  actualCount: number
+  matchedCount: number
+  remainingCount: number
+  overageCount: number
+}
+
+export interface ClientPublicationProgress {
+  date: string
+  planId?: string
+  planVersion?: number
+  plannedCount: number
+  actualCount: number
+  matchedCount: number
+  remainingCount: number
+  overageCount: number
+  needsReviewCount: number
+  completionRate: number
+  platforms: ClientPublicationProgressPlatform[]
 }
 
 export interface ClientFeedbackMetricSnapshot {
@@ -241,6 +316,7 @@ export interface ClientFeedbackReportSnapshot {
   actions: ClientExecutionAction[]
   comparison: ClientFeedbackMetricComparison
   contentAttribution?: ClientFeedbackContentAttribution
+  publicationProgress?: ClientPublicationProgress
   nextPlan: string[]
   evidenceRecordCount: number
 }

@@ -22,7 +22,11 @@ import {
   notifyFeedbackAutomationAttention,
   notifyFeedbackAutomationResult,
 } from "@/lib/user-notifications"
-import { listTeamMembers } from "@/lib/team-store"
+import {
+  listTeamClientShares,
+  listTeamMembers,
+  listTeamsForUser,
+} from "@/lib/team-store"
 import { hasTeamPermission } from "@/lib/team-permissions"
 import { listWorkspaceClients } from "@/lib/workspace-store"
 import type {
@@ -97,15 +101,30 @@ function deterministicMessageId(executionId: string, email: string): string {
 
 async function notificationRecipientIds(schedule: ClientFeedbackAutomationSchedule): Promise<string[]> {
   const ids = new Set([schedule.actorUserId])
-  if (schedule.teamId) {
-    const members = await listTeamMembers(schedule.teamId).catch(() => [])
+  const teams = await listTeamsForUser(schedule.ownerUserId).catch(() => [])
+  await Promise.all(teams.map(async summary => {
+    const [shares, members] = await Promise.all([
+      listTeamClientShares(summary.team.id).catch(() => []),
+      listTeamMembers(summary.team.id).catch(() => []),
+    ])
+    const share = shares.find(item => (
+      item.clientOwnerUserId === schedule.ownerUserId
+      && item.clientId === schedule.clientId
+    ))
+    if (!share) return
     for (const member of members) {
+      if (member.status !== "active") continue
+      const visible = member.role === "owner"
+        || share.scope === "all"
+        || share.memberUserIds.includes(member.userId)
+      if (!visible) continue
       if (
-        member.status === "active"
-        && (member.role === "owner" || hasTeamPermission(member.permissionKeys, "feedback", "manage"))
-      ) ids.add(member.userId)
+        member.role !== "owner"
+        && !hasTeamPermission(member.permissionKeys, "feedback", "view")
+      ) continue
+      ids.add(member.userId)
     }
-  }
+  }))
   return [...ids].filter(Boolean)
 }
 

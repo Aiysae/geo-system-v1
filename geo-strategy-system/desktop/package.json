@@ -1,0 +1,93 @@
+{
+  "name": "shitu-geo-desktop",
+  "version": "1.0.0",
+  "description": "势途 GEO 全链路操作工具桌面客户端",
+  "private": true,
+  "main": "src/main.cjs",
+  "author": {
+    "name": "杭州势途数字科技有限公司"
+  },
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "cross-env SHITU_DESKTOP_URL=http://localhost:3000 electron .",
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs",
+    "test:smoke": "node tests/electron-smoke.cjs",
+    "test:web": "node tests/web-integration-smoke.cjs",
+    "pack": "npm test && electron-builder --dir",
+    "build:mac": "npm test && electron-builder --mac --arm64",
+    "build:mac:universal": "npm test && electron-builder --mac --universal",
+    "build:win": "npm test && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "cross-env": "10.1.0",
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "cn.shitu.geo.desktop",
+    "productName": "势途 GEO",
+    "artifactName": "Shitu-GEO-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false,
+      "resetAdHocDarwinSignature": true
+    },
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "icon": "assets/icon.png",
+      "category": "public.app-category.business",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "势途 GEO"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Aiysae",
+        "repo": "geo-system-v1",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

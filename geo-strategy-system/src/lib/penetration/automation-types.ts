@@ -19,6 +19,18 @@ export type PenetrationAutomationExecutionStatus =
   | "skipped"
   | "cancelled"
 
+export interface PenetrationAutomationDetectionConfig {
+  version: 1
+  capturedAt: string
+  questions: string[]
+  questionIntents: PenetrationQuestionIntentHint[]
+  requestedModels: ModelKey[]
+  questionCount: number
+  modelCount: number
+  slotCount: number
+  configHash: string
+}
+
 export interface PenetrationAutomationSchedule {
   id: string
   ownerUserId: string
@@ -38,6 +50,7 @@ export interface PenetrationAutomationSchedule {
   inAppEnabled: boolean
   emailEnabled: boolean
   monthlyCreditLimit?: number
+  detectionConfig?: PenetrationAutomationDetectionConfig
   nextRunAt?: string
   lastScheduledFor?: string
   lastStartedAt?: string
@@ -121,4 +134,5 @@ export interface PenetrationAutomationScheduleInput {
   inAppEnabled: boolean
   emailEnabled: boolean
   monthlyCreditLimit?: number
+  detectionConfig?: PenetrationAutomationDetectionConfig
 }

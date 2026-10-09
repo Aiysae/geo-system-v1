@@ -5,11 +5,19 @@ import {
   prioritizeAiCredentialModel,
   updateAiCredentialHealth,
 } from "@/lib/ai-credential-store"
-import { isPermanentAiCredentialFailure } from "@/lib/ai-credential-errors"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
+import {
+  buildAiCredentialRouteIdentity,
+  clearAiCredentialBillingFailures,
+  recordAiCredentialRouteFailure,
+  recordAiCredentialRouteSuccess,
+} from "@/lib/ai-credential-route-health"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
+import { observeAiUsage } from "@/lib/ai-usage"
 import type {
   AiCredentialCapability,
+  AiCredentialModule,
   AiCredentialPublic,
 } from "@/types/ai-credentials"
 
@@ -46,7 +54,13 @@ function looksLikeJson(value: string): boolean {
 
 export async function verifyAiCredentialChat(
   credentialId: string,
-  options: { allModels?: boolean } = {},
+  options: {
+    allModels?: boolean
+    model?: string
+    module?: AiCredentialModule
+    isProbe?: boolean
+    requiredCapabilities?: AiCredentialCapability[]
+  } = {},
 ): Promise<AiCredentialVerificationResult> {
   const credential = await getAiCredentialRuntime(credentialId)
   if (!credential.apiKey) throw new Error("该模型账号尚未配置 API Key")
@@ -54,36 +68,94 @@ export async function verifyAiCredentialChat(
     throw new Error("请先为该账号填写至少一个可用模型")
   }
 
+  const requestedModel = String(options.model || "").trim()
+  if (requestedModel && !credential.allowedModels.includes(requestedModel)) {
+    throw new Error("指定模型不在该账号的允许模型列表中")
+  }
+  const routeModule = options.module || credential.allowedModules[0] || "article"
+  const requiredCapabilities = options.requiredCapabilities?.length
+    ? [...new Set(options.requiredCapabilities)]
+    : ["chat" as const]
+  const unsupportedCapabilities = requiredCapabilities.filter(
+    capability => capability !== "chat" && capability !== "json" && capability !== "long_text",
+  )
+  if (unsupportedCapabilities.length > 0) {
+    throw new Error(`该能力暂不支持基础生成复检：${unsupportedCapabilities.join("、")}`)
+  }
+  const modelsToTest = requestedModel ? [requestedModel] : credential.allowedModels
   const startedAt = Date.now()
   let lastError: unknown
+  let accountFailure = false
   const models: AiCredentialModelVerification[] = []
-  for (const model of credential.allowedModels) {
+  for (const model of modelsToTest) {
     const modelStartedAt = Date.now()
     try {
-      const content = await openaiCompatChat({
-        url: chatUrl(credential.baseUrl, credential.chatPath),
-        apiKey: credential.apiKey,
-        model,
-        system: "你是 API 连通性检测器。只执行用户要求，不补充解释。",
-        user: '只返回 JSON：{"ok":true}',
-        temperature: 0,
-        maxTokens: credential.vendor === "kimi" ? 512 : 64,
-        jsonMode: true,
-        timeoutSec: 60,
-        label: `${credential.name}·连通性检测`,
-        allowWebSearch: false,
+      const longTextProbe = requiredCapabilities.includes("long_text")
+      const content = await observeAiUsage({
+        userId: options.isProbe ? "system-health-monitor" : "system-credential-verification",
+        task: options.isProbe ? "credential_health_probe_chat" : "credential_verify_chat",
+        providerKey: credential.vendor,
+        providerName: credential.vendor,
+        modelId: model,
+        credentialId: credential.id,
+        usedFallback: false,
+      }, async onUsage => {
+        const result = await openaiCompatChat({
+          url: chatUrl(credential.baseUrl, credential.chatPath),
+          apiKey: credential.apiKey,
+          model,
+          system: "你是 API 连通性检测器。只执行用户要求，不补充解释。",
+          user: longTextProbe
+            ? '只返回 JSON：{"ok":true,"items":[12 条每条不少于 25 个中文字的 API 长文连通性检测说明]}。items 必须恰好 12 条且内容不重复。'
+            : '只返回 JSON：{"ok":true}',
+          temperature: 0,
+          maxTokens: longTextProbe ? 768 : credential.vendor === "kimi" ? 512 : 64,
+          jsonMode: true,
+          timeoutSec: longTextProbe ? 90 : 60,
+          label: `${credential.name}·连通性检测`,
+          allowWebSearch: false,
+          transportRetries: 0,
+          onUsage,
+        })
+        if (requiredCapabilities.includes("json") && !looksLikeJson(result)) {
+          throw new Error("模型连通但未返回有效 JSON，暂不恢复该 JSON 路由")
+        }
+        if (longTextProbe && result.replace(/\s+/g, "").length < 300) {
+          throw new Error("模型连通但未完成长文输出，暂不恢复该长任务路由")
+        }
+        return result
       })
       const capabilities: AiCredentialCapability[] = ["chat"]
       if (looksLikeJson(content)) capabilities.push("json")
+      if (longTextProbe) capabilities.push("long_text")
       models.push({
         model,
         status: "passed",
         capabilities,
         latencyMs: Date.now() - modelStartedAt,
       })
+      await recordAiCredentialRouteSuccess(
+        buildAiCredentialRouteIdentity(credential, {
+          module: routeModule,
+          model,
+          requiredCapabilities,
+        }),
+        Date.now() - modelStartedAt,
+        options.isProbe === true,
+      )
       if (!options.allModels) break
     } catch (error) {
       lastError = error
+      const failure = classifyAiCredentialFailure(error)
+      await recordAiCredentialRouteFailure(
+        buildAiCredentialRouteIdentity(credential, {
+          module: routeModule,
+          model,
+          requiredCapabilities,
+        }),
+        failure,
+        options.isProbe === true,
+      )
       models.push({
         model,
         status: "failed",
@@ -94,16 +166,20 @@ export async function verifyAiCredentialChat(
           240,
         ),
       })
+      if (failure.scope === "credential") {
+        accountFailure = true
+        break
+      }
     }
   }
 
   const passedModels = models.filter(item => item.status === "passed")
-  if (passedModels.length > 0) {
+  if (passedModels.length > 0 && !accountFailure) {
+    await clearAiCredentialBillingFailures(credential.id, startedAt)
     const preferred = passedModels[0]
-    const prioritized = await prioritizeAiCredentialModel(
-      credential.id,
-      preferred.model,
-    )
+    const prioritized = options.isProbe
+      ? credential
+      : await prioritizeAiCredentialModel(credential.id, preferred.model)
     const verified = new Set<AiCredentialCapability>(
       prioritized.verifiedCapabilities,
     )
@@ -133,13 +209,21 @@ export async function verifyAiCredentialChat(
     lastError instanceof Error ? lastError.message : String(lastError || ""),
     240,
   )
+  const diagnosis = classifyAiCredentialFailure(lastError)
+  const credentialFailure = diagnosis.scope === "credential"
   await updateAiCredentialHealth(credential.id, {
-    status: isPermanentAiCredentialFailure(lastError)
+    status: credentialFailure
       ? "unhealthy"
-      : "degraded",
+      : credential.verifiedCapabilities.includes("chat")
+        ? "healthy"
+        : "degraded",
     latencyMs: Date.now() - startedAt,
-    consecutiveFailures: credential.consecutiveFailures + 1,
-    cooldownUntil: new Date(Date.now() + 5 * 60_000).toISOString(),
+    consecutiveFailures: credentialFailure
+      ? credential.consecutiveFailures + 1
+      : credential.consecutiveFailures,
+    cooldownUntil: credentialFailure
+      ? new Date(Date.now() + Math.max(30 * 60_000, diagnosis.cooldownMs)).toISOString()
+      : undefined,
   })
   throw new Error(message || "模型账号连通性检测失败")
 }

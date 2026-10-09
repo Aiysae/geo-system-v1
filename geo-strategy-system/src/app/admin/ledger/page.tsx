@@ -7,6 +7,8 @@ import { listAllCreditLedger, type CreditLedgerEntry } from "@/lib/credit-ledger
 import { getFeaturePrice } from "@/lib/pricing"
 import SiteFooter from "@/components/site-footer"
 import { AdminHeader } from "@/components/admin/admin-header"
+import { AdminInternalDataNotice } from "@/components/admin/internal-data-notice"
+import { getAdminInternalDataset } from "@/lib/admin-internal-dataset"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -69,10 +71,15 @@ export default async function AdminLedgerPage() {
     )
   }
 
-  const [entries, users] = await Promise.all([
+  const [realEntries, realUsers] = await Promise.all([
     listAllCreditLedger(500),
     listUsers(),
   ])
+  const internalDataset = getAdminInternalDataset()
+  const entries = [...realEntries, ...internalDataset.ledger]
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, 500)
+  const users = [...realUsers, ...internalDataset.users.map(record => record.user)]
   const userMap = new Map(users.map(user => [user.id, user]))
   const usageCredits = entries
     .filter(entry => entry.type === "usage_reserved" || entry.type === "usage_extra")
@@ -91,6 +98,8 @@ export default async function AdminLedgerPage() {
       />
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-8 md:py-8">
+        <AdminInternalDataNotice />
+
         <section className="grid gap-3 md:grid-cols-4">
           <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
             <div className="text-xs text-slate-500">流水条数</div>

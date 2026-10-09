@@ -1,4 +1,4 @@
-import { openaiCompatChat, type ChatArgs } from "./openai-compat"
+import { emitTokenUsage, openaiCompatChat, type ChatArgs, type RawChatCompletion } from "./openai-compat"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { extractSourcesFromUnknown } from "./source-extract"
@@ -26,6 +26,7 @@ const BOT_URL = "https://ark.cn-beijing.volces.com/api/v3/bots/chat/completions"
 const RESPONSES_URL = "https://ark.cn-beijing.volces.com/api/v3/responses"
 
 interface ArkResponsesPayload {
+  usage?: RawChatCompletion["usage"]
   id?: string
   output_text?: string
   error?: { code?: string; message?: string }
@@ -112,6 +113,7 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
     } catch (error) {
       throw new Error(`豆包 Responses 返回体解析失败：${error instanceof Error ? error.message : String(error)}`)
     }
+    emitTokenUsage(data, args.onUsage)
     if (!response.ok || data.error) {
       throw new Error(
         `豆包 Responses 联网调用失败 HTTP ${response.status}${data.error?.code ? ` [${data.error.code}]` : ""}：${data.error?.message || safeError(text) || "(无响应体)"}`,

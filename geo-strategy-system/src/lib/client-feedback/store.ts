@@ -18,6 +18,7 @@ import type {
   ClientExecutionActionCategory,
   ClientExecutionActionStatus,
   ClientExecutionActionVisibility,
+  ClientPublicationReconciliation,
   ClientExecutionProfile,
   ClientExecutionStage,
   ClientFeedbackPeriod,
@@ -130,6 +131,54 @@ function normalizeContentTrace(value: unknown): ClientExecutionContentTrace | un
     recipeVersion: cleanText(input.recipeVersion, 120) || undefined,
     modelProvider: cleanText(input.modelProvider, 120),
     model: cleanText(input.model, 240),
+  }
+}
+
+function normalizePublicationReconciliation(
+  value: unknown,
+): ClientPublicationReconciliation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const input = value as Partial<ClientPublicationReconciliation>
+  const statuses = new Set<ClientPublicationReconciliation["status"]>([
+    "matched",
+    "over_quota",
+    "unplanned",
+    "needs_review",
+  ])
+  const methods = new Set<ClientPublicationReconciliation["detectionMethod"]>([
+    "manual",
+    "domain",
+    "hostname",
+  ])
+  const confidences = new Set<ClientPublicationReconciliation["confidence"]>([
+    "high",
+    "medium",
+    "low",
+  ])
+  const normalizedUrl = cleanText(input.normalizedUrl, 1_000)
+  const platformKey = cleanText(input.platformKey, 160)
+  const platformName = cleanText(input.platformName, 120)
+  if (!normalizedUrl || !platformKey || !platformName || !statuses.has(input.status as ClientPublicationReconciliation["status"])) {
+    return undefined
+  }
+  return {
+    normalizedUrl,
+    platformKey,
+    platformName,
+    quotaDate: validActionDateOnly(input.quotaDate),
+    status: input.status as ClientPublicationReconciliation["status"],
+    detectionMethod: methods.has(input.detectionMethod as ClientPublicationReconciliation["detectionMethod"])
+      ? input.detectionMethod as ClientPublicationReconciliation["detectionMethod"]
+      : "hostname",
+    confidence: confidences.has(input.confidence as ClientPublicationReconciliation["confidence"])
+      ? input.confidence as ClientPublicationReconciliation["confidence"]
+      : "low",
+    planId: cleanText(input.planId, 200) || undefined,
+    planVersion: Number.isFinite(Number(input.planVersion))
+      ? Math.max(1, Math.floor(Number(input.planVersion)))
+      : undefined,
+    taskId: cleanText(input.taskId, 200) || undefined,
+    reconciledAt: validIso(input.reconciledAt),
   }
 }
 
@@ -371,6 +420,37 @@ export async function listClientExecutionActions(
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
 }
 
+export async function listClientExecutionActionsOnDate(
+  ownerUserId: string,
+  clientId: string,
+  date: string,
+): Promise<ClientExecutionAction[]> {
+  const owner = cleanId(ownerUserId, "客户所有者")
+  const client = cleanId(clientId, "客户")
+  const safeDate = validActionDateOnly(date)
+  const indexKey = actionDateIndexKey(owner, client, safeDate)
+  const indexedIds = await kv.smembers<string[]>(indexKey)
+  if (indexedIds.length > 0) {
+    const actions = (await Promise.all(
+      indexedIds.map(id => kv.get<ClientExecutionAction>(actionKey(id))),
+    )).filter((action): action is ClientExecutionAction => Boolean(
+      action
+      && action.ownerUserId === owner
+      && action.clientId === client
+      && actionShanghaiDate(action) === safeDate,
+    ))
+    if (actions.length > 0) {
+      return actions.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
+    }
+    await kv.del(indexKey)
+  }
+
+  const matching = (await listClientExecutionActions(owner, client))
+    .filter(action => actionShanghaiDate(action) === safeDate)
+  if (matching.length > 0) await kv.sadd(indexKey, ...matching.map(action => action.id))
+  return matching
+}
+
 function actionShanghaiDate(action: Pick<ClientExecutionAction, "occurredAt">): string {
   return shanghaiDateOnly(new Date(action.occurredAt))
 }
@@ -494,6 +574,7 @@ function buildClientExecutionAction(input: {
       : undefined,
     unit: cleanText(input.value.unit, 40) || undefined,
     platform: cleanText(input.value.platform, 120) || undefined,
+    platformKey: cleanText(input.value.platformKey, 160) || undefined,
     evidence: Array.isArray(input.value.evidence)
       ? input.value.evidence.map(item => ({
           label: cleanText(item?.label, 160) || "查看证据",
@@ -501,6 +582,9 @@ function buildClientExecutionAction(input: {
         })).filter(item => /^https?:\/\//i.test(item.url)).slice(0, 20)
       : [],
     sourceRecordId: cleanText(input.value.sourceRecordId, 240) || undefined,
+    publicationReconciliation: normalizePublicationReconciliation(
+      input.value.publicationReconciliation,
+    ),
     contentTrace: normalizeContentTrace(input.value.contentTrace),
     resultRef: input.value.resultRef?.module === "penetration"
       && input.value.resultRef.resourceType === "history"
@@ -644,6 +728,7 @@ export async function saveClientExecutionActionBatch(input: {
           quantity: 1,
           unit: category === "video_publish" ? "条" : "篇",
           platform: row.platform || inferEvidencePlatform(row.normalizedUrl),
+          platformKey: row.platformKey,
           evidence: [{ label: row.title, url: row.normalizedUrl }],
           importBatchId: importId,
           importedFrom: "url_batch",
@@ -686,6 +771,33 @@ export async function saveClientExecutionActionBatch(input: {
   } finally {
     await releaseLock()
   }
+}
+
+export async function updateClientExecutionActionPublication(input: {
+  ownerUserId: string
+  clientId: string
+  actionId: string
+  platform: string
+  platformKey: string
+  sourceRecordId?: string
+  reconciliation: ClientPublicationReconciliation
+}): Promise<ClientExecutionAction> {
+  const current = await getClientExecutionAction(
+    cleanId(input.ownerUserId, "客户所有者"),
+    cleanId(input.clientId, "客户"),
+    cleanId(input.actionId, "动作"),
+  )
+  if (!current) throw new Error("动作记录不存在")
+  const updated: ClientExecutionAction = {
+    ...current,
+    platform: cleanText(input.platform, 120) || current.platform,
+    platformKey: cleanText(input.platformKey, 160) || current.platformKey,
+    sourceRecordId: cleanText(input.sourceRecordId, 240) || current.sourceRecordId,
+    publicationReconciliation: normalizePublicationReconciliation(input.reconciliation),
+    updatedAt: new Date().toISOString(),
+  }
+  await kv.set(actionKey(updated.id), updated)
+  return updated
 }
 
 export async function deleteClientExecutionAction(

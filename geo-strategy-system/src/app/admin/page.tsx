@@ -14,6 +14,8 @@ import SiteFooter from "@/components/site-footer"
 import { CreditsAdjustForm } from "./credits-adjust-form"
 import { UserStatusForm } from "./user-status-form"
 import { AdminHeader } from "@/components/admin/admin-header"
+import { AdminInternalDataNotice } from "@/components/admin/internal-data-notice"
+import { getAdminInternalDataset } from "@/lib/admin-internal-dataset"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -42,7 +44,7 @@ export default async function AdminPage() {
     listUsers(),
     listPasswordResetRequests(120),
   ])
-  const rows = await Promise.all(
+  const realRows = await Promise.all(
     users.map(async user => {
       const [credits, membership, clientLink] = await Promise.all([
         getCredits(user.id),
@@ -55,9 +57,21 @@ export default async function AdminPage() {
         membership,
         clientLink,
         unlimited: hasUnlimitedCreditAccess(user),
+        internal: false,
       }
     })
   )
+  const internalDataset = getAdminInternalDataset()
+  const internalRows = internalDataset.users.map(record => ({
+    user: record.user,
+    credits: record.credits,
+    membership: record.membership,
+    clientLink: null,
+    unlimited: false,
+    internal: true,
+  }))
+  const rows = [...realRows, ...internalRows]
+    .sort((left, right) => Date.parse(right.user.createdAt) - Date.parse(left.user.createdAt))
   const totalCredits = rows.reduce((sum, row) => sum + (row.unlimited ? 0 : row.credits), 0)
   const adminCount = rows.filter(row => row.user.role === "admin").length
   const vipCount = rows.filter(row => row.membership.active).length
@@ -89,6 +103,8 @@ export default async function AdminPage() {
             共 <span className="font-mono font-bold text-slate-900">{rows.length}</span> 个用户
           </span>
         </div>
+
+        <AdminInternalDataNotice className="mb-5" />
 
         <div className="mb-5 grid gap-3 md:grid-cols-5">
           <div className="rounded-lg bg-white/92 p-4 shadow-lg shadow-slate-900/8 ring-1 ring-white/70">
@@ -150,7 +166,7 @@ export default async function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ user, credits, membership, clientLink, unlimited }) => (
+                {rows.map(({ user, credits, membership, clientLink, unlimited, internal }) => (
                   <tr key={user.id} className="border-t border-slate-100 align-top">
                     <td data-label="用户" className="px-4 py-4">
                       <div className="flex items-start gap-3">
@@ -200,7 +216,13 @@ export default async function AdminPage() {
                       )}
                     </td>
                     <td data-label="状态" className="px-4 py-4">
-                      <UserStatusForm userId={user.id} status={user.status} />
+                      {internal ? (
+                        <span className="inline-flex rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                          正常
+                        </span>
+                      ) : (
+                        <UserStatusForm userId={user.id} status={user.status} />
+                      )}
                     </td>
                     <td data-label="积分" className="px-4 py-4 text-sm font-bold text-slate-900">
                       {unlimited ? (
@@ -216,7 +238,11 @@ export default async function AdminPage() {
                       {new Date(user.createdAt).toLocaleString("zh-CN", { hour12: false })}
                     </td>
                     <td data-label="积分操作" className="px-4 py-4">
-                      <CreditsAdjustForm userId={user.id} disabled={unlimited} />
+                      {internal ? (
+                        <span className="text-xs text-slate-400">只读</span>
+                      ) : (
+                        <CreditsAdjustForm userId={user.id} disabled={unlimited} />
+                      )}
                     </td>
                     <td data-label="明细" className="px-4 py-4">
                       <Link

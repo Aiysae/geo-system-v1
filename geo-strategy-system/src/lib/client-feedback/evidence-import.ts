@@ -1,4 +1,8 @@
 import type { ClientEvidenceImportRowInput } from "@/types/client-feedback"
+import {
+  resolveSourcePlatformByName,
+  resolveSourcePlatformByUrl,
+} from "@/lib/source-platform-registry"
 
 export const MAX_EVIDENCE_IMPORT_ROWS = 200
 export const MAX_EVIDENCE_TITLE_LENGTH = 160
@@ -9,62 +13,12 @@ export type EvidenceImportRowDraft = ClientEvidenceImportRowInput & {
   rowNumber: number
   normalizedUrl: string
   inferredPlatform: string
+  inferredPlatformKey: string
   error?: string
 }
 
-type PlatformDefinition = {
-  name: string
-  domains: string[]
-}
-
-const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
-  { name: "微信公众号", domains: ["mp.weixin.qq.com"] },
-  { name: "百家号", domains: ["baijiahao.baidu.com"] },
-  { name: "百度知道", domains: ["zhidao.baidu.com"] },
-  { name: "百度贴吧", domains: ["tieba.baidu.com"] },
-  { name: "搜狐", domains: ["sohu.com"] },
-  { name: "CSDN", domains: ["csdn.net"] },
-  { name: "知乎", domains: ["zhihu.com"] },
-  { name: "今日头条", domains: ["toutiao.com"] },
-  { name: "网易号", domains: ["163.com"] },
-  { name: "腾讯新闻", domains: ["new.qq.com", "news.qq.com"] },
-  { name: "新浪", domains: ["sina.com.cn"] },
-  { name: "微博", domains: ["weibo.com", "weibo.cn"] },
-  { name: "小红书", domains: ["xiaohongshu.com"] },
-  { name: "哔哩哔哩", domains: ["bilibili.com"] },
-  { name: "抖音", domains: ["douyin.com"] },
-  { name: "快手", domains: ["kuaishou.com"] },
-  { name: "简书", domains: ["jianshu.com"] },
-  { name: "豆瓣", domains: ["douban.com"] },
-  { name: "掘金", domains: ["juejin.cn"] },
-  { name: "开源中国", domains: ["oschina.net"] },
-  { name: "土巴兔", domains: ["tubatu.com", "to8to.com"] },
-  { name: "汽车之家", domains: ["autohome.com.cn"] },
-  { name: "中关村在线", domains: ["zol.com.cn"] },
-  { name: "什么值得买", domains: ["smzdm.com"] },
-  { name: "房天下", domains: ["fang.com"] },
-  { name: "大众点评", domains: ["dianping.com"] },
-  { name: "36氪", domains: ["36kr.com"] },
-  { name: "虎嗅", domains: ["huxiu.com"] },
-  { name: "人民网", domains: ["people.com.cn"] },
-  { name: "新华网", domains: ["xinhuanet.com", "news.cn"] },
-  { name: "央视网", domains: ["cctv.com", "cntv.cn"] },
-  { name: "央广网", domains: ["cnr.cn"] },
-  { name: "中国网", domains: ["china.com.cn"] },
-  { name: "中国新闻网", domains: ["chinanews.com.cn"] },
-  { name: "光明网", domains: ["gmw.cn"] },
-  { name: "中国经济网", domains: ["ce.cn"] },
-  { name: "澎湃新闻", domains: ["thepaper.cn"] },
-  { name: "新京报", domains: ["bjnews.com.cn"] },
-  { name: "南方+", domains: ["nfnews.com", "southcn.com"] },
-]
-
 const TRACKING_PARAM_PATTERN = /^(utm_.+|spm|from|from_source|share_token|track|source|ref)$/i
 const URL_TOKEN_PATTERN = /https?:\/\/[^\s|，]+/gi
-
-function domainMatches(host: string, domain: string): boolean {
-  return host === domain || host.endsWith(`.${domain}`)
-}
 
 function isPrivateIpv4(hostname: string): boolean {
   const parts = hostname.split(".").map(Number)
@@ -123,13 +77,13 @@ export function normalizeExecutionEvidenceUrl(rawUrl: string): string | null {
 export function inferEvidencePlatform(rawUrl: string): string {
   const normalizedUrl = normalizeExecutionEvidenceUrl(rawUrl)
   if (!normalizedUrl) return ""
-  const hostname = new URL(normalizedUrl).hostname.toLowerCase().replace(/^www\./, "")
-  const known = PLATFORM_DEFINITIONS.find(definition =>
-    definition.domains.some(domain => domainMatches(hostname, domain)),
-  )
-  if (known) return known.name
-  if (hostname === "gov.cn" || hostname.endsWith(".gov.cn")) return "政府网站"
-  return hostname
+  return resolveSourcePlatformByUrl(normalizedUrl)?.name || ""
+}
+
+export function inferEvidencePlatformKey(rawUrl: string): string {
+  const normalizedUrl = normalizeExecutionEvidenceUrl(rawUrl)
+  if (!normalizedUrl) return ""
+  return resolveSourcePlatformByUrl(normalizedUrl)?.key || ""
 }
 
 function rowError(row: ClientEvidenceImportRowInput): string | undefined {
@@ -160,7 +114,11 @@ export function validateEvidenceImportRows(
     const title = String(row.title || "").normalize("NFKC").trim()
     const rawUrl = String(row.url || "").trim()
     const normalizedUrl = normalizeExecutionEvidenceUrl(rawUrl) || ""
-    const inferredPlatform = inferEvidencePlatform(normalizedUrl)
+    const resolution = resolveSourcePlatformByUrl(normalizedUrl)
+    const inferredPlatform = resolution?.name || ""
+    const inferredPlatformKey = resolution?.key || ""
+    const requestedPlatform = String(row.platform || inferredPlatform).normalize("NFKC").trim()
+    const requestedDefinition = resolveSourcePlatformByName(requestedPlatform)
     let error = rowError({ ...row, title, url: rawUrl })
     if (!error && normalizedUrl) {
       const duplicateRow = seen.get(normalizedUrl)
@@ -173,7 +131,9 @@ export function validateEvidenceImportRows(
       url: rawUrl,
       normalizedUrl,
       inferredPlatform,
-      platform: String(row.platform || inferredPlatform).normalize("NFKC").trim(),
+      inferredPlatformKey,
+      platform: requestedDefinition?.name || requestedPlatform,
+      platformKey: String(row.platformKey || requestedDefinition?.key || inferredPlatformKey).trim(),
       error,
     }
   })
@@ -211,6 +171,8 @@ export function parseEvidenceImportText(rawText: string): EvidenceImportRowDraft
       url: "",
       normalizedUrl: "",
       inferredPlatform: "",
+      inferredPlatformKey: "",
+      platformKey: "",
       platform: "",
       error: `单次最多导入 ${MAX_EVIDENCE_IMPORT_ROWS} 条，请分批导入剩余内容`,
     })

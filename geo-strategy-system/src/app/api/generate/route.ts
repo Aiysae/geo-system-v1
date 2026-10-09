@@ -151,15 +151,16 @@ async function handler(req: NextRequest) {
         temperature: 0.7,
         max_tokens: 4096,
       }),
+    }).catch(error => {
+      clearTimeout(timeout)
+      throw error
     })
-
-    clearTimeout(timeout)
 
     console.timeEnd("[势途 GEO API] DeepSeek 请求耗时")
     console.log("[势途 GEO API] DeepSeek 响应状态码:", response.status)
 
     if (!response.ok) {
-      const errorText = await response.text()
+      const errorText = await response.text().finally(() => clearTimeout(timeout))
       console.error("[势途 GEO API] DeepSeek 返回错误:", response.status, errorText.slice(0, 200))
 
       if (response.status === 401) {
@@ -187,7 +188,9 @@ async function handler(req: NextRequest) {
       )
     }
 
-    const data = await response.json()
+    // Keep the abort timer running until the body is read: headers can
+    // arrive quickly while a stalled body would otherwise hang forever.
+    const data = await response.json().finally(() => clearTimeout(timeout))
     const content = data.choices?.[0]?.message?.content || ""
     console.log("[势途 GEO API] 模型回复长度:", content.length, "字符")
 
@@ -216,7 +219,8 @@ async function handler(req: NextRequest) {
         {
           error: "无法解析 AI 返回结果，请重试",
           parseError: parseErr instanceof Error ? parseErr.message : String(parseErr),
-        }
+        },
+        { status: 502 },
       )
     }
 
@@ -229,7 +233,7 @@ async function handler(req: NextRequest) {
       return NextResponse.json({
         error: `AI 返回结果缺少必要字段: ${missing.join(", ")}`,
         partial: strategy,
-      })
+      }, { status: 502 })
     }
 
     console.log("[势途 GEO API] === 策略生成成功 ===")

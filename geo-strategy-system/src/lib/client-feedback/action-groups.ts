@@ -21,6 +21,7 @@ export type ClientExecutionActionGroup = {
   totalQuantity: number
   unit: string
   evidenceCount: number
+  platformNames: string[]
   publication: ClientExecutionActionPublication
 }
 
@@ -64,6 +65,9 @@ export function groupClientExecutionActions(
       )
     ), 0)
     const itemCount = evidenceCount || groupActions.length
+    const platformNames = Array.from(new Set(
+      groupActions.map(item => String(item.platform || "").trim()).filter(Boolean),
+    ))
     return {
       key,
       action,
@@ -75,6 +79,7 @@ export function groupClientExecutionActions(
       totalQuantity: quantity > 0 ? quantity : itemCount,
       unit: action.unit || (action.category === "video_publish" ? "条" : "篇"),
       evidenceCount,
+      platformNames,
       publication: actionPublication(action),
     }
   })

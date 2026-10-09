@@ -1,6 +1,10 @@
 import "server-only"
 
-import { saveClientExecutionAction } from "@/lib/client-feedback/store"
+import {
+  deleteClientExecutionAction,
+  getClientExecutionAction,
+  saveClientExecutionAction,
+} from "@/lib/client-feedback/store"
 import {
   completePublishingTask,
   failPublishingTask,
@@ -53,12 +57,14 @@ export async function completePublishingTaskWithFeedback(input: {
   const publishedUrl = normalizeHttpUrl(input.publishedUrl)
   const publishedAt = validIso(input.publishedAt) || new Date().toISOString()
   const title = String(input.title || currentTask.title || `${currentTask.platformName}发布`).trim()
+  const actionId = `cact_${input.taskId}`.slice(0, 220)
+  const previousAction = await getClientExecutionAction(input.ownerUserId, input.clientId, actionId)
   const action = await saveClientExecutionAction({
     ownerUserId: input.ownerUserId,
     clientId: input.clientId,
     actorUserId: input.actorUserId,
     value: {
-      id: `cact_${input.taskId}`.slice(0, 220),
+      id: actionId,
       category: contentActionCategory(plan, currentTask.platformKey),
       source: "system",
       status: "completed",
@@ -74,17 +80,48 @@ export async function completePublishingTaskWithFeedback(input: {
       sourceRecordId: input.taskId,
     },
   })
-  const task = await completePublishingTask({
-    ownerUserId: input.ownerUserId,
-    taskId: input.taskId,
-    actorUserId: input.actorUserId,
-    claimToken: input.claimToken,
-    publishedUrl,
-    publishedAt,
-    title,
-    executionActionId: action.id,
-  })
+  let task: PublishingTask
+  try {
+    task = await completePublishingTask({
+      ownerUserId: input.ownerUserId,
+      taskId: input.taskId,
+      actorUserId: input.actorUserId,
+      claimToken: input.claimToken,
+      publishedUrl,
+      publishedAt,
+      title,
+      executionActionId: action.id,
+    })
+  } catch (error) {
+    // The client-visible action must not claim a completion the task store
+    // rejected (for example an expired claim), so restore its prior state.
+    await restoreExecutionAction(input, actionId, previousAction).catch(restoreError => {
+      console.error("[publishing-plan] failed to roll back execution action", actionId, restoreError)
+    })
+    throw error
+  }
   return { task, action }
+}
+
+async function restoreExecutionAction(
+  input: { ownerUserId: string; clientId: string; taskId: string },
+  actionId: string,
+  previous: Awaited<ReturnType<typeof getClientExecutionAction>>,
+): Promise<void> {
+  // A concurrent submission may have completed the task with this same
+  // deterministic action id; that action is valid and must be kept.
+  const latestTask = await getPublishingTask(input.ownerUserId, input.taskId)
+  if (latestTask?.status === "completed" && latestTask.executionActionId === actionId) return
+  if (!previous) {
+    await deleteClientExecutionAction(input.ownerUserId, input.clientId, actionId)
+    return
+  }
+  await saveClientExecutionAction({
+    ownerUserId: input.ownerUserId,
+    clientId: input.clientId,
+    actorUserId: previous.createdByUserId || input.ownerUserId,
+    value: previous,
+  })
 }
 
 export async function failPublishingTaskForPlan(input: {

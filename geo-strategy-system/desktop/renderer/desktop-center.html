@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'" />
+    <title>势途 GEO 桌面中心</title>
+    <link rel="stylesheet" href="./desktop.css" />
+  </head>
+  <body>
+    <div class="center-shell">
+      <header class="center-header">
+        <div class="brand-row">
+          <img src="../assets/logo-lockup.png" alt="势途 GEO" />
+          <div>
+            <h1>桌面中心</h1>
+            <p>下载、网络与客户端更新</p>
+          </div>
+        </div>
+        <div id="version-label" class="version-label"></div>
+      </header>
+
+      <main class="center-main">
+        <nav class="tab-list" aria-label="桌面中心功能">
+          <button class="tab-button" type="button" data-tab="downloads" aria-selected="true">下载记录</button>
+          <button class="tab-button" type="button" data-tab="network" aria-selected="false">网络诊断</button>
+          <button class="tab-button" type="button" data-tab="settings" aria-selected="false">桌面设置</button>
+          <button class="tab-button" type="button" data-tab="updates" aria-selected="false">版本更新</button>
+        </nav>
+
+        <section id="panel-downloads" class="panel" data-panel="downloads">
+          <div class="section-heading">
+            <div>
+              <h2>下载记录</h2>
+              <p>报告、Word、Excel 与文章包的桌面下载进度</p>
+            </div>
+            <button id="clear-downloads" class="secondary-button" type="button">清理已完成记录</button>
+          </div>
+          <div id="download-list" class="download-list"></div>
+        </section>
+
+        <section id="panel-network" class="panel" data-panel="network" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>网络诊断</h2>
+              <p>检查 DNS、系统代理和势途 GEO 服务端的实际连接</p>
+            </div>
+            <button id="run-diagnostics" class="primary-button" type="button">开始诊断</button>
+          </div>
+          <div class="settings-band">
+            <div>
+              <h3>连接方式</h3>
+              <p>挂载系统代理时连接异常，可切换为直连势途服务。</p>
+            </div>
+            <div class="segmented" data-setting="networkMode">
+              <button class="segmented-button" type="button" data-value="system">跟随系统</button>
+              <button class="segmented-button" type="button" data-value="direct">直连势途</button>
+            </div>
+          </div>
+          <div id="diagnostic-grid" class="diagnostic-grid"></div>
+        </section>
+
+        <section id="panel-settings" class="panel" data-panel="settings" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>桌面设置</h2>
+              <p>设置只保存在这台电脑，不改变云端账号数据</p>
+            </div>
+          </div>
+          <div class="settings-band">
+            <div>
+              <h3>文件保存方式</h3>
+              <p>每次选择保存位置，或自动存入「下载/势途 GEO」。</p>
+            </div>
+            <div class="segmented" data-setting="downloadBehavior">
+              <button class="segmented-button" type="button" data-value="ask">每次询问</button>
+              <button class="segmented-button" type="button" data-value="automatic">自动保存</button>
+            </div>
+          </div>
+          <div class="settings-band">
+            <div>
+              <h3>后台任务</h3>
+              <p>关闭主窗口后客户端保留在系统托盘，完成时仍会发出系统通知。</p>
+            </div>
+            <button id="open-network-settings" class="secondary-button" type="button">查看网络设置</button>
+          </div>
+        </section>
+
+        <section id="panel-updates" class="panel" data-panel="updates" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>版本更新</h2>
+              <p>正式发布版会自动检查 GitHub 安全更新</p>
+            </div>
+          </div>
+          <div class="update-panel">
+            <div>
+              <h3 id="update-title">检查客户端版本</h3>
+              <p id="update-message">当前已是最新版本</p>
+            </div>
+            <button id="check-updates" class="primary-button" type="button">检查更新</button>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="./desktop-center.js"></script>
+  </body>
+</html>

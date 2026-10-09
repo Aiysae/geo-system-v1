@@ -134,6 +134,7 @@ function help() {
   auth status
 
 客户与任务
+  plan --request "帮我看看这个品牌在 AI 里有没有被推荐" [--client-hint 客户名]
   clients list
   clients get <clientId> [--team-id id] [--sections core,penetration]
   tasks list [--client-id id] [--team-id id] [--status running]
@@ -162,14 +163,19 @@ function help() {
 执行
   actions run <action> --file payload.json [--dry-run]
   penetration questions --file payload.json [--dry-run]
-  automation get|save|status|run|delete --file payload.json [--dry-run]
+  automation get|save|status|run|cancel|delete --file payload.json [--dry-run]
   research run|compare --file payload.json [--dry-run]
   diagnosis run --file payload.json [--dry-run]
   keywords extract|advantages|strategy|website-prompt|questions --file payload.json [--dry-run]
   articles generate|rewrite|batch|plan|extract|analyze-brands --file payload.json [--dry-run]
+  articles batch-delete --file payload.json [--dry-run]
   articles materials-list|materials-import|materials-delete --file payload.json [--dry-run]
   articles media-upload|media-run --file payload.json [--dry-run]
-  feedback action|import|report|report-options|report-manage|profile|visibility --file payload.json [--dry-run]
+  feedback action|action-delete|import|report|report-options|report-manage|profile|visibility --file payload.json [--dry-run]
+  feedback automation-get|automation-save|automation-status|automation-run|automation-retry|automation-delete --file payload.json [--dry-run]
+  feedback reminder-get|reminder-update --file payload.json [--dry-run]
+  publishing plan-get|plan-recommend|plan-create|plan-activate|plan-delete --file payload.json [--dry-run]
+  publishing tasks-list|tasks-claim|task-complete|task-fail --file payload.json [--dry-run]
   knowledge import|commit --file payload.json [--dry-run]
   capabilities
 
@@ -185,6 +191,7 @@ const ACTION_COMMANDS = new Map([
   ["automation:save", "penetration.automation.save"],
   ["automation:status", "penetration.automation.set-status"],
   ["automation:run", "penetration.automation.run"],
+  ["automation:cancel", "penetration.automation.cancel"],
   ["automation:delete", "penetration.automation.delete"],
   ["keywords:extract", "keyword.extract"],
   ["keywords:advantages", "keyword.advantages"],
@@ -194,6 +201,7 @@ const ACTION_COMMANDS = new Map([
   ["articles:generate", "article.generate"],
   ["articles:rewrite", "article.rewrite"],
   ["articles:batch", "article.batch.run"],
+  ["articles:batch-delete", "article.batch.delete"],
   ["articles:plan", "article.strategy.plan"],
   ["articles:extract", "article.source.extract"],
   ["articles:analyze-brands", "article.brands.analyze"],
@@ -207,12 +215,30 @@ const ACTION_COMMANDS = new Map([
   ["articles:production-get", "article.production.get"],
   ["articles:production-cancel", "article.production.cancel"],
   ["feedback:action", "feedback.action.create"],
+  ["feedback:action-delete", "feedback.action.delete"],
   ["feedback:import", "feedback.actions.import"],
   ["feedback:report", "feedback.report.create"],
   ["feedback:report-options", "feedback.report.options"],
   ["feedback:report-manage", "feedback.report.manage"],
   ["feedback:profile", "feedback.profile.update"],
   ["feedback:visibility", "feedback.visibility.update"],
+  ["feedback:automation-get", "feedback.automation.get"],
+  ["feedback:automation-save", "feedback.automation.save"],
+  ["feedback:automation-status", "feedback.automation.set-status"],
+  ["feedback:automation-run", "feedback.automation.run"],
+  ["feedback:automation-retry", "feedback.automation.retry"],
+  ["feedback:automation-delete", "feedback.automation.delete"],
+  ["feedback:reminder-get", "feedback.reminder-settings.get"],
+  ["feedback:reminder-update", "feedback.reminder-settings.update"],
+  ["publishing:plan-get", "publishing.plan.get"],
+  ["publishing:plan-recommend", "publishing.plan.recommend"],
+  ["publishing:plan-create", "publishing.plan.create"],
+  ["publishing:plan-activate", "publishing.plan.activate"],
+  ["publishing:plan-delete", "publishing.plan.delete"],
+  ["publishing:tasks-list", "publishing.tasks.list"],
+  ["publishing:tasks-claim", "publishing.tasks.claim"],
+  ["publishing:task-complete", "publishing.task.complete"],
+  ["publishing:task-fail", "publishing.task.fail"],
   ["knowledge:import", "knowledge.import"],
   ["knowledge:commit", "knowledge.commit"],
   ["reports:create", "report.create"],
@@ -249,6 +275,16 @@ async function main() {
   }
   if (group === "capabilities") {
     const result = await apiRequest("/capabilities", { flags })
+    return print(result.data, flags)
+  }
+  if (group === "plan") {
+    const request = String(flags.request || positional.slice(1).join(" ") || "").trim()
+    if (!request) throw new Error("请通过 --request 提供需要规划的业务需求")
+    const result = await apiRequest("/plan", {
+      method: "POST",
+      body: { request, clientHint: flags.clientHint || undefined },
+      flags,
+    })
     return print(result.data, flags)
   }
   if (group === "clients" && command === "list") {

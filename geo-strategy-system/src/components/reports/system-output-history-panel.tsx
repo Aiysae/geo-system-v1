@@ -8,7 +8,9 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   Gauge,
+  Globe2,
   History,
   Loader2,
   Radar,
@@ -429,6 +431,10 @@ function ResultContent({ record }: { record: SystemOutputRecord }) {
           </div>
         </section>
         <ListSection title="建议动作" items={result.recommendations} />
+        <ResearchEvidenceSection
+          sources={result.sources || []}
+          audit={result.evidenceAudit}
+        />
       </>
     )
   }
@@ -438,9 +444,10 @@ function ResultContent({ record }: { record: SystemOutputRecord }) {
     if (!result) return <MissingResult />
     const comparisons = result.comparisons?.length ? result.comparisons : [result]
     return (
-      <section className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5">
-        <h4 className="text-sm font-semibold text-slate-800">竞品对比结论</h4>
-        <div className="mt-3 space-y-3">
+      <>
+        <section className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5">
+          <h4 className="text-sm font-semibold text-slate-800">竞品对比结论</h4>
+          <div className="mt-3 space-y-3">
           {comparisons.map((item, index) => (
             <div key={`${item.competitor}-${index}`} className="border-l-2 border-[#1677FF] pl-3">
               <div className="text-xs font-semibold text-slate-800">{item.competitor}</div>
@@ -450,8 +457,13 @@ function ResultContent({ record }: { record: SystemOutputRecord }) {
               </div>
             </div>
           ))}
-        </div>
-      </section>
+          </div>
+        </section>
+        <ResearchEvidenceSection
+          sources={result.sources || []}
+          audit={result.evidenceAudit}
+        />
+      </>
     )
   }
 
@@ -505,6 +517,55 @@ function ResultContent({ record }: { record: SystemOutputRecord }) {
   }
 
   return <MissingResult />
+}
+
+function ResearchEvidenceSection({
+  sources,
+  audit,
+}: {
+  sources: NonNullable<ResearchResult["sources"]>
+  audit?: ResearchResult["evidenceAudit"]
+}) {
+  if (sources.length === 0) {
+    return (
+      <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-800">
+        这是旧版历史结果，当时未保存完整的联网证据快照。
+      </section>
+    )
+  }
+  return (
+    <section className="overflow-hidden rounded-lg border border-blue-100 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 bg-blue-50/70 px-4 py-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-800">
+          <Globe2 className="h-4 w-4 text-blue-600" />
+          联网来源与证据
+        </div>
+        <div className="text-[10px] text-slate-500">
+          {sources.length} 条可读来源 · {audit?.uniqueDomainCount ?? new Set(sources.map(source => source.domain)).size} 个独立网站
+        </div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {sources.map(source => (
+          <a
+            key={`${source.id}-${source.url}`}
+            href={source.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="grid gap-1 px-4 py-2.5 transition hover:bg-blue-50/50 sm:grid-cols-[3rem_minmax(0,1fr)_auto]"
+          >
+            <span className="font-mono text-[10px] font-bold text-blue-700">{source.id}</span>
+            <span className="min-w-0">
+              <span className="block text-xs font-medium text-slate-700">{source.title}</span>
+              <span className="block break-all text-[10px] leading-4 text-slate-400">{source.url}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+              {source.domain}<ExternalLink className="h-3 w-3" />
+            </span>
+          </a>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 function SummaryMetric({ label, value }: { label: string; value: string }) {

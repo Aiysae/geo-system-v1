@@ -209,7 +209,14 @@ export async function createUser(input: {
   const created = await kv.set(KEY_EMAIL(email), user.id, { nx: true })
   if (!created) throw new Error("该邮箱已注册，请直接登录")
 
-  await kv.set(KEY_USER(user.id), user)
+  try {
+    await kv.set(KEY_USER(user.id), user)
+  } catch (error) {
+    // Release the reservation, or the email maps to a user that was never
+    // stored and can neither sign in nor register again.
+    await kv.del(KEY_EMAIL(email)).catch(() => undefined)
+    throw error
+  }
   await kv.sadd(KEY_USER_SET, user.id)
   if (user.managedByUserId) {
     await kv.sadd(KEY_MANAGED_USER_SET(user.managedByUserId), user.id)
@@ -218,17 +225,30 @@ export async function createUser(input: {
   return toPublicUser(user)
 }
 
+let timingPaddingHash: Promise<string> | null = null
+
+/**
+ * Runs one scrypt verification against a throwaway hash so an unknown email
+ * takes as long as a wrong password and cannot be detected by response time.
+ */
+async function padPasswordCheckTiming(password: string): Promise<void> {
+  timingPaddingHash ??= hashPassword(randomBytes(18).toString("base64url"))
+  await verifyPassword(password, await timingPaddingHash).catch(() => false)
+}
+
 export async function authenticateUser(emailInput: string, password: string): Promise<PublicUser> {
   const email = normalizeEmail(emailInput)
   const userId = await kv.get<string>(KEY_EMAIL(email))
-  if (!userId) throw new Error("邮箱或密码不正确")
-
-  const user = await kv.get<AuthUser>(KEY_USER(userId))
-  if (!user) throw new Error("邮箱或密码不正确")
-  if (user.status !== "active") throw new Error("账号已停用，请联系管理员")
+  const user = userId ? await kv.get<AuthUser>(KEY_USER(userId)) : null
+  if (!user) {
+    await padPasswordCheckTiming(password)
+    throw new Error("邮箱或密码不正确")
+  }
 
   const valid = await verifyPassword(password, user.passwordHash)
   if (!valid) throw new Error("邮箱或密码不正确")
+  // Only reveal the account status to someone who knows the password.
+  if (user.status !== "active") throw new Error("账号已停用，请联系管理员")
 
   const updated: AuthUser = {
     ...user,
@@ -380,16 +400,22 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
   const user = await kv.get<AuthUser>(KEY_USER(record.userId))
   if (!user || user.status !== "active") throw new Error("用户不存在或已停用")
 
+  const passwordHash = await hashPassword(newPassword)
+  // Deleting the token is the single-use claim: concurrent submissions of the
+  // same link race here and only one of them may change the password.
+  if (await kv.del(KEY_PASSWORD_RESET_TOKEN(tokenHash)) !== 1) {
+    throw new Error("重置链接无效或已过期")
+  }
+
   const now = new Date().toISOString()
   const updated: AuthUser = {
     ...user,
-    passwordHash: await hashPassword(newPassword),
+    passwordHash,
     mustChangePassword: false,
     authVersion: currentAuthVersion(user) + 1,
     updatedAt: now,
   }
   await kv.set(KEY_USER(user.id), updated)
-  await kv.del(KEY_PASSWORD_RESET_TOKEN(tokenHash))
 
   const request = await kv.get<PasswordResetRequest>(KEY_PASSWORD_RESET_REQUEST(record.requestId))
   if (request) {

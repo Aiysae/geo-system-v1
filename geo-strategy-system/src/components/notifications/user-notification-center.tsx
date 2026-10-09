@@ -19,6 +19,7 @@ import type {
   UserNotificationSnapshot,
   UserNotificationType,
 } from "@/lib/admin-payment-request-types"
+import { notifyDesktop } from "@/lib/desktop-runtime"
 
 const POLL_INTERVAL_MS = 20_000
 
@@ -26,6 +27,13 @@ function notificationMeta(
   type: UserNotificationType,
   metadata?: Record<string, unknown>,
 ) {
+  if (type === "penetration_automation_completed") {
+    return {
+      Icon: CheckCircle2,
+      iconClass: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      actionLabel: "查看报告",
+    }
+  }
   if (type === "penetration_automation_alert") {
     return {
       Icon: TriangleAlert,
@@ -105,6 +113,12 @@ export function UserNotificationCenter({
       if (fresh) {
         shown.current.add(fresh.id)
         setToast(fresh)
+        void notifyDesktop({
+          id: `message:${fresh.id}`,
+          title: fresh.title,
+          body: fresh.body,
+          actionUrl: fresh.actionUrl,
+        })
       }
     } catch {
       // Notification polling must not interrupt the current workflow.

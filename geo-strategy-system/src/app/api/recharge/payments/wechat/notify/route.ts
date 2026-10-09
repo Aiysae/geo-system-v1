@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
     console.error("[wechat] notification failed", transaction?.out_trade_no || envelope?.id || "unknown", message)
     if (envelope) {
       await savePaymentEvent(paymentEvent({ envelope, transaction, status: "failed", error: message }))
+        .catch(saveError => console.error("[wechat] failed to record notification failure", saveError))
     }
     return failureResponse(message)
   }

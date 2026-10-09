@@ -1,6 +1,9 @@
 import "server-only"
 
+import { articleCheckpointContext } from "@/lib/article-checkpoint"
+
 import { buildAiChatUrl } from "@/lib/ai-settings"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
 import { listAiGatewayProvidersPublic } from "@/lib/ai-gateways"
@@ -9,7 +12,7 @@ import { resolveArticleModel, type ResolvedArticleModel } from "@/lib/article-mo
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import type { LlmTokenUsage } from "@/lib/llm/openai-compat"
 import { nativeModelChat } from "@/lib/llm/native-chat"
-import { recordAiUsageQuietly } from "@/lib/ai-usage"
+import { addTokenUsage, recordAiUsageQuietly } from "@/lib/ai-usage"
 import {
   buildArticleWebEnhancedPrompt,
   collectArticleWebContext,
@@ -19,7 +22,8 @@ import type {
   LlmMode,
 } from "@/types"
 import {
-  hasAiCredentialCandidate,
+  hasConfiguredAiCredential,
+  getAiCredentialPoolAvailability,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
   resolveAiCredentialModel,
@@ -30,6 +34,23 @@ import type { AiCredentialVendor } from "@/types/ai-credentials"
 interface CircuitState {
   failures: number
   openedUntil: number
+}
+
+/**
+ * "capacity": every healthy account is busy serving other article tasks, so
+ * the task is simply queued. "cooldown": the route is recovering from
+ * upstream failures. They get different wait limits in background jobs.
+ */
+export type ArticleModelWaitReason = "capacity" | "cooldown"
+
+export class ArticleModelWaitError extends Error {
+  readonly reason: ArticleModelWaitReason
+
+  constructor(message = "模型线路暂时冷却，等待恢复后继续", reason: ArticleModelWaitReason = "cooldown") {
+    super(message)
+    this.name = "ArticleModelWaitError"
+    this.reason = reason
+  }
 }
 
 export interface ArticleModelChatInput {
@@ -54,6 +75,7 @@ export interface ArticleModelChatInput {
 interface RuntimeArticleModelChatInput extends ArticleModelChatInput {
   signal: AbortSignal
   deadlineAt?: number
+  timing: { queueMs: number; requestMs: number; attempts: number }
 }
 
 export interface ArticleModelChatResult {
@@ -110,7 +132,7 @@ function credentialVendor(model: ResolvedArticleModel): AiCredentialVendor | nul
 }
 
 function circuitKey(model: ResolvedArticleModel): string {
-  return model.providerId || String(model.providerKey)
+  return `${model.providerId || model.providerKey}:${model.model}`
 }
 
 function circuitIsOpen(model: ResolvedArticleModel): boolean {
@@ -136,6 +158,31 @@ function recordFailure(model: ResolvedArticleModel, error: unknown): void {
       ? Date.now() + CIRCUIT_COOLDOWN_MS
       : 0,
   })
+}
+
+/**
+ * Doubao Seed models think by default. On article calls that spent about 78%
+ * of output tokens and 120-170 s per draft, so drafts hit the 180 s request
+ * limit. The writer now receives explicit evidence rules and a self-check
+ * list instead, so thinking is off unless ARTICLE_DOUBAO_THINKING enables it.
+ */
+export function articleDoubaoThinkingMode(): "enabled" | "disabled" | "auto" {
+  const value = String(process.env.ARTICLE_DOUBAO_THINKING || "").trim().toLowerCase()
+  return value === "enabled" || value === "auto" ? value : "disabled"
+}
+
+function articleModelExtraBody(
+  model: ResolvedArticleModel,
+  input: RuntimeArticleModelChatInput,
+): Record<string, unknown> | undefined {
+  if (input.mode === "judge" && model.providerKey === "qwen" && model.model === "qwen-plus") {
+    return { enable_thinking: false }
+  }
+  // Only Seed models accept the thinking switch; older Doubao models do not.
+  if (model.providerKey === "doubao" && /seed/i.test(model.model)) {
+    return { thinking: { type: articleDoubaoThinkingMode() } }
+  }
+  return undefined
 }
 
 async function acquireProviderSlot(
@@ -166,7 +213,10 @@ async function executeModel(
   if (circuitIsOpen(model)) {
     throw new Error(`${model.label} 线路正在短暂恢复中`)
   }
-  const release = await acquireProviderSlot(model, input)
+  const queueStartedAt = Date.now()
+  const release = await acquireProviderSlot(model, input).finally(() => {
+    input.timing.queueMs += Date.now() - queueStartedAt
+  })
   const startedAt = Date.now()
   let usage: LlmTokenUsage | undefined
   try {
@@ -180,14 +230,9 @@ async function executeModel(
     )
     const requestTimeoutSec = Math.max(1, Math.ceil(requestTimeoutMs / 1000))
     const onUsage = (value: LlmTokenUsage) => {
-      usage = usage
-        ? {
-            promptTokens: usage.promptTokens + value.promptTokens,
-            completionTokens: usage.completionTokens + value.completionTokens,
-            totalTokens: usage.totalTokens + value.totalTokens,
-          }
-        : value
+      usage = addTokenUsage(usage, value)
     }
+    input.timing.attempts += 1
     const content = model.protocol === "openai_chat"
       ? await openaiCompatChat({
           url: buildAiChatUrl(model),
@@ -200,6 +245,9 @@ async function executeModel(
           maxTokens: input.maxTokens,
           jsonMode: input.jsonMode,
           mode: input.mode,
+          timeContextPosition: "end",
+          transportRetries: input.mode === "judge" ? 0 : 1,
+          extraBody: articleModelExtraBody(model, input),
           timeoutSec: requestTimeoutSec,
           signal: input.signal,
           label: `${model.label}·${input.label}`,
@@ -229,6 +277,10 @@ async function executeModel(
         providerKey: model.providerKey,
         providerName: model.label,
         modelId: model.model,
+        credentialId: model.providerId,
+        usageReported: Boolean(usage),
+        cachedPromptTokens: usage?.cachedPromptTokens,
+        reasoningTokens: usage?.reasoningTokens,
         promptTokens: usage?.promptTokens,
         completionTokens: usage?.completionTokens,
         totalTokens: usage?.totalTokens,
@@ -240,14 +292,21 @@ async function executeModel(
     return content
   } catch (error) {
     const stopped = input.signal.aborted || isAbortFailure(error)
-    if (!stopped) recordFailure(model, error)
-    if (input.usageContext && !stopped) {
+    const deadlineExpired = Boolean(input.deadlineAt && Date.now() >= input.deadlineAt)
+    if (!stopped || deadlineExpired) recordFailure(
+      model, deadlineExpired ? new Error("upstream timed out at article stage deadline") : error,
+    )
+    if (input.usageContext) {
       await recordAiUsageQuietly({
         userId: input.usageContext.userId,
         task: input.usageContext.task,
         providerKey: model.providerKey,
         providerName: model.label,
         modelId: model.model,
+        credentialId: model.providerId,
+        usageReported: Boolean(usage),
+        cachedPromptTokens: usage?.cachedPromptTokens,
+        reasoningTokens: usage?.reasoningTokens,
         promptTokens: usage?.promptTokens,
         completionTokens: usage?.completionTokens,
         totalTokens: usage?.totalTokens,
@@ -259,8 +318,33 @@ async function executeModel(
     }
     throw error
   } finally {
+    input.timing.requestMs += Date.now() - startedAt
     await release()
   }
+}
+
+export async function assertArticleModelPoolAvailable(model: ResolvedArticleModel): Promise<void> {
+  const vendor = credentialVendor(model)
+  if (!vendor || !await hasConfiguredAiCredential(vendor, "article")) return
+  const availability = await getAiCredentialPoolAvailability({
+    vendor, module: "article", model: model.model, requiredCapabilities: ["chat"],
+  })
+  if (availability.state === "temporary") throw new ArticleModelWaitError(availability.message)
+  if (availability.state === "blocked") throw new Error(availability.message)
+}
+
+/** Pin the requested/default model before reserving credits or saving a new batch. */
+export async function prepareArticleModelSelection(provider: unknown, requestedModel?: unknown) {
+  const model = await resolveArticleModel(provider, requestedModel)
+  if (!model.model) throw new Error("请先配置文章生成的具体型号")
+  if (!model.apiKey) throw new Error(`${model.label} API Key 未配置，请先在后台补全`)
+  try {
+    await assertArticleModelPoolAvailable(model)
+  } catch (error) {
+    // Temporary health state does not invalidate the user's model selection.
+    if (!(error instanceof ArticleModelWaitError)) throw error
+  }
+  return { modelProvider: model.providerKey, model: model.model }
 }
 
 async function callModel(
@@ -275,18 +359,11 @@ async function callModel(
   const excludedCredentialIds: string[] = []
   let lastError: unknown
   const quotaEstimate = estimateAiCredentialQuota(input)
-  const preferredRequest = {
-    vendor,
-    module: "article" as const,
-    model: model.model,
-    requiredCapabilities: ["chat" as const],
-  }
+  const hasPool = await hasConfiguredAiCredential(vendor, "article")
   const selectionModel = model.model
-    && await hasAiCredentialCandidate(preferredRequest)
-    ? model.model
-    : undefined
   for (let attempt = 0; attempt < 3; attempt += 1) {
     throwIfArticleStageStopped(input)
+    const queueStartedAt = Date.now()
     const lease = await tryAcquireAiCredential({
       vendor,
       module: "article",
@@ -301,10 +378,24 @@ async function callModel(
       leaseSeconds: Math.min(60 * 60, Math.max(60, model.timeout + 60)),
       signal: input.signal,
       ...quotaEstimate,
+    }).catch(error => {
+      if (attempt === 0 && !input.signal.aborted && classifyAiCredentialFailure(error).failureClass === "local_capacity") {
+        throw new ArticleModelWaitError("模型账号当前繁忙，等待空闲通道后继续", "capacity")
+      }
+      throw error
+    }).finally(() => {
+      input.timing.queueMs += Date.now() - queueStartedAt
     })
     if (!lease) {
-      if (attempt === 0) {
+      if (attempt === 0 && !hasPool) {
         return executeModel(model, input, usedFallback)
+      }
+      if (attempt === 0 && hasPool) {
+        const availability = await getAiCredentialPoolAvailability({
+          vendor, module: "article", model: selectionModel, requiredCapabilities: ["chat"],
+        })
+        if (availability.state === "temporary") throw new ArticleModelWaitError(availability.message)
+        if (availability.state === "blocked") throw new Error(availability.message)
       }
       break
     }
@@ -339,14 +430,30 @@ async function callModel(
         usedFallback || attempt > 0,
       )
       await recordAiCredentialSuccess(
-        lease.credential.id,
+        lease.credential,
         Date.now() - startedAt,
+        {
+          module: "article",
+          model: credentialModel,
+          requiredCapabilities: ["chat"],
+        },
       )
       return content
     } catch (error) {
       lastError = error
-      if (input.signal.aborted || isAbortFailure(error)) throw error
-      await recordAiCredentialFailure(lease.credential, error)
+      if (input.signal.aborted || isAbortFailure(error)) {
+        if (input.deadlineAt && Date.now() >= input.deadlineAt) {
+          await recordAiCredentialFailure(lease.credential, new Error("upstream timed out at article stage deadline"), {
+            module: "article", model: credentialModel, requiredCapabilities: ["chat"],
+          })
+        }
+        throw error
+      }
+      await recordAiCredentialFailure(lease.credential, error, {
+        module: "article",
+        model: credentialModel,
+        requiredCapabilities: ["chat"],
+      })
       if (!credentialFailoverFailure(error)) throw error
       console.warn(
         `[article-credential-pool] ${model.label}/${model.model} 当前账号不可用，尝试同模型下一账号。`,
@@ -393,6 +500,7 @@ async function runArticleModelChatWithinBudget(
   let connectivity: ArticleGenerationConnectivity | undefined
   if (input.webPolicy === "required_with_fallback") {
     const context = await collectArticleWebContext({
+      signal: input.signal,
       queries: input.webSearchQueries?.length
         ? input.webSearchQueries
         : [input.user],
@@ -444,7 +552,7 @@ async function runArticleModelChatWithinBudget(
     } catch (error) {
       lastError = error
       if (input.signal.aborted || isAbortFailure(error)) throw error
-      if (!retryableFailure(error) || index === candidates.length - 1) throw error
+      if (error instanceof ArticleModelWaitError || !retryableFailure(error) || index === candidates.length - 1) throw error
       console.warn(
         `[article-model-fallback] ${model.label}/${model.model} 暂时不可用，尝试同模型备用线路。`,
       )
@@ -464,6 +572,7 @@ export async function runArticleModelChat(
     : undefined
   const deadlineAt = totalTimeoutMs ? Date.now() + totalTimeoutMs : undefined
   let timedOut = false
+  const timing = { queueMs: 0, requestMs: 0, attempts: 0 }
   const abortFromParent = () => controller.abort()
   if (input.signal?.aborted) controller.abort()
   else input.signal?.addEventListener("abort", abortFromParent, { once: true })
@@ -479,13 +588,14 @@ export async function runArticleModelChat(
       ...input,
       signal: controller.signal,
       deadlineAt,
+      timing,
     })
     if (timedOut) throw articleAbortError()
     return result
   } catch (error) {
     if (timedOut) {
       const timeoutError = new Error(
-        `${input.label}处理超时（超过 ${Math.ceil((totalTimeoutMs || 0) / 1000)} 秒），已停止当前阶段的排队与线路重试`,
+        `${input.label}处理超时（超过 ${Math.ceil((totalTimeoutMs || 0) / 1000)} 秒），已停止当前阶段的排队与线路重试（排队 ${Math.ceil(timing.queueMs / 1000)} 秒，请求 ${Math.ceil(timing.requestMs / 1000)} 秒，线路尝试 ${timing.attempts} 次）`,
       )
       timeoutError.name = "ArticleStageTimeoutError"
       throw timeoutError
@@ -493,6 +603,11 @@ export async function runArticleModelChat(
     if (input.signal?.aborted) throw articleAbortError()
     throw error
   } finally {
+    if (input.usageContext) console.info("[article-stage]", JSON.stringify({
+      jobId: articleCheckpointContext.getStore()?.jobId,
+      task: input.usageContext.task, label: input.label,
+      budgetMs: totalTimeoutMs, ...timing, timedOut,
+    }))
     if (timeout) clearTimeout(timeout)
     input.signal?.removeEventListener("abort", abortFromParent)
   }

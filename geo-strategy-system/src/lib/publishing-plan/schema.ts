@@ -86,4 +86,7 @@ CREATE INDEX IF NOT EXISTS geo_publishing_tasks_v1_client_date_idx
   ON geo_publishing_tasks_v1 (owner_user_id, client_id, planned_date, status);
 CREATE INDEX IF NOT EXISTS geo_publishing_tasks_v1_claim_idx
   ON geo_publishing_tasks_v1 (owner_user_id, plan_id, status, claim_expires_at, planned_date);
+CREATE UNIQUE INDEX IF NOT EXISTS geo_publishing_tasks_v1_execution_action_idx
+  ON geo_publishing_tasks_v1 (owner_user_id, execution_action_id)
+  WHERE execution_action_id IS NOT NULL;
 `

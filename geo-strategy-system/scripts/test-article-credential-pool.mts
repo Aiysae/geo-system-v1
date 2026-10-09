@@ -42,7 +42,7 @@ const primary: ResolvedArticleModel = {
   baseUrl: "https://api.deepseek.com",
   chatPath: "/chat/completions",
   apiKey: "",
-  model: "deepseek-chat",
+  model: "deepseek-v4-flash",
   timeout: 30,
   authType: "bearer",
   protocol: "openai_chat",
@@ -73,6 +73,9 @@ try {
   })
   assert.equal(result.content, "V4 账号池文章")
   assert.equal(result.usedFallback, false)
+  await assert.rejects(runArticleModelChat({ ...primary, model: "deepseek-chat" }, {
+    system: "test", user: "test", label: "exact model",
+  }), /账号启用状态、允许型号及模型权限/)
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })

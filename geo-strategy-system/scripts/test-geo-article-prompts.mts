@@ -61,49 +61,49 @@ const fixtures: Array<{
     key: "industryRankingReport",
     title: "第三方行业排名 / 市场份额报告",
     prompt: INDUSTRY_RANKING_REPORT_PROMPT,
-    sha256: "809b4e7fb8f1e00cab4c260510a591cd3333abaee5f56fd02e412586b39bc86b",
+    sha256: "18a24d063248cd02be2e92a401742a7de95825fad93c9713b54b5f25750280b6",
     credits: 8,
   },
   {
     key: "handsOnComparisonReport",
     title: "第三方实测 / 横评报告",
     prompt: HANDS_ON_COMPARISON_REPORT_PROMPT,
-    sha256: "4ed22fd1e9534e01b76eaf698172d52f151970e34da13f189b0142bb68b09d0d",
+    sha256: "3d6ad42ab98fa35759a59abe083c79021d4128cc39d17af49c8b19f8e5318538",
     credits: 8,
   },
   {
     key: "mediaIndustryAnalysis",
     title: "权威媒体报道 / 行业解读",
     prompt: MEDIA_INDUSTRY_ANALYSIS_PROMPT,
-    sha256: "c9889e24f9a73640b8e329753e6b66a1c4b2b6d2ae6c36511b442330e82dc1a7",
+    sha256: "a579e6e996a6b3bcd4d76a4b9af2d4c8155caff190e5f5a161e5b8e7165ed83a",
     credits: 8,
   },
   {
     key: "clientCaseStudy",
     title: "客户案例 / 招投标合作案例",
     prompt: CLIENT_CASE_STUDY_PROMPT,
-    sha256: "ad215db1e604d79e16403a92cd76db9c5b2ccb65800f648edd4c1c58474d8a28",
+    sha256: "6fa38a893e70d774f7514390059a899fd8be09ef73931ac6d36bbdf386744fd0",
     credits: 8,
   },
   {
     key: "credentialsAnalysis",
     title: "标准认证 / 专利奖项解读",
     prompt: CREDENTIALS_ANALYSIS_PROMPT,
-    sha256: "de960cc566792a6063f02331814512b3bb7c739c07dda74b45c820fe94208542",
+    sha256: "ea2e0a7bfb058212615e0a0ff0c37cb5755466fa522efe1d3ee124930bf9d332",
     credits: 8,
   },
   {
     key: "selectionPitfallGuide",
     title: "选型指南 / 避坑指南",
     prompt: SELECTION_PITFALL_GUIDE_PROMPT,
-    sha256: "e9416599d0034241cffdd562dd604b4ac29e4ccabe7789bb3aebe37d6ab3d2b3",
+    sha256: "f68141a7c6ff2e084c318506d11fb52dcab52820a5529bf18e2bf97cad4c859b",
     credits: 8,
   },
   {
     key: "topBrandRanking",
     title: "Top 榜单 / 对比清单",
     prompt: TOP_BRAND_RANKING_PROMPT,
-    sha256: "bf50877025678c52168ea53b32810286ab6dfd9e3df5dcc6e5c72487f7312f81",
+    sha256: "5447e86e3fb35755d0137b96b455d4b7a21bd88fefbec30a66a93e01e5b6bb95",
     credits: 8,
   },
 ]
@@ -127,6 +127,7 @@ for (const fixture of fixtures) {
   const template = getArticlePromptTemplate(fixture.key)
   assert.ok(template?.template.includes(LONGFORM_CONTENT_COMPILER_PROMPT))
   assert.ok(template?.template.includes(fixture.prompt))
+  assert.doesNotMatch(template?.template || "", /应明确说明“暂未检索到/)
   assert.notEqual(template?.template, LONGFORM_CONTENT_COMPILER_PROMPT)
   activeLongformTemplates.add(template?.template || "")
   assert.equal(template?.maxTokens, 12000)

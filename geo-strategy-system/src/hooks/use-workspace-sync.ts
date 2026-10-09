@@ -20,7 +20,6 @@ import {
 } from "@/lib/storage"
 import {
   acknowledgeCachedWorkspaceDraftPatch,
-  clearCachedWorkspaceDraft,
   deleteCachedWorkspaceClient,
   mergeWorkspaceVersions,
   readCachedWorkspaceDraft,
@@ -32,6 +31,7 @@ import {
   WORKSPACE_SECTIONS,
   composeClientData,
   emptyWorkspaceVersions,
+  isLocalWorkspaceField,
   normalizeWorkspaceSections,
   sectionsForClientPatch,
   splitClientData,
@@ -153,6 +153,7 @@ export function useWorkspaceSync(
   const versionsRef = useRef<Record<string, WorkspaceVersions>>({})
   const sectionFetchesRef = useRef<Record<string, Promise<WorkspaceSectionSnapshot>>>({})
   const loadedDraftsRef = useRef(new Set<string>())
+  const localDraftsRef = useRef<Record<string, Partial<Client>>>({})
   const pendingPatchesRef = useRef<Record<string, Partial<Client>>>({})
   const pendingCreatesRef = useRef<Record<string, Client>>({})
   const creatingClientsRef = useRef(new Set<string>())
@@ -186,13 +187,29 @@ export function useWorkspaceSync(
     loadedDraftsRef.current.add(clientId)
     const draft = await readCachedWorkspaceDraft(storageUserId, clientId)
     if (Object.keys(draft).length === 0) return {}
-    pendingPatchesRef.current[clientId] = {
-      ...draft,
-      ...(pendingPatchesRef.current[clientId] || {}),
+    const localDraft = Object.fromEntries(
+      Object.entries(draft).filter(([field]) => isLocalWorkspaceField(field as keyof Client)),
+    ) as Partial<Client>
+    const cloudDraft = Object.fromEntries(
+      Object.entries(draft).filter(([field]) => !isLocalWorkspaceField(field as keyof Client)),
+    ) as Partial<Client>
+    localDraftsRef.current[clientId] = {
+      ...localDraft,
+      ...(localDraftsRef.current[clientId] || {}),
+    }
+    if (Object.keys(cloudDraft).length > 0) {
+      pendingPatchesRef.current[clientId] = {
+        ...cloudDraft,
+        ...(pendingPatchesRef.current[clientId] || {}),
+      }
     }
     const current = clientsRef.current.find(client => client.id === clientId)
-    if (current) commitClient({ ...current, ...pendingPatchesRef.current[clientId] })
-    return draft
+    if (current) commitClient({
+      ...current,
+      ...(localDraftsRef.current[clientId] || {}),
+      ...(pendingPatchesRef.current[clientId] || {}),
+    })
+    return cloudDraft
   }, [commitClient, storageUserId])
 
   const applySnapshot = useCallback((
@@ -220,6 +237,7 @@ export function useWorkspaceSync(
     )
     const client = {
       ...composeClientData(mergedSections),
+      ...(localDraftsRef.current[snapshot.clientId] || {}),
       ...(pendingPatchesRef.current[snapshot.clientId] || {}),
     }
     commitClient(client)
@@ -594,6 +612,7 @@ export function useWorkspaceSync(
           return next
         })
         delete pendingPatchesRef.current[id]
+        delete localDraftsRef.current[id]
         await deleteCachedWorkspaceClient(storageUserId, id)
         setClientDirectory(current => current.filter(client => client.id !== id))
         setSyncState({ phase: "saved", message: "云端客户已删除", savedAt: new Date().toISOString() })
@@ -618,12 +637,24 @@ export function useWorkspaceSync(
       : patch
     if (Object.keys(scopedPatch).length === 0) return
     const localPatch = { ...scopedPatch, updatedAt: new Date().toISOString() }
+    const cloudPatch = Object.fromEntries(
+      Object.entries(scopedPatch).filter(([field]) => !isLocalWorkspaceField(field as keyof Client)),
+    ) as Partial<Client>
+    const deviceDraft = Object.fromEntries(
+      Object.entries(scopedPatch).filter(([field]) => isLocalWorkspaceField(field as keyof Client)),
+    ) as Partial<Client>
+    if (Object.keys(deviceDraft).length > 0) {
+      localDraftsRef.current[clientId] = {
+        ...(localDraftsRef.current[clientId] || {}),
+        ...deviceDraft,
+      }
+    }
     const current = clientsRef.current.find(client => client.id === clientId)
     if (current) {
       const next = { ...current, ...localPatch }
       const split = splitClientData(next)
       const changedSectionData = Object.fromEntries(
-        sectionsForClientPatch(scopedPatch)
+        sectionsForClientPatch(cloudPatch)
           .map(section => [section, split[section]]),
       )
       sectionDataRef.current[clientId] = {
@@ -638,12 +669,15 @@ export function useWorkspaceSync(
         )))
       }
     }
-    pendingPatchesRef.current[clientId] = {
-      ...(pendingPatchesRef.current[clientId] || {}),
-      ...scopedPatch,
+    if (Object.keys(cloudPatch).length > 0) {
+      pendingPatchesRef.current[clientId] = {
+        ...(pendingPatchesRef.current[clientId] || {}),
+        ...cloudPatch,
+      }
     }
     void writeCachedWorkspaceDraftPatch(storageUserId, clientId, scopedPatch)
-    if (shouldSaveWorkspacePatchImmediately(scopedPatch)) {
+    if (Object.keys(cloudPatch).length === 0) return
+    if (shouldSaveWorkspacePatchImmediately(cloudPatch)) {
       if (saveTimersRef.current[clientId]) clearTimeout(saveTimersRef.current[clientId])
       saveTimersRef.current[clientId] = setTimeout(() => void flushClient(clientId), 0)
     } else {
@@ -766,7 +800,11 @@ export function useWorkspaceSync(
   const loadCloudConflictVersion = useCallback(() => {
     if (!conflict) return
     delete pendingPatchesRef.current[conflict.clientId]
-    void clearCachedWorkspaceDraft(storageUserId, conflict.clientId)
+    void acknowledgeCachedWorkspaceDraftPatch(
+      storageUserId,
+      conflict.clientId,
+      conflict.localPatch,
+    )
     applySyncedClient(conflict.current)
     conflictRef.current = null
     setConflict(null)

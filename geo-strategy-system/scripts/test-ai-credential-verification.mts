@@ -171,6 +171,46 @@ try {
   const webRuntimeAfterFailure = await getAiCredentialRuntime(savedWeb.id)
   assert.deepEqual(webRuntimeAfterFailure.verifiedWebModels, ["doubao-web-working"])
   assert.equal(webRuntimeAfterFailure.healthStatus, "healthy")
+
+  // An account-level failure must not be retried for every configured model.
+  attemptedModels.length = 0
+  globalThis.fetch = async (_input, init) => {
+    attemptedModels.push(JSON.parse(String(init?.body || "{}")).model)
+    return Response.json({ error: {
+      code: "AccountOverdueError", message: "overdue balance",
+    } }, { status: 403 })
+  }
+  await assert.rejects(verifyAiCredentialWeb(savedWeb.id, { allModels: true }), /overdue/)
+  assert.equal(attemptedModels.length, 1, "billing failure must stop the model sweep")
+  const overdueWeb = await getAiCredentialRuntime(savedWeb.id)
+  assert.equal(overdueWeb.healthStatus, "unhealthy")
+  assert.ok(Date.parse(overdueWeb.cooldownUntil!) >= Date.now() + 59 * 60_000)
+  assert.ok(overdueWeb.verifiedWebModels.includes("doubao-web-working"),
+    "billing must not erase previously verified web capability")
+
+  attemptedModels.length = 0
+  await assert.rejects(verifyAiCredentialChat(saved.id, { allModels: true }), /overdue/)
+  assert.equal(attemptedModels.length, 1)
+
+  attemptedModels.length = 0
+  globalThis.fetch = async (_input, init) => {
+    attemptedModels.push(JSON.parse(String(init?.body || "{}")).model)
+    return Response.json({ error: { message: "insufficient balance" } }, { status: 429 })
+  }
+  await assert.rejects(verifyAiCredentialChat(savedKimi.id, { isProbe: true }), /balance/)
+  assert.equal(attemptedModels.length, 1, "a scheduled probe must not retry the same HTTP failure")
+
+  attemptedModels.length = 0
+  globalThis.fetch = async (_input, init) => {
+    attemptedModels.push(JSON.parse(String(init?.body || "{}")).model)
+    return attemptedModels.length === 1
+      ? Response.json({ choices: [{ message: { content: '{"ok":true}' }, finish_reason: "stop" }] })
+      : Response.json({ error: { message: "insufficient balance" } }, { status: 402 })
+  }
+  await assert.rejects(verifyAiCredentialChat(saved.id, { allModels: true }), /balance/)
+  assert.equal(attemptedModels.length, 2)
+  assert.equal((await getAiCredentialRuntime(saved.id)).healthStatus, "unhealthy",
+    "earlier success must not override a later account-level billing failure")
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })

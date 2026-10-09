@@ -1,7 +1,7 @@
 import "server-only"
 
 import * as z from "zod/v4"
-import { estimateBackgroundJob, isBackgroundJobKind } from "@/lib/background-jobs"
+import { estimateBackgroundJob, isBackgroundJobKind } from "@/lib/background-job-definitions"
 import { estimateQuestionJobCredits } from "@/lib/geo-strategy/question-jobs"
 import { moduleForBackgroundJob } from "@/lib/team-job-modules"
 import {
@@ -134,6 +134,12 @@ const penetrationAutomationSaveSchema = z.looseObject({
   inAppEnabled: z.boolean().optional().default(true),
   emailEnabled: z.boolean().optional().default(true),
   monthlyCreditLimit: z.number().int().min(1).max(1_000_000).optional(),
+  questions: z.array(z.string().min(1).max(2_000)).min(1).max(600).optional(),
+  questionIntents: z.array(z.object({
+    question: z.string().min(1).max(2_000),
+    category: penetrationQuestionCategorySchema,
+  })).max(600).optional(),
+  models: z.array(modelSchema).min(1).max(6).optional(),
   status: z.enum(["active", "paused"]).optional().default("active"),
 })
 
@@ -144,6 +150,11 @@ const penetrationAutomationStatusSchema = z.looseObject({
 
 const penetrationAutomationRunSchema = z.looseObject({
   ...penetrationAutomationScheduleIdShape,
+})
+
+const penetrationAutomationCancelSchema = z.looseObject({
+  ...penetrationAutomationScheduleIdShape,
+  executionId: z.string().min(1).max(240),
 })
 
 const penetrationAutomationDeleteSchema = z.looseObject({
@@ -185,6 +196,10 @@ const backgroundSchema = z.looseObject({
   payload: z.record(z.string(), z.unknown()).describe("兼容旧版后台任务参数；新接入应优先使用对应的专用动作"),
 })
 
+const articlePromptKeySchema = z.enum(
+  Object.keys(ARTICLE_PROMPT_PRICE_KEYS) as [keyof typeof ARTICLE_PROMPT_PRICE_KEYS, ...(keyof typeof ARTICLE_PROMPT_PRICE_KEYS)[]],
+).describe("文章类型标识，必须使用枚举值；不是自定义提示词或类型中文名称")
+
 const articleQuestionTaskSchema = z.looseObject({
   questionId: z.string().optional(),
   materialId: z.string().optional(),
@@ -192,7 +207,7 @@ const articleQuestionTaskSchema = z.looseObject({
   matchedAdvantage: z.string().max(3_000).optional(),
   intent: z.string().max(300).optional(),
   category: z.string().max(120).optional(),
-  promptKey: z.string().min(1),
+  promptKey: articlePromptKeySchema,
 })
 
 const articleVideoScriptConfigSchema = z.looseObject({
@@ -229,7 +244,7 @@ const articleBatchSchema = z.looseObject({
   questionTasks: z.array(articleQuestionTaskSchema).max(50).optional(),
   similarityRetry: z.boolean().optional().default(true),
   basePayload: z.looseObject({
-    promptKey: z.string().min(1),
+    promptKey: articlePromptKeySchema,
     modelProvider: z.string().min(1).optional().default("doubao"),
     model: z.string().optional(),
     clientName: z.string().optional(),
@@ -267,6 +282,11 @@ const articleBatchSchema = z.looseObject({
       message: "单问题视频文案必须提供匹配优势",
     })
   }
+})
+
+const articleBatchOperationSchema = z.looseObject({
+  ...clientContextShape,
+  batchId: z.string().min(1).max(240),
 })
 
 const reportSchema = z.looseObject({
@@ -429,7 +449,7 @@ const keywordQuestionsSchema = z.looseObject({
 
 const articleGenerationSchema = z.looseObject({
   ...clientContextShape,
-  promptKey: z.string().min(1).max(100),
+  promptKey: articlePromptKeySchema,
   modelProvider: z.string().min(1).max(100).optional().default("doubao"),
   model: z.string().max(200).optional(),
   clientName: z.string().max(300).optional(),
@@ -582,6 +602,7 @@ const feedbackActionSchema = z.looseObject({
     quantity: z.number().nonnegative().optional(),
     unit: z.string().max(40).optional(),
     platform: z.string().max(120).optional(),
+    platformKey: z.string().max(160).optional(),
     evidence: z.array(z.object({
       label: z.string().max(160),
       url: z.string().url().max(1_000),
@@ -592,6 +613,7 @@ const feedbackActionSchema = z.looseObject({
 const feedbackImportSchema = z.looseObject({
   ...clientContextShape,
   importId: z.string().max(200).optional(),
+  reconcilePublishingQuota: z.boolean().optional().default(true),
   defaults: z.object({
     category: feedbackCategorySchema.optional(),
     status: z.enum(["planned", "completed"]).optional(),
@@ -603,8 +625,18 @@ const feedbackImportSchema = z.looseObject({
     title: z.string().min(1).max(160),
     url: z.string().url().max(1_000),
     platform: z.string().max(120).optional(),
+    platformKey: z.string().max(160).optional(),
   })).min(1).max(200),
 })
+
+const feedbackActionDeleteSchema = z.looseObject({
+  ...clientContextShape,
+  actionId: z.string().min(1).max(240).optional(),
+  importBatchId: z.string().min(1).max(240).optional(),
+}).refine(
+  value => Boolean(value.actionId) !== Boolean(value.importBatchId),
+  { message: "actionId 与 importBatchId 必须且只能提供一个", path: ["actionId"] },
+)
 
 const feedbackReportSchema = z.looseObject({
   ...clientContextShape,
@@ -758,6 +790,8 @@ const publishingPlatformConfigSchema = z.looseObject({
 })
 
 const publishingPlanInputSchema = z.looseObject({
+  capacityMode: z.enum(["existing_accounts", "planned_expansion"]).optional().default("existing_accounts")
+    .describe("按现有账号严格排期，或允许计算需新增的账号数"),
   totalServiceFeeCents: z.number().int().positive().max(10_000_000_000),
   executionCostRateBps: z.number().int().min(3_000).max(3_500).optional().default(3_250),
   startDate: publishingDateSchema,
@@ -795,6 +829,10 @@ const publishingPlanCreateSchema = z.looseObject({
   recommendationGeneratedAt: z.string().datetime().optional(),
 })
 const publishingPlanActivateSchema = z.looseObject({
+  ...clientContextShape,
+  planId: z.string().min(1).max(240),
+})
+const publishingPlanDeleteSchema = z.looseObject({
   ...clientContextShape,
   planId: z.string().min(1).max(240),
 })
@@ -926,10 +964,10 @@ export const AGENT_ACTION_REGISTRY = {
   "penetration.automation.save": {
     mcpTool: "shitu_save_penetration_automation",
     title: "保存自动检测计划",
-    description: "创建或更新每天至每 7 天执行一次的渗透率检测计划和下降提醒阈值。",
+    description: "创建或更新每天至每 7 天执行一次的自动检测计划，并固定疑问句、问题意图、模型和下降提醒阈值。",
     module: "penetration",
     idempotent: true,
-    requiredScope: "penetration.execute",
+    requiredScope: "penetration.manage",
     billable: false,
     schema: penetrationAutomationSaveSchema,
   },
@@ -939,7 +977,7 @@ export const AGENT_ACTION_REGISTRY = {
     description: "将自动渗透率检测计划设置为启用或暂停。",
     module: "penetration",
     idempotent: true,
-    requiredScope: "penetration.execute",
+    requiredScope: "penetration.manage",
     billable: false,
     schema: penetrationAutomationStatusSchema,
   },
@@ -953,13 +991,24 @@ export const AGENT_ACTION_REGISTRY = {
     billable: false,
     schema: penetrationAutomationRunSchema,
   },
-  "penetration.automation.delete": {
-    mcpTool: "shitu_delete_penetration_automation",
-    title: "删除自动检测计划",
-    description: "删除指定客户的自动渗透率检测计划。历史检测报告不会被删除。",
+  "penetration.automation.cancel": {
+    mcpTool: "shitu_cancel_penetration_automation_execution",
+    title: "停止本次自动检测",
+    description: "停止指定的排队中或运行中自动检测；已完成结果保留，未执行部分不再调用。",
     module: "penetration",
     idempotent: true,
     requiredScope: "penetration.execute",
+    billable: false,
+    destructive: true,
+    schema: penetrationAutomationCancelSchema,
+  },
+  "penetration.automation.delete": {
+    mcpTool: "shitu_delete_penetration_automation",
+    title: "删除自动检测计划",
+    description: "删除指定客户的自动检测计划并停止未完成执行。历史检测报告不会被删除。",
+    module: "penetration",
+    idempotent: true,
+    requiredScope: "penetration.manage",
     billable: false,
     destructive: true,
     schema: penetrationAutomationDeleteSchema,
@@ -978,7 +1027,7 @@ export const AGENT_ACTION_REGISTRY = {
   "research.run": {
     mcpTool: "shitu_run_research",
     title: "运行独立调研",
-    description: "使用客户资料和已有检测证据生成独立调研结果。",
+    description: "强制检索并读取可访问的多域名网页，再基于逐条可追溯证据生成独立调研；证据不足时任务失败，不使用未验证的模型记忆补齐。",
     module: "research",
     taskSource: "background",
     idempotent: true,
@@ -989,7 +1038,7 @@ export const AGENT_ACTION_REGISTRY = {
   "research.compare": {
     mcpTool: "shitu_compare_competitors",
     title: "运行竞品对比",
-    description: "对目标主体与最多 5 个竞争对手生成可追溯的对比结果。",
+    description: "对每个竞争对手独立强制联网取证，并为目标主体与最多 5 个竞争对手生成带原始网址和引用编号的对比结果。",
     module: "research",
     taskSource: "background",
     idempotent: true,
@@ -1217,6 +1266,17 @@ export const AGENT_ACTION_REGISTRY = {
     billable: true,
     schema: articleBatchSchema,
   },
+  "article.batch.delete": {
+    mcpTool: "shitu_delete_article_batch",
+    title: "删除已结束的批量文章任务",
+    description: "删除指定批次和关联文件；运行中的批次必须先停止。",
+    module: "article",
+    idempotent: true,
+    requiredScope: "article.manage",
+    billable: false,
+    destructive: true,
+    schema: articleBatchOperationSchema,
+  },
   "article.production.list": {
     mcpTool: "shitu_list_content_production_runs",
     title: "读取发布计划生产批次",
@@ -1271,10 +1331,21 @@ export const AGENT_ACTION_REGISTRY = {
     billable: false,
     schema: feedbackActionSchema,
   },
+  "feedback.action.delete": {
+    mcpTool: "shitu_delete_feedback_action",
+    title: "删除执行动作或整批导入记录",
+    description: "按动作编号删除单条执行记录，或按导入批次编号删除同一次批量导入产生的记录。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    destructive: true,
+    schema: feedbackActionDeleteSchema,
+  },
   "feedback.actions.import": {
     mcpTool: "shitu_import_feedback_actions",
     title: "批量导入执行证据",
-    description: "批量导入标题、证据网址和平台，并生成执行动作记录。",
+    description: "批量导入标题、证据网址和平台，自动识别发布平台，并可同步核销当日发布配额。重复网址不会重复计数。",
     module: "feedback",
     idempotent: true,
     requiredScope: "feedback.edit",
@@ -1457,10 +1528,21 @@ export const AGENT_ACTION_REGISTRY = {
     billable: false,
     schema: publishingPlanActivateSchema,
   },
+  "publishing.plan.delete": {
+    mcpTool: "shitu_delete_publishing_plan_draft",
+    title: "删除发布规划草案",
+    description: "删除尚未生效的发布规划草案；生效中和已归档版本保持为可审计记录。",
+    module: "feedback",
+    idempotent: true,
+    requiredScope: "feedback.manage",
+    billable: false,
+    destructive: true,
+    schema: publishingPlanDeleteSchema,
+  },
   "publishing.tasks.list": {
     mcpTool: "shitu_list_publishing_tasks",
     title: "读取发布任务",
-    description: "按日期、平台和状态读取发布任务，并返回对应疑问句、匹配优势、内容类型和账号槽位。",
+    description: "按日期、平台和状态读取发布任务，并返回对应疑问句、匹配优势、内容类型和账号槽位；指定 date 时同时返回计划、实发、剩余、超额及分平台达成统计。",
     module: "feedback",
     idempotent: true,
     requiredScope: "feedback.view",
@@ -1702,13 +1784,15 @@ export function estimateAgentAction(
     case "penetration.automation.get":
       return { ...context, scope: "penetration.view", units: 1, credits: 0, label: "读取自动检测计划" }
     case "penetration.automation.save":
-      return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "保存自动检测计划" }
+      return { ...context, scope: "penetration.manage", units: 1, credits: 0, label: "保存自动检测计划" }
     case "penetration.automation.set-status":
-      return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "更新自动检测状态" }
+      return { ...context, scope: "penetration.manage", units: 1, credits: 0, label: "更新自动检测状态" }
     case "penetration.automation.run":
       return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "立即运行自动检测" }
+    case "penetration.automation.cancel":
+      return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "停止本次自动检测" }
     case "penetration.automation.delete":
-      return { ...context, scope: "penetration.execute", units: 1, credits: 0, label: "删除自动检测计划" }
+      return { ...context, scope: "penetration.manage", units: 1, credits: 0, label: "删除自动检测计划" }
     case "difficulty.run": {
       const mode = String(input.mode || "industry")
       const industry = String(input.industry || "").trim()
@@ -1795,6 +1879,8 @@ export function estimateAgentAction(
     }
     case "feedback.action.create":
       return { ...context, scope: "feedback.edit", units: 1, credits: 0, label: "记录执行动作" }
+    case "feedback.action.delete":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "删除执行动作" }
     case "feedback.actions.import": {
       const units = Array.isArray(input.rows) ? input.rows.length : 0
       return { ...context, scope: "feedback.edit", units, credits: 0, label: `批量导入执行证据 × ${units}` }
@@ -1839,6 +1925,8 @@ export function estimateAgentAction(
       return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "创建发布规划草案" }
     case "publishing.plan.activate":
       return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "启用发布规划版本" }
+    case "publishing.plan.delete":
+      return { ...context, scope: "feedback.manage", units: 1, credits: 0, label: "删除发布规划草案" }
     case "publishing.tasks.list":
       return { ...context, scope: "feedback.view", units: 1, credits: 0, label: "读取发布任务" }
     case "publishing.tasks.claim": {
@@ -1869,6 +1957,8 @@ export function estimateAgentAction(
         ...estimate,
       }
     }
+    case "article.batch.delete":
+      return { ...context, scope: "article.manage", units: 1, credits: 0, label: "删除批量文章任务" }
     case "article.production.list":
       return { ...context, scope: "article.view", units: 1, credits: 0, label: "读取发布内容生产批次" }
     case "article.production.run": {

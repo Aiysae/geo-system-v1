@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   BellRing,
+  CheckSquare2,
   CalendarClock,
   Clock3,
   ExternalLink,
@@ -13,17 +14,31 @@ import {
   RotateCw,
   Save,
   Trash2,
+  Square,
   X,
 } from "lucide-react"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
+import { MODEL_LABELS } from "@/lib/model-labels"
+import { estimateFeatureCredits } from "@/lib/pricing"
 import type {
   PenetrationAutomationExecution,
   PenetrationAutomationSchedule,
   PenetrationAutomationSnapshot,
 } from "@/lib/penetration/automation-types"
-import type { Client } from "@/types"
+import type { Client, ModelKey, PenetrationQuestionIntentHint } from "@/types"
 
-type Props = { client: Client; canExecute: boolean }
+type Props = {
+  client: Client
+  canExecute: boolean
+  canManage: boolean
+  teamId?: string
+}
+
+type QuestionOption = {
+  id: string
+  question: string
+  intent?: PenetrationQuestionIntentHint
+}
 
 type FormState = {
   intervalDays: number
@@ -34,6 +49,22 @@ type FormState = {
   inAppEnabled: boolean
   emailEnabled: boolean
   monthlyCreditLimit: string
+  models: ModelKey[]
+  selectedQuestionIds: string[]
+}
+
+const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
+
+function questionOptions(
+  questions: string[],
+  intents: PenetrationQuestionIntentHint[] = [],
+): QuestionOption[] {
+  const intentByQuestion = new Map(intents.map(item => [item.question.trim(), item]))
+  return questions.map((question, index) => ({
+    id: `${index}:${question}`,
+    question,
+    intent: intentByQuestion.get(question.trim()),
+  }))
 }
 
 function shanghaiToday(): string {
@@ -45,7 +76,8 @@ function shanghaiToday(): string {
   }).format(new Date())
 }
 
-function defaultForm(): FormState {
+function defaultForm(client: Client): FormState {
+  const options = questionOptions(client.questions, client.questionIntentHints)
   return {
     intervalDays: 1,
     timeLocal: "09:00",
@@ -55,21 +87,37 @@ function defaultForm(): FormState {
     inAppEnabled: true,
     emailEnabled: true,
     monthlyCreditLimit: "",
+    models: [...client.selectedModels],
+    selectedQuestionIds: options.map(option => option.id),
   }
 }
 
-function formFromSchedule(schedule: PenetrationAutomationSchedule): FormState {
+function formFromSchedule(
+  schedule: PenetrationAutomationSchedule,
+  client: Client,
+): { form: FormState; questions: QuestionOption[] } {
+  const detection = schedule.detectionConfig
+  const options = detection
+    ? questionOptions(detection.questions, detection.questionIntents)
+    : questionOptions(client.questions, client.questionIntentHints)
   return {
-    intervalDays: schedule.intervalDays,
-    timeLocal: schedule.timeLocal,
-    startDate: schedule.startDate,
-    relativeDropThresholdPct: schedule.relativeDropThresholdPct,
-    minimumAbsoluteDropPoints: schedule.minimumAbsoluteDropPoints,
-    inAppEnabled: schedule.inAppEnabled,
-    emailEnabled: schedule.emailEnabled,
-    monthlyCreditLimit: schedule.monthlyCreditLimit
-      ? String(schedule.monthlyCreditLimit)
-      : "",
+    questions: options,
+    form: {
+      intervalDays: schedule.intervalDays,
+      timeLocal: schedule.timeLocal,
+      startDate: schedule.startDate,
+      relativeDropThresholdPct: schedule.relativeDropThresholdPct,
+      minimumAbsoluteDropPoints: schedule.minimumAbsoluteDropPoints,
+      inAppEnabled: schedule.inAppEnabled,
+      emailEnabled: schedule.emailEnabled,
+      monthlyCreditLimit: schedule.monthlyCreditLimit
+        ? String(schedule.monthlyCreditLimit)
+        : "",
+      models: detection?.requestedModels.length
+        ? [...detection.requestedModels]
+        : [...client.selectedModels],
+      selectedQuestionIds: options.map(option => option.id),
+    },
   }
 }
 
@@ -103,15 +151,28 @@ function formatDateTime(value?: string): string {
 
 const inputClass = "h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-[#1677FF] focus:ring-2 focus:ring-[#1677FF]/15 disabled:bg-slate-50"
 
-export default function PenetrationAutomationPanel({ client, canExecute }: Props) {
+export default function PenetrationAutomationPanel({
+  client,
+  canExecute,
+  canManage,
+  teamId,
+}: Props) {
   const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
+  const [cancellingExecutionId, setCancellingExecutionId] = useState("")
   const [schedule, setSchedule] = useState<PenetrationAutomationSchedule | null>(null)
   const [executions, setExecutions] = useState<PenetrationAutomationExecution[]>([])
-  const [form, setForm] = useState<FormState>(defaultForm)
+  const [questionChoices, setQuestionChoices] = useState<QuestionOption[]>(() => (
+    questionOptions(client.questions, client.questionIntentHints)
+  ))
+  const [form, setForm] = useState<FormState>(() => defaultForm(client))
+  const [modelReadiness, setModelReadiness] = useState<Partial<Record<ModelKey, {
+    ready: boolean
+    reason?: string
+  }>>>({})
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
 
@@ -119,7 +180,10 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
     if (!quiet) setLoading(true)
     try {
       const response = await apiFetch(
-        `/api/penetration/automations?clientId=${encodeURIComponent(client.id)}`,
+        `/api/penetration/automations?${new URLSearchParams({
+          clientId: client.id,
+          ...(teamId ? { teamId } : {}),
+        })}`,
         { cache: "no-store" },
       )
       const data = await readApiJson<PenetrationAutomationSnapshot & { error?: string }>(
@@ -129,14 +193,33 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
       if (!response.ok) throw new Error(data.error || "自动检测计划读取失败")
       setSchedule(data.schedule)
       setExecutions(data.executions || [])
-      if (data.schedule) setForm(formFromSchedule(data.schedule))
+      if (data.schedule) {
+        const next = formFromSchedule(data.schedule, client)
+        setForm(next.form)
+        setQuestionChoices(next.questions)
+      }
       setError("")
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "自动检测计划读取失败")
     } finally {
       if (!quiet) setLoading(false)
     }
-  }, [client.id])
+  }, [client, teamId])
+
+  const loadReadiness = useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/penetration/readiness", { cache: "no-store" })
+      const data = await readApiJson<{
+        readiness?: Array<{ model: ModelKey; ready: boolean; reason?: string }>
+      }>(response, "检测模型状态查询")
+      if (!response.ok) return
+      const next: Partial<Record<ModelKey, { ready: boolean; reason?: string }>> = {}
+      for (const item of data.readiness || []) next[item.model] = item
+      setModelReadiness(next)
+    } catch {
+      setModelReadiness({})
+    }
+  }, [])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setMounted(true), 0)
@@ -148,10 +231,52 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
     return () => window.clearTimeout(timer)
   }, [client.id, load])
 
+  useEffect(() => {
+    if (!open) return
+    const timer = window.setTimeout(() => void loadReadiness(), 0)
+    return () => window.clearTimeout(timer)
+  }, [open, loadReadiness])
+
   const hasActiveExecution = useMemo(
     () => executions.some(activeExecution),
     [executions],
   )
+
+  const selectedQuestions = useMemo(() => {
+    const selected = new Set(form.selectedQuestionIds)
+    return questionChoices.filter(option => selected.has(option.id))
+  }, [form.selectedQuestionIds, questionChoices])
+
+  const estimatedSlots = selectedQuestions.length * form.models.length
+  const estimatedCredits = estimateFeatureCredits("penetrationSlot", estimatedSlots)
+
+  function useCurrentQuestions() {
+    const options = questionOptions(client.questions, client.questionIntentHints)
+    setQuestionChoices(options)
+    setForm(current => ({
+      ...current,
+      selectedQuestionIds: options.map(option => option.id),
+    }))
+    setNotice("已载入客户当前保存的疑问句，保存计划后才会生效")
+  }
+
+  function toggleQuestion(id: string) {
+    setForm(current => ({
+      ...current,
+      selectedQuestionIds: current.selectedQuestionIds.includes(id)
+        ? current.selectedQuestionIds.filter(item => item !== id)
+        : [...current.selectedQuestionIds, id],
+    }))
+  }
+
+  function toggleModel(model: ModelKey) {
+    setForm(current => ({
+      ...current,
+      models: current.models.includes(model)
+        ? current.models.filter(item => item !== model)
+        : [...current.models, model],
+    }))
+  }
 
   useEffect(() => {
     if (!hasActiveExecution) return
@@ -160,7 +285,15 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
   }, [hasActiveExecution, load])
 
   async function saveSchedule(): Promise<PenetrationAutomationSchedule | null> {
-    if (!canExecute) return null
+    if (!canManage) return null
+    if (!selectedQuestions.length) {
+      setError("请至少选择一个自动检测疑问句")
+      return null
+    }
+    if (!form.models.length) {
+      setError("请至少选择一个自动检测模型")
+      return null
+    }
     setSaving(true)
     setError("")
     setNotice("")
@@ -173,6 +306,7 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId: client.id,
+          teamId,
           intervalDays: form.intervalDays,
           timeLocal: form.timeLocal,
           startDate: form.startDate,
@@ -183,6 +317,9 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
           monthlyCreditLimit: form.monthlyCreditLimit
             ? Number(form.monthlyCreditLimit)
             : null,
+          questions: selectedQuestions.map(option => option.question),
+          questionIntents: selectedQuestions.flatMap(option => option.intent ? [option.intent] : []),
+          models: form.models,
         }),
       })
       const data = await readApiJson<{ schedule?: PenetrationAutomationSchedule; error?: string }>(
@@ -191,7 +328,9 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
       )
       if (!response.ok || !data.schedule) throw new Error(data.error || "保存失败")
       setSchedule(data.schedule)
-      setForm(formFromSchedule(data.schedule))
+      const next = formFromSchedule(data.schedule, client)
+      setForm(next.form)
+      setQuestionChoices(next.questions)
       setNotice("自动检测计划已保存")
       return data.schedule
     } catch (cause) {
@@ -203,7 +342,7 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
   }
 
   async function toggleStatus() {
-    if (!schedule || !canExecute) return
+    if (!schedule || !canManage) return
     setSaving(true)
     setError("")
     try {
@@ -211,7 +350,7 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
       const response = await apiFetch(`/api/penetration/automations/${encodeURIComponent(schedule.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: client.id, action }),
+        body: JSON.stringify({ clientId: client.id, teamId, action }),
       })
       const data = await readApiJson<{ schedule?: PenetrationAutomationSchedule; error?: string }>(
         response,
@@ -240,7 +379,7 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId: client.id }),
+          body: JSON.stringify({ clientId: client.id, teamId }),
         },
       )
       const data = await readApiJson<{ execution?: PenetrationAutomationExecution; error?: string }>(
@@ -258,24 +397,60 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
   }
 
   async function removeSchedule() {
-    if (!schedule || !canExecute) return
-    if (!window.confirm("删除后将不再自动检测，历史报告不会被删除。确认删除？")) return
+    if (!schedule || !canManage) return
+    if (!window.confirm("删除后将停止当前未完成任务和所有后续检测，历史报告仍会保留。确认删除？")) return
     setSaving(true)
     try {
       const response = await apiFetch(
-        `/api/penetration/automations/${encodeURIComponent(schedule.id)}?clientId=${encodeURIComponent(client.id)}`,
+        `/api/penetration/automations/${encodeURIComponent(schedule.id)}?${new URLSearchParams({
+          clientId: client.id,
+          ...(teamId ? { teamId } : {}),
+        })}`,
         { method: "DELETE" },
       )
       const data = await readApiJson<{ ok?: boolean; error?: string }>(response, "自动检测计划删除")
       if (!response.ok) throw new Error(data.error || "删除失败")
       setSchedule(null)
       setExecutions([])
-      setForm(defaultForm())
+      const options = questionOptions(client.questions, client.questionIntentHints)
+      setQuestionChoices(options)
+      setForm(defaultForm(client))
       setNotice("自动检测计划已删除")
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "删除失败")
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function cancelExecution(execution: PenetrationAutomationExecution) {
+    if (!schedule || !canExecute || !activeExecution(execution)) return
+    if (!window.confirm("确认停止本次检测？已经完成的结果会保留，未执行部分不再继续调用。")) return
+    setCancellingExecutionId(execution.id)
+    setError("")
+    try {
+      const response = await apiFetch(
+        `/api/penetration/automations/${encodeURIComponent(schedule.id)}/executions/${encodeURIComponent(execution.id)}/cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: client.id, teamId }),
+        },
+      )
+      const data = await readApiJson<{
+        execution?: PenetrationAutomationExecution
+        message?: string
+        error?: string
+      }>(response, "停止自动检测")
+      if (!response.ok || !data.execution) throw new Error(data.error || "停止失败")
+      setExecutions(current => current.map(item => (
+        item.id === data.execution!.id ? data.execution! : item
+      )))
+      setNotice(data.message || "本次自动检测已停止")
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "停止自动检测失败")
+    } finally {
+      setCancellingExecutionId("")
     }
   }
 
@@ -300,7 +475,7 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00AEEA] text-white shadow-lg shadow-blue-200/70"><CalendarClock className="h-5 w-5" /></span>
                 <div>
                   <h2 id="penetration-automation-title" className="text-base font-semibold text-slate-900">自动渗透率检测</h2>
-                  <p className="mt-1 text-xs text-slate-500">{client.name} · 当前已保存的疑问句与模型</p>
+                  <p className="mt-1 text-xs text-slate-500">{client.name} · 固定疑问句与模型口径</p>
                 </div>
               </div>
               <button type="button" onClick={() => setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="关闭"><X className="h-4 w-4" /></button>
@@ -320,29 +495,73 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
                           <div className="mt-0.5 text-[11px] text-slate-500">下次检测：{schedule.status === "active" ? formatDateTime(schedule.nextRunAt) : "恢复后重新安排"}</div>
                         </div>
                       </div>
-                      {schedule.consecutiveFailures > 0 ? <div className="text-[11px] font-medium text-amber-700">连续失败 {schedule.consecutiveFailures} 次</div> : null}
+                      <div className="flex items-center gap-2">
+                        {schedule.consecutiveFailures > 0 ? <div className="text-[11px] font-medium text-amber-700">连续失败 {schedule.consecutiveFailures} 次</div> : null}
+                        {canManage ? <button type="button" onClick={() => void toggleStatus()} disabled={saving} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#91CAFF] bg-white px-2.5 text-[11px] font-semibold text-[#0958D9] transition hover:bg-[#EAF5FF] disabled:opacity-50">{schedule.status === "active" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}{schedule.status === "active" ? "暂停计划" : "恢复计划"}</button> : null}
+                      </div>
                     </div>
                   ) : null}
 
+                  <section className="rounded-lg border border-slate-200 bg-white">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+                      <div>
+                        <h3 className="text-xs font-semibold text-slate-900">检测疑问句</h3>
+                        <p className="mt-1 text-[11px] text-slate-500">已选择 {selectedQuestions.length}/{questionChoices.length} 条，保存后固定为本计划口径</p>
+                      </div>
+                      {canManage ? <div className="flex flex-wrap gap-1.5">
+                        <button type="button" onClick={useCurrentQuestions} className="h-8 rounded-md border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 transition hover:border-[#91CAFF] hover:text-[#0958D9]">同步当前疑问句</button>
+                        <button type="button" onClick={() => setForm(current => ({ ...current, selectedQuestionIds: questionChoices.map(option => option.id) }))} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-[#0958D9] hover:bg-[#EEF7FF]"><CheckSquare2 className="h-3.5 w-3.5" />全选</button>
+                        <button type="button" onClick={() => setForm(current => ({ ...current, selectedQuestionIds: [] }))} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold text-slate-500 hover:bg-slate-100"><Square className="h-3.5 w-3.5" />清空</button>
+                      </div> : null}
+                    </div>
+                    <div className="max-h-48 overflow-y-auto p-2">
+                      {questionChoices.length ? questionChoices.map((option, index) => (
+                        <label key={option.id} className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-xs text-slate-700 transition hover:bg-[#F3F9FF]">
+                          <input type="checkbox" checked={form.selectedQuestionIds.includes(option.id)} onChange={() => toggleQuestion(option.id)} disabled={!canManage} className="mt-0.5 h-4 w-4 shrink-0 accent-[#1677FF]" />
+                          <span className="min-w-0 flex-1 leading-5"><span className="mr-1 text-[10px] text-slate-400">#{index + 1}</span>{option.question}</span>
+                          {option.intent ? <span className="shrink-0 rounded bg-[#EAF5FF] px-1.5 py-0.5 text-[10px] text-[#0958D9]">{option.intent.category}</span> : null}
+                        </label>
+                      )) : <div className="py-6 text-center text-xs text-slate-400">当前客户还没有保存疑问句</div>}
+                    </div>
+                  </section>
+
+                  <section className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                      <div>
+                        <h3 className="text-xs font-semibold text-slate-900">检测模型</h3>
+                        <p className="mt-1 text-[11px] text-slate-500">固定模型口径；任一模型暂不可用时先重试，不静默换模型</p>
+                      </div>
+                      <span className="text-[11px] font-semibold text-[#0958D9]">{estimatedSlots} 次联网检测 · 预计 {estimatedCredits} 积分</span>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {ALL_MODELS.map(model => {
+                        const readiness = modelReadiness[model]
+                        const selected = form.models.includes(model)
+                        return <button key={model} type="button" onClick={() => canManage && toggleModel(model)} disabled={!canManage} title={readiness?.reason} className={`flex min-h-11 items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition ${selected ? "border-[#69B1FF] bg-[#EAF5FF] text-[#0958D9]" : "border-slate-200 bg-white text-slate-600"} disabled:cursor-default`}><span className="text-xs font-semibold">{MODEL_LABELS[model]}</span><span className={`h-2 w-2 shrink-0 rounded-full ${readiness?.ready ? "bg-emerald-500" : readiness ? "bg-amber-400" : "bg-slate-300"}`} /></button>
+                      })}
+                    </div>
+                  </section>
+
                   <div className="grid gap-4 sm:grid-cols-3">
                     <Field label="检测间隔">
-                      <select value={form.intervalDays} onChange={event => setForm(current => ({ ...current, intervalDays: Number(event.target.value) }))} disabled={!canExecute} className={inputClass}>
+                      <select value={form.intervalDays} onChange={event => setForm(current => ({ ...current, intervalDays: Number(event.target.value) }))} disabled={!canManage} className={inputClass}>
                         {Array.from({ length: 7 }, (_, index) => index + 1).map(days => <option key={days} value={days}>每 {days} 天</option>)}
                       </select>
                     </Field>
-                    <Field label="执行时间"><input type="time" value={form.timeLocal} onChange={event => setForm(current => ({ ...current, timeLocal: event.target.value }))} disabled={!canExecute} className={inputClass} /></Field>
-                    <Field label="首次日期"><input type="date" value={form.startDate} onChange={event => setForm(current => ({ ...current, startDate: event.target.value }))} disabled={!canExecute} className={inputClass} /></Field>
+                    <Field label="执行时间"><input type="time" value={form.timeLocal} onChange={event => setForm(current => ({ ...current, timeLocal: event.target.value }))} disabled={!canManage} className={inputClass} /></Field>
+                    <Field label="首次日期"><input type="date" value={form.startDate} onChange={event => setForm(current => ({ ...current, startDate: event.target.value }))} disabled={!canManage} className={inputClass} /></Field>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-3">
-                    <Field label="相对下降提醒（%）"><input type="number" min="1" max="100" value={form.relativeDropThresholdPct} onChange={event => setForm(current => ({ ...current, relativeDropThresholdPct: Number(event.target.value) }))} disabled={!canExecute} className={inputClass} /></Field>
-                    <Field label="最低下降百分点"><input type="number" min="0" max="100" value={form.minimumAbsoluteDropPoints} onChange={event => setForm(current => ({ ...current, minimumAbsoluteDropPoints: Number(event.target.value) }))} disabled={!canExecute} className={inputClass} /></Field>
-                    <Field label="每月积分上限"><input type="number" min="1" value={form.monthlyCreditLimit} onChange={event => setForm(current => ({ ...current, monthlyCreditLimit: event.target.value }))} placeholder="不限制" disabled={!canExecute} className={inputClass} /></Field>
+                    <Field label="相对下降提醒（%）"><input type="number" min="1" max="100" value={form.relativeDropThresholdPct} onChange={event => setForm(current => ({ ...current, relativeDropThresholdPct: Number(event.target.value) }))} disabled={!canManage} className={inputClass} /></Field>
+                    <Field label="最低下降百分点"><input type="number" min="0" max="100" value={form.minimumAbsoluteDropPoints} onChange={event => setForm(current => ({ ...current, minimumAbsoluteDropPoints: Number(event.target.value) }))} disabled={!canManage} className={inputClass} /></Field>
+                    <Field label="每月积分上限"><input type="number" min="1" value={form.monthlyCreditLimit} onChange={event => setForm(current => ({ ...current, monthlyCreditLimit: event.target.value }))} placeholder="不限制" disabled={!canManage} className={inputClass} /></Field>
                   </div>
 
                   <div className="flex flex-wrap gap-x-6 gap-y-3 border-y border-slate-100 py-3">
-                    <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={form.inAppEnabled} onChange={event => setForm(current => ({ ...current, inAppEnabled: event.target.checked }))} disabled={!canExecute} className="h-4 w-4 accent-[#1677FF]" /><BellRing className="h-3.5 w-3.5 text-[#1677FF]" />站内提醒</label>
-                    <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={form.emailEnabled} onChange={event => setForm(current => ({ ...current, emailEnabled: event.target.checked }))} disabled={!canExecute} className="h-4 w-4 accent-[#1677FF]" />邮件提醒</label>
+                    <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={form.inAppEnabled} onChange={event => setForm(current => ({ ...current, inAppEnabled: event.target.checked }))} disabled={!canManage} className="h-4 w-4 accent-[#1677FF]" /><BellRing className="h-3.5 w-3.5 text-[#1677FF]" />站内提醒</label>
+                    <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={form.emailEnabled} onChange={event => setForm(current => ({ ...current, emailEnabled: event.target.checked }))} disabled={!canManage} className="h-4 w-4 accent-[#1677FF]" />邮件提醒</label>
+                    <span className="text-[11px] leading-5 text-slate-500">完成、下降和异常提醒会发送给拥有本客户查看权限的团队成员。</span>
                   </div>
 
                   {error ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div> : null}
@@ -355,7 +574,7 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
                         <div className="divide-y divide-slate-100 border-y border-slate-100">
                           {executions.slice(0, 6).map(execution => {
                             const meta = executionStatus(execution.status)
-                            return <div key={execution.id} className="flex items-start justify-between gap-4 py-2.5"><div className="min-w-0"><div className="flex items-center gap-2 text-xs text-slate-700"><Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-400" />{formatDateTime(execution.scheduledFor)}<span className="text-[10px] text-slate-400">{execution.trigger === "manual" ? "立即检测" : "计划检测"}</span></div><div className="mt-1 truncate text-[11px] text-slate-500">{execution.comparisonReason || execution.error || (activeExecution(execution) ? "任务正在后台执行" : "执行记录已保存")}</div></div><div className="flex shrink-0 items-center gap-2"><span className={`rounded px-2 py-1 text-[10px] font-semibold ${meta.className}`}>{meta.label}</span>{execution.historyRecordId ? <a href={`/workspace/results/penetration/${encodeURIComponent(execution.historyRecordId)}`} className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-[#0958D9] transition hover:bg-[#EEF7FF]"><ExternalLink className="h-3 w-3" />查看报告</a> : null}</div></div>
+                            return <div key={execution.id} className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2 text-xs text-slate-700"><Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-400" />{formatDateTime(execution.scheduledFor)}<span className="text-[10px] text-slate-400">{execution.trigger === "manual" ? "立即检测" : "计划检测"}</span></div><div className="mt-1 break-words text-[11px] leading-5 text-slate-500">{execution.comparisonReason || execution.error || (activeExecution(execution) ? "任务正在后台执行" : "执行记录已保存")}</div></div><div className="flex shrink-0 flex-wrap items-center gap-2"><span className={`rounded px-2 py-1 text-[10px] font-semibold ${meta.className}`}>{meta.label}</span>{activeExecution(execution) && canExecute ? <button type="button" onClick={() => void cancelExecution(execution)} disabled={cancellingExecutionId === execution.id} className="inline-flex h-7 items-center gap-1 rounded-md border border-rose-200 px-2 text-[10px] font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50">{cancellingExecutionId === execution.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}停止本次</button> : null}{execution.historyRecordId ? <a href={`/workspace/results/penetration/${encodeURIComponent(execution.historyRecordId)}`} className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-[#0958D9] transition hover:bg-[#EEF7FF]"><ExternalLink className="h-3 w-3" />查看报告</a> : null}</div></div>
                           })}
                         </div>
                       ) : <div className="border-y border-slate-100 py-6 text-center text-xs text-slate-400">暂无执行记录</div>}
@@ -366,11 +585,10 @@ export default function PenetrationAutomationPanel({ client, canExecute }: Props
             </div>
 
             <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[#DDEBFA] bg-[#F8FBFF] px-5 py-3.5">
-              <div>{schedule && canExecute ? <button type="button" onClick={() => void removeSchedule()} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-md px-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />删除计划</button> : null}</div>
+              <div>{schedule && canManage ? <button type="button" onClick={() => void removeSchedule()} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-md px-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" />删除计划</button> : null}</div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {schedule && canExecute ? <button type="button" onClick={() => void toggleStatus()} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-[#91CAFF] hover:text-[#0958D9] disabled:opacity-50">{schedule.status === "active" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}{schedule.status === "active" ? "暂停" : "恢复"}</button> : null}
-                {canExecute ? <button type="button" onClick={() => void runNow()} disabled={running || saving || hasActiveExecution} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#91CAFF] bg-white px-3 text-xs font-semibold text-[#0958D9] transition hover:bg-[#EEF7FF] disabled:cursor-not-allowed disabled:opacity-50">{running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}立即检测</button> : null}
-                {canExecute ? <button type="button" onClick={() => void saveSchedule()} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-4 text-xs font-semibold text-white shadow-md shadow-blue-200/60 transition hover:brightness-105 disabled:opacity-50">{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}保存计划</button> : <span className="text-xs text-slate-500">当前账号仅可查看</span>}
+                {canExecute ? <button type="button" onClick={() => void runNow()} disabled={running || saving || hasActiveExecution || (!schedule && !canManage)} title={!schedule && !canManage ? "需要由计划管理员先创建自动检测计划" : undefined} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#91CAFF] bg-white px-3 text-xs font-semibold text-[#0958D9] transition hover:bg-[#EEF7FF] disabled:cursor-not-allowed disabled:opacity-50">{running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}立即检测</button> : null}
+                {canManage ? <button type="button" onClick={() => void saveSchedule()} disabled={saving} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-4 text-xs font-semibold text-white shadow-md shadow-blue-200/60 transition hover:brightness-105 disabled:opacity-50">{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}保存计划</button> : <span className="text-xs text-slate-500">当前账号可查看{canExecute ? "和执行" : ""}，无计划管理权限</span>}
               </div>
             </footer>
           </section>

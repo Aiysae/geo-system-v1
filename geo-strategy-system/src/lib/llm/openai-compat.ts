@@ -17,7 +17,7 @@ import type {
 import type { AiCredentialVendor } from "@/types/ai-credentials"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { extractSourcesFromUnknown, normalizeSourceDomain } from "./source-extract"
-import { withBeijingTime } from "./time-context"
+import { buildBeijingTimeHeader, withBeijingTime } from "./time-context"
 import { formatHitsForLLM, webSearch, type SearchHit } from "./web-search"
 
 export interface SearchSourceEvent {
@@ -55,12 +55,25 @@ export interface ChatArgs {
   allowWebSearch?: boolean
   /** Send only the user's question as conversation context; do not inject time/system hints. */
   rawQuestionOnly?: boolean
+  /** Append the clock after user data for provider-side prefix caching; ignored in blind mode. */
+  timeContextPosition?: "start" | "end"
   /** Reject consumer answers that cannot be tied to at least one auditable public web source. */
   requireWebEvidence?: boolean
   /** Do not fall back to local search when provider-native web search returns no auditable sources. */
   officialWebOnly?: boolean
   /** Per-provider request timeout in seconds. */
   timeoutSec?: number
+  /** Server-selected model for a module-specific route. Never accept this from a client request. */
+  preferredModel?: string
+  /** Keep long structured generation health isolated from short chat probes. */
+  workloadClass?: "short" | "long"
+  /** Spread concurrent long stages across independent credential accounts. */
+  spreadAcrossCredentials?: boolean
+  /** Bound server-side credential failover for one stage so a slow account cannot consume the whole job. */
+  credentialAttemptLimit?: number
+  /** Bound transport retries when a pool already provides account failover. */
+  transportRetries?: number
+  usageContext?: { userId: string; task: string }
   /** Allow a parent background task to stop the active upstream request. */
   signal?: AbortSignal
   /** Observe the public web sources used by local search adapters. */
@@ -79,6 +92,8 @@ export interface LlmTokenUsage {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  cachedPromptTokens?: number
+  reasoningTokens?: number
 }
 
 const WEB_EVIDENCE_RESULTS_PER_CALL = 12
@@ -137,13 +152,22 @@ async function postChatCompletionWithTimeout(args: {
   else args.signal?.addEventListener("abort", abortFromParent, { once: true })
 
   try {
-    return await postChatCompletion({
+    const response = await postChatCompletion({
       url: args.url,
       apiKey: args.apiKey,
       authType: args.authType,
       payload: args.payload,
       extraHeaders: args.extraHeaders,
       signal: controller.signal,
+    })
+    // fetch resolves at headers. Keep timeout/cancellation active until the body
+    // is consumed, including error bodies and compatibility retries.
+    const body = response.body ? await response.arrayBuffer() : null
+    controller.signal.throwIfAborted()
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
     })
   } catch (fetchErr) {
     if (
@@ -228,6 +252,10 @@ export interface RawChatCompletion {
     total_tokens?: number
     input_tokens?: number
     output_tokens?: number
+    prompt_tokens_details?: { cached_tokens?: number }
+    input_tokens_details?: { cached_tokens?: number }
+    completion_tokens_details?: { reasoning_tokens?: number }
+    output_tokens_details?: { reasoning_tokens?: number }
   }
   choices: Array<{
     finish_reason?: string
@@ -236,6 +264,7 @@ export interface RawChatCompletion {
 }
 
 export interface OpenAICompatRawArgs {
+  transportRetries?: number
   url: string
   apiKey: string
   authType?: "bearer" | "x-api-key"
@@ -258,6 +287,7 @@ export interface OpenAICompatRawArgs {
 
 // 底层：发请求并返回原始 ChatCompletion（供需要工具循环的场景使用，如 Kimi 联网）
 export async function openaiCompatRaw({
+  transportRetries = 3,
   url,
   apiKey,
   authType,
@@ -307,13 +337,14 @@ export async function openaiCompatRaw({
     signal,
   })
   const retryableStatuses = new Set([429, 500, 502, 503, 504])
-  for (let retry = 0; retry < 3 && retryableStatuses.has(res.status); retry++) {
+  const retryLimit = Math.max(0, Math.min(3, Math.floor(transportRetries)))
+  for (let retry = 0; retry < retryLimit && retryableStatuses.has(res.status); retry++) {
     const status = res.status
     const rawTxt = await res.text().catch(() => "")
     const txt = sanitizeAiUpstreamMessage(rawTxt, 5_000)
     const delay = retryDelayMs(res.headers, txt, retry)
     console.warn(
-      `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/3)。`,
+      `[${label}·${status}] 上游暂时不可用，${Math.round(delay / 1000)}s 后重试 (${retry + 1}/${retryLimit})。`,
     )
     await sleep(delay, signal)
     res = await postChatCompletionWithTimeout({
@@ -347,7 +378,8 @@ export async function openaiCompatRaw({
       if (retry.ok) return (await retry.json()) as RawChatCompletion
     }
     // 部分供应商不支持 response_format=json_object，遇到 400/422 时去掉重试一次
-    if (jsonMode && (res.status === 400 || res.status === 422)) {
+    if (jsonMode && (res.status === 400 || res.status === 422)
+      && /response[_ -]?format|json[_ -]?object|json mode/i.test(txt)) {
       const fallback = { ...payload }
       delete (fallback as Record<string, unknown>).response_format
       const retry = await postChatCompletionWithTimeout({
@@ -423,8 +455,8 @@ function extractMessageContent(message: RawChatCompletionMessage | undefined, la
   return String(content)
 }
 
-function emitTokenUsage(
-  data: RawChatCompletion,
+export function emitTokenUsage(
+  data: Pick<RawChatCompletion, "usage">,
   onUsage?: (usage: LlmTokenUsage) => void,
 ): void {
   if (!onUsage || !data.usage) return
@@ -434,7 +466,15 @@ function emitTokenUsage(
     0,
     Number(data.usage.total_tokens) || promptTokens + completionTokens,
   )
-  onUsage({ promptTokens, completionTokens, totalTokens })
+  const cached = data.usage.prompt_tokens_details?.cached_tokens
+    ?? data.usage.input_tokens_details?.cached_tokens
+  const reasoning = data.usage.completion_tokens_details?.reasoning_tokens
+    ?? data.usage.output_tokens_details?.reasoning_tokens
+  onUsage({
+    promptTokens, completionTokens, totalTokens,
+    ...(cached !== undefined ? { cachedPromptTokens: Math.max(0, Number(cached) || 0) } : {}),
+    ...(reasoning !== undefined ? { reasoningTokens: Math.max(0, Number(reasoning) || 0) } : {}),
+  })
 }
 
 function toPenetrationSources(query: string, hits: SearchHit[]): PenetrationSource[] {
@@ -473,6 +513,7 @@ function trimDataUrl(dataUrl: string, maxBytes: number): { url: string; trimmed:
 
 // 标准对外接口：单轮 system + user，返回 content 文本
 export async function openaiCompatChat({
+  transportRetries,
   url,
   apiKey,
   authType,
@@ -486,6 +527,7 @@ export async function openaiCompatChat({
   mode,
   forceWebSearch,
   rawQuestionOnly,
+  timeContextPosition,
   requireWebEvidence,
   officialWebOnly,
   label,
@@ -517,27 +559,30 @@ export async function openaiCompatChat({
     }
   }
 
+  const trailingTime = !rawQuestionOnly && timeContextPosition === "end"
+    ? `\n\n${buildBeijingTimeHeader()}` : ""
   const userContent = trimmedImages.length > 0
     ? [
-        { type: "text" as const, text: user },
+        { type: "text" as const, text: user + trailingTime },
         ...trimmedImages.map(url => ({
           type: "image_url" as const,
           image_url: { url, detail: "auto" as const },
         })),
       ]
-    : user
+    : user + trailingTime
 
   const timeoutMs = (timeoutSec && timeoutSec > 0 ? timeoutSec : 300) * 1000
 
   try {
     const messages: Array<Record<string, unknown>> = []
-    const systemContent = rawQuestionOnly ? system : withBeijingTime(system)
+    const systemContent = rawQuestionOnly || trailingTime ? system : withBeijingTime(system)
     if (!rawQuestionOnly || systemContent.trim()) {
       messages.push({ role: "system", content: systemContent })
     }
     messages.push({ role: "user", content: userContent })
 
     const data = await openaiCompatRaw({
+      transportRetries,
       url,
       apiKey,
       authType,
@@ -602,13 +647,13 @@ export async function openaiCompatChat({
       }
 
       const fallbackMessages: Array<Record<string, unknown>> = []
-      const fallbackSystem = rawQuestionOnly ? system : withBeijingTime(system)
+      const fallbackSystem = rawQuestionOnly || trailingTime ? system : withBeijingTime(system)
       if (!rawQuestionOnly || fallbackSystem.trim()) {
         fallbackMessages.push({ role: "system", content: fallbackSystem })
       }
       fallbackMessages.push({
         role: "user",
-        content: `${String(user)}\n\n${formatHitsForLLM(fallbackQuery, hits)}\n\n${WEB_EVIDENCE_STYLE_DIRECTIVE}`,
+        content: `${String(user)}\n\n${formatHitsForLLM(fallbackQuery, hits)}\n\n${WEB_EVIDENCE_STYLE_DIRECTIVE}${trailingTime}`,
       })
 
       const fallbackData = await openaiCompatRaw({

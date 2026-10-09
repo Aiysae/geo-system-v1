@@ -12,6 +12,7 @@ import type {
   AdminRechargeNotificationSnapshot,
   RechargeNotificationSummary,
 } from "@/lib/recharge-notifications"
+import { notifyDesktop } from "@/lib/desktop-runtime"
 
 const POLL_INTERVAL_MS = 20_000
 
@@ -50,6 +51,12 @@ export function AdminRechargeNotifier({
         fresh.forEach(item => shownIdsRef.current.add(item.id))
         setToast(fresh[0])
         setAdditionalCount(Math.max(0, fresh.length - 1))
+        void notifyDesktop({
+          id: `admin-recharge:${fresh[0].id}`,
+          title: "新的积分充值申请",
+          body: `${fresh[0].username || fresh[0].email || "新用户"} · ${fresh[0].packageName} · ${fresh[0].credits} 积分`,
+          actionUrl: `/admin/recharge#recharge-${encodeURIComponent(fresh[0].id)}`,
+        })
         void fetch("/api/admin/recharge-notifications", {
           method: "POST",
           credentials: "same-origin",
@@ -67,6 +74,17 @@ export function AdminRechargeNotifier({
         freshManaged.forEach(item => shownIdsRef.current.add(item.id))
         setManagedToast(freshManaged[0])
         setManagedAdditionalCount(Math.max(0, freshManaged.length - 1))
+        const firstManaged = freshManaged[0]
+        void notifyDesktop({
+          id: `admin-service:${firstManaged.id}`,
+          title: firstManaged.type === "manual_payment_review"
+            ? "代运营转账待核对"
+            : firstManaged.type === "intake_submitted"
+              ? "客户已提交项目资料"
+              : "代运营订单支付成功",
+          body: `${firstManaged.username || firstManaged.email} · ${firstManaged.projectName || firstManaged.planName}`,
+          actionUrl: `/admin/managed-services#managed-service-${encodeURIComponent(firstManaged.orderId)}`,
+        })
         void fetch("/api/admin/managed-service-notifications", {
           method: "POST",
           credentials: "same-origin",

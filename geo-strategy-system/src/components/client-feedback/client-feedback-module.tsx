@@ -522,11 +522,11 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
     setCalendarMonth(importedDate.slice(0, 7))
     setBatchImportOpen(false)
     setError("")
-    setNotice(
-      result.skippedCount > 0
-        ? `已导入 ${result.createdCount} 条动作，跳过 ${result.skippedCount} 条重复网址`
-        : `已导入 ${result.createdCount} 条动作`,
-    )
+    const reconciliation = result.reconciliation
+    const quotaMessage = reconciliation
+      ? `，核销 ${reconciliation.matchedCount} 项${reconciliation.overQuotaCount > 0 ? `，超额 ${reconciliation.overQuotaCount} 项` : ""}${reconciliation.needsReviewCount > 0 ? `，${reconciliation.needsReviewCount} 条待确认平台` : ""}`
+      : ""
+    setNotice(`已导入 ${result.createdCount} 条动作${result.skippedCount > 0 ? `，跳过 ${result.skippedCount} 条重复网址` : ""}${quotaMessage}`)
     void load(true)
   }
 
@@ -780,6 +780,8 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         client={client}
         profile={payload.profile}
         mode="summary"
+        selectedDate={selectedDate}
+        refreshKey={payload.actions[0]?.updatedAt || ""}
         onExecutionChanged={() => void load(true)}
       />
 
@@ -923,7 +925,13 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                     {action.description ? <p className="mt-1 break-words text-xs leading-5 text-[#6B8299]">{action.description}</p> : null}
                     <div className="mt-2 flex flex-wrap gap-x-3 text-[10px] text-[#8AA0B5]">
                       <span>{formatTime(action.occurredAt)}</span>
-                      {action.platform ? <span>{action.platform}</span> : null}
+                      {group.platformNames.length > 0 ? (
+                        <span title={group.platformNames.join("、")}>
+                          {group.platformNames.length <= 3
+                            ? group.platformNames.join("、")
+                            : `${group.platformNames.slice(0, 2).join("、")}等 ${group.platformNames.length} 个平台`}
+                        </span>
+                      ) : null}
                       {group.evidenceCount > 0 ? <span>{group.evidenceCount} 条证据</span> : null}
                       {action.visibility === "internal" ? <span className="text-amber-600">仅内部</span> : null}
                     </div>
