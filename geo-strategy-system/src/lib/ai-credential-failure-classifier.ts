@@ -110,6 +110,20 @@ export function classifyAiCredentialFailure(
     })
   }
 
+  // Local configuration errors (wrong endpoint or model family for strict web
+  // search) never heal by retrying; report them for an administrator to fix.
+  if (/严格联网(?:需要|必须).{0,12}TokenHub|Responses 联网需要 doubao- 或 ep- 开头的模型|未声明同时具备官方联网/.test(message)) {
+    return diagnosis({
+      failureClass: "permission",
+      scope: "capability",
+      code: "CONFIGURATION_REQUIRED",
+      message,
+      actionRequired: true,
+      retryable: false,
+      cooldownMs: 6 * HOUR,
+    })
+  }
+
   if (/ModelNotOpen|has not activated.{0,30}model|model service not activated|model.{0,24}(?:not found|unavailable|does not exist)|模型.{0,12}(?:不存在|已下线|不可用)|unknown model/i.test(message)) {
     return diagnosis({
       failureClass: "model_unavailable",
@@ -149,9 +163,13 @@ export function classifyAiCredentialFailure(
   if (
     /search_results=0|(?:未返回|没有返回|未取得|没有取得).{0,30}(?:可审计|有效信源|信源网址|网页来源)|未执行.{0,12}(?:联网|web_search)|厂商未确认执行官方联网|联网返回空内容/i.test(message)
   ) {
+    // An empty answer or missing sources is how one model behaved on one
+    // request, not proof the account lacks web search: block only that model so
+    // the account's other verified web models stay usable. Missing permission
+    // (ToolNotOpen) is matched above as a capability-wide failure.
     return diagnosis({
       failureClass: "web_evidence",
-      scope: "capability",
+      scope: "model",
       code: "WEB_EVIDENCE_MISSING",
       message,
       cooldownMs: 10 * MINUTE,

@@ -603,12 +603,20 @@ export async function markAiCredentialRouteHalfOpen(
   }))
 }
 
+/**
+ * Routes due for a recovery probe, oldest first. Pass the accounts that can be
+ * probed right now: otherwise stale routes of disabled or cooling accounts fill
+ * the limit, get filtered out by the caller, and starve every probeable route.
+ */
 export async function listDueAiCredentialRouteProbes(
   limit = 20,
+  credentialIds?: string[],
 ): Promise<AiCredentialRouteHealth[]> {
   const now = Date.now()
   const staleHalfOpenBefore = now - 5 * 60_000
   const safeLimit = Math.max(1, Math.min(100, limit))
+  if (credentialIds && credentialIds.length === 0) return []
+  const allowedCredentials = credentialIds ? new Set(credentialIds) : null
   const db = databasePool()
   let routes: AiCredentialRouteHealth[]
   if (db) {
@@ -616,6 +624,7 @@ export async function listDueAiCredentialRouteProbes(
     const result = await db.query(
       `SELECT * FROM geo_ai_credential_route_health_v1
        WHERE state <> 'closed'
+         AND ($4::text[] IS NULL OR credential_id = ANY($4::text[]))
          AND (
            (state = 'half_open' AND (last_probe_at IS NULL OR last_probe_at <= $1))
            OR
@@ -623,7 +632,12 @@ export async function listDueAiCredentialRouteProbes(
          )
        ORDER BY COALESCE(next_probe_at, updated_at) ASC
        LIMIT $3`,
-      [new Date(staleHalfOpenBefore).toISOString(), new Date(now).toISOString(), safeLimit],
+      [
+        new Date(staleHalfOpenBefore).toISOString(),
+        new Date(now).toISOString(),
+        safeLimit,
+        credentialIds ?? null,
+      ],
     )
     routes = result.rows
       .map(normalizeRoute)
@@ -633,6 +647,7 @@ export async function listDueAiCredentialRouteProbes(
   }
   return routes
     .filter(route => {
+      if (allowedCredentials && !allowedCredentials.has(route.credentialId)) return false
       if (route.state === "closed") return false
       if (route.state === "half_open") {
         return !route.lastProbeAt
