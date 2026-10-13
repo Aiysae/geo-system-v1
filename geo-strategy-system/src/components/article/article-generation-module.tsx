@@ -1,5 +1,7 @@
 "use client"
 
+import ResultGuide from "@/components/reports/result-guide"
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import {
@@ -1131,10 +1133,21 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
         </div>
       </div>
 
+      <ResultGuide
+        title="内容成果导读"
+        status={isBulkWorkspace ? "批量工作区" : isGenerating ? "内容生成中" : article.status === "error" ? "本次生成未完成" : hasOutput ? "已有内容草稿" : "待生成内容"}
+        summary={isProduction ? "按发布计划查看内容生产与交付进度，逐项核对文章和发布情况。" : isStrategy ? "从关键词策略中的问题组织内容，查看每个问题对应的生成成果。" : isBatch ? "集中查看批量任务的生成状态，完成后逐篇核对内容。" : hasOutput ? "当前已有内容草稿。先核对正文中的事实、品牌表述和来源，再决定是否发布。" : "围绕客户真正关心的问题形成内容草稿，生成后还需完成事实核对与发布确认。"}
+        facts={!isBulkWorkspace && article.connectivity ? [
+          { label: "资料模式", value: article.connectivity.mode === "web" ? "联网资料" : "普通模式" },
+          { label: "联网参考资料", value: `${article.connectivity.sourceCount} 条` },
+        ] : []}
+        note={isBulkWorkspace ? "生成完成与发布完成是不同状态，请以各任务及发布记录为准。" : isGenerating && hasOutput ? "新内容生成中，下方正文仍可能是上一次草稿。" : "生成完成不代表已发布；发布状态以发布记录为准。"}
+        nextSteps={isBulkWorkspace ? ["先检查任务状态，处理未完成或报错的项目。", "核对每篇文章的事实与引用，再按现有流程确认发布。"] : hasOutput ? ["阅读正文，核对产品信息、数字和引用来源。", "确认内容后安排发布或导出，并在执行反馈中核验结果。"] : ["确定要回答的问题并补充真实资料。", "由项目负责人生成草稿，完成后核对内容与来源。"]}
+      />
       <div className={`grid items-start gap-4 p-3 sm:p-4 ${
         isProduction ? "lg:grid-cols-1" : "lg:grid-cols-[minmax(340px,0.82fr)_minmax(0,1.18fr)]"
       }`}>
-        <div className="space-y-4">
+        <div className={hasOutput && !isBulkWorkspace ? "order-2 space-y-4 lg:order-1" : "space-y-4"}>
           <section className="geo-panel p-3 sm:p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-700">
               <WandSparkles className="h-3.5 w-3.5 text-[#1677FF]" />
@@ -1821,7 +1834,7 @@ export default function ArticleGenerationModule({ client, onChangeClient }: Prop
             perArticleCredits={estimateFeatureCredits(articleFeatureKey)}
           />
         ) : (
-          <div className="min-w-0 space-y-3">
+          <div className="order-1 min-w-0 space-y-3 lg:order-2">
             {article.status === "done" && article.qualityAudit?.finalPassed === false && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
                 <div className="flex items-center gap-2 font-semibold">

@@ -3,6 +3,8 @@
 import Image from "next/image"
 import Link from "next/link"
 import {
+  BarChart3,
+  ChartNoAxesCombined,
   Brain,
   Building2,
   CalendarRange,
@@ -154,7 +156,7 @@ export default function WorkspaceSidebar({
       ...workflow,
       modules: workflow.modules.filter(module => canViewModule(module.key)),
     }))
-    .filter(workflow => workflow.modules.length > 0)
+    .filter(workflow => workflow.modules.length > 0 && !(restricted && workflow.key === "feedback"))
 
   return (
     <aside className={cn("no-print fixed inset-y-0 left-0 z-50 flex h-screen w-[248px] shrink-0 transform flex-col overflow-hidden bg-[linear-gradient(180deg,#001743_0%,#002C70_52%,#003B8F_100%)] text-white shadow-[10px_0_36px_-28px_rgba(0,29,102,.9)] transition-transform duration-300 ease-out md:static md:translate-x-0", drawerClass)}>
@@ -175,7 +177,13 @@ export default function WorkspaceSidebar({
         </Link>
       </div>
 
-      <div className="shrink-0 px-4 pb-2 text-[10px] font-semibold text-cyan-100/55">业务工作流</div>
+      {restricted && client ? <nav aria-label="客户工作台" className="space-y-2 px-3 pb-5">
+        <p className="px-2 py-2 text-xs text-slate-400">客户工作台</p>
+        {canViewModule("feedback") ? <Link href={`/workspace?clientId=${encodeURIComponent(client.id)}&module=feedback#client-overview`} onNavigate={() => { onChange("feedback"); onClose?.() }} className={cn("flex min-h-11 items-center gap-3 rounded-md px-3 text-sm",active === "feedback" ? "bg-blue-600 text-white" : "text-slate-200 hover:bg-white/10")}><BarChart3 size={18}/>项目概览</Link> : null}
+        {canViewModule("penetration") ? <Link href={`/workspace?clientId=${encodeURIComponent(client.id)}&module=penetration`} onNavigate={() => { onChange("penetration"); onClose?.() }} className={cn("flex min-h-11 items-center gap-3 rounded-md px-3 text-sm",active === "penetration" ? "bg-blue-600 text-white" : "text-slate-200 hover:bg-white/10")}><ChartNoAxesCombined size={18}/>检测结果</Link> : null}
+        {canViewModule("feedback") ? <Link href={`/workspace?clientId=${encodeURIComponent(client.id)}&module=feedback#client-reports`} onNavigate={() => { onChange("feedback"); onClose?.() }} className="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm text-slate-200 hover:bg-white/10"><CalendarRange size={18}/>周月报</Link> : null}
+      </nav> : null}
+      <div className="shrink-0 px-4 pb-2 text-[10px] font-semibold text-cyan-100/55">{restricted ? "优化工作" : "业务工作流"}</div>
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4" aria-label="工作台业务工作流">
         {visibleWorkflows.map(workflow => {
           const Icon = workflow.icon

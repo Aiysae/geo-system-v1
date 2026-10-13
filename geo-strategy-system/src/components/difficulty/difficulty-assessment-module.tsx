@@ -1,5 +1,7 @@
 "use client"
 
+import ResultGuide from "@/components/reports/result-guide"
+
 import { useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import {
@@ -942,6 +944,18 @@ export default function DifficultyAssessmentModule({ client, onChangeClient, onE
 
   return (
     <div className="min-w-0 space-y-5">
+      <ResultGuide
+        title="难度与投入导读"
+        status={loading ? "测评进行中" : activeEntry ? "已有测评结果" : showSample ? "示例报告" : "待测评"}
+        summary={hasReportToShow ? result.summary : "先了解竞争难度、预计执行周期和成本，再决定本项目的投入与实施范围。"}
+        facts={hasReportToShow ? [
+          { label: "测评难度", value: result.level },
+          { label: "稳定提及周期预估", value: result.stableMentionPeriod },
+          { label: "报告类型", value: activeEntry ? "项目测评" : "演示示例" },
+        ] : []}
+        note={showSample && !activeEntry ? "当前为示例数据，仅用于了解报告结构，不代表本项目的测评结果。" : loading ? "新测评进行中，已有报告仍为此前结果。周期与成本均为评估参考。" : "周期、成本与难度均为评估参考，不代表实际效果或交付承诺。"}
+        nextSteps={hasReportToShow && result.suggestions.length ? result.suggestions.slice(0, 3) : ["确认行业、目标对象与地区范围，再由项目负责人发起测评。", "拿到报告后，结合成本测算与关键洞察确认执行优先级。"]}
+      />
       <section className="geo-section-panel no-print p-4 sm:p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-3">
           <div className="flex items-center gap-3">

@@ -194,33 +194,15 @@ export default function GeoAuditReport({ audit }: { audit: WebsiteGeoAudit }) {
 
   return (
     <div className="space-y-4">
-      <section className="overflow-hidden rounded-lg border border-[#CFE5FF] bg-white">
-        <div className="grid lg:grid-cols-[260px_minmax(0,1fr)]">
-          <div
-            className="flex min-h-[230px] items-center justify-center border-b border-[#D8E9FA] p-5 lg:border-b-0 lg:border-r"
-            style={{ background: `linear-gradient(145deg, ${tone.soft}, #FFFFFF 72%)` }}
-          >
-            <div className="text-center">
-              <div
-                className="relative mx-auto flex h-36 w-36 items-center justify-center rounded-full"
-                style={{ background: `conic-gradient(${tone.color} ${audit.score * 3.6}deg, #DDEAF7 0deg)` }}
-                role="img"
-                aria-label={`网站 GEO 诊断得分 ${audit.score} 分`}
-              >
-                <div className="flex h-[116px] w-[116px] flex-col items-center justify-center rounded-full bg-white shadow-sm">
-                  <span className="geo-data-number text-4xl font-bold" style={{ color: tone.color }}>
-                    {audit.score}
-                  </span>
-                  <span className="mt-0.5 text-[10px] font-semibold text-slate-400">总分 / 100</span>
-                </div>
-              </div>
-              <span
-                className="mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold"
-                style={{ color: tone.color, backgroundColor: tone.soft }}
-              >
-                {tone.label}
-              </span>
-            </div>
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="grid lg:grid-cols-[180px_minmax(0,1fr)]">
+          <div className="border-b border-slate-200 p-5 lg:border-b-0 lg:border-r">
+            <h3 className="text-sm font-semibold text-slate-900">网站基础得分</h3>
+            <p className="mt-3 text-3xl font-semibold tabular-nums text-slate-900">
+              {audit.score}<span className="ml-1 text-sm font-normal text-slate-600">/ 100</span>
+            </p>
+            <p className="mt-2 text-sm font-medium text-slate-700">{tone.label}</p>
+            <p className="mt-3 text-xs leading-5 text-slate-600">结合未通过项与读取范围理解得分。</p>
           </div>
 
           <div className="min-w-0 p-4 sm:p-5">
@@ -417,7 +399,7 @@ export default function GeoAuditReport({ audit }: { audit: WebsiteGeoAudit }) {
                       </span>
                     )}
                   </div>
-                  <p className="mt-0.5 truncate text-[11px] text-slate-500">{check.summary}</p>
+                  <p className="mt-1 break-words text-sm leading-6 text-slate-600">{check.summary}</p>
                 </div>
                 <span className="geo-data-number shrink-0 text-xs font-bold text-slate-700">
                   {check.score}/{check.maxScore}
@@ -430,7 +412,7 @@ export default function GeoAuditReport({ audit }: { audit: WebsiteGeoAudit }) {
                   {check.evidence.length > 0 ? (
                     <ul className="mt-1.5 space-y-1.5">
                       {check.evidence.map(item => (
-                        <li key={item} className="break-words text-[11px] leading-5 text-slate-600">{item}</li>
+                        <li key={item} className="break-words text-sm leading-6 text-slate-700">{item}</li>
                       ))}
                     </ul>
                   ) : (
@@ -439,7 +421,7 @@ export default function GeoAuditReport({ audit }: { audit: WebsiteGeoAudit }) {
                 </div>
                 <div>
                   <div className="text-[10px] font-semibold text-slate-500">改进建议</div>
-                  <p className="mt-1.5 text-[11px] leading-5 text-slate-600">{check.recommendation}</p>
+                  <p className="mt-1.5 text-sm leading-6 text-slate-700">{check.recommendation}</p>
                   {check.urls.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {check.urls.slice(0, 4).map((url, index) => (
