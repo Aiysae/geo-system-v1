@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { listAiCredentialRouteHealth } from "@/lib/ai-credential-route-health"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
 import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
@@ -122,12 +123,18 @@ function resolveRouteCredentialModel(
   route: AdapterCredentialRoute,
   credential: AiCredentialLease["credential"],
   selectedModel: string | undefined,
+  unhealthyWebModels: Set<string> = new Set(),
 ): string {
   if (route.verifiedWebModelRequired) {
     const allowed = new Set(credential.allowedModels)
     const verified = credential.verifiedWebModels.filter(model =>
       allowed.size === 0 || allowed.has(model),
     )
+    // Prefer the configured model, but not while its web route is recovering:
+    // another verified model on the same account can answer meanwhile.
+    const healthy = verified.filter(model => !unhealthyWebModels.has(model))
+    if (healthy.includes(route.targetModel)) return route.targetModel
+    if (healthy.length > 0) return healthy[0]
     if (verified.includes(route.targetModel)) return route.targetModel
     return verified[0] || ""
   }
@@ -136,6 +143,19 @@ function resolveRouteCredentialModel(
     selectedModel || route.targetModel,
     route.requiredCapabilities,
   )
+}
+
+async function unhealthyStrictWebModels(
+  credentialId: string,
+  module: AiCredentialModule,
+): Promise<Set<string>> {
+  const routes = await listAiCredentialRouteHealth([credentialId]).catch(() => [])
+  return new Set(routes
+    .filter(route => route.module === module
+      && route.capabilityProfile === "strict_web"
+      && route.state !== "closed"
+      && route.state !== "degraded")
+    .map(route => route.model))
 }
 
 function selectionRequest(
@@ -570,11 +590,15 @@ export async function runAdapterCredentialPoolChat(
 
     excludedCredentialIds.push(lease.credential.id)
     const startedAt = Date.now()
+    const unhealthyWebModels = route.verifiedWebModelRequired
+      ? await unhealthyStrictWebModels(lease.credential.id, module)
+      : new Set<string>()
     try {
       const credentialModel = resolveRouteCredentialModel(
         route,
         lease.credential,
         selectionModel,
+        unhealthyWebModels,
       )
       if (!credentialModel) throw new Error(`${ADAPTERS[model].label} 可用账号未配置模型`)
       const result = await observeAiUsage({
@@ -608,7 +632,7 @@ export async function runAdapterCredentialPoolChat(
       lastError = error
       await recordAiCredentialFailure(lease.credential, error, {
         module,
-        model: resolveRouteCredentialModel(route, lease.credential, selectionModel),
+        model: resolveRouteCredentialModel(route, lease.credential, selectionModel, unhealthyWebModels),
         requiredCapabilities: route.healthCapabilities,
       })
       if (!shouldFailOverAiCredential(error)) throw error

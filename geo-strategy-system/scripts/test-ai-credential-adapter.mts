@@ -229,7 +229,7 @@ assert.deepEqual(
   {
     model: "doubao",
     ready: false,
-    reason: "豆包暂无已启用且通过严格联网验证的账号",
+    reason: "后台没有已启用的豆包账号",
   },
   "static provider configuration must not report ready when strict routing has no verified account",
 )

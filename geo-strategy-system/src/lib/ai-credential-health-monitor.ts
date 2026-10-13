@@ -138,10 +138,15 @@ async function seedCredentialRoutes(
     const declaresStrictWeb = credential.declaredCapabilities.includes("native_web")
       && credential.declaredCapabilities.includes("auditable_sources")
       && STRICT_NATIVE_WEB_VENDORS.has(credential.vendor)
+    // Only a strict-web route proves the web capability is being tracked.
+    // Accounts that also write articles always have chat routes, and counting
+    // those here meant a lost web verification was never rechecked, leaving the
+    // model unavailable for question detection until an admin intervened.
+    const knownStrictRoutes = knownRoutes.filter(route => isStrictWebRoute(route))
     if (
       !declaresStrictWeb
       || (!options.force && (
-        knownRoutes.length > 0
+        knownStrictRoutes.length > 0
         || (!needsBasicRecovery && credential.verifiedWebModels.length > 0)
       ))
     ) continue
@@ -308,11 +313,9 @@ export async function runAiCredentialHealthSweep(
         ? 3 : route.failureScope === "credential" ? 0 : route.failureCount > 0 ? 1 : 2
       candidates.sort((a, b) => priority(a) - priority(b))
     } else {
-      candidates = (await listDueAiCredentialRouteProbes(100)).filter(route => {
-        const credential = credentials.find(item => item.id === route.credentialId)
-        return credential && credentialSelected(credential, options)
-          && (!credential.cooldownUntil || Date.parse(credential.cooldownUntil) <= Date.now())
-      })
+      const probeable = credentials.filter(credential => credentialSelected(credential, options)
+        && (!credential.cooldownUntil || Date.parse(credential.cooldownUntil) <= Date.now()))
+      candidates = await listDueAiCredentialRouteProbes(100, probeable.map(credential => credential.id))
     }
     if (options.credentialId) {
       candidates = candidates.filter(

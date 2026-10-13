@@ -90,7 +90,9 @@ export async function verifyAiCredentialWeb(
           system: "",
           user: "请联网查询今天的日期，并给出至少一个可访问的公开网页来源。",
           temperature: 0,
-          maxTokens: 512,
+          // Thinking models (Doubao Seed Pro) spend 300+ tokens reasoning even
+          // here; 512 left the answer empty and marked a working model broken.
+          maxTokens: 2048,
           mode: "consumer",
           forceWebSearch: true,
           rawQuestionOnly: true,
