@@ -436,6 +436,8 @@ try {
   assert.ok(ernieRequest)
   assert.deepEqual(ernieRequest.body.messages, [{ role: "user", content: question }])
   assert.equal(ernieRequest.body.search_mode, "required")
+  // The callers here pass temperature 0, which Baidu rejects as an invalid body.
+  assert.equal(ernieRequest.body.temperature, 0.01)
   assert.equal(ernieEvents[0]?.sources.length, 1)
   assert.equal(ernieAudits[0]?.verified, true)
   assert.equal(ernieAudits[0]?.searchMode, "native_web")

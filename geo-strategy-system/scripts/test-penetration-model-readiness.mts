@@ -167,7 +167,8 @@ try {
   const busyHunyuan = await saveAiCredential({
     vendor: "hunyuan", name: "混元忙", accountLabel: "混元忙", apiKey: "hunyuan-busy-secret",
     baseUrl: "https://tokenhub.tencentmaas.com", chatPath: "/v1/chat/completions", enabled: false,
-    allowedModels: ["hy3"], allowedModules: ["penetration"],
+    // Like production account 1: web-verified but the detection module unticked.
+    allowedModels: ["hy3"], allowedModules: ["article"],
     declaredCapabilities: ["chat", "native_web", "auditable_sources"],
   }, "test")
   await updateAiCredentialHealth(busyHunyuan.id, {
