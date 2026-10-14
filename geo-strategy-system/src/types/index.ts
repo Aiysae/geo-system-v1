@@ -125,7 +125,7 @@ export type GenerationStatus = "idle" | "generating" | "done" | "error"
 
 // ============ 新版：多客户 + 三大模块 ============
 
-export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "hunyuan"
+export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "hunyuan" | "zhipu"
 
 export type LlmMode = "consumer" | "judge"
 

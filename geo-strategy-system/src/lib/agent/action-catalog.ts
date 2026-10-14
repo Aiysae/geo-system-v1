@@ -60,7 +60,7 @@ const clientContextShape = {
   requestId: requestIdSchema,
   dryRun: z.boolean().optional().default(false).describe("仅检查参数、权限和预计积分，不创建任务"),
 }
-const modelSchema = z.enum(["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"])
+const modelSchema = z.enum(["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan", "zhipu"])
 
 const penetrationSchema = z.looseObject({
   ...clientContextShape,
@@ -1645,7 +1645,7 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.map(item => String(item || "").trim()).filter(Boolean) : []
 }
 
-const MODEL_KEYS = new Set(["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"])
+const MODEL_KEYS = new Set(["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan", "zhipu"])
 
 function requestId(value: unknown): string {
   const id = String(value || "").trim()

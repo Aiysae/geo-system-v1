@@ -53,7 +53,7 @@ type FormState = {
   selectedQuestionIds: string[]
 }
 
-const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
+const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan", "zhipu"]
 
 function questionOptions(
   questions: string[],

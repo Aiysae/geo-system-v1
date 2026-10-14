@@ -112,6 +112,7 @@ const MODEL_KEYS = new Set<ModelKey>([
   "kimi",
   "ernie",
   "hunyuan",
+  "zhipu",
 ])
 
 export function emptyWorkspaceVersions(): WorkspaceVersions {

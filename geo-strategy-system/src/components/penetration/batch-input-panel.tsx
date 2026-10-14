@@ -57,7 +57,7 @@ import type {
   PersonSubjectProfile,
 } from "@/types"
 
-const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
+const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan", "zhipu"]
 
 type InputMode = "manual" | "ai"
 type ModelReadiness = Partial<Record<ModelKey, { ready: boolean; reason?: string }>>

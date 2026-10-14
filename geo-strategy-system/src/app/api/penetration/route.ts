@@ -426,6 +426,14 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     }
   }
 
+  if (model === "zhipu") {
+    return {
+      searchMode: "native_web",
+      promptPurity: "raw_question_only",
+      webVerificationNote: "严格模式使用智谱开放平台官方 web_search 工具，并读取逐条返回的网页来源。",
+    }
+  }
+
   return {
     searchMode: "none",
     promptPurity: "unknown",
@@ -1198,7 +1206,7 @@ async function enrichWithBatchJudge(
 // 同一任务保留多个跨厂商候选，任一账号欠费、限流或输出截断都可自动切换。
 // ============================================================================
 async function pickJudgeCandidates(activeModels: ModelKey[]): Promise<ModelKey[]> {
-  const order: ModelKey[] = ["qwen", "hunyuan", "doubao", "kimi", "ernie", "deepseek"]
+  const order: ModelKey[] = ["qwen", "hunyuan", "doubao", "kimi", "ernie", "deepseek", "zhipu"]
   const readiness = await Promise.all(order.map(async model => ({
     model,
     pooled: await hasAdapterCredentialPoolCandidate(model, "judge", { jsonMode: true }),

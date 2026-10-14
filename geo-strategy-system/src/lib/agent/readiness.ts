@@ -193,7 +193,7 @@ export async function checkAgentActionReadiness(
   }
 
   if (action === "diagnosis.run") {
-    const models: ModelKey[] = ["deepseek", "doubao", "qwen", "kimi", "ernie", "hunyuan"]
+    const models: ModelKey[] = ["deepseek", "doubao", "qwen", "kimi", "ernie", "hunyuan", "zhipu"]
     const configured = await Promise.all(models.map(async model => (
       isAdapterCredentialConfigured(model, "diagnosis", { jsonMode: true })
     )))

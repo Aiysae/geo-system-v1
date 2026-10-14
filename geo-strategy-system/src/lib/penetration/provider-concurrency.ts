@@ -68,6 +68,7 @@ export class PenetrationConcurrencyController {
       kimi: new AsyncSemaphore(config.providers.kimi),
       ernie: new AsyncSemaphore(config.providers.ernie),
       hunyuan: new AsyncSemaphore(config.providers.hunyuan),
+      zhipu: new AsyncSemaphore(config.providers.zhipu),
     }
   }
 
@@ -105,6 +106,7 @@ export class PenetrationConcurrencyController {
         kimi: this.providers.kimi.snapshot(),
         ernie: this.providers.ernie.snapshot(),
         hunyuan: this.providers.hunyuan.snapshot(),
+        zhipu: this.providers.zhipu.snapshot(),
       },
     }
   }
@@ -139,6 +141,7 @@ function runtimeConfig(): PenetrationConcurrencyConfig {
       kimi: concurrencyValue(variable("KIMI_CONCURRENCY"), schedulerV3 ? 6 : 4, 12),
       ernie: concurrencyValue(variable("ERNIE_CONCURRENCY"), schedulerV3 ? 10 : 6, 12),
       hunyuan: concurrencyValue(variable("HUNYUAN_CONCURRENCY"), schedulerV3 ? 5 : 3, 12),
+      zhipu: concurrencyValue(variable("ZHIPU_CONCURRENCY"), schedulerV3 ? 5 : 3, 12),
     },
   }
 }

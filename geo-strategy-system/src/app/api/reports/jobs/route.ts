@@ -56,7 +56,7 @@ const REPORT_KINDS = new Set<CommercialReportKind>([
   "keyword",
 ])
 const REPORT_DETAILS = new Set<CommercialReportDetail>(["concise", "full"])
-const MODEL_KEYS = new Set(["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"])
+const MODEL_KEYS = new Set(["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan", "zhipu"])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)

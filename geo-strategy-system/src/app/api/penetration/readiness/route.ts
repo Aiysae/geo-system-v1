@@ -6,7 +6,7 @@ import type { ModelKey } from "@/types"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
+const MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan", "zhipu"]
 
 export async function GET() {
   const userGuard = await requireUserId()

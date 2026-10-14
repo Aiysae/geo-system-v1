@@ -26,6 +26,8 @@ process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 process.env.TENCENT_HUNYUAN_API_KEY = "test-tokenhub-key"
 process.env.TENCENT_HUNYUAN_MODEL = "hy3"
 process.env.TENCENT_HUNYUAN_CHAT_URL = "https://tokenhub.tencentmaas.com/v1/chat/completions"
+process.env.ZHIPU_API_KEY = "test-zhipu-key"
+process.env.ZHIPU_MODEL = "glm-5.1"
 
 type CapturedRequest = { url: string; body: Record<string, unknown> }
 const requests: CapturedRequest[] = []
@@ -55,6 +57,28 @@ globalThis.fetch = async (input, init) => {
   const url = String(input)
   const body = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>
   requests.push({ url, body })
+
+  if (url === "https://open.bigmodel.cn/api/paas/v4/chat/completions") {
+    return jsonResponse({
+      id: "zhipu-completion-1",
+      request_id: "zhipu-request-1",
+      choices: [{
+        finish_reason: "stop",
+        message: { role: "assistant", content: "智谱 原始联网回答" },
+      }],
+      web_search: [
+        {
+          title: "智谱联网信源",
+          link: "https://example.com/news/zhipu-search",
+          content: "用于验证智谱官方联网搜索返回公开文章网址。",
+          media: "示例网站",
+          publish_date: "2026-10-01",
+        },
+        { title: "无网址的结果", link: "", content: "没有网址的结果不能作为信源。" },
+      ],
+      usage: { prompt_tokens: 12, completion_tokens: 20, total_tokens: 32 },
+    })
+  }
 
   if (url.includes("dashscope.aliyuncs.com")) {
     return jsonResponse({
@@ -267,6 +291,7 @@ const { chatKimi } = await import("../src/lib/llm/kimi")
 const { chatErnie } = await import("../src/lib/llm/ernie")
 const { chatDoubao } = await import("../src/lib/llm/doubao")
 const { chatHunyuan } = await import("../src/lib/llm/hunyuan")
+const { chatZhipu } = await import("../src/lib/llm/zhipu")
 const { isAuditableSourceUrl } = await import("../src/lib/llm/source-extract")
 
 const question = "今天有哪些最新的人工智能新闻？"
@@ -462,6 +487,32 @@ try {
   assert.equal(hunyuanEvents[0]?.sources.length, 1)
   assert.equal(hunyuanAudits[0]?.verified, true)
   assert.equal(hunyuanAudits[0]?.searchMode, "native_web")
+
+  const zhipuEvents: SearchSourceEvent[] = []
+  const zhipuAudits: PenetrationRequestAudit[] = []
+  const zhipuAnswer = await chatZhipu({
+    ...baseArgs,
+    onSearchSources: event => zhipuEvents.push(event),
+    onRequestAudit: audit => zhipuAudits.push(audit),
+  })
+  assert.equal(zhipuAnswer, "智谱 原始联网回答")
+  const zhipuRequest = requests.find(request => request.url.startsWith("https://open.bigmodel.cn/"))
+  assert.ok(zhipuRequest)
+  assert.deepEqual(zhipuRequest.body.messages, [{ role: "user", content: question }])
+  assert.deepEqual(zhipuRequest.body.tools, [{
+    type: "web_search",
+    web_search: { enable: true, search_engine: "search_pro", search_result: true, count: 10 },
+  }])
+  assert.deepEqual(zhipuRequest.body.thinking, { type: "disabled" })
+  assert.deepEqual(
+    zhipuEvents.flatMap(event => event.sources).map(source => source.url),
+    ["https://example.com/news/zhipu-search"],
+    "only results with a URL count as sources",
+  )
+  assert.equal(zhipuEvents[0]?.providerRequestId, "zhipu-request-1")
+  assert.equal(zhipuAudits[0]?.verified, true)
+  assert.equal(zhipuAudits[0]?.modelProvider, "zhipu")
+  assert.equal(zhipuAudits[0]?.searchProvider, "zhipu_search")
 
   assert.equal(
     requests.some(request =>

@@ -30,6 +30,7 @@ const STRICT_WEB_MODEL_BY_VENDOR: Partial<Record<AiCredentialVendor, ModelKey>> 
   ernie: "ernie",
   hunyuan: "hunyuan",
   kimi: "kimi",
+  zhipu: "zhipu",
 }
 
 export async function verifyAiCredentialWeb(
@@ -54,7 +55,7 @@ export async function verifyAiCredentialWeb(
     throw new Error("该账号未声明同时具备官方联网和可审计信源能力")
   }
   if (credential.vendor === "kimi") {
-    throw new Error("Kimi 严格联网由 Moonshot 生成与百度搜索双账号承载，请运行完整联网冒烟检测")
+    throw new Error("Kimi 严格联网由 Moonshot 生成与官方搜索接口承载，请运行完整联网冒烟检测")
   }
 
   const requestedModel = String(options.model || "").trim()

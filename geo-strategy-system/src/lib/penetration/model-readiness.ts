@@ -17,7 +17,7 @@ export interface PenetrationModelReadiness {
 
 // Vendors whose question detection runs on their own official web search and
 // therefore needs an account verified for it.
-const NATIVE_WEB_VENDORS = new Set<ModelKey>(["doubao", "qwen", "ernie", "hunyuan"])
+const NATIVE_WEB_VENDORS = new Set<ModelKey>(["doubao", "qwen", "ernie", "hunyuan", "zhipu"])
 
 const ACTION_REASONS: Partial<Record<AiCredentialFailureClass, string>> = {
   billing: "账号欠费或免费额度已用完（如未开通后付费），请在厂商控制台充值或开通后，到后台模型账号点击复检",
