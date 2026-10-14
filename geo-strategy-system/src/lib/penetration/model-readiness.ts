@@ -108,21 +108,29 @@ export async function getPenetrationModelReadiness(
   }
 
   try {
-    const dependencyVendors = model === "kimi" || model === "deepseek"
-      ? new Set([model, "ernie"])
-      : new Set([model])
+    // DeepSeek borrows a Baidu or Kimi search account; Kimi searches with its own.
+    const dependencyVendors = model === "deepseek"
+      ? new Set<string>([model, "ernie", "kimi"])
+      : new Set<string>([model])
     const credentials = (await listAiCredentialsPublic()).filter(
       credential => credential.enabled && dependencyVendors.has(credential.vendor),
     )
     const routes = await listAiCredentialRouteHealth(credentials.map(credential => credential.id))
     if (model === "kimi" || model === "deepseek") {
-      // These combine their own generation with the Ernie search account.
-      const strict = routes.filter(route => route.module === "penetration")
-      if (strict.some(route => route.state === "action_required")) {
-        return { model, ready: false, reason: `${MODEL_LABELS[model]}服务通道需要管理员处理账号权限或额度` }
+      const own = credentials.filter(credential => credential.vendor === model)
+      if (own.length === 0) return { model, ready: false, reason: `后台没有已启用的${MODEL_LABELS[model]}账号` }
+      if (model === "deepseek" && !credentials.some(credential => credential.vendor !== "deepseek")) {
+        return { model, ready: false, reason: "DeepSeek 官方接口不带联网搜索，需要后台启用百度千帆搜索或 Kimi 账号作为检索来源" }
       }
-      if (strict.some(route => route.state === "open" || route.state === "degraded" || route.state === "half_open")) {
-        return { model, ready: false, reason: `${MODEL_LABELS[model]}服务通道正在冷却恢复，系统会自动复检` }
+      const strict = routes.filter(route => route.module === "penetration")
+      const actionRequired = strict.find(route => route.state === "action_required")
+      if (actionRequired) {
+        const reason = ACTION_REASONS[actionRequired.failureClass] || "账号需要管理员处理权限或额度"
+        return { model, ready: false, reason: `${MODEL_LABELS[model]}：${reason}${upstreamDetail(actionRequired)}` }
+      }
+      const recovering = strict.find(route => route.state === "open" || route.state === "degraded" || route.state === "half_open")
+      if (recovering) {
+        return { model, ready: false, reason: `${MODEL_LABELS[model]}服务通道正在冷却恢复，系统会自动复检${upstreamDetail(recovering)}` }
       }
       return { model, ready: false, reason: `${MODEL_LABELS[model]}暂无已启用且通过严格联网验证的账号` }
     }

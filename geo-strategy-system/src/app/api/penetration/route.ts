@@ -406,7 +406,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "external_tool_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式由 DeepSeek 官方 V4 模型作答，并通过百度公开搜索返回完整可审计网址。",
+      webVerificationNote: "严格模式由 DeepSeek 官方 V4 模型作答，并通过百度公开搜索（百度不可用时改用 Kimi 官方搜索）返回完整可审计网址。",
     }
   }
 
@@ -422,7 +422,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "external_tool_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式由 Moonshot 官方 Kimi 作答，并通过百度公开搜索返回完整可审计网址。",
+      webVerificationNote: "严格模式由 Moonshot 官方 Kimi 作答，并通过 Kimi 官方搜索接口返回完整可审计网址。",
     }
   }
 
