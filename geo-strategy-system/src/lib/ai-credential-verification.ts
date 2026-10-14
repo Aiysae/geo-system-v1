@@ -115,6 +115,9 @@ export async function verifyAiCredentialChat(
           label: `${credential.name}·连通性检测`,
           allowWebSearch: false,
           transportRetries: 0,
+          // GLM thinks by default and spent the whole 64-token probe on it,
+          // reporting a working account as broken.
+          extraBody: credential.vendor === "zhipu" ? { thinking: { type: "disabled" } } : undefined,
           onUsage,
         })
         if (requiredCapabilities.includes("json") && !looksLikeJson(result)) {

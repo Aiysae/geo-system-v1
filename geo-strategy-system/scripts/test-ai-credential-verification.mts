@@ -211,6 +211,20 @@ try {
   assert.equal(attemptedModels.length, 2)
   assert.equal((await getAiCredentialRuntime(saved.id)).healthStatus, "unhealthy",
     "earlier success must not override a later account-level billing failure")
+
+  // GLM would spend the small probe budget thinking and return nothing.
+  const savedZhipu = await saveAiCredential({
+    vendor: "zhipu", name: "智谱", accountLabel: "智谱", apiKey: "zhipu-probe-key",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4", chatPath: "/chat/completions", enabled: false,
+    allowedModels: ["glm-5.1"], allowedModules: ["article"], declaredCapabilities: ["chat", "json"],
+  }, "test")
+  let zhipuThinking: unknown
+  globalThis.fetch = async (_input, init) => {
+    zhipuThinking = JSON.parse(String(init?.body || "{}")).thinking
+    return Response.json({ choices: [{ message: { content: '{"ok":true}' }, finish_reason: "stop" }] })
+  }
+  await verifyAiCredentialChat(savedZhipu.id, { isProbe: true })
+  assert.deepEqual(zhipuThinking, { type: "disabled" })
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })
