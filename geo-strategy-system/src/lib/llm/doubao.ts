@@ -84,7 +84,9 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
         },
       }
     : {}
-  const tools = [{ type: "web_search", ...location }]
+  // The Doubao app also draws on Toutiao articles and Douyin videos, where
+  // much brand exposure lives; plain web search alone misses those mentions.
+  const tools = [{ type: "web_search", sources: ["toutiao", "douyin"], ...location }]
   const payload = {
     model,
     ...(!args.rawQuestionOnly && args.system.trim()

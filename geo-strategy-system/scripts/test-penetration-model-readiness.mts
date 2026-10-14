@@ -52,7 +52,7 @@ try {
     const url = String(input instanceof Request ? input.url : input)
     assert.match(url, /\/responses$/, "the recheck must use Ark's official web search")
     const body = JSON.parse(String(init?.body || "{}"))
-    assert.deepEqual(body.tools, [{ type: "web_search" }])
+    assert.equal(body.tools?.[0]?.type, "web_search")
     webCalls++
     return Response.json({
       id: "resp_test_1",
