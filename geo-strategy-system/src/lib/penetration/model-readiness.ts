@@ -46,8 +46,12 @@ function diagnose(
   routes: AiCredentialRouteHealth[],
 ): string {
   const label = MODEL_LABELS[model]
+  // Same rule as the router: a web-verified account serves detection even
+  // when the module is not ticked, so it must count here too.
   const usable = credentials.filter(credential => (
-    credential.allowedModules.length === 0 || credential.allowedModules.includes("penetration")
+    credential.allowedModules.length === 0
+    || credential.allowedModules.includes("penetration")
+    || credential.verifiedWebModels.length > 0
   ))
   if (usable.length === 0) {
     return credentials.length === 0
