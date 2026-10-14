@@ -189,8 +189,13 @@ async function probeRoute(route: AiCredentialRouteHealth, force: boolean): Promi
   try {
     const credential = await getAiCredentialRuntime(route.credentialId)
     if (!credential.enabled || !credential.apiKey) return null
-    if (!credential.allowedModels.includes(route.model)
-      || (credential.allowedModules.length > 0 && !credential.allowedModules.includes(route.module))) return null
+    // The router lets a web-verified account run question detection even when
+    // that module is not ticked; its routes must be probed too, or a stale
+    // failure there blocks the account forever.
+    const moduleAllowed = credential.allowedModules.length === 0
+      || credential.allowedModules.includes(route.module)
+      || (isStrictWebRoute(route) && credential.verifiedWebModels.length > 0)
+    if (!credential.allowedModels.includes(route.model) || !moduleAllowed) return null
     // Candidate lists can go stale after another route discovers account-level failure.
     if (!force && credential.cooldownUntil && Date.parse(credential.cooldownUntil) > Date.now()) return null
     const current = (await getAiCredentialRouteHealthMap([route])).get(route.id)

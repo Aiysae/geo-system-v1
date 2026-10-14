@@ -90,6 +90,38 @@ try {
   assert.equal((await getPenetrationModelReadiness("doubao")).ready, true,
     "an empty answer from one model leaves the other verified model available")
 
+  // A web-verified account without the detection module ticked is still used
+  // for detection, so a stale failure on one of its models must be rechecked
+  // and cleared rather than block the account forever.
+  await setAiCredentialEnabled(twoModels.id, false, "test")
+  const unticked = await saveAiCredential({
+    vendor: "doubao", name: "豆包未勾选", accountLabel: "豆包未勾选", apiKey: "doubao-unticked-secret",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3", chatPath: "/chat/completions", enabled: false,
+    allowedModels: ["doubao-lite-test", "doubao-pro-test"], allowedModules: ["article"],
+    declaredCapabilities: ["chat", "native_web", "auditable_sources"],
+  }, "test")
+  await updateAiCredentialHealth(unticked.id, {
+    status: "healthy", verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+    verifiedWebModels: ["doubao-lite-test"],
+  })
+  await setAiCredentialEnabled(unticked.id, true, "test")
+  const staleRoute = buildAiCredentialRouteIdentity(await getAiCredentialRuntime(unticked.id), {
+    module: "penetration", model: "doubao-pro-test", requiredCapabilities: ["native_web", "auditable_sources"],
+  })
+  // Recorded before failures were scoped to the model: blocks every web model.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await recordAiCredentialRouteFailure(staleRoute, {
+      ...classifyAiCredentialFailure(new Error("豆包 Responses 联网返回空内容。")), scope: "capability",
+    }, true)
+  }
+  assert.equal((await getPenetrationModelReadiness("doubao")).ready, false)
+  webCalls = 0
+  await runAiCredentialHealthSweep({ credentialId: unticked.id, force: true })
+  assert.ok(webCalls > 0, "the stale web route of an unticked account is rechecked")
+  assert.equal((await getPenetrationModelReadiness("doubao")).ready, true)
+  await setAiCredentialEnabled(unticked.id, false, "test")
+  await setAiCredentialEnabled(twoModels.id, true, "test")
+
   // Stale routes of disabled accounts must not crowd probeable routes out of the queue.
   const disabled = await saveAiCredential({
     vendor: "deepseek", name: "停用", accountLabel: "停用", apiKey: "disabled-secret",
