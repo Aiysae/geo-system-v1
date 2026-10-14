@@ -2,13 +2,16 @@ import { isAuditableSourceUrl } from "@/lib/llm/source-extract"
 import { isRetryableAiCredentialAuditFailure } from "@/lib/ai-credential-errors"
 import type { PenetrationItem } from "@/types"
 
+// Most failures are a busy or briefly cooling account, so the first retries
+// come quickly; the window still spans a few minutes for longer outages.
 export const PENETRATION_SLOT_RETRY_DELAYS_MS = [
-  3_000,
-  10_000,
+  2_000,
+  5_000,
+  15_000,
   30_000,
-  90_000,
+  60_000,
+  120_000,
   180_000,
-  300_000,
 ] as const
 
 export const PENETRATION_SLOT_MAX_ATTEMPTS = PENETRATION_SLOT_RETRY_DELAYS_MS.length + 1

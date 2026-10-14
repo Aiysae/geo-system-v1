@@ -458,6 +458,7 @@ try {
     user_location: { type: "approximate", country: "中国", region: "浙江", city: "杭州" },
   }])
   assert.equal(doubaoRequest.body.tool_choice, "required")
+  assert.deepEqual(doubaoRequest.body.thinking, { type: "disabled" }, "detection asks in the app's fast mode")
   assert.equal(doubaoEvents[0]?.sources.length, 1)
   assert.equal(doubaoAudits[0]?.verified, true)
   assert.equal(doubaoAudits[0]?.searchMode, "native_web")
