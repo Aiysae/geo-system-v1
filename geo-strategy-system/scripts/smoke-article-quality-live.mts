@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 
 const email = String(process.env.ARTICLE_SMOKE_USER_EMAIL || "3058767864@qq.com").trim()
 const { getUserByEmail } = await import("../src/lib/auth")
-const { createInternalApiHeaders } = await import("../src/lib/internal-api")
+const { createInternalApiHeaders, INTERNAL_API_USER_HEADER } = await import("../src/lib/internal-api")
 const { POST } = await import("../src/app/api/article-generation/route")
 const { closeKvConnection } = await import("../src/lib/kv")
 
@@ -13,7 +13,8 @@ const request = new NextRequest("http://localhost/api/article-generation", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    ...createInternalApiHeaders("background-job", user.id),
+    ...createInternalApiHeaders("background-job"),
+    [INTERNAL_API_USER_HEADER]: user.id,
   },
   body: JSON.stringify({
     promptKey: "selectionPitfallGuide",

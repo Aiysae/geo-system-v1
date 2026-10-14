@@ -486,6 +486,7 @@ export default function ArticleMarkdownWorkspace({
             value={value}
             onChange={event => onChange(event.target.value)}
             placeholder={placeholder}
+            style={{ minHeight: "min(35rem, 65svh)" }}
             className={`geo-plain-editor h-full flex-1 resize-none rounded-none border-0 bg-transparent p-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0 ${
               hasContent ? "min-h-[560px]" : "min-h-[360px]"
             }`}

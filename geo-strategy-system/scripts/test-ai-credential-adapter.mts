@@ -9,8 +9,6 @@ delete process.env.DATABASE_URL
 process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = join(tempDir, "kv.json")
 process.env.AI_CONFIG_ENCRYPTION_KEY = "test-ai-adapter-encryption-key"
-// Kimi detection and the DeepSeek fallback search share one test account.
-process.env.KIMI_PENETRATION_DEFAULT_RPM = "20"
 process.env.ARK_API_KEY = "test-static-doubao-key"
 process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 
@@ -231,7 +229,7 @@ assert.deepEqual(
   {
     model: "doubao",
     ready: false,
-    reason: "后台没有已启用的豆包账号",
+    reason: "豆包暂无已启用且通过严格联网验证的账号",
   },
   "static provider configuration must not report ready when strict routing has no verified account",
 )
@@ -269,8 +267,8 @@ assert.deepEqual(
 const originalFetch = globalThis.fetch
 const usedKeys: string[] = []
 let kimiRound = 0
+let deepSeekRound = 0
 let deepSeekFailureMode = false
-let baiduQuotaExhausted = false
 let qwenStrictFirstKey = ""
 try {
   globalThis.fetch = async (input, init) => {
@@ -282,21 +280,6 @@ try {
     const body = JSON.parse(String(init?.body || "{}")) as {
       model?: string
       messages?: Array<Record<string, unknown>>
-    }
-
-    if (url === "https://api.moonshot.cn/v1/tools/search") {
-      assert.equal(key, kimiSecret)
-      assert.equal((body as { text_query?: string }).text_query, "今天是几月几号")
-      return new Response(JSON.stringify({
-        search_results: [{
-          title: "Kimi 日期信源",
-          snippet: "用于验证 Kimi 官方搜索的公开网页摘要。",
-          url: "https://example.com/news/kimi-current-date",
-        }],
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json", "X-Msh-Track-Id": "moonshot-search-1" },
-      })
     }
 
     if (url.includes("api.moonshot.cn")) {
@@ -352,8 +335,8 @@ try {
           headers: { "Content-Type": "application/json" },
         })
       }
-      // Ask for a search until the conversation carries search results.
-      if (!body.messages?.some(message => message.role === "tool")) {
+      deepSeekRound += 1
+      if (deepSeekRound === 1) {
         return new Response(JSON.stringify({
           id: "deepseek-pool-tool-1",
           choices: [{
@@ -390,12 +373,6 @@ try {
 
     if (url.includes("/v2/ai_search/web_search")) {
       assert.equal(key, baiduSearchSecret)
-      if (baiduQuotaExhausted) {
-        return new Response(JSON.stringify({
-          code: "QUOTA_USER_DAILY_FREE",
-          message: "daily free quota exhausted",
-        }), { status: 429, headers: { "Content-Type": "application/json" } })
-      }
       assert.deepEqual(body.messages, [{ role: "user", content: "今天是几月几号" }])
       return new Response(JSON.stringify({
         request_id: "baidu-pool-search-1",
@@ -502,8 +479,7 @@ try {
   assert.deepEqual(
     await getAdapterCredentialPoolCapacity("kimi", "penetration", strictArgs),
     {
-      // Kimi searches with its own account; no Baidu account is involved.
-      vendor: "kimi",
+      vendor: "ernie",
       candidateCount: 1,
       maxConcurrency: 1,
       quotaGroupCount: 1,
@@ -523,7 +499,7 @@ try {
     onSearchSources: event => searchEvents.push(event),
   })
   assert.equal(kimiResult, "Kimi 双账号池联网回答")
-  assert.deepEqual(usedKeys, [kimiSecret, kimiSecret, kimiSecret])
+  assert.deepEqual(usedKeys, [kimiSecret, baiduSearchSecret, kimiSecret])
   assert.equal(searchEvents.flatMap(event => event.sources).length, 1)
   assert.equal(
     new Set(searchEvents.map(event => event.providerRequestId).filter(Boolean)).size,
@@ -560,29 +536,6 @@ try {
   assert.equal(deepSeekResult, "DeepSeek 双账号池联网回答")
   assert.deepEqual(usedKeys, [deepSeekSecret, baiduSearchSecret, deepSeekSecret])
   assert.equal(deepSeekEvents.flatMap(event => event.sources).length, 1)
-
-  // Baidu's daily quota runs out: DeepSeek keeps working on Kimi's official search.
-  baiduQuotaExhausted = true
-  usedKeys.length = 0
-  const fallbackEvents: SearchSourceEvent[] = []
-  const fallbackResult = await runAdapterCredentialPoolChat("deepseek", "penetration", {
-    system: "",
-    user: "今天是几月几号",
-    mode: "consumer",
-    forceWebSearch: true,
-    rawQuestionOnly: true,
-    requireWebEvidence: true,
-    officialWebOnly: true,
-    timeoutSec: 30,
-    onSearchSources: event => fallbackEvents.push(event),
-  })
-  assert.equal(fallbackResult, "DeepSeek 双账号池联网回答")
-  assert.equal(usedKeys.includes(kimiSecret), true, "the Kimi search account took over")
-  assert.deepEqual(
-    fallbackEvents.flatMap(event => event.sources).map(source => source.url),
-    ["https://example.com/news/kimi-current-date"],
-  )
-  baiduQuotaExhausted = false
 
   deepSeekFailureMode = true
   await assert.rejects(

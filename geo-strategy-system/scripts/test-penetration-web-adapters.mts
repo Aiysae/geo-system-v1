@@ -115,19 +115,6 @@ globalThis.fetch = async (input, init) => {
     })
   }
 
-  if (url === "https://api.moonshot.cn/v1/tools/search") {
-    return new Response(JSON.stringify({
-      search_results: [{
-        authority: "S",
-        date: "2026-10-01",
-        title: "Kimi 联网信源",
-        snippet: "用于验证 Kimi 官方搜索返回公开文章网址。",
-        url: "https://example.com/news/kimi-search",
-        site_name: "示例网站",
-      }],
-    }), { status: 200, headers: { "Content-Type": "application/json", "X-Msh-Track-Id": "moonshot-search-track-1" } })
-  }
-
   if (url.includes("api.moonshot.cn")) {
     kimiMoonshotRound += 1
     if (kimiMoonshotRound === 1) {
@@ -161,13 +148,14 @@ globalThis.fetch = async (input, init) => {
 
   if (url.includes("qianfan.baidubce.com/v2/ai_search/web_search")) {
     baiduWebSearchRound += 1
+    const slug = baiduWebSearchRound === 1 ? "deepseek" : "kimi"
     return jsonResponse({
-      request_id: "baidu-deepseek-search-request-1",
+      request_id: `baidu-${slug}-search-request-1`,
       references: [{
         type: "web",
-        title: "DeepSeek 联网信源",
+        title: `${slug === "kimi" ? "Kimi" : "DeepSeek"} 联网信源`,
         content: "用于验证百度透明搜索返回公开文章网址。",
-        url: "https://example.com/news/deepseek-search",
+        url: `https://example.com/news/${slug}-search`,
         website: "示例网站",
       }],
     })
@@ -356,7 +344,7 @@ try {
     onRequestAudit: audit => kimiAudits.push(audit),
   })
   assert.equal(kimiAnswer, "Kimi 原始联网回答")
-  const kimiRequests = requests.filter(request => request.url.includes("api.moonshot.cn/v1/chat"))
+  const kimiRequests = requests.filter(request => request.url.includes("api.moonshot.cn"))
   assert.equal(kimiRequests.length, 2)
   assert.deepEqual(kimiRequests[0]?.body.messages, [{ role: "user", content: question }])
   assert.equal(kimiRequests[0]?.body.tool_choice, "required")
@@ -367,14 +355,15 @@ try {
       ?.function?.name,
     "search_web",
   )
-  // Kimi searches with its own official endpoint, not Baidu.
   const kimiSearchRequest = requests.find(request =>
-    request.url === "https://api.moonshot.cn/v1/tools/search"
+    request.url.includes("/v2/ai_search/web_search")
   )
   assert.ok(kimiSearchRequest)
-  assert.equal(kimiSearchRequest.body.text_query, question)
-  assert.equal(kimiSearchRequest.body.limit, 20)
-  assert.equal(baiduWebSearchRound, 1, "only DeepSeek used Baidu search")
+  assert.deepEqual(kimiSearchRequest.body.messages, [{ role: "user", content: question }])
+  assert.deepEqual(
+    kimiSearchRequest.body.resource_type_filter,
+    [{ type: "web", top_k: 20 }],
+  )
   const secondKimiMessages = kimiRequests[1]?.body.messages as Array<Record<string, unknown>>
   assert.equal(secondKimiMessages[0]?.role, "user")
   assert.equal(secondKimiMessages[1]?.role, "assistant")
@@ -394,7 +383,7 @@ try {
   assert.equal(kimiEvents.some(event => event.mode === "external_tool_web"), true)
   assert.equal(kimiAudits[0]?.verified, true)
   assert.equal(kimiAudits[0]?.modelProvider, "moonshot")
-  assert.equal(kimiAudits[0]?.searchProvider, "moonshot_search")
+  assert.equal(kimiAudits[0]?.searchProvider, "baidu_search")
   assert.equal(kimiAudits[0]?.searchMode, "external_tool_web")
 
   const ernieEvents: SearchSourceEvent[] = []
