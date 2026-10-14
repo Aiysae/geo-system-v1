@@ -11,7 +11,9 @@ import type {
   PenetrationSearchMode,
   SourceDomainCount,
   PersonSubjectProfile,
+  PenetrationUserLocation,
 } from "@/types"
+import { normalizePenetrationUserLocation } from "@/lib/penetration/user-location"
 import { ADAPTERS } from "@/lib/llm"
 import {
   getAdapterCredentialPoolCapacity,
@@ -510,7 +512,8 @@ async function blindQuery(
   model: ModelKey,
   question: string,
   sampleId: string,
-  auditProfile: PenetrationAuditProfile
+  auditProfile: PenetrationAuditProfile,
+  userLocation?: PenetrationUserLocation,
 ): Promise<{
   answer: string
   error?: string
@@ -555,7 +558,8 @@ async function blindQuery(
           runAdapterCredentialPoolChat(model, "penetration", {
             system: "",
             user: question,
-            temperature: 0,
+            // Provider default sampling, as in the vendor's app: repeated
+            // samples of one question must be able to differ.
             seed: seed + attempt,
             mode: "consumer",
             jsonMode: false,
@@ -565,6 +569,7 @@ async function blindQuery(
             rawQuestionOnly: true,
             requireWebEvidence: true,
             officialWebOnly: true,
+            userLocation,
             onRequestAudit: audit => {
               requestAudits.push(audit)
               actualSearchMode = audit.searchMode
@@ -924,8 +929,15 @@ async function processSlot(args: {
   subjectType: AnalysisSubjectType
   personProfile?: PersonSubjectProfile
   auditProfile: PenetrationAuditProfile
+  userLocation?: PenetrationUserLocation
 }): Promise<PenetrationItem & { error?: string; judgeError?: string }> {
-  const blind = await blindQuery(args.model, args.question, args.sampleId, args.auditProfile)
+  const blind = await blindQuery(
+    args.model,
+    args.question,
+    args.sampleId,
+    args.auditProfile,
+    args.userLocation,
+  )
   const sampledAt = new Date().toISOString()
 
   if (blind.error || !blind.answer) {
@@ -1378,6 +1390,7 @@ async function handler(req: NextRequest) {
     let subjectType = normalizeAnalysisSubjectType(body.subjectType)
     let personProfile = normalizePersonSubjectProfile(body.personProfile)
     let ourBrand = String(body.ourBrand || "").trim()
+    const userLocation = normalizePenetrationUserLocation(body.userLocation)
     const questions: string[] = Array.isArray(body.questions)
       ? body.questions.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
@@ -1591,6 +1604,7 @@ async function handler(req: NextRequest) {
             subjectType,
             personProfile,
             auditProfile,
+            userLocation,
           })
           if (item.error && isPermanentPenetrationProviderError(item.error)) {
             permanentError = formatPenetrationProviderError(m, item.error)

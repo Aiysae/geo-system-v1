@@ -191,13 +191,16 @@ async function chatTokenHubNativeSearch(
   const timeoutMs = Math.max(30, args.timeoutSec ?? config.timeout) * 1000
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  // Standard search (the default source) is what Yuanbao users get; the lite
+  // tier returned about half as many sources.
   const tools = [{
     type: "web_search",
-    search_source: "lite",
-    search_context_size: "medium",
+    search_context_size: "high",
     user_location: {
       type: "approximate",
       country: "CN",
+      ...(args.userLocation?.region ? { region: args.userLocation.region } : {}),
+      ...(args.userLocation?.city ? { city: args.userLocation.city } : {}),
       timezone: "Asia/Shanghai",
     },
   }]

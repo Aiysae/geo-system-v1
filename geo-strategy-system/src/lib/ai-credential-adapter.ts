@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { listAiCredentialRuntimes } from "@/lib/ai-credential-store"
 import { listAiCredentialRouteHealth } from "@/lib/ai-credential-route-health"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
 import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
@@ -73,6 +74,43 @@ function strictCredentialVendor(model: ModelKey): ModelKey {
   return model
 }
 
+// Question detection should hear what a real user hears in the vendor's app,
+// which runs the flagship model. Earlier patterns rank higher; a vendor not
+// listed keeps the configured model.
+const DETECTION_MODEL_PREFERENCE: Partial<Record<ModelKey, RegExp[]>> = {
+  doubao: [/seed-2-1-pro/i, /seed-\d+-\d+-pro/i, /-pro\b/i, /turbo/i],
+  qwen: [/max/i, /qwen3\.\d+-plus/i, /plus/i],
+  ernie: [/ernie-5/i, /ernie-4\.5/i],
+  zhipu: [/^glm-5\.\d+$/i, /^glm-5/i],
+}
+
+/**
+ * The strongest web-verified model that currently has a free, healthy account,
+ * so one detection run keeps using the flagship and only falls back to a
+ * lighter model when no flagship account can serve.
+ */
+async function detectionFlagshipModel(
+  model: ModelKey,
+  module: AiCredentialModule,
+): Promise<string | undefined> {
+  const patterns = DETECTION_MODEL_PREFERENCE[model]
+  if (!patterns) return undefined
+  const credentials = (await listAiCredentialRuntimes(model)).filter(credential => credential.enabled)
+  const verified = [...new Set(credentials.flatMap(credential => credential.verifiedWebModels
+    .filter(webModel => credential.allowedModels.includes(webModel))))]
+  for (const pattern of patterns) {
+    for (const candidate of verified.filter(webModel => pattern.test(webModel)).sort().reverse()) {
+      if (await hasAiCredentialCandidate({
+        vendor: model,
+        module,
+        model: candidate,
+        requiredCapabilities: ["native_web", "auditable_sources"],
+      })) return candidate
+    }
+  }
+  return undefined
+}
+
 async function resolveAdapterCredentialRoute(
   model: ModelKey,
   module: AiCredentialModule,
@@ -93,6 +131,13 @@ async function resolveAdapterCredentialRoute(
   // Kimi accounts often allow only an older model than the global default;
   // any account's own model can run the search, as on the DeepSeek path.
   if (strictNativeWeb || (strictWeb && model === "kimi")) selectionModel = undefined
+  if (strictNativeWeb && !String(args.preferredModel || "").trim()) {
+    const flagship = await detectionFlagshipModel(model, module)
+    if (flagship) {
+      targetModel = flagship
+      selectionModel = flagship
+    }
+  }
 
   const requiredCapabilities: AiCredentialCapability[] = nativeWeb
     ? model === "kimi" || model === "deepseek"

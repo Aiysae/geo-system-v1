@@ -33,6 +33,7 @@ import type {
   PenetrationModelProgress,
   PenetrationPromptPurity,
   PenetrationQuestionIntentHint,
+  PenetrationUserLocation,
   PenetrationRetryableSlot,
   PenetrationResult,
   PenetrationSource,
@@ -56,6 +57,8 @@ type PenetrationRunParams = {
   brandAliases: string[]
   competitors: string[]
   questionIntents: PenetrationQuestionIntentHint[]
+  userLocation?: PenetrationUserLocation
+  samplesPerQuestion?: number
   operation?: "replace" | "append"
   retestSampleId?: string
   slotSelection?: Array<{
@@ -258,6 +261,11 @@ export default function PenetrationModule({
           models: params.models,
           slotSelection: params.slotSelection,
           operation: params.operation || "replace",
+          userLocation: params.userLocation ?? client.penetrationUserLocation,
+          // Re-testing one answer adds one sample; other runs repeat as set.
+          samplesPerQuestion: params.retestSampleId
+            ? 1
+            : params.samplesPerQuestion ?? client.penetrationSamplesPerQuestion,
         },
         onRetry: () => {
           setProgressLabel("网络暂时中断，正在确认检测是否已开始...")

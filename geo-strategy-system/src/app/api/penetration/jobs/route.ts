@@ -58,6 +58,8 @@ export async function POST(req: NextRequest) {
       brandAliases: body.brandAliases,
       industry: body.industry,
       competitors: body.competitors,
+      userLocation: body.userLocation,
+      samplesPerQuestion: body.samplesPerQuestion,
       origin: "manual",
     })
     await releaseJobRequestClaim(requestClaim)

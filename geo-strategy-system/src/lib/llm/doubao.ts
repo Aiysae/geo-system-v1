@@ -74,7 +74,17 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
   const abortFromParent = () => controller.abort()
   args.signal?.addEventListener("abort", abortFromParent, { once: true })
   const timer = setTimeout(() => controller.abort(), timeoutMs)
-  const tools = [{ type: "web_search" }]
+  const location = args.userLocation?.region || args.userLocation?.city
+    ? {
+        user_location: {
+          type: "approximate",
+          country: "中国",
+          ...(args.userLocation.region ? { region: args.userLocation.region } : {}),
+          ...(args.userLocation.city ? { city: args.userLocation.city } : {}),
+        },
+      }
+    : {}
+  const tools = [{ type: "web_search", ...location }]
   const payload = {
     model,
     ...(!args.rawQuestionOnly && args.system.trim()

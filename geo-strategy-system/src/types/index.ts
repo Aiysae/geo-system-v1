@@ -1667,6 +1667,11 @@ export interface CompetitorCompareResult extends CompetitorComparison {
   generatedAt: string
 }
 
+export interface PenetrationUserLocation {
+  region?: string
+  city?: string
+}
+
 export interface Client {
   id: string
   name: string
@@ -1682,6 +1687,10 @@ export interface Client {
   competitors: string[]
   knowledgeBase?: ClientKnowledgeBase
   selectedModels: ModelKey[]
+  /** Where question detection pretends the asker is, as a real app user would be. */
+  penetrationUserLocation?: PenetrationUserLocation
+  /** Independent answers collected per question and model (1–3). */
+  penetrationSamplesPerQuestion?: number
   createdAt: string
   updatedAt: string
   penetration?: PenetrationResult

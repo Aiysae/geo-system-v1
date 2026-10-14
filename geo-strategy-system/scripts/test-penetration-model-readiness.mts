@@ -251,6 +251,52 @@ try {
     runtimeOverride: { vendor: "zhipu", baseUrl: zhipuRuntime.baseUrl, chatPath: zhipuRuntime.chatPath, apiKey: zhipuRuntime.apiKey, model: "glm-5.1" },
   }), /未返回可审计网页来源/)
 
+  // Detection runs the flagship model a real app user gets: with lite and pro
+  // both web-verified it uses pro, and lite only once pro cannot serve.
+  for (const credential of await (await import("../src/lib/ai-credential-store")).listAiCredentialsPublic()) {
+    if (credential.vendor === "doubao" && credential.enabled) await setAiCredentialEnabled(credential.id, false, "test")
+  }
+  const flagship = await saveAiCredential({
+    vendor: "doubao", name: "豆包旗舰", accountLabel: "豆包旗舰", apiKey: "doubao-flagship-secret",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3", chatPath: "/chat/completions", enabled: false,
+    allowedModels: ["doubao-seed-2-0-lite-260215", "doubao-seed-2-1-pro-260628"], allowedModules: ["penetration"],
+    declaredCapabilities: ["chat", "native_web", "auditable_sources"],
+  }, "test")
+  await updateAiCredentialHealth(flagship.id, {
+    status: "healthy", verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+    verifiedWebModels: ["doubao-seed-2-0-lite-260215", "doubao-seed-2-1-pro-260628"],
+  })
+  await setAiCredentialEnabled(flagship.id, true, "test")
+  const usedModels: string[] = []
+  globalThis.fetch = async (_input, init) => {
+    usedModels.push(JSON.parse(String(init?.body || "{}")).model)
+    return Response.json({
+      id: "resp_flagship",
+      output: [
+        { type: "web_search_call", status: "completed" },
+        { type: "message", content: [{ type: "output_text", text: "回答。",
+          annotations: [{ type: "url_citation", url: "https://www.gov.cn/flagship.htm", title: "中国政府网" }] }] },
+      ],
+    })
+  }
+  const { runAdapterCredentialPoolChat } = await import("../src/lib/ai-credential-adapter")
+  const strictDetection = {
+    system: "", user: "哪家监理公司做过斜拉桥项目？", mode: "consumer" as const, forceWebSearch: true,
+    rawQuestionOnly: true, requireWebEvidence: true, officialWebOnly: true, timeoutSec: 30,
+  }
+  await runAdapterCredentialPoolChat("doubao", "penetration", strictDetection)
+  assert.deepEqual(usedModels, ["doubao-seed-2-1-pro-260628"], "detection uses the flagship model")
+  const proFlagshipRoute = buildAiCredentialRouteIdentity(await getAiCredentialRuntime(flagship.id), {
+    module: "penetration", model: "doubao-seed-2-1-pro-260628", requiredCapabilities: ["native_web", "auditable_sources"],
+  })
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await recordAiCredentialRouteFailure(proFlagshipRoute, classifyAiCredentialFailure(new Error("豆包 Responses 联网返回空内容。")), true)
+  }
+  usedModels.length = 0
+  await runAdapterCredentialPoolChat("doubao", "penetration", strictDetection)
+  assert.deepEqual(usedModels, ["doubao-seed-2-0-lite-260215"], "falls back to lite while pro cannot serve")
+  await setAiCredentialEnabled(flagship.id, false, "test")
+
   // An account that never declared web search capability says so.
   const qwen = await saveAiCredential({
     vendor: "qwen", name: "千问", accountLabel: "千问", apiKey: "qwen-secret",

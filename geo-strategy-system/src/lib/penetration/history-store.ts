@@ -26,6 +26,7 @@ import type {
   PenetrationResult,
   ModelKey,
 } from "@/types"
+import { distinctPenetrationQuestions } from "@/lib/penetration/user-location"
 
 export type PenetrationHistoryBuildInput = {
   id: string
@@ -166,7 +167,7 @@ export function buildPenetrationHistoryRecord(
     : undefined
   const sampleQuality = result
     ? result.aggregated.sampleQuality
-      || buildPenetrationSampleQuality(input.request.questions, {
+      || buildPenetrationSampleQuality(distinctPenetrationQuestions(input.request.questions), {
         modelCount: activeModelCount,
         plannedSlots: input.totalSlots,
         completedSlots: input.completedSlots,
