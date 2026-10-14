@@ -22,6 +22,8 @@ const {
 const { classifyAiCredentialFailure } = await import("../src/lib/ai-credential-failure-classifier")
 const { runAiCredentialHealthSweep } = await import("../src/lib/ai-credential-health-monitor")
 const { getPenetrationModelReadiness } = await import("../src/lib/penetration/model-readiness")
+const { isPermanentPenetrationProviderError } = await import("../src/lib/penetration/provider-errors")
+const { describeBlockedSlotsByModel } = await import("../src/lib/penetration/jobs")
 
 const originalFetch = globalThis.fetch
 try {
@@ -158,6 +160,41 @@ try {
     "HTTP 402：The free trial quota for the service has been exhausted and postpaid billing is not enabled",
   )), true)
   assert.match((await getPenetrationModelReadiness("hunyuan")).reason || "", /免费额度已用完/)
+
+  // A second, working account that is only cooling after a burst must be
+  // reported as recovering. Blaming the other account's billing made the job
+  // treat the model as permanently broken and drop its remaining questions.
+  const busyHunyuan = await saveAiCredential({
+    vendor: "hunyuan", name: "混元忙", accountLabel: "混元忙", apiKey: "hunyuan-busy-secret",
+    baseUrl: "https://tokenhub.tencentmaas.com", chatPath: "/v1/chat/completions", enabled: false,
+    allowedModels: ["hy3"], allowedModules: ["penetration"],
+    declaredCapabilities: ["chat", "native_web", "auditable_sources"],
+  }, "test")
+  await updateAiCredentialHealth(busyHunyuan.id, {
+    status: "healthy", verifiedCapabilities: ["chat", "native_web", "auditable_sources"], verifiedWebModels: ["hy3"],
+  })
+  await setAiCredentialEnabled(busyHunyuan.id, true, "test")
+  const busyRoute = buildAiCredentialRouteIdentity(await getAiCredentialRuntime(busyHunyuan.id), {
+    module: "penetration", model: "hy3", requiredCapabilities: ["native_web", "auditable_sources"],
+  })
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await recordAiCredentialRouteFailure(busyRoute, classifyAiCredentialFailure(new Error(
+      "腾讯元宝/混元 TokenHub 调用失败 HTTP 504：upstream timeout",
+    )), true)
+  }
+  const cooling = await getPenetrationModelReadiness("hunyuan")
+  assert.equal(cooling.ready, false)
+  assert.match(cooling.reason || "", /冷却恢复|自动复检|冷却期/)
+  assert.equal(isPermanentPenetrationProviderError(cooling.reason || ""), false,
+    "a recovering account must not read as a permanent billing failure")
+  await setAiCredentialEnabled(busyHunyuan.id, false, "test")
+
+  // The job summary names the model that did not finish.
+  assert.equal(describeBlockedSlotsByModel({
+    "hunyuan:1": { model: "hunyuan", status: "provider_blocked", lastError: "连续 2 次独立联网补采仍未得到完整回答：账号繁忙" },
+    "hunyuan:2": { model: "hunyuan", status: "provider_blocked", lastError: "账号繁忙" },
+    "doubao:1": { model: "doubao", status: "success" },
+  }), "腾讯元宝/混元 2 个问题未完成（账号繁忙）")
 
   // A wrong endpoint is a configuration problem for an admin, not a retry loop.
   const wrongEndpoint = classifyAiCredentialFailure(new Error("腾讯元宝/混元 严格联网需要切换到腾讯 TokenHub · HY3。"))
