@@ -95,6 +95,9 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
     tool_choice: "required",
     stream: false,
     max_output_tokens: args.maxTokens ?? 2048,
+    // The Doubao app answers in its default fast mode; deep thinking took
+    // 64s per answer against 14-30s, with the same searches.
+    ...(args.rawQuestionOnly ? { thinking: { type: "disabled" } } : {}),
   }
   emitPenetrationRequestAudit(args, {
     endpoint: RESPONSES_URL,

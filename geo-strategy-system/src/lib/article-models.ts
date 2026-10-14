@@ -23,6 +23,7 @@ export const LEGACY_ARTICLE_MODEL_PROVIDERS: AiProviderKey[] = [
   "kimi",
   "ernie",
   "hunyuan",
+  "zhipu",
 ]
 
 const LEGACY_PROVIDER_SET = new Set<string>(LEGACY_ARTICLE_MODEL_PROVIDERS)

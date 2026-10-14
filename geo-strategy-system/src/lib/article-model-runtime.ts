@@ -22,6 +22,7 @@ import type {
   LlmMode,
 } from "@/types"
 import {
+  hasAiCredentialCandidate,
   hasConfiguredAiCredential,
   getAiCredentialPoolAvailability,
   recordAiCredentialFailure,
@@ -126,6 +127,7 @@ function credentialVendor(model: ResolvedArticleModel): AiCredentialVendor | nul
     "deepseek",
     "kimi",
     "ernie",
+    "zhipu",
   ] as AiCredentialVendor[]).includes(providerKey as AiCredentialVendor)
     ? providerKey as AiCredentialVendor
     : null
@@ -182,6 +184,8 @@ function articleModelExtraBody(
   if (model.providerKey === "doubao" && /seed/i.test(model.model)) {
     return { thinking: { type: articleDoubaoThinkingMode() } }
   }
+  // GLM thinks by default, which spends the output budget the same way.
+  if (model.providerKey === "zhipu") return { thinking: { type: "disabled" } }
   return undefined
 }
 
@@ -491,6 +495,47 @@ async function fallbackModels(
   return resolved
 }
 
+// When the chosen vendor has no account, is overdue or times out, another
+// vendor finishes the stage instead of failing the article. Zhipu goes first.
+const DEFAULT_ARTICLE_FALLBACK_VENDORS = ["zhipu", "qwen", "deepseek"]
+// Share of the remaining stage time the first vendor may use while another
+// vendor is ready to take over; the rest is left for the takeover.
+const PRIMARY_STAGE_SHARE_WITH_FALLBACK = 0.6
+
+function articleFallbackVendors(): string[] {
+  const configured = String(process.env.ARTICLE_FALLBACK_PROVIDERS || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean)
+  return configured.length > 0 ? configured : DEFAULT_ARTICLE_FALLBACK_VENDORS
+}
+
+async function crossVendorFallbackModels(
+  primary: ResolvedArticleModel,
+  input: RuntimeArticleModelChatInput,
+): Promise<ResolvedArticleModel[]> {
+  const resolved: ResolvedArticleModel[] = []
+  for (const vendor of articleFallbackVendors()) {
+    throwIfArticleStageStopped(input)
+    if (vendor === primary.providerKey) continue
+    try {
+      const model = await resolveArticleModel(vendor)
+      const credentialVendorKey = credentialVendor(model)
+      if (!model.model || !credentialVendorKey) continue
+      if (!await hasAiCredentialCandidate({
+        vendor: credentialVendorKey,
+        module: "article",
+        model: model.model,
+        requiredCapabilities: ["chat"],
+      })) continue
+      resolved.push(model)
+    } catch (error) {
+      console.warn(`[article-model-fallback] ${vendor} 无法加入跨厂商备用：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  return resolved
+}
+
 async function runArticleModelChatWithinBudget(
   primary: ResolvedArticleModel,
   input: RuntimeArticleModelChatInput,
@@ -536,15 +581,24 @@ async function runArticleModelChatWithinBudget(
     }
   }
 
-  const candidates = [primary, ...(await fallbackModels(primary, input))]
+  const sameModel = [primary, ...(await fallbackModels(primary, input))]
+  const otherVendors = await crossVendorFallbackModels(primary, input)
+  const candidates = [...sameModel, ...otherVendors]
   let lastError: unknown
 
   for (let index = 0; index < candidates.length; index += 1) {
     throwIfArticleStageStopped(input)
     const model = candidates[index]
+    const nextIsOtherVendor = index + 1 >= sameModel.length && index + 1 < candidates.length
+    const callInput = nextIsOtherVendor && input.deadlineAt
+      ? {
+          ...effectiveInput,
+          deadlineAt: Date.now() + Math.floor(remainingStageMs(input) * PRIMARY_STAGE_SHARE_WITH_FALLBACK),
+        }
+      : effectiveInput
     try {
       return {
-        content: await callModel(model, effectiveInput, index > 0),
+        content: await callModel(model, callInput, index > 0),
         model,
         usedFallback: index > 0,
         connectivity,
@@ -552,9 +606,14 @@ async function runArticleModelChatWithinBudget(
     } catch (error) {
       lastError = error
       if (input.signal.aborted || isAbortFailure(error)) throw error
-      if (error instanceof ArticleModelWaitError || !retryableFailure(error) || index === candidates.length - 1) throw error
+      if (index === candidates.length - 1) throw error
+      // Another vendor takes over whatever went wrong; another gateway of the
+      // same model only helps with transient failures.
+      if (!nextIsOtherVendor && (error instanceof ArticleModelWaitError || !retryableFailure(error))) throw error
       console.warn(
-        `[article-model-fallback] ${model.label}/${model.model} 暂时不可用，尝试同模型备用线路。`,
+        nextIsOtherVendor
+          ? `[article-model-fallback] ${model.label}/${model.model} 不可用（${error instanceof Error ? error.message.slice(0, 80) : String(error)}），改由 ${candidates[index + 1].label} 接着写。`
+          : `[article-model-fallback] ${model.label}/${model.model} 暂时不可用，尝试同模型备用线路。`,
       )
     }
   }
