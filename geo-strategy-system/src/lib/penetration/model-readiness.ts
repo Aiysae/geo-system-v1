@@ -65,12 +65,19 @@ function diagnose(
     return `${label}账号未声明“官方联网”和“可审计信源”能力，请在后台模型账号中勾选后保存，系统会自动检测`
   }
 
-  const relevant = strictRoutes(routes)
-  const actionRequired = relevant.find(route => route.state === "action_required")
-  if (actionRequired) {
+  // An account that needs an admin only explains the outage when no other
+  // account can recover on its own; otherwise a busy or cooling account would
+  // be reported as "overdue" and the job would give up on the model.
+  const allStrict = strictRoutes(routes)
+  const needsAction = new Set(allStrict
+    .filter(route => route.state === "action_required")
+    .map(route => route.credentialId))
+  const actionRequired = allStrict.find(route => route.state === "action_required")
+  if (actionRequired && declared.every(credential => needsAction.has(credential.id))) {
     const reason = ACTION_REASONS[actionRequired.failureClass] || "账号需要管理员处理"
     return `${label}：${reason}${upstreamDetail(actionRequired)}`
   }
+  const relevant = allStrict.filter(route => !needsAction.has(route.credentialId))
   if (relevant.some(route => route.state === "half_open")) {
     return `${label}服务通道正在自动复检，请稍后重试`
   }
@@ -78,7 +85,8 @@ function diagnose(
   if (recovering) {
     return `${label}服务通道正在冷却恢复，系统会自动复检${upstreamDetail(recovering)}`
   }
-  if (declared.some(credential => credential.healthStatus === "unhealthy" && credential.cooldownUntil
+  if (declared.some(credential => !needsAction.has(credential.id)
+    && credential.healthStatus === "unhealthy" && credential.cooldownUntil
     && Date.parse(credential.cooldownUntil) > Date.now())) {
     return `${label}账号处于冷却期，冷却结束后系统会自动复检`
   }
