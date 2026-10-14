@@ -4,6 +4,7 @@ import { chatQwen, isQwenConfigured } from "./qwen"
 import { chatKimi, isKimiConfigured } from "./kimi"
 import { chatErnie, isErnieConfigured } from "./ernie"
 import { chatHunyuan, isHunyuanConfigured } from "./hunyuan"
+import { chatZhipu, isZhipuConfigured } from "./zhipu"
 import type { ChatArgs } from "./openai-compat"
 import type { ModelKey } from "@/types"
 import { MODEL_LABELS } from "@/lib/model-labels"
@@ -21,6 +22,7 @@ export const ADAPTERS: Record<ModelKey, Adapter> = {
   kimi: { label: MODEL_LABELS.kimi, chat: chatKimi, configured: isKimiConfigured },
   ernie: { label: MODEL_LABELS.ernie, chat: chatErnie, configured: isErnieConfigured },
   hunyuan: { label: MODEL_LABELS.hunyuan, chat: chatHunyuan, configured: isHunyuanConfigured },
+  zhipu: { label: MODEL_LABELS.zhipu, chat: chatZhipu, configured: isZhipuConfigured },
 }
 
 export { MODEL_LABELS }

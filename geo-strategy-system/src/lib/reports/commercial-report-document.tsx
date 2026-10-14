@@ -98,6 +98,7 @@ const MODEL_LABELS: Record<ModelKey, string> = {
   kimi: "Kimi",
   ernie: "文心一言",
   hunyuan: "腾讯混元",
+  zhipu: "智谱清言",
 }
 
 const styles = StyleSheet.create({

@@ -11,6 +11,7 @@ const MODEL_LOGOS: Record<ModelKey, string> = {
   kimi: "/model-logos/kimi.ico",
   ernie: "/model-logos/ernie.ico",
   hunyuan: "/model-logos/hunyuan.ico",
+  zhipu: "/model-logos/zhipu.svg",
 }
 
 interface Props {

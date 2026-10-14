@@ -26,7 +26,7 @@ export function formatPenetrationProviderError(model: ModelKey, message: string)
     return "百度千帆 API Key 没有百度 AI 搜索或所选文心模型权限，请在千帆控制台补充权限后重试。"
   }
   if (model === "kimi" && /HTTP 401|HTTP 403|unauthorized|权限不足|无权访问/i.test(message)) {
-    return "Kimi 严格联网需要百度 AI 搜索调用 Kimi 模型，当前百度千帆 API Key 权限不足。"
+    return "Kimi API Key 无效或没有搜索接口权限，请在 Kimi 开放平台检查账号状态后重试。"
   }
   return message
 }

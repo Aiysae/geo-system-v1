@@ -180,6 +180,40 @@ try {
   await setAiCredentialEnabled(kimi.id, true, "test")
   assert.equal((await getPenetrationModelReadiness("kimi")).ready, true)
 
+  // Zhipu: a new account is web-verified by the monitor through the official
+  // web_search tool and becomes ready; an answer without sources is refused.
+  assert.match((await getPenetrationModelReadiness("zhipu")).reason || "", /后台没有已启用的智谱清言账号/)
+  const zhipu = await saveAiCredential({
+    vendor: "zhipu", name: "智谱", accountLabel: "智谱", apiKey: "zhipu-secret",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4", chatPath: "/chat/completions", enabled: false,
+    allowedModels: ["glm-5.1"], allowedModules: ["penetration"],
+    declaredCapabilities: ["chat", "native_web", "auditable_sources"],
+  }, "test")
+  await setAiCredentialEnabled(zhipu.id, true, "test")
+  let zhipuSources = true
+  globalThis.fetch = async (input, init) => {
+    const url = String(input instanceof Request ? input.url : input)
+    assert.equal(url, "https://open.bigmodel.cn/api/paas/v4/chat/completions")
+    const body = JSON.parse(String(init?.body || "{}"))
+    assert.equal(body.tools?.[0]?.type, "web_search")
+    return Response.json({
+      id: "zhipu-1", request_id: "zhipu-request-1",
+      choices: [{ finish_reason: "stop", message: { role: "assistant", content: "今天是 2026 年 10 月 14 日。" } }],
+      web_search: zhipuSources ? [{ title: "中国政府网", link: "https://www.gov.cn/test.htm", content: "日期" }] : [],
+    })
+  }
+  await runAiCredentialHealthSweep({ credentialId: zhipu.id })
+  assert.deepEqual((await getAiCredentialRuntime(zhipu.id)).verifiedWebModels, ["glm-5.1"])
+  assert.equal((await getPenetrationModelReadiness("zhipu")).ready, true)
+  zhipuSources = false
+  const { chatZhipu } = await import("../src/lib/llm/zhipu")
+  const zhipuRuntime = await getAiCredentialRuntime(zhipu.id)
+  await assert.rejects(() => chatZhipu({
+    system: "", user: "今天几号", mode: "consumer", forceWebSearch: true, rawQuestionOnly: true,
+    requireWebEvidence: true, officialWebOnly: true,
+    runtimeOverride: { vendor: "zhipu", baseUrl: zhipuRuntime.baseUrl, chatPath: zhipuRuntime.chatPath, apiKey: zhipuRuntime.apiKey, model: "glm-5.1" },
+  }), /未返回可审计网页来源/)
+
   // An account that never declared web search capability says so.
   const qwen = await saveAiCredential({
     vendor: "qwen", name: "千问", accountLabel: "千问", apiKey: "qwen-secret",
