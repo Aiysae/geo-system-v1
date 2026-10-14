@@ -455,6 +455,7 @@ try {
   // The asker's city is search metadata; the prompt stays the raw question.
   assert.deepEqual(doubaoRequest.body.tools, [{
     type: "web_search",
+    sources: ["toutiao", "douyin"],
     user_location: { type: "approximate", country: "中国", region: "浙江", city: "杭州" },
   }])
   assert.equal(doubaoRequest.body.tool_choice, "required")
