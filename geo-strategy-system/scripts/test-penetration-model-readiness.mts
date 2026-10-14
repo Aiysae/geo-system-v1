@@ -132,6 +132,22 @@ try {
   assert.equal(wrongEndpoint.actionRequired, true)
   assert.equal(wrongEndpoint.retryable, false)
 
+  // Kimi searches with its own account, even when the global default model is
+  // one its accounts do not list.
+  const { saveAiProviderSetting } = await import("../src/lib/ai-settings")
+  await saveAiProviderSetting("kimi", {
+    baseUrl: "https://api.moonshot.cn", chatPath: "/v1/chat/completions",
+    model: "kimi-k2.7-code", timeout: 120, extra: {},
+  }, "test")
+  const kimi = await saveAiCredential({
+    vendor: "kimi", name: "Kimi", accountLabel: "Kimi", apiKey: "kimi-secret",
+    baseUrl: "https://api.moonshot.cn/v1", chatPath: "/chat/completions", enabled: false,
+    allowedModels: ["kimi-k2.6"], allowedModules: ["article"], declaredCapabilities: ["chat"],
+  }, "test")
+  await updateAiCredentialHealth(kimi.id, { status: "healthy", verifiedCapabilities: ["chat"] })
+  await setAiCredentialEnabled(kimi.id, true, "test")
+  assert.equal((await getPenetrationModelReadiness("kimi")).ready, true)
+
   // An account that never declared web search capability says so.
   const qwen = await saveAiCredential({
     vendor: "qwen", name: "千问", accountLabel: "千问", apiKey: "qwen-secret",
