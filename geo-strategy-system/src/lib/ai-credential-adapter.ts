@@ -90,7 +90,9 @@ async function resolveAdapterCredentialRoute(
     targetModel = "deepseek-chat"
     selectionModel = targetModel
   }
-  if (strictNativeWeb) selectionModel = undefined
+  // Kimi accounts often allow only an older model than the global default;
+  // any account's own model can run the search, as on the DeepSeek path.
+  if (strictNativeWeb || (strictWeb && model === "kimi")) selectionModel = undefined
 
   const requiredCapabilities: AiCredentialCapability[] = nativeWeb
     ? model === "kimi" || model === "deepseek"
