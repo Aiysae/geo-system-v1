@@ -19,6 +19,7 @@ import {
   computePenetrationSourceDiversity,
 } from "@/lib/penetration/sample-design"
 import { isPenetrationExtractionUsable } from "@/lib/penetration/entity-extraction"
+import { distinctPenetrationQuestions } from "@/lib/penetration/user-location"
 
 // 宽松匹配：把空格/大小写差异都抹掉后，任一方包含另一方即视为同一品牌
 // 例：用户填 "势途"、模型返回 "势途GEO" / "势途 GEO" → 都识别为我方
@@ -191,8 +192,10 @@ export function aggregatePenetration(
     mentions: meanRate(rates),
     total: 1,
   }))
-  const plannedQuestions = options.plannedQuestions?.filter(question => question.trim())
-    || representativeQuestions(byModel)
+  // Repeated samples of one question are not extra questions.
+  const plannedQuestions = options.plannedQuestions
+    ? distinctPenetrationQuestions(options.plannedQuestions)
+    : representativeQuestions(byModel)
   const modelCount = Math.max(
     0,
     Math.floor(options.modelCount ?? Object.keys(byModel).length),

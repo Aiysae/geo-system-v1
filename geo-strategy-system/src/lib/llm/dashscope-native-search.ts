@@ -126,7 +126,8 @@ export async function chatDashScopeNativeSearch(
   const searchMode = args.searchMode ?? "native_web"
   const parameters = {
     result_format: "message",
-    temperature: args.temperature ?? 0,
+    // Unset means the provider default, which is what app users get.
+    ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
     max_tokens: args.maxTokens ?? 1200,
     enable_search: true,
     search_options: {

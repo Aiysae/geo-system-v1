@@ -8,6 +8,10 @@ import {
   normalizePenetrationQuestionIntentHints,
 } from "@/lib/penetration/sample-design"
 import { normalizeClientKnowledgeBase } from "@/lib/client-knowledge-base"
+import {
+  normalizePenetrationSamplesPerQuestion,
+  normalizePenetrationUserLocation,
+} from "@/lib/penetration/user-location"
 
 export const WORKSPACE_SECTIONS = [
   "core",
@@ -72,6 +76,8 @@ const SECTION_FIELDS = {
     "questionIntentHints",
     "competitors",
     "selectedModels",
+    "penetrationUserLocation",
+    "penetrationSamplesPerQuestion",
   ],
   penetration: ["penetration"],
   research: [
@@ -270,6 +276,10 @@ export function normalizeClientPayload(value: unknown): Client {
       aliases: stringArray(input.brandAliases, 100, 300),
     }),
     selectedModels: modelArray(input.selectedModels),
+    penetrationUserLocation: normalizePenetrationUserLocation(input.penetrationUserLocation),
+    penetrationSamplesPerQuestion: normalizePenetrationSamplesPerQuestion(
+      input.penetrationSamplesPerQuestion,
+    ),
     createdAt: validIso(input.createdAt) || now,
     updatedAt: validIso(input.updatedAt) || now,
   }

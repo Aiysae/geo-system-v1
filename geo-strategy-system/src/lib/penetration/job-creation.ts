@@ -32,6 +32,11 @@ import type {
   PenetrationJobRecord,
   PersonSubjectProfile,
 } from "@/types"
+import {
+  expandPenetrationQuestionSamples,
+  normalizePenetrationSamplesPerQuestion,
+  normalizePenetrationUserLocation,
+} from "@/lib/penetration/user-location"
 
 export const MAX_PENETRATION_QUESTIONS = 600
 
@@ -65,6 +70,8 @@ export type PenetrationJobSubmissionInput = {
   brandAliases?: unknown
   industry?: unknown
   competitors?: unknown
+  userLocation?: unknown
+  samplesPerQuestion?: unknown
   useSavedInputs?: boolean
   requireAllModelsReady?: boolean
   origin?: "manual" | "automation"
@@ -324,9 +331,23 @@ export async function submitPenetrationJob(
       useSaved ? currentClient.questionIntentHints : input.questionIntents,
       questions,
     )
+    // Saved client settings apply to scheduled runs and to submissions that
+    // do not carry their own.
+    const userLocation = normalizePenetrationUserLocation(
+      useSaved || input.userLocation === undefined
+        ? currentClient.penetrationUserLocation
+        : input.userLocation,
+    )
+    const samplesPerQuestion = normalizePenetrationSamplesPerQuestion(
+      useSaved || input.samplesPerQuestion === undefined
+        ? currentClient.penetrationSamplesPerQuestion
+        : input.samplesPerQuestion,
+    )
+    // Retries rebuild the same expansion, so their slot indexes still line up.
+    const sampledQuestions = expandPenetrationQuestionSamples(questions, samplesPerQuestion)
     const parsedSlotSelection = parseSlotSelection({
       raw: input.slotSelection,
-      questions,
+      questions: sampledQuestions,
       requestedModels,
       operation,
     })
@@ -380,8 +401,10 @@ export async function submitPenetrationJob(
       brandAliases,
       industry,
       website: currentClient.website,
-      questions,
+      questions: sampledQuestions,
       questionIntents,
+      userLocation,
+      samplesPerQuestion,
       competitors,
       selectedModels: requestedModels,
       models: activeModels,
@@ -391,7 +414,7 @@ export async function submitPenetrationJob(
       automationExecutionId: input.automationExecutionId,
       automationTrigger: input.automationTrigger,
     }
-    const slotCount = slotSelection?.length || questions.length * activeModels.length
+    const slotCount = slotSelection?.length || sampledQuestions.length * activeModels.length
     const estimatedCredits = estimateFeatureCredits("penetrationSlot", slotCount)
     const creditGuard = await reserveCreditsForUser(access.billingUserId, estimatedCredits, {
       featureKey: "penetrationSlot",
@@ -404,6 +427,7 @@ export async function submitPenetrationJob(
         clientId,
         modelCount: activeModels.length,
         questionCount: questions.length,
+        samplesPerQuestion,
         slotCount,
         selectiveRetry: Boolean(slotSelection),
         subjectType,

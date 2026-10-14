@@ -86,6 +86,11 @@ export interface ChatArgs {
   runtimeOverride?: ChatRuntimeOverride
   /** Server-selected auditable search account used by dual-provider adapters. */
   searchRuntimeOverride?: ChatRuntimeOverride
+  /**
+   * Where the simulated asker is, sent as search metadata (never prompt text)
+   * by providers whose apps localize answers the same way.
+   */
+  userLocation?: { region?: string; city?: string }
 }
 
 export interface LlmTokenUsage {

@@ -444,6 +444,7 @@ try {
   const doubaoAudits: PenetrationRequestAudit[] = []
   const doubaoAnswer = await chatDoubao({
     ...baseArgs,
+    userLocation: { region: "浙江", city: "杭州" },
     onSearchSources: event => doubaoEvents.push(event),
     onRequestAudit: audit => doubaoAudits.push(audit),
   })
@@ -451,7 +452,11 @@ try {
   const doubaoRequest = requests.find(request => request.url.includes("/api/v3/responses"))
   assert.ok(doubaoRequest)
   assert.equal(doubaoRequest.body.input, question)
-  assert.deepEqual(doubaoRequest.body.tools, [{ type: "web_search" }])
+  // The asker's city is search metadata; the prompt stays the raw question.
+  assert.deepEqual(doubaoRequest.body.tools, [{
+    type: "web_search",
+    user_location: { type: "approximate", country: "中国", region: "浙江", city: "杭州" },
+  }])
   assert.equal(doubaoRequest.body.tool_choice, "required")
   assert.equal(doubaoEvents[0]?.sources.length, 1)
   assert.equal(doubaoAudits[0]?.verified, true)
@@ -461,6 +466,7 @@ try {
   const hunyuanAudits: PenetrationRequestAudit[] = []
   const hunyuanAnswer = await chatHunyuan({
     ...baseArgs,
+    userLocation: { region: "浙江", city: "杭州" },
     onSearchSources: event => hunyuanEvents.push(event),
     onRequestAudit: audit => hunyuanAudits.push(audit),
   })
@@ -471,11 +477,12 @@ try {
   assert.equal(hunyuanRequest.body.input, question)
   assert.deepEqual(hunyuanRequest.body.tools, [{
     type: "web_search",
-    search_source: "lite",
-    search_context_size: "medium",
+    search_context_size: "high",
     user_location: {
       type: "approximate",
       country: "CN",
+      region: "浙江",
+      city: "杭州",
       timezone: "Asia/Shanghai",
     },
   }])

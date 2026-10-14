@@ -192,7 +192,7 @@ export async function chatBaiduAiSearch(args: BaiduAiSearchArgs): Promise<string
     enable_corner_markers: true,
     max_refer_search_items: 20,
     max_completion_tokens: args.maxTokens ?? 2048,
-    temperature: 0.01,
+    ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
   }
   if (args.modelAppId?.trim()) body.model_appid = args.modelAppId.trim()
   emitPenetrationRequestAudit(args, {

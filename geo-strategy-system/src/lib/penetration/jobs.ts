@@ -58,6 +58,7 @@ import type {
   PenetrationQuestionIntentHint,
   PenetrationResult,
   PersonSubjectProfile,
+  PenetrationUserLocation,
 } from "@/types"
 
 export interface PenetrationJobRequest {
@@ -74,6 +75,10 @@ export interface PenetrationJobRequest {
   questions: string[]
   questionIntents?: PenetrationQuestionIntentHint[]
   competitors: string[]
+  /** Where the simulated asker is; sent to providers that localize answers. */
+  userLocation?: PenetrationUserLocation
+  /** How many independent answers each question gets; questions are already repeated. */
+  samplesPerQuestion?: number
   selectedModels?: ModelKey[]
   models: ModelKey[]
   slotSelection?: Array<{
