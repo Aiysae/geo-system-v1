@@ -18,6 +18,7 @@ import {
 } from "@/lib/ai-credential-router"
 import { ADAPTERS } from "@/lib/llm"
 import { BaiduWebSearchError } from "@/lib/llm/baidu-ai-search"
+import { MoonshotWebSearchError } from "@/lib/llm/moonshot-web-search"
 import { assertStrictPenetrationBlindArgs } from "@/lib/llm/blind-request-audit"
 import type { ChatArgs } from "@/lib/llm/openai-compat"
 import type { ModelKey } from "@/types"
@@ -63,8 +64,9 @@ function usesAuditableExternalSearch(
   module: AiCredentialModule,
   args: Partial<ChatArgs>,
 ): boolean {
-  return (model === "kimi" || model === "deepseek")
-    && isStrictWebCall(module, args)
+  // Kimi searches with its own official endpoint on the same account; only
+  // DeepSeek, whose API has no web search, borrows a separate search account.
+  return model === "deepseek" && isStrictWebCall(module, args)
 }
 
 function strictCredentialVendor(model: ModelKey): ModelKey {
@@ -175,16 +177,45 @@ function selectionRequest(
   }
 }
 
+// Search accounts DeepSeek can borrow, in order of preference: Baidu Qianfan
+// search, then Kimi's official search endpoint when Baidu is out of quota.
+type ExternalSearchVendor = "ernie" | "kimi"
+const EXTERNAL_SEARCH_VENDORS: ExternalSearchVendor[] = ["ernie", "kimi"]
+
 function externalSearchSelectionRequest(
   module: AiCredentialModule,
   excludeCredentialIds?: string[],
+  vendor: ExternalSearchVendor = "ernie",
 ): AiCredentialSelectionRequest {
-  return {
-    vendor: "ernie",
-    module,
-    requiredCapabilities: ["native_web", "auditable_sources"],
-    excludeCredentialIds,
+  return vendor === "kimi"
+    ? {
+        // Same account and key as Kimi's own detection, so search failures
+        // share its route health.
+        vendor: "kimi",
+        module,
+        requiredCapabilities: ["chat"],
+        excludeCredentialIds,
+      }
+    : {
+        vendor: "ernie",
+        module,
+        requiredCapabilities: ["native_web", "auditable_sources"],
+        excludeCredentialIds,
+      }
+}
+
+async function hasExternalSearchCandidate(module: AiCredentialModule): Promise<boolean> {
+  const ready = await Promise.all(EXTERNAL_SEARCH_VENDORS.map(vendor =>
+    hasAiCredentialCandidate(externalSearchSelectionRequest(module, undefined, vendor))))
+  return ready.some(Boolean)
+}
+
+/** The first search vendor that still has an account, so capacity reflects what will run. */
+async function activeExternalSearchVendor(module: AiCredentialModule): Promise<ExternalSearchVendor> {
+  for (const vendor of EXTERNAL_SEARCH_VENDORS) {
+    if (await hasAiCredentialCandidate(externalSearchSelectionRequest(module, undefined, vendor))) return vendor
   }
+  return "ernie"
 }
 
 async function hasRouteCandidate(
@@ -217,7 +248,7 @@ export async function hasAdapterCredentialPoolCandidate(
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationReady, searchReady] = await Promise.all([
       hasAiCredentialCandidate(selectionRequest(route, module, undefined, null)),
-      hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
+      hasExternalSearchCandidate(module),
     ])
     return generationReady && searchReady
   }
@@ -247,11 +278,13 @@ export async function getAdapterCredentialPoolCapacity(
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationPool, searchPool] = await Promise.all([
       getAiCredentialPoolCapacity(selectionRequest(route, module, undefined, null)),
-      getAiCredentialPoolCapacity(externalSearchSelectionRequest(module)),
+      getAiCredentialPoolCapacity(externalSearchSelectionRequest(
+        module, undefined, await activeExternalSearchVendor(module),
+      )),
     ])
     return {
       // The auditable search pool is the shared bottleneck with Ernie jobs.
-      vendor: "ernie",
+      vendor: await activeExternalSearchVendor(module),
       candidateCount: Math.min(generationPool.candidateCount, searchPool.candidateCount),
       maxConcurrency: Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency),
       quotaGroupCount: Math.min(generationPool.quotaGroupCount, searchPool.quotaGroupCount),
@@ -295,7 +328,9 @@ export async function getAdapterCredentialPoolSnapshot(
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationPool, searchPool] = await Promise.all([
       getAiCredentialPoolSnapshot(selectionRequest(route, module, undefined, null)),
-      getAiCredentialPoolSnapshot(externalSearchSelectionRequest(module)),
+      getAiCredentialPoolSnapshot(externalSearchSelectionRequest(
+        module, undefined, await activeExternalSearchVendor(module),
+      )),
     ])
     const maxConcurrency = Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency)
     const availableConcurrency = Math.min(
@@ -303,7 +338,7 @@ export async function getAdapterCredentialPoolSnapshot(
       searchPool.availableConcurrency,
     )
     return {
-      vendor: "ernie",
+      vendor: await activeExternalSearchVendor(module),
       candidateCount: Math.min(generationPool.candidateCount, searchPool.candidateCount),
       maxConcurrency,
       quotaGroupCount: Math.min(generationPool.quotaGroupCount, searchPool.quotaGroupCount),
@@ -370,7 +405,7 @@ async function runAuditableExternalCredentialPoolChat(
     : undefined
   const [hasGenerationPool, hasSearchPool] = await Promise.all([
     hasAiCredentialCandidate(selectionRequest(route, module, undefined, null)),
-    hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
+    hasExternalSearchCandidate(module),
   ])
   if (!hasGenerationPool || !hasSearchPool) {
     throw new Error(`${label} 严格联网账号池未配置完整或当前模型尚未通过验证`)
@@ -409,12 +444,20 @@ async function runAuditableExternalCredentialPoolChat(
       // Search is the shared bottleneck for Kimi and DeepSeek strict audits.
       // Acquire it first, then pair a generation lane with a short wait. This
       // avoids occupying a scarce generation account while waiting on search.
-      searchLease = await tryAcquireAiCredential({
-        ...externalSearchSelectionRequest(module, excludedSearchIds),
-        waitTimeoutMs,
-        leaseSeconds,
-        signal: args.signal,
-      })
+      let searchVendor: ExternalSearchVendor = "ernie"
+      for (const vendor of EXTERNAL_SEARCH_VENDORS) {
+        const request = externalSearchSelectionRequest(module, excludedSearchIds, vendor)
+        // Only wait on a vendor that has an account at all; otherwise move on.
+        if (!(await hasAiCredentialCandidate(request))) continue
+        searchVendor = vendor
+        searchLease = await tryAcquireAiCredential({
+          ...request,
+          waitTimeoutMs,
+          leaseSeconds,
+          signal: args.signal,
+        })
+        if (searchLease) break
+      }
       if (!searchLease) {
         if (!lastError || excludedSearchIds.length === 0) {
           lastError = new Error(`${label} 联网搜索账号池当前繁忙或暂无可用账号`)
@@ -447,7 +490,11 @@ async function runAuditableExternalCredentialPoolChat(
         route.requiredCapabilities,
       )
       if (!selectedModel) throw new Error(`${label} 可用账号未配置模型`)
-      const searchModel = searchLease.credential.allowedModels[0] || "ernie-5.1"
+      const searchModel = searchLease.credential.allowedModels[0]
+        || (searchVendor === "kimi" ? "kimi-k2.6" : "ernie-5.1")
+      const searchCapabilities: AiCredentialCapability[] = searchVendor === "kimi"
+        ? ["chat"]
+        : ["native_web", "auditable_sources"]
       const startedAt = Date.now()
       try {
         const result = await ADAPTERS[model].chat({
@@ -461,13 +508,13 @@ async function runAuditableExternalCredentialPoolChat(
             timeout: args.timeoutSec,
           },
           searchRuntimeOverride: {
-            vendor: "ernie",
+            vendor: searchVendor,
             baseUrl: searchLease.credential.baseUrl,
             chatPath: searchLease.credential.chatPath,
             apiKey: searchLease.credential.apiKey,
             model: searchModel,
             timeout: args.timeoutSec,
-            extra: { enableSearch: true },
+            extra: searchVendor === "ernie" ? { enableSearch: true } : undefined,
           },
         })
         const latencyMs = Date.now() - startedAt
@@ -480,18 +527,18 @@ async function runAuditableExternalCredentialPoolChat(
           recordAiCredentialSuccess(searchLease.credential, latencyMs, {
             module,
             model: searchModel,
-            requiredCapabilities: ["native_web", "auditable_sources"],
+            requiredCapabilities: searchCapabilities,
           }),
         ])
         return result
       } catch (error) {
         lastError = error
-        if (error instanceof BaiduWebSearchError) {
+        if (error instanceof BaiduWebSearchError || error instanceof MoonshotWebSearchError) {
           excludedSearchIds.push(searchLease.credential.id)
           await recordAiCredentialFailure(searchLease.credential, error, {
             module,
             model: searchModel,
-            requiredCapabilities: ["native_web", "auditable_sources"],
+            requiredCapabilities: searchCapabilities,
           })
         } else {
           excludedGenerationIds.push(generationLease.credential.id)

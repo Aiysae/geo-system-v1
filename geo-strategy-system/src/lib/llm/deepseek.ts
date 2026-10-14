@@ -2,12 +2,18 @@ import { chatWithLocalWebSearchTool } from "./tool-loop"
 import type { ChatArgs } from "./openai-compat"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
-import { chatWithAuditableExternalSearch } from "./auditable-external-search"
+import {
+  baiduAuditableSearch,
+  chatWithAuditableExternalSearch,
+  moonshotAuditableSearch,
+} from "./auditable-external-search"
 
 // DeepSeek 适配器
 //
 // 官方 DeepSeek API 不像千问 / Kimi 那样自带"联网开关"。本适配器在代码层为它"外挂搜索"。
-// 渗透率严格联网盲测不再允许本地 search_web 兜底；裁判/分析路径仍可默认带工具。
+// 渗透率严格联网盲测不再允许本地 search_web 兜底；检索用百度千帆搜索，
+// 百度账号不可用时由账号池改派 Kimi 官方搜索，两者都返回可审计网址。
+// 裁判/分析路径仍可默认带工具。
 // jsonMode 透传给底层，
 // 万一上游不接受 tools+response_format 同时启用，openai-compat 的 400 兜底会自动去掉
 // response_format 重试，仍返回可被 parseJsonLoose 解析的内容。
@@ -44,14 +50,19 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     args.mode === "consumer"
 
   if (strictPenetrationSearch) {
-    const searchConfig = await getChatRuntimeSetting("ernie", {
+    const searchVendor = args.searchRuntimeOverride?.vendor === "kimi" ? "kimi" : "ernie"
+    const searchConfig = await getChatRuntimeSetting(searchVendor, {
       runtimeOverride: args.searchRuntimeOverride,
     })
     if (!config.apiKey) throw new Error("DeepSeek 严格联网缺少官方 API Key。")
-    if (!searchConfig.apiKey) throw new Error("DeepSeek 严格联网缺少百度千帆搜索 API Key。")
+    if (!searchConfig.apiKey) throw new Error("DeepSeek 严格联网缺少联网搜索 API Key。")
     if (!isOfficialDeepSeek(config.baseUrl)) {
       throw new Error("DeepSeek 严格联网必须使用 DeepSeek 官方 API 地址。")
     }
+    const searchTimeoutSec = args.timeoutSec ?? searchConfig.timeout
+    const search = searchVendor === "kimi"
+      ? moonshotAuditableSearch(searchConfig.apiKey, searchConfig.baseUrl, searchTimeoutSec)
+      : baiduAuditableSearch(searchConfig.apiKey, searchTimeoutSec)
     const requestedModel = args.runtimeOverride?.model?.trim()
       || process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim()
       || config.model
@@ -66,9 +77,8 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
       model,
       label: LABEL,
       modelProvider: "deepseek",
-      searchApiKey: searchConfig.apiKey,
+      search,
       requestTimeoutSec: args.timeoutSec ?? config.timeout,
-      searchTimeoutSec: args.timeoutSec ?? searchConfig.timeout,
       temperature: args.temperature,
     })
   }
