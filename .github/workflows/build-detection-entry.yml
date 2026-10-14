@@ -28,7 +28,7 @@ jobs:
         run: |
           npm ci --include=dev --no-audit --no-fund
           npm run test:client-accounts
-          npm run test:penetration-model-readiness
+          npm run test:client-feedback
           npm run test:team-permissions
           npm run build -- --webpack
           tar -czf /tmp/geo-ui-linux.tgz --exclude='.next/cache' --exclude='.next/trace' .next
