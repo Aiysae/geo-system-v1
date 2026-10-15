@@ -254,31 +254,6 @@ function genId(): string {
   return Math.random().toString(36).slice(2, 10)
 }
 
-/** check if a model name suggests it's text-only (no vision support) */
-function isTextOnlyModel(model: string): boolean {
-  const m = model.toLowerCase()
-  // known vision-capable patterns
-  if (/\bvl\b/.test(m)) return false // qwen3-vl, qwen-vl, etc
-  if (/\bvision\b/.test(m)) return false
-  if (/gpt-4o/.test(m)) return false
-  if (/gpt-4-turbo/.test(m)) return false
-  if (/claude/.test(m)) return false
-  if (/gemini/.test(m)) return false
-  if (/glm-4v/.test(m)) return false
-  if (/pixtral/.test(m)) return false
-  if (/llava/.test(m)) return false
-  if (/cogvlm/.test(m)) return false
-  // known text-only patterns
-  if (/^deepseek/.test(m)) return true
-  if (/qwen\d*[.\d]*(plus|max|turbo)/.test(m) && !/vl/.test(m)) return true
-  if (/moonshot/.test(m)) return true
-  if (/glm-4-(?!v)/.test(m)) return true
-  if (/gpt-3\.5/.test(m)) return true
-  if (/qwen-plus/.test(m) || /qwen-max/.test(m) || /qwen-turbo/.test(m)) return true
-  // if unknown, assume it might support vision (don't false-positive warn)
-  return false
-}
-
 function deriveCoreKeywords(strategy: GeoStrategyPlan): string[] {
   const keywords = new Set<string>()
   for (const term of strategy.profile?.terms || []) {
@@ -1894,16 +1869,6 @@ function InputStep({
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 flex items-start gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               资料整理功能暂时不可用，请稍后再试或联系管理员。
-            </div>
-          )}
-
-          {uploadedFiles.some(f => f.type === "image" || f.type === "pdf") && isTextOnlyModel(modelName) && (
-            <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-xs text-amber-800 flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <div>
-                <div className="font-semibold mb-1">当前选择不支持图片或 PDF</div>
-                <div>请改用支持图片识别的模型，或上传 Word、Excel 等可读取文字的文件。</div>
-              </div>
             </div>
           )}
 
