@@ -192,6 +192,8 @@ function normalizeKnowledgeAsset(value: unknown): Record<string, unknown> | null
   }
 }
 
+const GEO_EXTRACT_VISION_MODEL = process.env.GEO_EXTRACT_VISION_MODEL?.trim() || "qwen3-vl-plus"
+
 async function handler(req: NextRequest) {
   let reservation: CreditReservation | null = null
   try {
@@ -207,11 +209,20 @@ async function handler(req: NextRequest) {
       || file.fileType === "pdf"
       || file.content?.startsWith?.("data:image/")
       || file.content?.startsWith?.("data:application/pdf"))
-    const hasPoolCredential = await hasAiCredentialCandidate({
+    // The strategy model (qwen-plus) cannot read images, and no account is
+    // ever verified for a "vision" capability, so images go to Qwen's own
+    // vision model on any account that lists it.
+    const visionReady = hasMediaInput && await hasAiCredentialCandidate({
+      vendor: "qwen",
+      module: "keywordStrategy",
+      model: GEO_EXTRACT_VISION_MODEL,
+      requiredCapabilities: ["chat"],
+    })
+    const hasPoolCredential = visionReady || await hasAiCredentialCandidate({
       vendor: "qwen",
       module: "keywordStrategy",
       model: aiConfig.model,
-      requiredCapabilities: hasMediaInput ? ["json", "vision"] : ["json"],
+      requiredCapabilities: ["json"],
     })
     const url = buildAiChatUrl(aiConfig)
 
@@ -237,9 +248,8 @@ async function handler(req: NextRequest) {
     const mediaFiles = files.filter(f => f.fileType === "image" || f.fileType === "pdf")
     const mediaDataUrls = mediaFiles.map(f => f.content).filter(Boolean) as string[]
 
-    // Detect text-only models (don't send images to them)
-    const textOnlyModels = ["deepseek", "moonshot", "gpt-3.5"]
-    const isTextOnly = textOnlyModels.some(p => aiConfig.model.toLowerCase().includes(p))
+    // Without a vision model the text is still extracted; images are skipped.
+    const isTextOnly = !visionReady
 
     let userPrompt = buildExtractionUserPrompt(
       textFiles,
@@ -252,7 +262,7 @@ async function handler(req: NextRequest) {
     if (isTextOnly && mediaFiles.length > 0) {
       const fileNames = mediaFiles.map(f => f.name).join("、")
       userPrompt += `\n\n（用户上传了以下图片/PDF文件，当前模型不支持视觉识别，已跳过：${fileNames}）`
-      console.log(`[GEO提取] 模型 ${aiConfig.model} 不支持视觉，跳过 ${mediaFiles.length} 个图片/PDF`)
+      console.log(`[GEO提取] 没有可用的看图模型 ${GEO_EXTRACT_VISION_MODEL}，跳过 ${mediaFiles.length} 个图片/PDF`)
     } else if (mediaDataUrls.length > 0) {
       imagesToSend = mediaDataUrls
     }
@@ -264,7 +274,7 @@ async function handler(req: NextRequest) {
     const raw = await runCredentialPoolChat({
       vendor: "qwen",
       module: "keywordStrategy",
-      model: aiConfig.model,
+      model: imagesToSend?.length ? GEO_EXTRACT_VISION_MODEL : aiConfig.model,
       legacy: {
         url,
         apiKey: aiConfig.apiKey,
@@ -279,7 +289,7 @@ async function handler(req: NextRequest) {
         timeoutSec,
       },
       images: imagesToSend,
-      requiredCapabilities: imagesToSend?.length ? ["json", "vision"] : ["json"],
+      requiredCapabilities: imagesToSend?.length ? ["chat"] : ["json"],
     })
 
     // Parse JSON from response
