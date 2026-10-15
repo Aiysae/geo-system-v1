@@ -3,11 +3,12 @@ import { createHmac, timingSafeEqual } from "crypto"
 export const AUTH_COOKIE_NAME = "geo_session"
 
 function getAuthSecret(): string {
+  // Never fall back to a NEXT_PUBLIC_* value: it ships to every browser, so
+  // anyone could compute valid signatures with it.
   const secret =
     process.env.AUTH_SECRET ||
     process.env.SESSION_SECRET ||
-    process.env.CLERK_SECRET_KEY ||
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+    process.env.CLERK_SECRET_KEY
 
   if (secret) return secret
 

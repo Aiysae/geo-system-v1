@@ -11,7 +11,12 @@ process.env.WORKSPACE_FILE = testFile
 const workspaceSyncModule = await import("../src/lib/workspace-sync") as typeof import("../src/lib/workspace-sync") & {
   default?: typeof import("../src/lib/workspace-sync")
 }
-const { reconcileWorkspaceClients } = workspaceSyncModule.default || workspaceSyncModule
+const {
+  composeClientData,
+  isLocalWorkspaceField,
+  reconcileWorkspaceClients,
+  splitClientData,
+} = workspaceSyncModule.default || workspaceSyncModule
 
 const {
   WorkspaceConflictError,
@@ -50,6 +55,16 @@ const client: Client = {
 }
 
 try {
+  assert.equal(isLocalWorkspaceField("researchDraft"), true)
+  assert.equal(isLocalWorkspaceField("difficultyDraft"), true)
+  assert.equal(isLocalWorkspaceField("research"), false)
+  const legacySections = splitClientData(client)
+  legacySections.research.researchDraft = { hypothesis: "只应保留在当前设备" }
+  legacySections.difficulty.difficultyDraft = { industry: "本机草稿" }
+  const withoutLegacyCloudDrafts = composeClientData(legacySections)
+  assert.equal(withoutLegacyCloudDrafts.researchDraft, undefined)
+  assert.equal(withoutLegacyCloudDrafts.difficultyDraft, undefined)
+
   const optimisticClient: Client = {
     ...client,
     id: "optimistic-client",

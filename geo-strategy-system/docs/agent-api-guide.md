@@ -58,16 +58,19 @@ Claude Code 可使用 `claude mcp add --transport http`；Cursor 和其他 MCP A
 
 ## 推荐工作流
 
+用户用口语化方式表达需求时，先调用 MCP 工具 `shitu_plan_request`、REST `POST /plan` 或 CLI `plan --request "..."`。规划器会返回匹配客户、主工作流、备选理解、动作顺序、缺少信息和确认要求。它是只读的，不扣积分、不创建任务。
+
 任何会扣积分的动作都按以下顺序执行：
 
-1. `shitu_list_clients` 获取准确的 `clientId` 和可选 `teamId`。
-2. `shitu_get_client` 只读取任务需要的资料区段。
-3. 使用稳定的 `requestId`，先提交 `dryRun: true`。
-4. 向用户展示预计积分、问题数和模型数，并等待 Agent 宿主的执行确认。
-5. 使用相同 `requestId` 正式提交。
-6. 根据返回的 `task.taskId` 查询任务中心；不要保持 HTTP 长连接等待业务完成。
-7. 完成后读取 `task.resultUrl`，或从不可变历史产出中读取结果。
-8. PDF 和文章 ZIP 使用下载端点或 MCP 受保护资源，不嵌入普通 JSON。
+1. 模糊需求先用 `shitu_plan_request` 解析；明确单步需求可直接进入下一步。
+2. `shitu_list_clients` 获取准确的 `clientId` 和可选 `teamId`。匹配到多个客户时不得猜测。
+3. `shitu_get_client` 只读取任务需要的资料区段。
+4. 使用稳定的 `requestId`，先提交 `dryRun: true`。
+5. 向用户展示预计积分、问题数和模型数，并等待 Agent 宿主的执行确认。删除类动作无论如何都需确认。
+6. 使用相同 `requestId` 正式提交。
+7. 根据返回的 `task.taskId` 查询任务中心；不要保持 HTTP 长连接等待业务完成。
+8. 完成后读取 `task.resultUrl`，或从不可变历史产出中读取结果。
+9. PDF 和文章 ZIP 使用下载端点或 MCP 受保护资源，不嵌入普通 JSON。
 
 相同 `requestId` 重试会返回原任务或原同步结果，不会重复创建业务任务、重复调用 AI 或重复占用 Agent 日预算。同一 `requestId` 携带不同参数会返回 `IDEMPOTENCY_CONFLICT`；仍在处理时返回可重试的 `REQUEST_IN_PROGRESS`。
 CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频率，有新进度后立即恢复，避免多 Agent 同时等待时挤占服务。
@@ -117,19 +120,32 @@ CLI 的 `tasks watch` 会在任务长时间无新进度时自动降低轮询频�
 }
 ```
 
+## 功能覆盖与人工边界
+
+Agent 的目标是接管客户业务工作流，而不是接管账号和资金安全。当前正式覆盖：
+
+- 渗透率联网检测、问题生成、品牌重析和 1 至 7 天自动复测。
+- 强制联网的独立调研、竞品对比、AI 网站诊断和难度测评。
+- 客户资料导入与审核、联网关键词策略、疑问句池、优势和发布规划。
+- 单篇、改写、批量、AI 选稿、批量配图和按平台内容生产。
+- 执行动作、证据批量导入、客户可见范围、周月报与自动邮件报送。
+- 后台任务、不可变历史产出、专业报告、文章和分平台 ZIP 下载。
+
+以下操作刻意保持人工处理，不属于遗漏：充值与积分调整、发票、邮箱密码、模型 API Key、团队成员、客户账号授权、管理员审核和财务处理。客户创建、归档和删除也保留在“我的主页”，防止自动化误建或误删客户档案。
+
 ## 专用动作
 
-Agent 1.7 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
+Agent 1.8 已将旧版 `background.run` 拆成可发现、可校验的专用动作，并补齐近期网页功能：
 
 | 模块 | 动作 |
 | --- | --- |
-| 渗透率情报 | `penetration.run`、`penetration.questions.generate`、`penetration.automation.get`、`penetration.automation.save`、`penetration.automation.set-status`、`penetration.automation.run`、`penetration.automation.delete` |
+| 渗透率情报 | `penetration.run`、`penetration.questions.generate`、`penetration.automation.get`、`penetration.automation.save`、`penetration.automation.set-status`、`penetration.automation.run`、`penetration.automation.cancel`、`penetration.automation.delete` |
 | 独立调研 | `research.run`、`research.compare` |
 | AI 诊断 | `diagnosis.run` |
 | 难度测评 | `difficulty.run` |
-| 关键词策略 | `keyword.extract`、`keyword.advantages`、`keyword.strategy.run`、`keyword.website-prompt.run`、`keyword.questions.run`、`publishing.plan.get`、`publishing.plan.recommend`、`publishing.plan.create`、`publishing.plan.activate`、`publishing.tasks.list`、`publishing.tasks.claim`、`publishing.task.complete`、`publishing.task.fail` |
-| 文章生成 | `article.generate`、`article.rewrite`、`article.batch.run`、`article.strategy.plan`、`article.source.extract`、`article.brands.analyze`、`article.materials.list`、`article.materials.import`、`article.materials.delete`、`article.media.upload`、`article.media.run`、`article.production.list`、`article.production.run`、`article.production.get`、`article.production.cancel` |
-| 执行反馈 | `feedback.action.create`、`feedback.actions.import`、`feedback.report.create`、`feedback.report.options`、`feedback.report.manage`、`feedback.profile.update`、`feedback.visibility.update`、`feedback.automation.get`、`feedback.automation.save`、`feedback.automation.set-status`、`feedback.automation.run`、`feedback.automation.retry`、`feedback.automation.delete` |
+| 关键词策略 | `keyword.extract`、`keyword.advantages`、`keyword.strategy.run`、`keyword.website-prompt.run`、`keyword.questions.run`、`publishing.plan.get`、`publishing.plan.recommend`、`publishing.plan.create`、`publishing.plan.activate`、`publishing.plan.delete`、`publishing.tasks.list`、`publishing.tasks.claim`、`publishing.task.complete`、`publishing.task.fail` |
+| 文章生成 | `article.generate`、`article.rewrite`、`article.batch.run`、`article.batch.delete`、`article.strategy.plan`、`article.source.extract`、`article.brands.analyze`、`article.materials.list`、`article.materials.import`、`article.materials.delete`、`article.media.upload`、`article.media.run`、`article.production.list`、`article.production.run`、`article.production.get`、`article.production.cancel` |
+| 执行反馈 | `feedback.action.create`、`feedback.action.delete`、`feedback.actions.import`、`feedback.report.create`、`feedback.report.options`、`feedback.report.manage`、`feedback.profile.update`、`feedback.visibility.update`、`feedback.automation.get`、`feedback.automation.save`、`feedback.automation.set-status`、`feedback.automation.run`、`feedback.automation.retry`、`feedback.automation.delete`、`feedback.reminder-settings.get`、`feedback.reminder-settings.update` |
 | 客户资料库 | `knowledge.import`、`knowledge.commit` |
 | 专业报告 | `report.create` |
 
@@ -140,10 +156,10 @@ Agent 1.7 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 ### 自动渗透率监测
 
 1. `penetration.automation.get` 读取当前计划和最近 12 次执行。
-2. `penetration.automation.save` 创建或更新 1–7 天间隔、执行时间、下降阈值、消息与邮件提醒。
+2. `penetration.automation.save` 创建或更新 1–7 天间隔、执行时间、固定疑问句与模型、下降阈值、消息与邮件提醒；后续执行使用保存时的检测口径。
 3. `penetration.automation.set-status` 暂停或恢复计划。
 4. `penetration.automation.run` 立即触发一次；之后通过 `penetration.automation.get` 查看执行记录，并从任务中心读取实际检测任务。
-5. `penetration.automation.delete` 只删除计划，不删除历史报告。
+5. `penetration.automation.cancel` 停止本次执行；`penetration.automation.delete` 删除计划并停止未完成执行，但不删除历史报告。
 
 ### 关键词策略自动成文
 
@@ -151,14 +167,17 @@ Agent 1.7 已将旧版 `background.run` 拆成可发现、可校验的专用动�
 2. `article.strategy.plan` 让系统 AI 裁判按每条疑问句、优势和方法论选择 Prompt。
 3. 将返回的 `tasks` 原样作为 `article.batch.run.questionTasks`，使用 `topicMode: "strategy"` 创建批量任务。
 4. 轮询任务，随后下载 `passed`、`all` 或 `direct` 范围的 ZIP。
+5. 需要重新生成整批时，先读取原批次并用新的 `requestId` 再调用 `article.batch.run`。失败项也应组成一个新批次，确保 Agent 每日预算、单任务上限和文章积分照常校验。
 
 ### 发布规划到分平台成文
 
-1. `publishing.plan.recommend` 依据客户调研信源、预算、平台成本和发布上限生成建议；用户确认后调用 `publishing.plan.create` 和 `publishing.plan.activate`。
+1. `publishing.plan.recommend` 依据客户调研信源、预算、平台成本和发布上限生成建议；用户确认后调用 `publishing.plan.create` 和 `publishing.plan.activate`。`capacityMode: "existing_accounts"` 会严格限制在“已有账号×单账号安全日上限”内；`planned_expansion` 允许测算需新增账号，但单个账号仍不会超限。
+   尚未启用的错误草案可用 `publishing.plan.delete` 删除；生效和归档版本保持为审计记录。
 2. `article.production.run` 选择 1–31 天及目标平台。系统以“一个疑问句＋一条匹配优势”为母稿任务，AI 裁判按意图选择创作模板，同一母稿可以投递多个不同平台，但不会在同一平台重复创建。
 3. 提交后立即返回父任务；路由、拆批和文章生成均在持久化 Worker 中继续。使用 `article.production.get` 或任务中心读取进度，切换页面或设备不会中断。
 4. 完成后读取 `shitu://content-production/{runId}/{scope}.zip`，或请求 `GET /content-production/{runId}/download?scope=passed|all`。压缩包按真实平台名称分目录，并附带发布清单。
-5. 需要让外部发布 Agent 逐项执行时，使用 `publishing.tasks.list` 或 `publishing.tasks.claim` 领取任务，再以 `publishing.task.complete` / `publishing.task.fail` 回写网址、证据和执行结果。
+5. 需要让外部发布 Agent 逐项执行时，使用 `publishing.tasks.list` 或 `publishing.tasks.claim` 领取任务，再以 `publishing.task.complete` / `publishing.task.fail` 回写网址、证据和执行结果。`publishing.tasks.list` 传入 `date` 后还会返回当天计划、实发、剩余、超额和分平台完成进度。
+6. 已经在外部平台完成发布时，也可以用 `feedback.actions.import` 批量回填标题和网址。系统会按域名识别平台，并在 `reconcilePublishingQuota` 未关闭时核销当天发布配额；相同网址不会重复核销。
 
 ### 品牌短视频·单问题文案
 
@@ -221,6 +240,7 @@ node shitu-geo.mjs articles batch --file video-batch.json
 2. `feedback.report.create` 创建草稿，或由拥有 `feedback.manage` 权限的 Token 使用 `publish: true` 直接发布。
 3. `feedback.report.manage` 发布、停止分享或删除未发布草稿。
 4. `feedback.visibility.update` 控制客户能看到动作摘要还是完整检测报告。
+5. `feedback.action.delete` 可按 `actionId` 删除单条动作，或按 `importBatchId` 撤销同一次批量导入。
 
 ### 周报与月报自动报送
 
@@ -232,7 +252,7 @@ node shitu-geo.mjs articles batch --file video-batch.json
 
 生成文章前可调用 `GET /articles/settings` 或 MCP 工具 `shitu_get_article_settings`，读取当前实际可用的 Prompt、官方模型、中转站模型和默认模型，避免硬编码过期型号。
 
-Agent 1.3 新增了 `feedback.manage`。为避免静默扩大旧密钥权限，升级前创建的密钥不会自动获得该权限；需要发布链接、管理客户可见范围或配置自动报送时，请在账号中心重新创建“完整授权”密钥。Agent 1.4 至 1.7 没有增加新权限类型。
+Agent 1.3 新增了 `feedback.manage`，Agent 1.8 新增了 `article.manage`。为避免静默扩大旧密钥权限，旧密钥不会自动获得新增权限；需要管理客户可见范围、自动报送或删除批量文章时，请在账号中心重新创建“完整授权”密钥。
 
 ## 结果与文件
 

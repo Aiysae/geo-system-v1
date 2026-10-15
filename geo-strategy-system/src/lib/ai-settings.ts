@@ -278,6 +278,19 @@ const DEFINITIONS: AiProviderDefinition[] = [
       },
     ],
   },
+  {
+    key: "zhipu",
+    label: "智谱清言",
+    description: "渗透率严格检测使用智谱开放平台官方 web_search 工具，并逐条返回可审计来源。",
+    defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    defaultChatPath: "/chat/completions",
+    defaultModel: "glm-5.1",
+    defaultTimeout: 180,
+    apiKeyEnv: ["ZHIPU_API_KEY", "BIGMODEL_API_KEY"],
+    modelEnv: ["ZHIPU_MODEL", "BIGMODEL_MODEL"],
+    baseUrlEnv: ["ZHIPU_BASE_URL", "BIGMODEL_BASE_URL"],
+    urlEnv: ["ZHIPU_CHAT_URL", "BIGMODEL_CHAT_URL"],
+  },
 ]
 
 const DEFINITION_BY_KEY = new Map(DEFINITIONS.map(def => [def.key, def]))

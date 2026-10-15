@@ -24,6 +24,13 @@ export type TeamModuleDefinition = {
   actions: readonly TeamPermissionAction[]
 }
 
+export type TeamPermissionGroup = {
+  key: string
+  label: string
+  description: string
+  modules: readonly TeamModuleKey[]
+}
+
 export type TeamPermissionPresetKey =
   | "viewer"
   | "detector"
@@ -93,6 +100,45 @@ export const TEAM_MODULES: readonly TeamModuleDefinition[] = [
     label: "专业报告",
     description: "生成、查看和下载专业报告",
     actions: ["view", "execute", "edit", "export", "manage"],
+  },
+] as const
+
+export const TEAM_PERMISSION_GROUPS: readonly TeamPermissionGroup[] = [
+  {
+    key: "workspace",
+    label: "客户与成果",
+    description: "客户资料、历史成果与专业报告",
+    modules: ["client", "report"],
+  },
+  {
+    key: "insight",
+    label: "情报洞察",
+    description: "AI 可见度、联网调研与竞品对比",
+    modules: ["penetration", "research"],
+  },
+  {
+    key: "assessment",
+    label: "诊断评估",
+    description: "网站 GEO 诊断、执行难度与成本",
+    modules: ["diagnosis", "difficulty"],
+  },
+  {
+    key: "strategy",
+    label: "策略规划",
+    description: "关键词、疑问句、优势和发布规划",
+    modules: ["keyword"],
+  },
+  {
+    key: "content",
+    label: "内容生产",
+    description: "单篇、批量、改写和按计划生产",
+    modules: ["article"],
+  },
+  {
+    key: "feedback",
+    label: "执行复盘",
+    description: "动作证据、进度、周报与月报",
+    modules: ["feedback"],
   },
 ] as const
 

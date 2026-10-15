@@ -4,10 +4,10 @@ import json
 import os
 
 # ==========================================
-# ⚙️ 全局配置 (在这里固定你的 API 接口)
+# ⚙️ API 配置
 # ==========================================
-# 请将这里的配置替换为你自己的真实 API KEY、URL和模型
-API_KEY = "sk-cgvl7cklav7rp1qoykex6w3u129omw4s"  # 填入你的中转站 API KEY
+# 密钥由启动环境提供，避免进入源码和 Git 历史。
+API_KEY = os.environ.get("HUMANIZER_API_KEY", "").strip()
 BASE_URL = "https://api.b.ai/v1"   # 填入你的中转站 Base URL (例如 https://api.deepseek.com/v1)
 DEFAULT_MODEL = "gpt-5.4-mini"                 # 填入你要默认调用的模型名称
 # ==========================================
@@ -20,6 +20,10 @@ st.set_page_config(
 )
 
 # Sidebar
+if not API_KEY:
+    st.error("服务尚未配置 API 密钥，请联系管理员完成配置后重新启动。")
+    st.stop()
+
 with st.sidebar:
     st.header("⚙️ 设置")
     st.success("✅ API 接口已在系统后台固定，用户无需手动配置，即开即用！")

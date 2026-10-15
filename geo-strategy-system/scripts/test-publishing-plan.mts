@@ -5,13 +5,17 @@ import path from "node:path"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "geo-publishing-plan-"))
 process.env.PUBLISHING_PLAN_STORE = "file"
-process.env.PUBLISHING_PLAN_FILE = path.join(tempDir, "plans.json")
+const plansDir = path.join(tempDir, "plans")
+process.env.PUBLISHING_PLAN_FILE = path.join(plansDir, "plans.json")
+process.env.KV_BACKEND = "file"
+process.env.LOCAL_KV_FILE = path.join(tempDir, "kv.json")
 
 const calculator = await import("../src/lib/publishing-plan/calculator")
 const store = await import("../src/lib/publishing-plan/store")
 const taskService = await import("../src/lib/publishing-plan/task-service")
 
 const input = {
+  capacityMode: "existing_accounts" as const,
   totalServiceFeeCents: 1_000_000,
   executionCostRateBps: 3_250,
   startDate: "2026-09-01",
@@ -105,7 +109,9 @@ assert.ok(calculated.summary.plannedCostCents <= calculated.summary.executionBud
 assert.equal(calculated.summary.totalPublicationCount, calculated.tasks.length)
 assert.equal(calculated.summary.uniqueContentCount, calculated.assets.length)
 assert.ok(calculated.summary.reusedPublicationCount > 0)
-assert.ok(calculated.platformQuotas.some(item => item.accountGap > 0))
+assert.equal(calculated.calculationVersion, "publishing-plan-v2")
+assert.ok(calculated.platformQuotas.every(item => item.accountGap === 0))
+assert.ok(calculated.platformQuotas.some(item => item.capacityConstrained))
 
 assert.throws(() => calculator.calculatePublishingPlan({
   ...input,
@@ -128,13 +134,124 @@ assert.throws(() => calculator.calculatePublishingPlan({
   planVersion: 1,
 }), /不能同时为 0/)
 
+// Reuse must respect both the strictest platform limit and the busiest platform.
+for (const scenario of [
+  { capacities: [5, 2], reuseLimits: [4, 2], assets: 5 },
+  { capacities: [5, 2], reuseLimits: [4, 1], assets: 7 },
+  { capacities: [2, 2, 2], reuseLimits: [2, 2, 2], assets: 3 },
+]) {
+  const result = calculator.calculatePublishingPlan({
+    ...input,
+    totalServiceFeeCents: 100_000,
+    startDate: "2026-09-01",
+    endDate: "2026-09-01",
+    customerStage: "maintenance",
+    contentCreationCostsCents: { article: 100, authority_article: 0, video: 0 },
+    platformConfigs: scenario.capacities.map((capacity, index) => ({
+      ...input.platformConfigs[0],
+      id: `reuse-${index}`,
+      platformKey: `reuse-${index}`,
+      dailyLimitPerAccount: capacity,
+      safeUtilizationBps: 10_000,
+      publishUnitCostCents: 10,
+      maxReusePlatforms: scenario.reuseLimits[index],
+    })),
+  }, {
+    ownerUserId: "owner-a",
+    clientId: "client-a",
+    planId: "plan-reuse",
+    planVersion: 1,
+    now: "2026-08-17T00:00:00.000Z",
+  })
+  const publications = scenario.capacities.reduce((sum, count) => sum + count, 0)
+  const expectedCost = scenario.assets * 100 + publications * 10
+  assert.equal(result.assets.length, scenario.assets)
+  assert.equal(result.tasks.length, publications)
+  assert.equal(result.summary.plannedCostCents, expectedCost)
+  assert.equal(result.windows[0].allocatedCostCents, expectedCost, "Budget estimate matches generated tasks")
+  for (const asset of result.assets) {
+    const uses = result.tasks.filter(task => task.assetId === asset.id)
+    assert.ok(uses.length <= Math.min(...scenario.reuseLimits))
+    assert.equal(new Set(uses.map(task => task.platformKey)).size, uses.length)
+  }
+}
+
 const uniquePairs = new Set(calculated.tasks.map(task => `${task.assetId}\u0000${task.platformKey}`))
 assert.equal(uniquePairs.size, calculated.tasks.length, "同一内容不能在相同平台重复")
+const calculatedLoads = new Map<string, number>()
 for (const task of calculated.tasks) {
   const quota = calculated.platformQuotas.find(item => item.platformKey === task.platformKey)
   assert.ok(quota)
-  assert.ok(task.accountSlot <= quota.requiredAccountCount)
+  assert.ok(task.accountSlot <= quota.plannedAccountCount)
+  assert.ok(task.accountSlot <= quota.existingAccountCount)
+  const key = `${task.platformKey}:${task.plannedDate}:${task.accountSlot}`
+  calculatedLoads.set(key, (calculatedLoads.get(key) || 0) + 1)
+  assert.ok(calculatedLoads.get(key)! <= quota.effectiveDailyLimitPerAccount)
 }
+
+const hardCapacity = calculator.calculatePublishingPlan({
+  ...input,
+  totalServiceFeeCents: 3_000,
+  startDate: "2026-09-01",
+  endDate: "2026-09-01",
+  customerStage: "maintenance" as const,
+  contentCreationCostsCents: { article: 0, authority_article: 0, video: 0 },
+  platformConfigs: [{
+    ...input.platformConfigs[0],
+    weightBps: 10_000,
+    dailyLimitPerAccount: 3,
+    safeUtilizationBps: 10_000,
+    existingAccountCount: 1,
+    publishUnitCostCents: 100,
+  }],
+}, {
+  ownerUserId: "owner-a",
+  clientId: "client-a",
+  planId: "plan-hard-capacity",
+  planVersion: 1,
+})
+assert.equal(hardCapacity.tasks.length, 3)
+assert.equal(hardCapacity.platformQuotas[0].plannedAccountCount, 1)
+assert.equal(hardCapacity.platformQuotas[0].additionalAccountCount, 0)
+assert.equal(hardCapacity.platformQuotas[0].dailyCapacity, 3)
+assert.ok(hardCapacity.summary.unallocatedBudgetCents > 0)
+assert.ok(hardCapacity.warnings.some(message => message.includes("现有账号容量")))
+
+const expansionCapacity = calculator.calculatePublishingPlan({
+  ...input,
+  capacityMode: "planned_expansion" as const,
+  totalServiceFeeCents: 3_000,
+  startDate: "2026-09-01",
+  endDate: "2026-09-01",
+  customerStage: "maintenance" as const,
+  contentCreationCostsCents: { article: 0, authority_article: 0, video: 0 },
+  platformConfigs: [{
+    ...input.platformConfigs[0],
+    weightBps: 10_000,
+    dailyLimitPerAccount: 3,
+    safeUtilizationBps: 10_000,
+    existingAccountCount: 1,
+    publishUnitCostCents: 100,
+  }],
+}, {
+  ownerUserId: "owner-a",
+  clientId: "client-a",
+  planId: "plan-expansion-capacity",
+  planVersion: 1,
+})
+assert.equal(expansionCapacity.tasks.length, 9)
+assert.equal(expansionCapacity.platformQuotas[0].plannedAccountCount, 3)
+assert.equal(expansionCapacity.platformQuotas[0].additionalAccountCount, 2)
+const expansionLoads = new Map<string, number>()
+for (const task of expansionCapacity.tasks) {
+  const key = `${task.plannedDate}:${task.accountSlot}`
+  expansionLoads.set(key, (expansionLoads.get(key) || 0) + 1)
+}
+assert.ok([...expansionLoads.values()].every(count => count <= 3))
+
+const burstQuota = calculated.platformQuotas.find(item => item.platformKey === "sohu")
+assert.ok(burstQuota)
+assert.ok((burstQuota.windowCounts.period_1_burst || 0) <= 7 * burstQuota.dailyCapacity)
 
 const plan = await store.createPublishingPlanDraft({
   ownerUserId: "owner-a",
@@ -183,6 +300,48 @@ const completed = await store.completePublishingTask({
 })
 assert.equal(completed.status, "completed")
 assert.equal(completed.evidence[0].url, "https://example.com/article-1")
+
+// When the task store rejects the completion, the client-visible action that
+// was written first must be rolled back instead of claiming a false completion.
+const feedbackStore = await import("../src/lib/client-feedback/store")
+const rollbackInput = {
+  ownerUserId: "owner-a",
+  clientId: "client-a",
+  planId: second.id,
+  taskId: claimed[1].id,
+  actorUserId: "agent-a",
+  claimToken: claimed[1].claimToken,
+  publishedUrl: "https://example.com/article-2",
+}
+fs.chmodSync(plansDir, 0o555)
+try {
+  await assert.rejects(taskService.completePublishingTaskWithFeedback(rollbackInput))
+} finally {
+  fs.chmodSync(plansDir, 0o755)
+}
+assert.equal(
+  await feedbackStore.getClientExecutionAction("owner-a", "client-a", `cact_${claimed[1].id}`),
+  null,
+)
+assert.notEqual((await store.getPublishingTask("owner-a", claimed[1].id))?.status, "completed")
+
+// Two submissions of the same claim race: exactly one completes the task, and
+// the losing submission must not roll back the winner's client-visible action.
+const race = await Promise.allSettled([
+  taskService.completePublishingTaskWithFeedback(rollbackInput),
+  taskService.completePublishingTaskWithFeedback(rollbackInput),
+])
+assert.ok(race.some(result => result.status === "fulfilled"))
+const racedTask = await store.getPublishingTask("owner-a", claimed[1].id)
+assert.equal(racedTask?.status, "completed")
+assert.ok(racedTask?.executionActionId)
+const racedAction = await feedbackStore.getClientExecutionAction(
+  "owner-a",
+  "client-a",
+  racedTask.executionActionId,
+)
+assert.equal(racedAction?.status, "completed")
+assert.equal(racedAction?.evidence[0]?.url, "https://example.com/article-2")
 
 await store.closePublishingPlanStoreConnection()
 fs.rmSync(tempDir, { recursive: true, force: true })

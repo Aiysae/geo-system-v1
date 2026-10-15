@@ -72,7 +72,8 @@ import type {
   WorkspaceAccountAccess,
 } from "@/types"
 
-type AccountTab = "overview" | "clients" | "teams" | "services" | "billing" | "reports" | "vip" | "settings"
+type AccountTab = "overview" | "clients" | "teams" | "commerce" | "reports" | "settings"
+type CommerceView = "billing" | "vip" | "services"
 
 type AccountUser = {
   id: string
@@ -152,33 +153,37 @@ const TABS: Array<{ id: AccountTab; label: string; icon: typeof LayoutDashboard 
   { id: "overview", label: "概览", icon: LayoutDashboard },
   { id: "clients", label: "我的客户", icon: BriefcaseBusiness },
   { id: "teams", label: "团队协作", icon: UsersRound },
-  { id: "services", label: "官方代运营", icon: Handshake },
-  { id: "billing", label: "账单积分", icon: ReceiptText },
-  { id: "reports", label: "历史报告", icon: FileClock },
-  { id: "vip", label: "VIP 权益", icon: Crown },
+  { id: "commerce", label: "账单与权益", icon: WalletCards },
+  { id: "reports", label: "历史成果", icon: FileClock },
   { id: "settings", label: "账号设置", icon: Settings },
 ]
 
 const VALID_TABS = new Set<AccountTab>(TABS.map(tab => tab.id))
 
-function tabFromLocation(): AccountTab {
-  if (typeof window === "undefined") return "overview"
-  return normalizeTab(new URL(window.location.href).searchParams.get("tab"))
+function normalizeTab(value?: string | null): AccountTab {
+  if (value === "services" || value === "billing" || value === "vip") return "commerce"
+  return value && VALID_TABS.has(value as AccountTab) ? value as AccountTab : "overview"
 }
 
-function normalizeTab(value?: string | null): AccountTab {
-  return value && VALID_TABS.has(value as AccountTab) ? value as AccountTab : "overview"
+function commerceViewFromTab(value?: string | null): CommerceView {
+  if (value === "services" || value === "vip") return value
+  return "billing"
 }
 
 export function AccountCenter(props: Props) {
   const [activeTab, setActiveTab] = useState<AccountTab>(() => normalizeTab(props.initialTab))
+  const [commerceView, setCommerceView] = useState<CommerceView>(() => commerceViewFromTab(props.initialTab))
   const [clients, setClients] = useState(props.clients)
   const [currentUser, setCurrentUser] = useState(props.user)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   useEffect(() => {
-    const onPopState = () => setActiveTab(tabFromLocation())
+    const onPopState = () => {
+      const value = new URL(window.location.href).searchParams.get("tab")
+      setActiveTab(normalizeTab(value))
+      setCommerceView(commerceViewFromTab(value))
+    }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
   }, [])
@@ -306,10 +311,14 @@ export function AccountCenter(props: Props) {
               isClientAccount={props.access.mode === "client"}
             />
           ) : null}
-          {activeTab === "services" ? <ServicesTab services={props.managedServices} /> : null}
-          {activeTab === "billing" ? <BillingTab {...props} /> : null}
+          {activeTab === "commerce" ? (
+            <CommerceTab
+              {...props}
+              activeView={commerceView}
+              onChangeView={setCommerceView}
+            />
+          ) : null}
           {activeTab === "reports" ? <ReportsTab clients={clients} onOpen={() => setHistoryOpen(true)} /> : null}
-          {activeTab === "vip" ? <VipTab membership={props.membership} whiteLabelCredits={props.whiteLabelCredits} progress={progress} /> : null}
           {activeTab === "settings" ? <SettingsTab user={currentUser} setUser={setCurrentUser} isAdmin={props.isAdmin} showActionReminders={props.access.mode !== "client"} /> : null}
         </div>
       </main>
@@ -355,8 +364,8 @@ function OverviewTab(props: Props & {
         <div className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
           <QuickAction icon={BookOpenCheck} title="新手体验教程" detail="无需等待，快速熟悉完整产出" href="/workspace/tutorial?manual=1" color="cyan" />
           <QuickAction icon={BriefcaseBusiness} title="客户资料" detail={`${props.clients.length} 个客户档案`} onClick={() => props.onSelectTab("clients")} color="blue" />
-          <QuickAction icon={FileClock} title="历史报告" detail="检测快照与专业 PDF" onClick={() => props.onSelectTab("reports")} color="violet" />
-          <QuickAction icon={ReceiptText} title="账单与积分" detail={`${props.unlimitedCredits ? "无限" : props.credits.total} 可用积分`} onClick={() => props.onSelectTab("billing")} color="amber" />
+          <QuickAction icon={FileClock} title="历史成果" detail="检测、调研、诊断与专业报告" onClick={() => props.onSelectTab("reports")} color="violet" />
+          <QuickAction icon={ReceiptText} title="账单与权益" detail={`${props.unlimitedCredits ? "无限" : props.credits.total} 可用积分`} onClick={() => props.onSelectTab("commerce")} color="amber" />
           <QuickAction icon={Bot} title="Agent 接入" detail="连接 Codex、Claude 或 Cursor" href="/account/agents" color="blue" />
           <QuickAction icon={CircleHelp} title="使用说明" detail="按模块查看操作方法与常见问题" href="/help" color="violet" />
           <QuickAction icon={Settings} title="账号设置" detail="修改名称、邮箱和密码" onClick={() => props.onSelectTab("settings")} color="cyan" />
@@ -389,7 +398,7 @@ function OverviewTab(props: Props & {
         ) : (
           <p className="mt-5 text-xs font-semibold text-emerald-600">已解锁当前全部会员等级</p>
         )}
-        <button type="button" onClick={() => props.onSelectTab("vip")} className="mt-5 inline-flex items-center gap-1 text-xs font-semibold text-[#0958D9] hover:underline">
+        <button type="button" onClick={() => props.onSelectTab("commerce")} className="mt-5 inline-flex items-center gap-1 text-xs font-semibold text-[#0958D9] hover:underline">
           查看全部 VIP 权益
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -413,6 +422,79 @@ function QuickAction({ icon: Icon, title, detail, href, onClick, color }: {
     <ChevronRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[#1677FF]" />
   </>
   return href ? <Link href={href} className={className}>{content}</Link> : <button type="button" onClick={onClick} className={className}>{content}</button>
+}
+
+function CommerceTab(props: Props & {
+  activeView: CommerceView
+  onChangeView: (view: CommerceView) => void
+}) {
+  const views: Array<{
+    id: CommerceView
+    label: string
+    detail: string
+    icon: typeof WalletCards
+  }> = [
+    { id: "billing", label: "积分与账单", detail: "充值、流水与发票", icon: WalletCards },
+    { id: "vip", label: "VIP 权益", detail: "等级、权益与升级进度", icon: Crown },
+    { id: "services", label: "官方代运营", detail: "全链路交付项目", icon: Handshake },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <section className="grid gap-px overflow-hidden rounded-lg border border-[#D8E7F7] bg-[#D8E7F7] shadow-sm sm:grid-cols-3">
+        {views.map(view => {
+          const Icon = view.icon
+          const selected = props.activeView === view.id
+          return (
+            <button
+              key={view.id}
+              type="button"
+              onClick={() => props.onChangeView(view.id)}
+              className={cn(
+                "flex min-h-20 items-center gap-3 bg-white px-4 py-3 text-left transition",
+                selected ? "bg-[#EEF7FF] text-[#0958D9]" : "text-slate-600 hover:bg-[#F7FBFF]",
+              )}
+              aria-pressed={selected}
+            >
+              <span className={cn(
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1",
+                selected
+                  ? "bg-gradient-to-br from-[#1677FF] to-[#00AEEA] text-white ring-blue-300"
+                  : "bg-slate-50 text-slate-500 ring-slate-200",
+              )}>
+                <Icon className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-bold">{view.label}</span>
+                <span className="mt-1 block text-[10px] text-slate-500">{view.detail}</span>
+              </span>
+            </button>
+          )
+        })}
+      </section>
+
+      {props.activeView === "billing" ? <BillingTab {...props} /> : null}
+      {props.activeView === "vip" ? (
+        <VipTab
+          membership={props.membership}
+          whiteLabelCredits={props.whiteLabelCredits}
+          progress={membershipProgress(props.membership)}
+        />
+      ) : null}
+      {props.activeView === "services" ? <ServicesTab services={props.managedServices} /> : null}
+    </div>
+  )
+}
+
+function membershipProgress(membership: MembershipSnapshot): number {
+  const current = membershipLevelForTier(membership.tier)
+  const next = membershipLevelForTier(membership.nextTier || "free")
+  const start = current?.minPaidCents || 0
+  const end = next?.minPaidCents || Math.max(start, membership.paidCents)
+  if (end <= start) return 100
+  return Math.max(0, Math.min(100, Math.round(
+    ((membership.paidCents - start) / (end - start)) * 100,
+  )))
 }
 
 function ServicesTab({ services }: { services: Props["managedServices"] }) {
@@ -738,14 +820,14 @@ function ReportsTab({ clients, onOpen }: { clients: ClientSummary[]; onOpen: () 
       <section className="overflow-hidden rounded-lg border border-[#D8E7F7] bg-white shadow-sm">
         <div className="bg-[linear-gradient(120deg,#001D66,#0958D9_56%,#00AEEA)] px-5 py-5 text-white">
           <div className="flex items-center justify-between gap-4">
-            <div><div className="text-[10px] font-semibold text-cyan-100/75">REPORT ARCHIVE</div><h2 className="mt-1 text-lg font-bold">历史报告中心</h2><p className="mt-2 text-xs leading-5 text-cyan-50/75">查看每次渗透率检测快照，以及已生成的四模块专业 PDF。</p></div>
+            <div><div className="text-[10px] font-semibold text-cyan-100/75">RESULT ARCHIVE</div><h2 className="mt-1 text-lg font-bold">历史成果中心</h2><p className="mt-2 text-xs leading-5 text-cyan-50/75">查看渗透率检测、联网调研、AI 诊断、难度测评与已生成的专业 PDF。</p></div>
             <FileText className="h-10 w-10 shrink-0 text-cyan-100/80" />
           </div>
         </div>
         <div className="px-5 py-5">
           <button type="button" onClick={onOpen} className="inline-flex h-10 items-center gap-2 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-4 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 transition hover:brightness-105">
             <FileClock className="h-4 w-4" />
-            打开完整历史报告中心
+            打开完整历史成果中心
           </button>
           <p className="mt-3 text-xs leading-5 text-slate-500">可按客户、报告类型、状态和日期筛选，并支持在线预览、下载和删除。</p>
         </div>

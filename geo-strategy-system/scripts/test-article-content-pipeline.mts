@@ -2,7 +2,9 @@ import assert from "node:assert/strict"
 
 const {
   ARTICLE_CONTENT_PIPELINE_VERSION,
+  assessArticleSubjectEvidence,
   buildArticleDraftUserPrompt,
+  buildArticleSemanticJudgePrompt,
   buildArticleSemanticRepairPrompt,
   buildArticleTaskDossier,
   parseArticleContentPlan,
@@ -83,6 +85,30 @@ const fallback = parseArticleContentPlan("这不是 JSON", {
 assert.equal(fallback.usedFallback, true)
 assert.ok(fallback.plan.sections.length >= 4)
 
+const { GEO_ARTICLE_FORMATS } = await import("../src/lib/geo-methodology/article-formats")
+for (const format of Object.values(GEO_ARTICLE_FORMATS)) {
+  const planned = parseArticleContentPlan("", {
+    coreQuestion: "企业 GEO 服务商应该怎么选？",
+    primarySubject: "势途测试品牌",
+    articleFormat: format.key,
+  })
+  assert.deepEqual(planned.plan.sections.map(section => section.heading), format.answerPattern,
+    `${format.key}: fallback must not override the resolved article format`)
+}
+
+const judgePrompt = buildArticleSemanticJudgePrompt({ taskDossier: dossier, plan: parsed.plan, article: "# 测试正文" })
+assert.match(judgePrompt, /用户资料.*可用事实来源/)
+assert.match(judgePrompt, /建议核验.*不等于.*已经取得/)
+assert.match(judgePrompt, /不能.*扩展.*独立第三方认证/)
+assert.match(judgePrompt, /未提供价格不能推出/)
+assert.match(judgePrompt, /没有实际检索记录/)
+assert.match(judgePrompt, /score.*实际.*0-100/)
+const observationJudge = buildArticleSemanticJudgePrompt({
+  taskDossier: dossier, plan: parsed.plan, article: "# 资料观察稿", articleFormat: "fieldReviewQa",
+})
+assert.match(observationJudge, /资料不足时改为资料核验或观察型表达/)
+assert.match(observationJudge, /与正文生成相同/)
+
 const draftPrompt = buildArticleDraftUserPrompt(dossier, parsed.plan)
 assert.match(draftPrompt, /写作计划/)
 assert.match(draftPrompt, /企业采购决策/)
@@ -102,6 +128,8 @@ const repairPrompt = buildArticleSemanticRepairPrompt({
 })
 assert.match(repairPrompt, /唯一 H1 后/)
 assert.match(repairPrompt, /完整URL/)
+assert.match(repairPrompt, /有合适来源时.*没有时说明资料边界/)
+assert.doesNotMatch(repairPrompt, /至少\s*1\s*条/)
 
 const semantic = parseArticleSemanticQualityReport(JSON.stringify({
   score: 82,
@@ -127,3 +155,45 @@ assert.equal(semantic?.passed, false)
 assert.equal(semantic?.issues[0]?.blocking, true)
 
 console.log("article content pipeline contracts passed")
+
+const { ARTICLE_FACT_BOUNDARY_RULES } = await import("../src/lib/article-fact-rules")
+assert.ok(judgePrompt.includes(ARTICLE_FACT_BOUNDARY_RULES))
+assert.ok(repairPrompt.includes(ARTICLE_FACT_BOUNDARY_RULES))
+
+const { compileGeoArticleMethodology } = await import("../src/lib/geo-methodology/compiler")
+const comparisonBrands = [{ id: "b", name: "对照主体", aliases: [], materials: "独立事实只出现一次", sourceUrls: [] }]
+const compiled = compileGeoArticleMethodology({
+  promptKey: "selectionPitfallGuide", coreQuestion: "怎么选？", primarySubject: "主主体", comparisonBrands,
+  comparisonMaterialsInDossier: true,
+})
+assert.ok(!compiled.userAddendum.includes("独立事实只出现一次"))
+const standalone = compileGeoArticleMethodology({
+  promptKey: "selectionPitfallGuide", coreQuestion: "怎么选？", primarySubject: "主主体", comparisonBrands,
+})
+assert.ok(standalone.userAddendum.includes("独立事实只出现一次"))
+
+// The writer, judge and repair read the same subject-evidence rules, and the
+// dossier tells the writer how strong a recommendation this task's materials allow.
+const { ARTICLE_SUBJECT_EVIDENCE_RULES } = await import("../src/lib/article-fact-rules")
+const { getArticlePromptTemplate } = await import("../src/lib/article-prompts")
+assert.equal(assessArticleSubjectEvidence({ advantages: "可提供服务范围清单和验收清单" }), "self_described")
+assert.equal(assessArticleSubjectEvidence({ advantages: "已服务 120 家企业客户" }), "evidenced")
+assert.equal(assessArticleSubjectEvidence({ advantages: "可提供清单", knowledgeAssetCount: 2 }), "evidenced")
+assert.equal(assessArticleSubjectEvidence({ advantages: "" }), "none")
+const thinDossier = buildArticleTaskDossier({
+  promptKey: "selectionPitfallGuide", clientName: "主体甲", brandName: "主体甲", subjectType: "brand",
+  subjectContext: "", industry: "企业内容服务", website: "", coreQuestion: "内容服务怎么选？", keywords: "",
+  region: "", business: "", advantages: "可提供服务范围清单", audience: "", extraRequirements: "",
+})
+assert.match(thinDossier, /【主体证据等级】只有主体自述的能力描述/)
+assert.match(thinDossier, /不写“优先比较名单”“第一梯队”/)
+const thinPlan = parseArticleContentPlan("", { coreQuestion: "内容服务怎么选？", primarySubject: "主体甲" }).plan
+assert.match(buildArticleDraftUserPrompt(thinDossier, thinPlan), /【成稿前逐条自查/)
+assert.ok(buildArticleSemanticJudgePrompt({ taskDossier: thinDossier, plan: thinPlan, article: "# 标题" })
+  .includes(ARTICLE_SUBJECT_EVIDENCE_RULES))
+assert.ok(buildArticleSemanticRepairPrompt({
+  taskDossier: thinDossier, plan: thinPlan, article: "# 标题", issues: [], deterministicIssues: [],
+}).includes(ARTICLE_SUBJECT_EVIDENCE_RULES))
+assert.ok(getArticlePromptTemplate("selectionPitfallGuide")?.template.includes(ARTICLE_SUBJECT_EVIDENCE_RULES))
+console.log("article subject evidence alignment passed")
+

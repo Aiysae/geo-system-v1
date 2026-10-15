@@ -2,6 +2,7 @@ import "server-only"
 
 import { randomUUID } from "crypto"
 import { kv } from "@/lib/kv"
+import { acquireJobSettlementLock } from "@/lib/distributed-concurrency"
 import { syncPenetrationJobTask } from "@/lib/task-center/adapters"
 import {
   clearTaskCancellation,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/task-queue"
 import { createInternalApiHeaders } from "@/lib/internal-api"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
+import { MODEL_LABELS } from "@/lib/model-labels"
 import { buildPenetrationBatchResult } from "@/lib/penetration/result-merge"
 import {
   getPenetrationSlotValidationError,
@@ -56,6 +58,7 @@ import type {
   PenetrationQuestionIntentHint,
   PenetrationResult,
   PersonSubjectProfile,
+  PenetrationUserLocation,
 } from "@/types"
 
 export interface PenetrationJobRequest {
@@ -72,6 +75,10 @@ export interface PenetrationJobRequest {
   questions: string[]
   questionIntents?: PenetrationQuestionIntentHint[]
   competitors: string[]
+  /** Where the simulated asker is; sent to providers that localize answers. */
+  userLocation?: PenetrationUserLocation
+  /** How many independent answers each question gets; questions are already repeated. */
+  samplesPerQuestion?: number
   selectedModels?: ModelKey[]
   models: ModelKey[]
   slotSelection?: Array<{
@@ -174,7 +181,6 @@ const activeOwnerCounts = new Map<string, number>()
 const queuedJobs: string[] = []
 const queuedJobIds = new Set<string>()
 const activeAbortControllers = new Map<string, AbortController>()
-const settlingJobs = new Set<string>()
 const historySavingJobs = new Set<string>()
 const resumeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let schedulerRunning = false
@@ -541,8 +547,7 @@ function successfulNewSlotCount(job: StoredPenetrationJob | null | undefined): n
 }
 
 async function settleJobCredits(id: string, usedSlots: number): Promise<void> {
-  if (settlingJobs.has(id)) return
-  settlingJobs.add(id)
+  const release = await acquireJobSettlementLock("penetration", id)
   try {
     const job = await getStoredJob(id)
     if (!job || job.creditsSettledAt) return
@@ -567,7 +572,7 @@ async function settleJobCredits(id: string, usedSlots: number): Promise<void> {
     )
     await patchJob(id, { creditsSettledAt: nowIso() })
   } finally {
-    settlingJobs.delete(id)
+    await release()
   }
 }
 
@@ -910,6 +915,32 @@ function blockRemainingModelSlots(
     state.nextRetryAt = undefined
     state.updatedAt = updatedAt
   }
+}
+
+/**
+ * Names each model with unfinished slots and its last reason, so the user can
+ * tell which AI failed instead of only a slot count.
+ */
+export function describeBlockedSlotsByModel(
+  states: Record<string, Pick<StoredPenetrationSlotState, "model" | "status" | "lastError">>,
+): string {
+  const byModel = new Map<ModelKey, { count: number; reason: string }>()
+  for (const state of Object.values(states)) {
+    if (state.status === "success") continue
+    const entry = byModel.get(state.model) || { count: 0, reason: "" }
+    entry.count += 1
+    if (state.lastError) entry.reason = state.lastError
+    byModel.set(state.model, entry)
+  }
+  return [...byModel.entries()]
+    .map(([model, { count, reason }]) => {
+      const detail = reason
+        .replace(/^连续 \d+ 次独立联网补采仍未得到完整回答：/, "")
+        .replace(/\s+/g, " ")
+        .slice(0, 120)
+      return `${MODEL_LABELS[model]} ${count} 个问题未完成${detail ? `（${detail}）` : ""}`
+    })
+    .join("；")
 }
 
 function returnedItemFor(
@@ -1803,7 +1834,7 @@ async function runJobSlice(jobId: string): Promise<void> {
       await persistJobResultToWorkspace(job)
       const usedSlots = successfulNewSlotCount(job)
       await settleJobCreditsQuietly(job.id, usedSlots)
-      const error = `仍有 ${progress.blockedSlots || 0} 个槽位在多轮独立联网补采后未达标。已保留 ${progress.completedSlots} 个完整结果，未达标槽位不计费、不进入渗透率统计。`
+      const error = `${describeBlockedSlotsByModel(states)}。已保留 ${progress.completedSlots} 个完整结果，未完成的问题不计费、不进入渗透率统计。`
       const finishedAt = nowIso()
       const historyPatch = await persistTerminalHistory({
         job,

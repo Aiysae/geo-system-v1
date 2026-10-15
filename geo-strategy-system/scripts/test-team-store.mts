@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import type { PenetrationAutomationSchedule } from "../src/lib/penetration/automation-types"
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), "geo-team-store-"))
 process.env.TEAM_STORE = "file"
@@ -84,6 +85,44 @@ try {
   assert.equal(access?.billingUserId, ownerUserId)
   assert.ok(access?.permissionKeys.includes("penetration.execute"))
 
+  const { resolvePenetrationAutomationRecipientIds } = await import(
+    "../src/lib/penetration/automation-recipients"
+  )
+  const automationSchedule: PenetrationAutomationSchedule = {
+    id: "schedule-team-test",
+    ownerUserId,
+    clientId: "client-a",
+    clientName: "客户 A",
+    createdByUserId: ownerUserId,
+    actorUserId: ownerUserId,
+    billingUserId: ownerUserId,
+    teamId: team.id,
+    status: "active",
+    intervalDays: 1,
+    timeLocal: "22:00",
+    timezone: "Asia/Shanghai",
+    startDate: "2026-08-01",
+    relativeDropThresholdPct: 20,
+    minimumAbsoluteDropPoints: 3,
+    inAppEnabled: true,
+    emailEnabled: true,
+    consecutiveFailures: 0,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+  }
+  assert.deepEqual(
+    await resolvePenetrationAutomationRecipientIds(automationSchedule),
+    [memberUserId, ownerUserId].sort(),
+  )
+  assert.deepEqual(
+    await resolvePenetrationAutomationRecipientIds({
+      ...automationSchedule,
+      teamId: undefined,
+    }),
+    [memberUserId, ownerUserId].sort(),
+    "个人面板创建的计划也应通知后来获得客户共享权限的团队成员",
+  )
+
   await store.saveTeamMember({
     teamId: team.id,
     userId: memberUserId,
@@ -95,6 +134,10 @@ try {
   assert.equal(
     (await store.listAccessibleTeamClientShares(memberUserId, team.id)).length,
     0,
+  )
+  assert.deepEqual(
+    await resolvePenetrationAutomationRecipientIds(automationSchedule),
+    [ownerUserId],
   )
 
   const actions = new Set((await store.listTeamAudit(team.id)).map(item => item.action))

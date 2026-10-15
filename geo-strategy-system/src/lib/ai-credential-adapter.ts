@@ -1,12 +1,17 @@
 import "server-only"
 
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
+import { listAiCredentialRuntimes } from "@/lib/ai-credential-store"
+import { listAiCredentialRouteHealth } from "@/lib/ai-credential-route-health"
 import { shouldFailOverAiCredential } from "@/lib/ai-credential-errors"
+import { classifyAiCredentialFailure } from "@/lib/ai-credential-failure-classifier"
 import { estimateAiCredentialQuota } from "@/lib/ai-credential-quota"
+import { observeAiUsage } from "@/lib/ai-usage"
 import {
   getAiCredentialPoolCapacity,
   getAiCredentialPoolSnapshot,
   hasAiCredentialCandidate,
+  hasConfiguredAiCredential,
   recordAiCredentialFailure,
   recordAiCredentialSuccess,
   resolveAiCredentialModel,
@@ -14,6 +19,7 @@ import {
 } from "@/lib/ai-credential-router"
 import { ADAPTERS } from "@/lib/llm"
 import { BaiduWebSearchError } from "@/lib/llm/baidu-ai-search"
+import { MoonshotWebSearchError } from "@/lib/llm/moonshot-web-search"
 import { assertStrictPenetrationBlindArgs } from "@/lib/llm/blind-request-audit"
 import type { ChatArgs } from "@/lib/llm/openai-compat"
 import type { ModelKey } from "@/types"
@@ -29,6 +35,8 @@ interface AdapterCredentialRoute {
   targetModel: string
   selectionModel?: string
   requiredCapabilities: AiCredentialCapability[]
+  healthCapabilities: AiCredentialCapability[]
+  spreadAcrossCredentials: boolean
   extra?: Record<string, string | boolean>
   exactModelRequired?: boolean
   verifiedWebModelRequired?: boolean
@@ -57,12 +65,50 @@ function usesAuditableExternalSearch(
   module: AiCredentialModule,
   args: Partial<ChatArgs>,
 ): boolean {
-  return (model === "kimi" || model === "deepseek")
-    && isStrictWebCall(module, args)
+  // Kimi searches with its own official endpoint on the same account; only
+  // DeepSeek, whose API has no web search, borrows a separate search account.
+  return model === "deepseek" && isStrictWebCall(module, args)
 }
 
 function strictCredentialVendor(model: ModelKey): ModelKey {
   return model
+}
+
+// Question detection should hear what a real user hears in the vendor's app,
+// which runs the flagship model. Earlier patterns rank higher; a vendor not
+// listed keeps the configured model.
+const DETECTION_MODEL_PREFERENCE: Partial<Record<ModelKey, RegExp[]>> = {
+  doubao: [/seed-2-1-pro/i, /seed-\d+-\d+-pro/i, /-pro\b/i, /turbo/i],
+  qwen: [/max/i, /qwen3\.\d+-plus/i, /plus/i],
+  ernie: [/ernie-5/i, /ernie-4\.5/i],
+  zhipu: [/^glm-5\.\d+$/i, /^glm-5/i],
+}
+
+/**
+ * The strongest web-verified model that currently has a free, healthy account,
+ * so one detection run keeps using the flagship and only falls back to a
+ * lighter model when no flagship account can serve.
+ */
+async function detectionFlagshipModel(
+  model: ModelKey,
+  module: AiCredentialModule,
+): Promise<string | undefined> {
+  const patterns = DETECTION_MODEL_PREFERENCE[model]
+  if (!patterns) return undefined
+  const credentials = (await listAiCredentialRuntimes(model)).filter(credential => credential.enabled)
+  const verified = [...new Set(credentials.flatMap(credential => credential.verifiedWebModels
+    .filter(webModel => credential.allowedModels.includes(webModel))))]
+  for (const pattern of patterns) {
+    for (const candidate of verified.filter(webModel => pattern.test(webModel)).sort().reverse()) {
+      if (await hasAiCredentialCandidate({
+        vendor: model,
+        module,
+        model: candidate,
+        requiredCapabilities: ["native_web", "auditable_sources"],
+      })) return candidate
+    }
+  }
+  return undefined
 }
 
 async function resolveAdapterCredentialRoute(
@@ -75,32 +121,49 @@ async function resolveAdapterCredentialRoute(
   const strictNativeWeb = strictWeb && model !== "kimi" && model !== "deepseek"
   const vendor = strictWeb ? strictCredentialVendor(model) : model
   const config = await getAiProviderRuntimeSetting(vendor)
-  let targetModel = config.model
+  let targetModel = String(args.preferredModel || "").trim() || config.model
   let selectionModel: string | undefined = targetModel
 
   if (strictWeb && model === "deepseek") {
     targetModel = "deepseek-chat"
     selectionModel = targetModel
   }
-  if (strictNativeWeb) selectionModel = undefined
+  // Kimi accounts often allow only an older model than the global default;
+  // any account's own model can run the search, as on the DeepSeek path.
+  if (strictNativeWeb || (strictWeb && model === "kimi")) selectionModel = undefined
+  if (strictNativeWeb && !String(args.preferredModel || "").trim()) {
+    const flagship = await detectionFlagshipModel(model, module)
+    if (flagship) {
+      targetModel = flagship
+      selectionModel = flagship
+    }
+  }
+
+  const requiredCapabilities: AiCredentialCapability[] = nativeWeb
+    ? model === "kimi" || model === "deepseek"
+      ? ["chat"]
+      : ["native_web", "auditable_sources"]
+    : args.jsonMode
+      ? ["json"]
+      : ["chat"]
+  const healthCapabilities = args.workloadClass === "long" && !nativeWeb
+    ? Array.from(new Set<AiCredentialCapability>([...requiredCapabilities, "long_text"]))
+    : requiredCapabilities
 
   return {
     vendor,
     targetModel,
     selectionModel,
-    requiredCapabilities: nativeWeb
-      ? model === "kimi" || model === "deepseek"
-        ? ["chat"]
-        : ["native_web", "auditable_sources"]
-      : args.jsonMode
-        ? ["json"]
-        : ["chat"],
+    requiredCapabilities,
+    healthCapabilities,
+    spreadAcrossCredentials: args.spreadAcrossCredentials === true
+      || args.workloadClass === "long",
     extra: strictWeb && (vendor === "qwen" || vendor === "ernie")
       ? { enableSearch: true }
       : vendor === "doubao"
         ? { botId: "" }
         : undefined,
-    exactModelRequired: strictWeb,
+    exactModelRequired: strictWeb || Boolean(String(args.preferredModel || "").trim()),
     verifiedWebModelRequired: strictNativeWeb,
   }
 }
@@ -109,12 +172,18 @@ function resolveRouteCredentialModel(
   route: AdapterCredentialRoute,
   credential: AiCredentialLease["credential"],
   selectedModel: string | undefined,
+  unhealthyWebModels: Set<string> = new Set(),
 ): string {
   if (route.verifiedWebModelRequired) {
     const allowed = new Set(credential.allowedModels)
     const verified = credential.verifiedWebModels.filter(model =>
       allowed.size === 0 || allowed.has(model),
     )
+    // Prefer the configured model, but not while its web route is recovering:
+    // another verified model on the same account can answer meanwhile.
+    const healthy = verified.filter(model => !unhealthyWebModels.has(model))
+    if (healthy.includes(route.targetModel)) return route.targetModel
+    if (healthy.length > 0) return healthy[0]
     if (verified.includes(route.targetModel)) return route.targetModel
     return verified[0] || ""
   }
@@ -123,6 +192,19 @@ function resolveRouteCredentialModel(
     selectedModel || route.targetModel,
     route.requiredCapabilities,
   )
+}
+
+async function unhealthyStrictWebModels(
+  credentialId: string,
+  module: AiCredentialModule,
+): Promise<Set<string>> {
+  const routes = await listAiCredentialRouteHealth([credentialId]).catch(() => [])
+  return new Set(routes
+    .filter(route => route.module === module
+      && route.capabilityProfile === "strict_web"
+      && route.state !== "closed"
+      && route.state !== "degraded")
+    .map(route => route.model))
 }
 
 function selectionRequest(
@@ -136,59 +218,72 @@ function selectionRequest(
     module,
     model: model === null ? undefined : model,
     requiredCapabilities: route.requiredCapabilities,
+    routeHealthCapabilities: route.healthCapabilities,
+    spreadAcrossCredentials: route.spreadAcrossCredentials,
     excludeCredentialIds,
   }
 }
 
+// Search accounts DeepSeek can borrow, in order of preference: Baidu Qianfan
+// search, then Kimi's official search endpoint when Baidu is out of quota.
+type ExternalSearchVendor = "ernie" | "kimi"
+const EXTERNAL_SEARCH_VENDORS: ExternalSearchVendor[] = ["ernie", "kimi"]
+
 function externalSearchSelectionRequest(
   module: AiCredentialModule,
   excludeCredentialIds?: string[],
+  vendor: ExternalSearchVendor = "ernie",
 ): AiCredentialSelectionRequest {
-  return {
-    vendor: "ernie",
-    module,
-    requiredCapabilities: ["native_web", "auditable_sources"],
-    excludeCredentialIds,
+  return vendor === "kimi"
+    ? {
+        // Same account and key as Kimi's own detection, so search failures
+        // share its route health.
+        vendor: "kimi",
+        module,
+        requiredCapabilities: ["chat"],
+        excludeCredentialIds,
+      }
+    : {
+        vendor: "ernie",
+        module,
+        requiredCapabilities: ["native_web", "auditable_sources"],
+        excludeCredentialIds,
+      }
+}
+
+async function hasExternalSearchCandidate(module: AiCredentialModule): Promise<boolean> {
+  const ready = await Promise.all(EXTERNAL_SEARCH_VENDORS.map(vendor =>
+    hasAiCredentialCandidate(externalSearchSelectionRequest(module, undefined, vendor))))
+  return ready.some(Boolean)
+}
+
+/** The first search vendor that still has an account, so capacity reflects what will run. */
+async function activeExternalSearchVendor(module: AiCredentialModule): Promise<ExternalSearchVendor> {
+  for (const vendor of EXTERNAL_SEARCH_VENDORS) {
+    if (await hasAiCredentialCandidate(externalSearchSelectionRequest(module, undefined, vendor))) return vendor
   }
+  return "ernie"
 }
 
 async function hasRouteCandidate(
   route: AdapterCredentialRoute,
   module: AiCredentialModule,
 ): Promise<boolean> {
-  if (await hasAiCredentialCandidate(selectionRequest(route, module))) return true
-  if (route.exactModelRequired) return false
-  return route.selectionModel
-    ? hasAiCredentialCandidate(selectionRequest(route, module, undefined, null))
-    : false
+  return hasAiCredentialCandidate(selectionRequest(route, module))
 }
 
 async function routePoolCapacity(
   route: AdapterCredentialRoute,
   module: AiCredentialModule,
 ) {
-  let capacity = await getAiCredentialPoolCapacity(selectionRequest(route, module))
-  if (route.exactModelRequired) return capacity
-  if (capacity.candidateCount === 0 && route.selectionModel) {
-    capacity = await getAiCredentialPoolCapacity(
-      selectionRequest(route, module, undefined, null),
-    )
-  }
-  return capacity
+  return getAiCredentialPoolCapacity(selectionRequest(route, module))
 }
 
 async function routePoolSnapshot(
   route: AdapterCredentialRoute,
   module: AiCredentialModule,
 ) {
-  let snapshot = await getAiCredentialPoolSnapshot(selectionRequest(route, module))
-  if (route.exactModelRequired) return snapshot
-  if (snapshot.candidateCount === 0 && route.selectionModel) {
-    snapshot = await getAiCredentialPoolSnapshot(
-      selectionRequest(route, module, undefined, null),
-    )
-  }
-  return snapshot
+  return getAiCredentialPoolSnapshot(selectionRequest(route, module))
 }
 
 export async function hasAdapterCredentialPoolCandidate(
@@ -199,8 +294,8 @@ export async function hasAdapterCredentialPoolCandidate(
   const route = await resolveAdapterCredentialRoute(model, module, args)
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationReady, searchReady] = await Promise.all([
-      hasRouteCandidate(route, module),
-      hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
+      hasAiCredentialCandidate(selectionRequest(route, module, undefined, null)),
+      hasExternalSearchCandidate(module),
     ])
     return generationReady && searchReady
   }
@@ -229,12 +324,14 @@ export async function getAdapterCredentialPoolCapacity(
   const route = await resolveAdapterCredentialRoute(model, module, args)
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationPool, searchPool] = await Promise.all([
-      routePoolCapacity(route, module),
-      getAiCredentialPoolCapacity(externalSearchSelectionRequest(module)),
+      getAiCredentialPoolCapacity(selectionRequest(route, module, undefined, null)),
+      getAiCredentialPoolCapacity(externalSearchSelectionRequest(
+        module, undefined, await activeExternalSearchVendor(module),
+      )),
     ])
     return {
       // The auditable search pool is the shared bottleneck with Ernie jobs.
-      vendor: "ernie",
+      vendor: await activeExternalSearchVendor(module),
       candidateCount: Math.min(generationPool.candidateCount, searchPool.candidateCount),
       maxConcurrency: Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency),
       quotaGroupCount: Math.min(generationPool.quotaGroupCount, searchPool.quotaGroupCount),
@@ -277,8 +374,10 @@ export async function getAdapterCredentialPoolSnapshot(
   const route = await resolveAdapterCredentialRoute(model, module, args)
   if (usesAuditableExternalSearch(model, module, args)) {
     const [generationPool, searchPool] = await Promise.all([
-      routePoolSnapshot(route, module),
-      getAiCredentialPoolSnapshot(externalSearchSelectionRequest(module)),
+      getAiCredentialPoolSnapshot(selectionRequest(route, module, undefined, null)),
+      getAiCredentialPoolSnapshot(externalSearchSelectionRequest(
+        module, undefined, await activeExternalSearchVendor(module),
+      )),
     ])
     const maxConcurrency = Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency)
     const availableConcurrency = Math.min(
@@ -286,7 +385,7 @@ export async function getAdapterCredentialPoolSnapshot(
       searchPool.availableConcurrency,
     )
     return {
-      vendor: "ernie",
+      vendor: await activeExternalSearchVendor(module),
       candidateCount: Math.min(generationPool.candidateCount, searchPool.candidateCount),
       maxConcurrency,
       quotaGroupCount: Math.min(generationPool.quotaGroupCount, searchPool.quotaGroupCount),
@@ -345,14 +444,15 @@ async function runAuditableExternalCredentialPoolChat(
 ): Promise<string> {
   const route = await resolveAdapterCredentialRoute(model, module, args)
   const label = ADAPTERS[model].label
-  const generationExactRequest = selectionRequest(route, module)
-  const generationModel = route.selectionModel
-    && await hasAiCredentialCandidate(generationExactRequest)
+  // Prefer the configured model while an exact account is available, then
+  // widen failover to each relay account's verified model name.
+  let generationModel = route.selectionModel
+    && await hasAiCredentialCandidate(selectionRequest(route, module))
     ? route.selectionModel
     : undefined
   const [hasGenerationPool, hasSearchPool] = await Promise.all([
-    hasRouteCandidate(route, module),
-    hasAiCredentialCandidate(externalSearchSelectionRequest(module)),
+    hasAiCredentialCandidate(selectionRequest(route, module, undefined, null)),
+    hasExternalSearchCandidate(module),
   ])
   if (!hasGenerationPool || !hasSearchPool) {
     throw new Error(`${label} 严格联网账号池未配置完整或当前模型尚未通过验证`)
@@ -361,10 +461,12 @@ async function runAuditableExternalCredentialPoolChat(
   const excludedGenerationIds: string[] = []
   const excludedSearchIds: string[] = []
   const quotaEstimate = estimateAiCredentialQuota(args)
-  const maxCredentialAttempts = Math.max(
-    3,
-    Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
-  )
+  const maxCredentialAttempts = args.credentialAttemptLimit
+    ? Math.max(1, Math.min(8, Math.floor(args.credentialAttemptLimit)))
+    : Math.max(
+        3,
+        Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
+      )
   const waitTimeoutMs = Math.max(
     1_000,
     Math.min(30_000, Number(process.env.PENETRATION_CREDENTIAL_WAIT_MS) || 8_000),
@@ -389,11 +491,20 @@ async function runAuditableExternalCredentialPoolChat(
       // Search is the shared bottleneck for Kimi and DeepSeek strict audits.
       // Acquire it first, then pair a generation lane with a short wait. This
       // avoids occupying a scarce generation account while waiting on search.
-      searchLease = await tryAcquireAiCredential({
-        ...externalSearchSelectionRequest(module, excludedSearchIds),
-        waitTimeoutMs,
-        leaseSeconds,
-      })
+      let searchVendor: ExternalSearchVendor = "ernie"
+      for (const vendor of EXTERNAL_SEARCH_VENDORS) {
+        const request = externalSearchSelectionRequest(module, excludedSearchIds, vendor)
+        // Only wait on a vendor that has an account at all; otherwise move on.
+        if (!(await hasAiCredentialCandidate(request))) continue
+        searchVendor = vendor
+        searchLease = await tryAcquireAiCredential({
+          ...request,
+          waitTimeoutMs,
+          leaseSeconds,
+          signal: args.signal,
+        })
+        if (searchLease) break
+      }
       if (!searchLease) {
         if (!lastError || excludedSearchIds.length === 0) {
           lastError = new Error(`${label} 联网搜索账号池当前繁忙或暂无可用账号`)
@@ -410,6 +521,7 @@ async function runAuditableExternalCredentialPoolChat(
         ),
         waitTimeoutMs: pairWaitTimeoutMs,
         leaseSeconds,
+        signal: args.signal,
         ...quotaEstimate,
       })
       if (!generationLease) {
@@ -425,6 +537,11 @@ async function runAuditableExternalCredentialPoolChat(
         route.requiredCapabilities,
       )
       if (!selectedModel) throw new Error(`${label} 可用账号未配置模型`)
+      const searchModel = searchLease.credential.allowedModels[0]
+        || (searchVendor === "kimi" ? "kimi-k2.6" : "ernie-5.1")
+      const searchCapabilities: AiCredentialCapability[] = searchVendor === "kimi"
+        ? ["chat"]
+        : ["native_web", "auditable_sources"]
       const startedAt = Date.now()
       try {
         const result = await ADAPTERS[model].chat({
@@ -438,29 +555,57 @@ async function runAuditableExternalCredentialPoolChat(
             timeout: args.timeoutSec,
           },
           searchRuntimeOverride: {
-            vendor: "ernie",
+            vendor: searchVendor,
             baseUrl: searchLease.credential.baseUrl,
             chatPath: searchLease.credential.chatPath,
             apiKey: searchLease.credential.apiKey,
-            model: searchLease.credential.allowedModels[0] || "ernie-5.1",
+            model: searchModel,
             timeout: args.timeoutSec,
-            extra: { enableSearch: true },
+            extra: searchVendor === "ernie" ? { enableSearch: true } : undefined,
           },
         })
         const latencyMs = Date.now() - startedAt
         await Promise.all([
-          recordAiCredentialSuccess(generationLease.credential.id, latencyMs),
-          recordAiCredentialSuccess(searchLease.credential.id, latencyMs),
+          recordAiCredentialSuccess(generationLease.credential, latencyMs, {
+            module,
+            model: selectedModel,
+            requiredCapabilities: route.healthCapabilities,
+          }),
+          recordAiCredentialSuccess(searchLease.credential, latencyMs, {
+            module,
+            model: searchModel,
+            requiredCapabilities: searchCapabilities,
+          }),
         ])
         return result
       } catch (error) {
         lastError = error
-        if (error instanceof BaiduWebSearchError) {
+        if (error instanceof BaiduWebSearchError || error instanceof MoonshotWebSearchError) {
           excludedSearchIds.push(searchLease.credential.id)
-          await recordAiCredentialFailure(searchLease.credential, error)
+          await recordAiCredentialFailure(searchLease.credential, error, {
+            module,
+            model: searchModel,
+            requiredCapabilities: searchCapabilities,
+          })
         } else {
           excludedGenerationIds.push(generationLease.credential.id)
-          await recordAiCredentialFailure(generationLease.credential, error)
+          await recordAiCredentialFailure(generationLease.credential, error, {
+            module,
+            model: selectedModel,
+            requiredCapabilities: route.healthCapabilities,
+          })
+          if (
+            generationModel
+            && classifyAiCredentialFailure(error).scope !== "ignored"
+            && !(await hasAiCredentialCandidate(selectionRequest(
+              route,
+              module,
+              excludedGenerationIds,
+              generationModel,
+            )))
+          ) {
+            generationModel = undefined
+          }
         }
         if (!shouldFailOverAiCredential(error)) throw error
         console.warn(
@@ -491,28 +636,32 @@ export async function runAdapterCredentialPoolChat(
   }
   const route = await resolveAdapterCredentialRoute(model, module, args)
   const hasPoolCandidate = await hasRouteCandidate(route, module)
-  if (!hasPoolCandidate && !route.exactModelRequired) {
+  const hasPool = await hasConfiguredAiCredential(route.vendor, module)
+  if (!hasPoolCandidate && !hasPool && !route.exactModelRequired) {
     return ADAPTERS[model].chat(args)
   }
   const excludedCredentialIds: string[] = []
   const exactRequest = selectionRequest(route, module)
   const selectionModel = route.selectionModel
-    && await hasAiCredentialCandidate(exactRequest)
-    ? route.selectionModel
-    : undefined
   if (
     route.exactModelRequired
     && !route.verifiedWebModelRequired
-    && !selectionModel
+    && !(await hasAiCredentialCandidate(exactRequest))
   ) {
-    throw new Error(`${ADAPTERS[model].label} 当前模型尚未通过严格联网验证`)
+    throw new Error(
+      args.preferredModel
+        ? `${ADAPTERS[model].label} 指定的长任务模型当前暂无可用账号`
+        : `${ADAPTERS[model].label} 当前模型尚未通过严格联网验证`,
+    )
   }
   let lastError: unknown
   const quotaEstimate = estimateAiCredentialQuota(args)
-  const maxCredentialAttempts = Math.max(
-    3,
-    Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
-  )
+  const maxCredentialAttempts = args.credentialAttemptLimit
+    ? Math.max(1, Math.min(8, Math.floor(args.credentialAttemptLimit)))
+    : Math.max(
+        3,
+        Math.min(8, Math.floor(Number(process.env.AI_CREDENTIAL_FAILOVER_ATTEMPTS) || 6)),
+      )
   const waitTimeoutMs = module === "penetration"
     ? Math.max(1_000, Math.min(30_000, Number(process.env.PENETRATION_CREDENTIAL_WAIT_MS) || 8_000))
     : Math.min(60_000, Math.max(5_000, (args.timeoutSec ?? 60) * 1000))
@@ -522,27 +671,41 @@ export async function runAdapterCredentialPoolChat(
       ...selectionRequest(route, module, excludedCredentialIds, selectionModel ?? null),
       waitTimeoutMs,
       leaseSeconds: Math.min(60 * 60, Math.max(60, (args.timeoutSec ?? 60) + 60)),
+      signal: args.signal,
       ...quotaEstimate,
     })
     if (!lease) {
       if (route.exactModelRequired) {
         throw new Error(`${ADAPTERS[model].label} 当前独立账号并发已满，请等待空闲通道`)
       }
-      if (attempt === 0) return ADAPTERS[model].chat(args)
+      if (attempt === 0 && !hasPool) return ADAPTERS[model].chat(args)
       break
     }
 
     excludedCredentialIds.push(lease.credential.id)
     const startedAt = Date.now()
+    const unhealthyWebModels = route.verifiedWebModelRequired
+      ? await unhealthyStrictWebModels(lease.credential.id, module)
+      : new Set<string>()
     try {
       const credentialModel = resolveRouteCredentialModel(
         route,
         lease.credential,
         selectionModel,
+        unhealthyWebModels,
       )
       if (!credentialModel) throw new Error(`${ADAPTERS[model].label} 可用账号未配置模型`)
-      const result = await ADAPTERS[model].chat({
+      const result = await observeAiUsage({
+        userId: args.usageContext?.userId || "unattributed",
+        task: args.usageContext?.task || `adapter:${module}:${args.mode || "chat"}`,
+        providerKey: route.vendor,
+        providerName: lease.credential.accountLabel,
+        modelId: credentialModel,
+        credentialId: lease.credential.id,
+        usedFallback: attempt > 0,
+      }, onUsage => ADAPTERS[model].chat({
         ...args,
+        onUsage,
         runtimeOverride: {
           vendor: route.vendor,
           baseUrl: lease.credential.baseUrl,
@@ -552,12 +715,20 @@ export async function runAdapterCredentialPoolChat(
           timeout: args.timeoutSec,
           extra: route.extra,
         },
+      }), args.onUsage)
+      await recordAiCredentialSuccess(lease.credential, Date.now() - startedAt, {
+        module,
+        model: credentialModel,
+        requiredCapabilities: route.healthCapabilities,
       })
-      await recordAiCredentialSuccess(lease.credential.id, Date.now() - startedAt)
       return result
     } catch (error) {
       lastError = error
-      await recordAiCredentialFailure(lease.credential, error)
+      await recordAiCredentialFailure(lease.credential, error, {
+        module,
+        model: resolveRouteCredentialModel(route, lease.credential, selectionModel, unhealthyWebModels),
+        requiredCapabilities: route.healthCapabilities,
+      })
       if (!shouldFailOverAiCredential(error)) throw error
       console.warn(
         `[ai-credential-adapter] ${model}/${module} 当前账号不可用，尝试下一账号。`,

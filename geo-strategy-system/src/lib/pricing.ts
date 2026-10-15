@@ -1,4 +1,4 @@
-export const PRICING_VERSION = "commercial-v3-2026-07-24"
+export const PRICING_VERSION = "commercial-v4-2026-09-15"
 
 export const FEATURE_PRICES = {
   diagnose: {
@@ -182,7 +182,7 @@ export const RECHARGE_PACKAGES = [
     key: "trial_990",
     name: "首购体验包",
     priceCents: 990,
-    credits: 100,
+    credits: 40,
     badge: "首购专享",
     firstPurchaseOnly: true,
     recommended: false,
@@ -193,7 +193,7 @@ export const RECHARGE_PACKAGES = [
     key: "standard_128",
     name: "标准运营包",
     priceCents: 12800,
-    credits: 700,
+    credits: 580,
     badge: "单品牌优选",
     firstPurchaseOnly: false,
     recommended: false,
@@ -204,7 +204,7 @@ export const RECHARGE_PACKAGES = [
     key: "team_598",
     name: "单客户团队协作包",
     priceCents: 59800,
-    credits: 4000,
+    credits: 2800,
     badge: "限 1 个客户",
     firstPurchaseOnly: false,
     recommended: false,
@@ -215,12 +215,23 @@ export const RECHARGE_PACKAGES = [
     key: "enterprise_1298",
     name: "多客户企业运营包",
     priceCents: 129800,
-    credits: 10000,
+    credits: 6300,
     badge: "对公优选",
     firstPurchaseOnly: false,
     recommended: false,
     kind: "enterprise",
     description: "适合企业市场部或代运营团队同时服务多个客户，并进行长期积分储备。",
+  },
+  {
+    key: "full_cycle_3666",
+    name: "完整周期交付包",
+    priceCents: 366600,
+    credits: 18000,
+    badge: "品牌 / 个人 IP",
+    firstPurchaseOnly: false,
+    recommended: true,
+    kind: "enterprise",
+    description: "支持品牌或个人 IP 完成一个完整 GEO 交付周期，覆盖持续检测、策略、内容生产与专业报告。",
   },
 ] as const satisfies readonly RechargePackageDefinition[]
 

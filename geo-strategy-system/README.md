@@ -1,5 +1,17 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Desktop application
+
+The installable PWA is the default zero-cost desktop distribution for macOS and Windows. Its manifest, conservative static-only service worker, offline fallback, and install UI live in the main Next.js application. It never caches authenticated HTML, API responses, billing data, reports, or customer workspaces.
+
+The Electron desktop client remains in `desktop/` as an independent package for native downloads, system notifications, tray operation, network diagnostics, and signed-release updates. Until commercial Apple and Windows code signing is configured, these installers must remain secondary internal-test downloads rather than the default public install path. See `desktop/README.md` for development, testing, packaging, and security details.
+
+Regenerate the tracked PWA icons after changing the brand mark:
+
+```bash
+npm run pwa:icons
+```
+
 ## Getting Started
 
 First, run the development server:
@@ -27,6 +39,7 @@ npm run db:migrate:workspace
 npm run db:migrate:penetration-history
 npm run db:migrate:penetration-automation
 npm run db:migrate:system-outputs
+npm run db:migrate:ai-credential-health
 ```
 
 The browser cache is namespaced by user and legacy `geo:clients` data is only imported after the signed-in user confirms ownership.
@@ -106,6 +119,16 @@ Use 1, 3, 6, and 9 lanes in order. Enable 12 only after the 9-lane run passes
 and each independent provider account has also passed its own staged pressure
 test. Credential leases and the global provider semaphore remain the final
 limits even when the elastic job ceiling is higher.
+
+AI credentials are isolated by account, model, module, and capability profile.
+Request cancellation, local queue pressure, and invalid user input do not count
+as provider failures. Repeated upstream failures open only the affected route;
+the independent worker performs distributed half-open probes after cooldown and
+restores a route automatically after a successful provider-specific check.
+Authentication and billing failures remain credential-wide. Configure the
+monitor with `AI_CREDENTIAL_HEALTH_MONITOR_INTERVAL_MS` and
+`AI_CREDENTIAL_HEALTH_PROBE_BATCH`; keep the batch small to avoid probe traffic
+competing with user jobs.
 
 ## GEO content methodology
 

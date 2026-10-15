@@ -8,6 +8,10 @@ import {
   normalizePenetrationQuestionIntentHints,
 } from "@/lib/penetration/sample-design"
 import { normalizeClientKnowledgeBase } from "@/lib/client-knowledge-base"
+import {
+  normalizePenetrationSamplesPerQuestion,
+  normalizePenetrationUserLocation,
+} from "@/lib/penetration/user-location"
 
 export const WORKSPACE_SECTIONS = [
   "core",
@@ -72,25 +76,31 @@ const SECTION_FIELDS = {
     "questionIntentHints",
     "competitors",
     "selectedModels",
+    "penetrationUserLocation",
+    "penetrationSamplesPerQuestion",
   ],
   penetration: ["penetration"],
   research: [
     "research",
-    "researchDraft",
     "competitorCompare",
-    "researchSourceMode",
-    "researchManualInput",
-    "competitorCompareSourceMode",
-    "competitorCompareCustomCompetitors",
-    "competitorCompareSelectedCompetitors",
   ],
   diagnosis: ["diagnosis"],
-  difficulty: ["difficultyAssessments", "difficultyDraft"],
+  difficulty: ["difficultyAssessments"],
   knowledgeBase: ["knowledgeBase"],
   keywordStrategy: ["keywordStrategy"],
   articleGeneration: ["articleGeneration"],
   jobs: ["penetrationJobId", "difficultyJobId", "backgroundJobs", "backgroundResultJobs"],
 } as const satisfies Record<WorkspaceSection, readonly (keyof Client)[]>
+
+const LOCAL_WORKSPACE_FIELDS = new Set<keyof Client>([
+  "researchDraft",
+  "researchSourceMode",
+  "researchManualInput",
+  "competitorCompareSourceMode",
+  "competitorCompareCustomCompetitors",
+  "competitorCompareSelectedCompetitors",
+  "difficultyDraft",
+])
 
 const MUTABLE_FIELDS = new Set<keyof Client>(
   Object.values(SECTION_FIELDS).flat() as (keyof Client)[],
@@ -108,6 +118,7 @@ const MODEL_KEYS = new Set<ModelKey>([
   "kimi",
   "ernie",
   "hunyuan",
+  "zhipu",
 ])
 
 export function emptyWorkspaceVersions(): WorkspaceVersions {
@@ -157,6 +168,10 @@ export function sectionForClientField(field: keyof Client): WorkspaceSection | n
   return FIELD_SECTION.get(field) || null
 }
 
+export function isLocalWorkspaceField(field: keyof Client): boolean {
+  return LOCAL_WORKSPACE_FIELDS.has(field)
+}
+
 export function sectionsForClientPatch(
   patch: Partial<Client>,
   unsetFields: readonly (keyof Client)[] = [],
@@ -192,7 +207,15 @@ export function composeClientData(
   sections: Partial<Record<WorkspaceSection, Record<string, unknown>>>,
 ): Client {
   const merged: Record<string, unknown> = {}
-  for (const section of WORKSPACE_SECTIONS) Object.assign(merged, sections[section] || {})
+  for (const section of WORKSPACE_SECTIONS) {
+    const sectionData = sections[section] || {}
+    for (const [field, value] of Object.entries(sectionData)) {
+      const key = field as keyof Client
+      const isCoreMetadata = section === "core"
+        && (field === "id" || field === "createdAt" || field === "updatedAt")
+      if (isCoreMetadata || sectionForClientField(key) === section) merged[field] = value
+    }
+  }
   return normalizeClientPayload(merged)
 }
 
@@ -253,6 +276,10 @@ export function normalizeClientPayload(value: unknown): Client {
       aliases: stringArray(input.brandAliases, 100, 300),
     }),
     selectedModels: modelArray(input.selectedModels),
+    penetrationUserLocation: normalizePenetrationUserLocation(input.penetrationUserLocation),
+    penetrationSamplesPerQuestion: normalizePenetrationSamplesPerQuestion(
+      input.penetrationSamplesPerQuestion,
+    ),
     createdAt: validIso(input.createdAt) || now,
     updatedAt: validIso(input.updatedAt) || now,
   }

@@ -192,7 +192,11 @@ export async function chatBaiduAiSearch(args: BaiduAiSearchArgs): Promise<string
     enable_corner_markers: true,
     max_refer_search_items: 20,
     max_completion_tokens: args.maxTokens ?? 2048,
-    temperature: 0.01,
+    // Baidu AI search rejects temperature 0 ("Invalid request body"); it
+    // accepts (0, 1]. Unset means the provider default, as in the app.
+    ...(args.temperature !== undefined
+      ? { temperature: Math.min(1, Math.max(0.01, args.temperature)) }
+      : {}),
   }
   if (args.modelAppId?.trim()) body.model_appid = args.modelAppId.trim()
   emitPenetrationRequestAudit(args, {

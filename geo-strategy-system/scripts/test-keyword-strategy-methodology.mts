@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
-import {
+import { createRequire } from "node:module"
+
+const require = createRequire(import.meta.url)
+const {
   KEYWORD_DECISION_DIMENSIONS,
   KEYWORD_DIMENSION_CATEGORY_MAP,
   KEYWORD_STRATEGY_METHODOLOGY_VERSION,
@@ -11,15 +14,15 @@ import {
   normalizeGeoQuestionOptimization,
   normalizeKeywordResearchSources,
   normalizeKeywordStrategySettings,
-} from "../src/lib/geo-strategy/keyword-strategy-methodology"
+} = require("../src/lib/geo-strategy/keyword-strategy-methodology.ts") as typeof import("../src/lib/geo-strategy/keyword-strategy-methodology")
 import type {
   GeoStrategyPlan,
   KeywordStrategyResearchAudit,
 } from "../src/types/geo-strategy"
-import {
+const {
   buildQuestionBatchPlan,
   summarizeQuestionBatchPlan,
-} from "../src/lib/geo-strategy/question-batching"
+} = require("../src/lib/geo-strategy/question-batching.ts") as typeof import("../src/lib/geo-strategy/question-batching")
 
 const settings = normalizeKeywordStrategySettings({
   target_region: "深圳",

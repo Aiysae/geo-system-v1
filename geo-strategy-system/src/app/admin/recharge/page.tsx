@@ -9,6 +9,8 @@ import SiteFooter from "@/components/site-footer"
 import { AdminHeader } from "@/components/admin/admin-header"
 import { RechargeRow } from "./recharge-row"
 import { AdminPaymentRequestPanel } from "./admin-payment-request-panel"
+import { AdminInternalDataNotice } from "@/components/admin/internal-data-notice"
+import { getAdminInternalDataset } from "@/lib/admin-internal-dataset"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -32,10 +34,13 @@ export default async function AdminRechargePage() {
     )
   }
 
-  const [requests, paymentRequests] = await Promise.all([
-    listAllRequests(300),
+  const [realRequests, paymentRequests] = await Promise.all([
+    listAllRequests(500),
     listAllAdminPaymentRequests(300),
   ])
+  const internalDataset = getAdminInternalDataset()
+  const requests = [...realRequests, ...internalDataset.recharges]
+    .sort((left, right) => right.createdAt - left.createdAt)
   const pending = requests.filter(item => item.status === "pending")
   const approved = requests.filter(item => item.status === "approved")
   const rejected = requests.filter(item => item.status === "rejected")
@@ -51,6 +56,8 @@ export default async function AdminRechargePage() {
       />
 
       <main className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-8">
+        <AdminInternalDataNotice className="mb-5" />
+
         <AdminPaymentRequestPanel initialRequests={paymentRequests.map(record => ({
           id: record.id,
           title: record.title,

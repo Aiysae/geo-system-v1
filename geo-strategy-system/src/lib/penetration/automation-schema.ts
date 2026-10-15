@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS geo_penetration_automation_schedules_v1 (
   in_app_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   monthly_credit_limit INTEGER,
+  detection_config JSONB,
   next_run_at TIMESTAMPTZ,
   last_scheduled_for TIMESTAMPTZ,
   last_started_at TIMESTAMPTZ,
@@ -40,6 +41,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS geo_penetration_automation_owner_client_unique
 CREATE INDEX IF NOT EXISTS geo_penetration_automation_due_idx
   ON geo_penetration_automation_schedules_v1 (next_run_at ASC)
   WHERE deleted_at IS NULL AND status = 'active';
+
+ALTER TABLE geo_penetration_automation_schedules_v1
+  ADD COLUMN IF NOT EXISTS detection_config JSONB;
 
 CREATE TABLE IF NOT EXISTS geo_penetration_automation_executions_v1 (
   owner_user_id TEXT NOT NULL,
@@ -102,7 +106,8 @@ BEGIN
 
     IF current_definition IS NOT NULL
        AND (
-         current_definition NOT LIKE '%penetration_automation_alert%'
+         current_definition NOT LIKE '%penetration_automation_completed%'
+         OR current_definition NOT LIKE '%penetration_automation_alert%'
          OR current_definition NOT LIKE '%penetration_automation_attention%'
          OR current_definition NOT LIKE '%feedback_report_sent%'
          OR current_definition NOT LIKE '%feedback_report_attention%'
@@ -116,6 +121,7 @@ BEGIN
           'payment_request_credited',
           'payment_request_canceled',
           'feedback_action_reminder',
+          'penetration_automation_completed',
           'penetration_automation_alert',
           'penetration_automation_attention',
           'feedback_report_sent',

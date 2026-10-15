@@ -54,17 +54,23 @@ export async function POST(request: NextRequest) {
   if (Number.isFinite(contentLength) && contentLength > 128 * 1024) {
     return response("failure", 413)
   }
-  const formData = await request.formData()
-  const params = Object.fromEntries(
-    [...formData.entries()].flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : []),
-  )
-  const received = paymentEvent(params, "received", false)
-  await savePaymentEvent(received)
+  let params: Record<string, string>
+  try {
+    const formData = await request.formData()
+    params = Object.fromEntries(
+      [...formData.entries()].flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : []),
+    )
+  } catch {
+    return response("failure", 400)
+  }
   let signatureVerified = false
 
   try {
+    // Persist events only after the signature checks out, so unauthenticated
+    // requests cannot fill the payment event table.
     if (!verifyAlipayNotification(params)) throw new Error("支付宝回调验签失败")
     signatureVerified = true
+    await savePaymentEvent(paymentEvent(params, "received", true))
     assertAlipayNotificationIdentity(params)
 
     if (!params.out_trade_no || !params.trade_no) throw new Error("支付宝回调缺少订单号")
@@ -92,7 +98,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "支付宝回调处理失败"
     console.error("[alipay] notification failed", params.out_trade_no || "unknown", message)
-    await savePaymentEvent(paymentEvent(params, "failed", signatureVerified, message))
+    if (signatureVerified) {
+      await savePaymentEvent(paymentEvent(params, "failed", true, message)).catch(saveError => {
+        console.error("[alipay] failed to record notification failure", saveError)
+      })
+    }
     return response("failure", 400)
   }
 }

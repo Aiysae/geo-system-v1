@@ -24,14 +24,14 @@ export function resolveArticleBatchQualityStatus(
       ? "pending"
       : "not_available"
   }
-  if (item.qualityAudit?.finalPassed === false || item.qualityStatus === "review_required") {
+  if (item.status === "cancelled" || item.qualityAudit?.finalPassed === false || item.qualityStatus === "review_required") {
     return "review_required"
   }
   return "passed"
 }
 
 export function isArticleBatchDraftDownloadable(item: ArticleBatchQualityInput): boolean {
-  return hasArticleBatchDraft(item) && (item.status === "succeeded" || item.status === "failed")
+  return hasArticleBatchDraft(item) && (item.status === "succeeded" || item.status === "failed" || item.status === "cancelled")
 }
 
 export function isArticleBatchQualityPassed(item: ArticleBatchQualityInput): boolean {

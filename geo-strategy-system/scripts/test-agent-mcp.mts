@@ -30,6 +30,8 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   const data = url.endsWith("/clients")
     ? { clients: [{ id: "client-mcp", name: "MCP 客户" }], total: 1 }
+    : url.endsWith("/plan")
+      ? { plan: { primaryWorkflow: { key: "penetration_check" } } }
     : { task: { id: "task-mcp", status: "queued" } }
   return Response.json({ ok: true, data, meta: { traceId: "trace_mcp", serverTime: new Date().toISOString() } })
 }) as typeof fetch
@@ -47,6 +49,7 @@ try {
   const names = new Set(tools.tools.map(tool => tool.name))
   assert.equal(names.size, tools.tools.length, "MCP tool names must be unique")
   assert.ok(names.has("shitu_list_clients"))
+  assert.ok(names.has("shitu_plan_request"))
   assert.ok(names.has("shitu_run_penetration"))
   assert.ok(names.has("shitu_run_difficulty"))
   assert.ok(names.has("shitu_cancel_task"))
@@ -64,9 +67,11 @@ try {
     "shitu_generate_article",
     "shitu_rewrite_article",
     "shitu_generate_article_batch",
+    "shitu_delete_article_batch",
     "shitu_import_knowledge",
     "shitu_commit_knowledge",
     "shitu_create_feedback_action",
+    "shitu_delete_feedback_action",
     "shitu_import_feedback_actions",
     "shitu_create_feedback_report",
     "shitu_create_professional_report",
@@ -75,6 +80,7 @@ try {
     "shitu_save_penetration_automation",
     "shitu_set_penetration_automation_status",
     "shitu_run_penetration_automation",
+    "shitu_cancel_penetration_automation_execution",
     "shitu_delete_penetration_automation",
     "shitu_plan_strategy_articles",
     "shitu_extract_article_source",
@@ -106,9 +112,14 @@ try {
     "shitu_get_article_batch_zip",
     "shitu_get_feedback",
     "shitu_list_knowledge_imports",
+    "shitu_delete_publishing_plan_draft",
   ]) assert.ok(names.has(name), `${name} should be registered`)
   assert.equal(
     tools.tools.find(tool => tool.name === "shitu_get_penetration_automation")?.annotations?.readOnlyHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_cancel_penetration_automation_execution")?.annotations?.destructiveHint,
     true,
   )
   assert.equal(
@@ -127,6 +138,18 @@ try {
     tools.tools.find(tool => tool.name === "shitu_delete_feedback_automation")?.annotations?.destructiveHint,
     true,
   )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_delete_article_batch")?.annotations?.destructiveHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_delete_feedback_action")?.annotations?.destructiveHint,
+    true,
+  )
+  assert.equal(
+    tools.tools.find(tool => tool.name === "shitu_delete_publishing_plan_draft")?.annotations?.destructiveHint,
+    true,
+  )
   const articleToolSchema = tools.tools.find(
     tool => tool.name === "shitu_generate_article",
   )?.inputSchema as { properties?: Record<string, unknown> } | undefined
@@ -139,6 +162,13 @@ try {
   const listed = await client.callTool({ name: "shitu_list_clients", arguments: {} })
   assert.equal(listed.isError, undefined)
   assert.equal((listed.structuredContent as { result: { total: number } }).result.total, 1)
+
+  const planned = await client.callTool({
+    name: "shitu_plan_request",
+    arguments: { request: "帮我看看客户在 AI 里有没有被推荐" },
+  })
+  assert.equal(planned.isError, undefined)
+  assert.ok(requests.some(item => item.url.endsWith("/plan") && item.method === "POST"))
 
   const run = await client.callTool({
     name: "shitu_run_penetration",

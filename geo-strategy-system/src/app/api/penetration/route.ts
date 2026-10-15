@@ -11,7 +11,9 @@ import type {
   PenetrationSearchMode,
   SourceDomainCount,
   PersonSubjectProfile,
+  PenetrationUserLocation,
 } from "@/types"
+import { normalizePenetrationUserLocation } from "@/lib/penetration/user-location"
 import { ADAPTERS } from "@/lib/llm"
 import {
   getAdapterCredentialPoolCapacity,
@@ -406,7 +408,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "external_tool_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式由 DeepSeek 官方 V4 模型作答，并通过百度公开搜索返回完整可审计网址。",
+      webVerificationNote: "严格模式由 DeepSeek 官方 V4 模型作答，并通过百度公开搜索（百度不可用时改用 Kimi 官方搜索）返回完整可审计网址。",
     }
   }
 
@@ -422,7 +424,15 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "external_tool_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式由 Moonshot 官方 Kimi 作答，并通过百度公开搜索返回完整可审计网址。",
+      webVerificationNote: "严格模式由 Moonshot 官方 Kimi 作答，并通过 Kimi 官方搜索接口返回完整可审计网址。",
+    }
+  }
+
+  if (model === "zhipu") {
+    return {
+      searchMode: "native_web",
+      promptPurity: "raw_question_only",
+      webVerificationNote: "严格模式使用智谱开放平台官方 web_search 工具，并读取逐条返回的网页来源。",
     }
   }
 
@@ -502,7 +512,8 @@ async function blindQuery(
   model: ModelKey,
   question: string,
   sampleId: string,
-  auditProfile: PenetrationAuditProfile
+  auditProfile: PenetrationAuditProfile,
+  userLocation?: PenetrationUserLocation,
 ): Promise<{
   answer: string
   error?: string
@@ -547,7 +558,8 @@ async function blindQuery(
           runAdapterCredentialPoolChat(model, "penetration", {
             system: "",
             user: question,
-            temperature: 0,
+            // Provider default sampling, as in the vendor's app: repeated
+            // samples of one question must be able to differ.
             seed: seed + attempt,
             mode: "consumer",
             jsonMode: false,
@@ -557,6 +569,7 @@ async function blindQuery(
             rawQuestionOnly: true,
             requireWebEvidence: true,
             officialWebOnly: true,
+            userLocation,
             onRequestAudit: audit => {
               requestAudits.push(audit)
               actualSearchMode = audit.searchMode
@@ -916,8 +929,15 @@ async function processSlot(args: {
   subjectType: AnalysisSubjectType
   personProfile?: PersonSubjectProfile
   auditProfile: PenetrationAuditProfile
+  userLocation?: PenetrationUserLocation
 }): Promise<PenetrationItem & { error?: string; judgeError?: string }> {
-  const blind = await blindQuery(args.model, args.question, args.sampleId, args.auditProfile)
+  const blind = await blindQuery(
+    args.model,
+    args.question,
+    args.sampleId,
+    args.auditProfile,
+    args.userLocation,
+  )
   const sampledAt = new Date().toISOString()
 
   if (blind.error || !blind.answer) {
@@ -1198,7 +1218,7 @@ async function enrichWithBatchJudge(
 // 同一任务保留多个跨厂商候选，任一账号欠费、限流或输出截断都可自动切换。
 // ============================================================================
 async function pickJudgeCandidates(activeModels: ModelKey[]): Promise<ModelKey[]> {
-  const order: ModelKey[] = ["qwen", "hunyuan", "doubao", "kimi", "ernie", "deepseek"]
+  const order: ModelKey[] = ["qwen", "hunyuan", "doubao", "kimi", "ernie", "deepseek", "zhipu"]
   const readiness = await Promise.all(order.map(async model => ({
     model,
     pooled: await hasAdapterCredentialPoolCandidate(model, "judge", { jsonMode: true }),
@@ -1370,6 +1390,7 @@ async function handler(req: NextRequest) {
     let subjectType = normalizeAnalysisSubjectType(body.subjectType)
     let personProfile = normalizePersonSubjectProfile(body.personProfile)
     let ourBrand = String(body.ourBrand || "").trim()
+    const userLocation = normalizePenetrationUserLocation(body.userLocation)
     const questions: string[] = Array.isArray(body.questions)
       ? body.questions.map((q: unknown) => String(q).trim()).filter(Boolean)
       : []
@@ -1583,6 +1604,7 @@ async function handler(req: NextRequest) {
             subjectType,
             personProfile,
             auditProfile,
+            userLocation,
           })
           if (item.error && isPermanentPenetrationProviderError(item.error)) {
             permanentError = formatPenetrationProviderError(m, item.error)

@@ -15,6 +15,7 @@ const {
   getPaymentOrder,
 } = await import("../src/lib/payment-orders")
 const { getCredits } = await import("../src/lib/credits")
+const { approveRequest, createRequest } = await import("../src/lib/recharge")
 const { getMembership } = await import("../src/lib/membership")
 const { listCreditLedgerForUser } = await import("../src/lib/credit-ledger")
 const { centsFromYuan, yuanFromCents } = await import("../src/lib/alipay-payment")
@@ -43,21 +44,24 @@ try {
   assert.equal(centsFromYuan("9.9"), 990)
   assert.equal(centsFromYuan("9.90"), 990)
   assert.equal(centsFromYuan("9.901"), null)
-  assert.equal(getRechargePackage("trial_990")?.credits, 100)
+  assert.deepEqual(
+    RECHARGE_PACKAGES.map(({ key, priceCents, credits }) => ({ key, priceCents, credits })),
+    [
+      { key: "trial_990", priceCents: 990, credits: 40 },
+      { key: "standard_128", priceCents: 12_800, credits: 580 },
+      { key: "team_598", priceCents: 59_800, credits: 2_800 },
+      { key: "enterprise_1298", priceCents: 129_800, credits: 6_300 },
+      { key: "full_cycle_3666", priceCents: 366_600, credits: 18_000 },
+    ],
+  )
   assert.equal(getRechargePackage("light_66"), null, "retired packages must not be sold again")
   assert.equal(getRechargePackage("growth_298"), null, "retired packages must not be sold again")
-  assert.equal(getRechargePackage("enterprise_1298")?.credits, 10_000)
   assert.equal(getRechargePackage("light_49"), null, "legacy packages must not be sold again")
-  assert.equal(RECHARGE_PACKAGES.length, 4)
-  assert.equal(rechargeSavingsPercent(RECHARGE_PACKAGES[0]), 46)
-  assert.ok(
-    rechargeUnitPrice(RECHARGE_PACKAGES[3]) > rechargeUnitPrice(RECHARGE_PACKAGES[0]),
-    "the first-purchase package must remain the cheapest package per credit",
-  )
-  for (let index = 2; index < RECHARGE_PACKAGES.length; index += 1) {
+  assert.equal(rechargeSavingsPercent(RECHARGE_PACKAGES[0]), 0)
+  for (let index = 1; index < RECHARGE_PACKAGES.length; index += 1) {
     assert.ok(
       rechargeUnitPrice(RECHARGE_PACKAGES[index]) < rechargeUnitPrice(RECHARGE_PACKAGES[index - 1]),
-      "regular package unit prices must decrease as package value increases",
+      "package unit prices must decrease as package value increases",
     )
   }
   for (const packageItem of RECHARGE_PACKAGES.slice(1)) {
@@ -67,6 +71,56 @@ try {
     )
   }
 
+  for (const pkg of RECHARGE_PACKAGES) {
+    assert.ok(
+      rechargeUnitPrice(pkg) >= 0.20,
+      "every package must retain the agreed minimum revenue of 0.20 yuan per credit",
+    )
+    for (const provider of ["wechat", "alipay", "manual_transfer"] as const) {
+      const packageUserId = `new-package-${pkg.key}-${provider}`
+      const request = provider === "manual_transfer"
+        ? await createRequest({
+          userId: packageUserId,
+          username: "新套餐测试用户",
+          email: "new-package@example.com",
+          packageKey: pkg.key,
+          paymentMethod: provider,
+        })
+        : null
+      const packageOrder = request
+        ? await getPaymentOrder(request.paymentOrderId!)
+        : await createPaymentOrder({
+          userId: packageUserId,
+          username: "新套餐测试用户",
+          email: "new-package@example.com",
+          packageKey: pkg.key,
+          packageName: pkg.name,
+          priceCents: pkg.priceCents,
+          credits: pkg.credits,
+          provider,
+        })
+      assert.ok(packageOrder)
+      assert.equal(packageOrder.priceCents, pkg.priceCents)
+      assert.equal(packageOrder.credits, pkg.credits)
+      assert.equal(await getCredits(packageUserId), 50, "creating an order must not credit")
+      if (request) {
+        assert.equal(request.credits, pkg.credits)
+        assert.equal(request.amount, pkg.credits)
+        assert.equal((await approveRequest(request.id, "test-admin")).ok, true)
+      } else {
+        assert.equal((await creditPaymentOrder({
+          orderId: packageOrder.id,
+          providerTradeId: `trade-${packageOrder.id}`,
+          paidCents: pkg.priceCents,
+          source: "payment_callback",
+        })).ok, true)
+      }
+      assert.equal(await getCredits(packageUserId), 50 + pkg.credits)
+      assert.equal((await getPaymentOrder(packageOrder.id))?.status, "credited")
+    }
+  }
+
+  // Orders created before this price change keep their original credit snapshot.
   const userId = "payment-test-user"
   const order = await createPaymentOrder({
     userId,
@@ -150,7 +204,7 @@ try {
     })),
   )
   assert.equal(results.filter(result => result.ok && result.credited).length, 1)
-  assert.equal(await getCredits(userId), 150, "concurrent callbacks must credit exactly once")
+  assert.equal(await getCredits(userId), 150, "concurrent callbacks must credit the original 100 credits exactly once")
   assert.equal((await getPaymentOrder(order.id))?.status, "credited")
   assert.equal((await getMembership(userId)).tier, "vip1", "a credited payment must grant VIP1")
 

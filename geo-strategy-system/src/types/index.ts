@@ -125,7 +125,7 @@ export type GenerationStatus = "idle" | "generating" | "done" | "error"
 
 // ============ 新版：多客户 + 三大模块 ============
 
-export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "hunyuan"
+export type ModelKey = "doubao" | "deepseek" | "qwen" | "kimi" | "ernie" | "hunyuan" | "zhipu"
 
 export type LlmMode = "consumer" | "judge"
 
@@ -339,6 +339,8 @@ export interface BackgroundJobRecord<TResult = unknown> {
   progressPercent: number
   stage: string
   result?: TResult
+  /** Saved article draft; not a completed or quality-approved result. */
+  partialArticle?: string
   error?: string
   createdAt: string
   updatedAt: string
@@ -436,6 +438,7 @@ export interface ArticleGenerationConnectivity {
 }
 
 export interface ArticleGenerationQualityAudit {
+  semanticJudgeModel?: string
   pipelineVersion: string
   planUsedFallback: boolean
   evidenceMode: "verified" | "public_evidence" | "framework" | "insufficient"
@@ -1571,6 +1574,37 @@ export interface ResearchDimension {
   score: number
   insight: string
   evidence: string[]
+  sourceIds?: string[]
+}
+
+export interface ResearchEvidenceSource {
+  id: string
+  query: string
+  title: string
+  url: string
+  domain: string
+  excerpt: string
+  fetchedAt: string
+  contentType?: string
+}
+
+export interface ResearchEvidenceReference {
+  path: string
+  sourceIds: string[]
+}
+
+export interface ResearchEvidenceAudit {
+  version: 1
+  searchExecuted: boolean
+  searchedAt: string
+  queryCount: number
+  candidateCount: number
+  validSourceCount: number
+  uniqueDomainCount: number
+  minimumSourceCount: number
+  minimumDomainCount: number
+  passed: boolean
+  warnings?: string[]
 }
 
 export interface ResearchContentBlueprint {
@@ -1600,6 +1634,9 @@ export interface ResearchResult {
   opportunities: string[]
   recommendations: string[]
   contentBlueprints?: ResearchContentBlueprint[]
+  sources?: ResearchEvidenceSource[]
+  evidenceReferences?: ResearchEvidenceReference[]
+  evidenceAudit?: ResearchEvidenceAudit
   generatedAt: string
 }
 
@@ -1615,13 +1652,24 @@ export interface CompetitorComparison {
   differentiators: string[]
   userChoiceDrivers: string[]
   contentActions: string[]
+  sources?: ResearchEvidenceSource[]
+  evidenceReferences?: ResearchEvidenceReference[]
+  evidenceAudit?: ResearchEvidenceAudit
 }
 
 export interface CompetitorCompareResult extends CompetitorComparison {
   selectedCompetitors?: string[]
   comparisons?: CompetitorComparison[]
   ourWeaknessSummary?: string[]
+  sources?: ResearchEvidenceSource[]
+  evidenceReferences?: ResearchEvidenceReference[]
+  evidenceAudit?: ResearchEvidenceAudit
   generatedAt: string
+}
+
+export interface PenetrationUserLocation {
+  region?: string
+  city?: string
 }
 
 export interface Client {
@@ -1639,6 +1687,10 @@ export interface Client {
   competitors: string[]
   knowledgeBase?: ClientKnowledgeBase
   selectedModels: ModelKey[]
+  /** Where question detection pretends the asker is, as a real app user would be. */
+  penetrationUserLocation?: PenetrationUserLocation
+  /** Independent answers collected per question and model (1–3). */
+  penetrationSamplesPerQuestion?: number
   createdAt: string
   updatedAt: string
   penetration?: PenetrationResult

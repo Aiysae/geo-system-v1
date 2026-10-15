@@ -33,6 +33,7 @@ import {
 } from "lucide-react"
 import {
   TEAM_MODULES,
+  TEAM_PERMISSION_GROUPS,
   TEAM_PERMISSION_PRESETS,
   hasTeamPermission,
   normalizeTeamPermissions,
@@ -961,30 +962,42 @@ function MemberPermissionDialog({
               <div className="bg-[#F6FAFF] px-3 py-2.5">功能模块</div>
               {ACTION_ORDER.map(action => <div key={action} className="bg-[#F6FAFF] px-2 py-2.5 text-center">{teamPermissionLabel(action)}</div>)}
             </div>
-            {TEAM_MODULES.map(module => (
-              <div key={module.key} className="grid min-w-[520px] grid-cols-[minmax(130px,1.4fr)_repeat(5,minmax(62px,.65fr))] gap-px border-t border-[#D8E7F7] bg-[#D8E7F7] text-[11px]">
-                <div className="bg-white px-3 py-3">
-                  <div className="font-bold text-slate-800">{module.label}</div>
-                  <div className="mt-0.5 text-[9px] leading-4 text-slate-400">{module.description}</div>
+            {TEAM_PERMISSION_GROUPS.map(group => (
+              <div key={group.key} className="contents">
+                <div className="col-span-6 border-t border-[#BBD8F5] bg-[#EAF5FF] px-3 py-2">
+                  <span className="font-bold text-[#0958D9]">{group.label}</span>
+                  <span className="ml-2 font-normal text-slate-500">{group.description}</span>
                 </div>
-                {ACTION_ORDER.map(action => {
-                  const supported = module.actions.includes(action)
-                  const checked = supported && hasTeamPermission(permissions, module.key, action)
+                {group.modules.map(moduleKey => {
+                  const moduleDefinition = TEAM_MODULES.find(item => item.key === moduleKey)
+                  if (!moduleDefinition) return null
                   return (
-                    <div key={action} className="flex items-center justify-center bg-white px-2 py-3">
-                      {supported ? (
-                        <button
-                          type="button"
-                          onClick={() => toggle(module.key, action)}
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md border transition",
-                            checked ? "border-[#1677FF] bg-[#1677FF] text-white" : "border-slate-200 bg-white text-transparent hover:border-[#69B1FF]",
-                          )}
-                          aria-label={`${module.label}${teamPermissionLabel(action)}`}
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </button>
-                      ) : <span className="text-slate-200">-</span>}
+                    <div key={moduleDefinition.key} className="col-span-6 grid grid-cols-[minmax(130px,1.4fr)_repeat(5,minmax(62px,.65fr))] gap-px border-t border-[#D8E7F7] bg-[#D8E7F7] text-[11px]">
+                      <div className="bg-white px-3 py-3">
+                        <div className="font-bold text-slate-800">{moduleDefinition.label}</div>
+                        <div className="mt-0.5 text-[9px] leading-4 text-slate-400">{moduleDefinition.description}</div>
+                      </div>
+                      {ACTION_ORDER.map(action => {
+                        const supported = moduleDefinition.actions.includes(action)
+                        const checked = supported && hasTeamPermission(permissions, moduleDefinition.key, action)
+                        return (
+                          <div key={action} className="flex items-center justify-center bg-white px-2 py-3">
+                            {supported ? (
+                              <button
+                                type="button"
+                                onClick={() => toggle(moduleDefinition.key, action)}
+                                className={cn(
+                                  "flex h-6 w-6 items-center justify-center rounded-md border transition",
+                                  checked ? "border-[#1677FF] bg-[#1677FF] text-white" : "border-slate-200 bg-white text-transparent hover:border-[#69B1FF]",
+                                )}
+                                aria-label={`${moduleDefinition.label}${teamPermissionLabel(action)}`}
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                            ) : <span className="text-slate-200">-</span>}
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })}

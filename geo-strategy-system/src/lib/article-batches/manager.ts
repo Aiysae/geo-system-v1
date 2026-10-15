@@ -1,3 +1,4 @@
+import { prepareArticleModelSelection } from "@/lib/article-model-runtime"
 import "server-only"
 
 import { randomUUID } from "crypto"
@@ -413,6 +414,12 @@ async function syncBatchOnce(batchId: string): Promise<StoredArticleBatch | null
         continue
       }
 
+      if ((job.status === "failed" || job.status === "cancelled") && job.partialArticle) {
+        item.markdown = job.partialArticle
+        item.qualityStatus = "review_required"
+        item.qualityAudit = undefined
+      }
+
       if (job.status === "failed") {
         if (item.attempt > 1 && item.fallbackMarkdown) {
           await finalizeArticle(
@@ -480,16 +487,22 @@ export async function resumePendingArticleBatchMonitors(): Promise<void> {
   }
 
   for (const id of ids) {
-    const batch = await getStoredArticleBatch(id)
-    if (!batch || TERMINAL_BATCH_STATUSES.has(batch.status)) {
-      await kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, id)
-      continue
+    // Recover each item independently so one unreadable or undispatchable
+    // record cannot leave every later pending job stranded.
+    try {
+      const batch = await getStoredArticleBatch(id)
+      if (!batch || TERMINAL_BATCH_STATUSES.has(batch.status)) {
+        await kv.srem(ARTICLE_BATCH_PENDING_SET_KEY, id)
+        continue
+      }
+      await dispatchDurableTaskOrFallback(
+        "articleBatch",
+        id,
+        () => scheduleLocalArticleBatchMonitor(id),
+      )
+    } catch (error) {
+      console.error("[article-batches] failed to resume pending item", id, error instanceof Error ? error.message : error)
     }
-    await dispatchDurableTaskOrFallback(
-      "articleBatch",
-      id,
-      () => scheduleLocalArticleBatchMonitor(id),
-    )
   }
 }
 
@@ -516,6 +529,13 @@ export async function createArticleBatch(
   if (existing) {
     scheduleArticleBatchMonitor(existing.id)
     return { ok: true, batch: toPublicArticleBatch(existing), reused: true }
+  }
+
+  try {
+    const selection = await prepareArticleModelSelection(input.basePayload.modelProvider, input.basePayload.model)
+    input = { ...input, basePayload: { ...input.basePayload, ...selection } }
+  } catch (error) {
+    return { ok: false, response: Response.json({ error: safeError(error) }, { status: 400 }) }
   }
 
   const planned = planArticleBatch({

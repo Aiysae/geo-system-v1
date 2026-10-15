@@ -23,6 +23,7 @@ export const LEGACY_ARTICLE_MODEL_PROVIDERS: AiProviderKey[] = [
   "kimi",
   "ernie",
   "hunyuan",
+  "zhipu",
 ]
 
 const LEGACY_PROVIDER_SET = new Set<string>(LEGACY_ARTICLE_MODEL_PROVIDERS)
@@ -176,4 +177,13 @@ export async function resolveArticleModel(
     protocol: gateway.protocol,
     maxConcurrency: gateway.maxConcurrency,
   }
+}
+
+export async function resolveArticleAuxiliaryModel(): Promise<ResolvedArticleModel> {
+  const provider = process.env.ARTICLE_AUXILIARY_MODEL_PROVIDER?.trim() || "qwen"
+  const model = process.env.ARTICLE_AUXILIARY_MODEL?.trim() || "qwen-plus"
+  if (!isRecognizedArticleModelProviderKey(provider)) {
+    throw new Error("文章辅助模型配置无效")
+  }
+  return resolveArticleModel(provider, model)
 }

@@ -68,6 +68,7 @@ export class PenetrationConcurrencyController {
       kimi: new AsyncSemaphore(config.providers.kimi),
       ernie: new AsyncSemaphore(config.providers.ernie),
       hunyuan: new AsyncSemaphore(config.providers.hunyuan),
+      zhipu: new AsyncSemaphore(config.providers.zhipu),
     }
   }
 
@@ -105,6 +106,7 @@ export class PenetrationConcurrencyController {
         kimi: this.providers.kimi.snapshot(),
         ernie: this.providers.ernie.snapshot(),
         hunyuan: this.providers.hunyuan.snapshot(),
+        zhipu: this.providers.zhipu.snapshot(),
       },
     }
   }
@@ -130,8 +132,9 @@ function runtimeConfig(): PenetrationConcurrencyConfig {
       : `PENETRATION_${suffix}`
 
   return {
-    total: concurrencyValue(variable("PROVIDER_TOTAL_CONCURRENCY"), schedulerV3 ? 16 : 12, 24),
-    judge: concurrencyValue(variable("JUDGE_CONCURRENCY"), schedulerV3 ? 4 : 3, 6),
+    // Each account's own limit still applies; these only bound the whole site.
+    total: concurrencyValue(variable("PROVIDER_TOTAL_CONCURRENCY"), schedulerV3 ? 16 : 12, 48),
+    judge: concurrencyValue(variable("JUDGE_CONCURRENCY"), schedulerV3 ? 4 : 3, 10),
     providers: {
       doubao: concurrencyValue(variable("DOUBAO_CONCURRENCY"), schedulerV3 ? 6 : 3, 12),
       deepseek: concurrencyValue(variable("DEEPSEEK_CONCURRENCY"), schedulerV3 ? 12 : 8, 12),
@@ -139,6 +142,7 @@ function runtimeConfig(): PenetrationConcurrencyConfig {
       kimi: concurrencyValue(variable("KIMI_CONCURRENCY"), schedulerV3 ? 6 : 4, 12),
       ernie: concurrencyValue(variable("ERNIE_CONCURRENCY"), schedulerV3 ? 10 : 6, 12),
       hunyuan: concurrencyValue(variable("HUNYUAN_CONCURRENCY"), schedulerV3 ? 5 : 3, 12),
+      zhipu: concurrencyValue(variable("ZHIPU_CONCURRENCY"), schedulerV3 ? 5 : 3, 12),
     },
   }
 }

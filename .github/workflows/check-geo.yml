@@ -1,0 +1,36 @@
+name: Check GEO
+
+on:
+  pull_request:
+    paths:
+      - "geo-strategy-system/**"
+      - ".github/workflows/check-geo.yml"
+      - ".github/workflows/deploy-geo.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-geo-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: geo-strategy-system
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: geo-strategy-system/package-lock.json
+      - run: npm ci --include=dev
+      - name: Check types
+        run: npx tsc --noEmit
+      - name: Run all tests
+        run: npm test

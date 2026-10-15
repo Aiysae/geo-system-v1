@@ -27,6 +27,7 @@ const MODEL_KEYS = new Set<ModelKey>([
   "kimi",
   "ernie",
   "hunyuan",
+  "zhipu",
 ])
 
 export async function GET(

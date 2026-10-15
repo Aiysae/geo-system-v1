@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'" />
+    <title>势途 GEO · 连接中断</title>
+    <link rel="stylesheet" href="./desktop.css" />
+  </head>
+  <body class="boot-page">
+    <main class="offline-shell">
+      <img class="offline-mark" src="../assets/logo-lockup.png" alt="势途 GEO" />
+      <h1>暂时无法连接工作台</h1>
+      <p>已提交的检测、生成和报告任务仍会在云端继续。请检查当前网络，或在「网络」菜单中切换连接方式。</p>
+      <button id="retry-button" class="primary-button" type="button">重新连接</button>
+      <div id="offline-status" class="offline-status" role="status" aria-live="polite"></div>
+    </main>
+    <script src="./offline.js"></script>
+  </body>
+</html>

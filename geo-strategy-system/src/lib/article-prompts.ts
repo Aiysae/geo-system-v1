@@ -1,5 +1,7 @@
 import "server-only"
 
+import { ARTICLE_FACT_BOUNDARY_RULES, ARTICLE_SUBJECT_EVIDENCE_RULES } from "@/lib/article-fact-rules"
+
 import {
   CLIENT_CASE_STUDY_PROMPT,
   CREDENTIALS_ANALYSIS_PROMPT,
@@ -27,9 +29,11 @@ export const LONGFORM_CONTENT_COMPILER_PROMPT = String.raw`你是势途 GEO 的�
 
 执行优先级：
 1. 用户任务档案、知识资产和可核验联网资料是唯一事实依据。
-2. 当前创作类型的专用规范决定文章的编辑身份、论证方式、证据门槛和成稿质量。
-3. 系统给出的统一内容配方、文章形态、平台适配和品牌结构负责解决结构冲突；如与专用规范的固定章节不一致，以系统本次编译结果为准。
-4. 写作计划规定本篇独立角度、论证顺序和证据对应，不得被还原为套路化通用文章。
+2. 文末的【主体证据与推荐强度】和【统一事实边界】高于专用规范中的推荐、排名和结论要求；专用规范要求写“优先”“第一梯队”等结论而资料不足以支撑时，按证据规则降级表达。
+3. 用户补充要求中的字数、语气和发布限制高于专用规范的默认篇幅与章节数量；篇幅受限时合并或删减次要章节，不压缩直接回答和核验步骤。
+4. 当前创作类型的专用规范决定文章的编辑身份、论证方式、证据门槛和成稿质量。
+5. 系统给出的统一内容配方、文章形态、平台适配和品牌结构负责解决结构冲突；如与专用规范的固定章节不一致，以系统本次编译结果为准。
+6. 写作计划规定本篇独立角度、论证顺序和证据对应，不得被还原为套路化通用文章。
 
 写作要求：
 - 先直接回答核心疑问句，再按统一内容配方展开；全文只保留一个 H1。
@@ -48,6 +52,9 @@ function compileLongformPrompt(specializedPrompt: string): string {
     "",
     "【当前创作类型专用规范】",
     specializedPrompt,
+    "【统一事实边界】",
+    ARTICLE_FACT_BOUNDARY_RULES,
+    ARTICLE_SUBJECT_EVIDENCE_RULES,
   ].join("\n")
 }
 

@@ -24,6 +24,8 @@ import {
 } from "lucide-react"
 import type { Client } from "@/types"
 import type { ClientExecutionProfile } from "@/types/client-feedback"
+import type { ClientPublicationProgress } from "@/types/client-feedback"
+import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   PublishingContentType,
   PublishingContentAsset,
@@ -58,6 +60,19 @@ const CONTENT_LABELS: Record<PublishingContentType, string> = {
   video: "短视频",
 }
 
+function recommendationStatus(recommendation: PublishingPlanRecommendation): {
+  label: string
+  className: string
+} {
+  if (recommendation.recommendationMode === "ai_enhanced") {
+    return { label: "AI 增强已完成", className: "border-[#A7E6D1] bg-[#EDFFF8] text-[#087A5B]" }
+  }
+  if (recommendation.recommendationMode === "ai_repaired") {
+    return { label: "建议已校验", className: "border-[#A9D9FF] bg-[#EEF8FF] text-[#0958D9]" }
+  }
+  return { label: "报告建议已生成", className: "border-[#D4E0EA] bg-white text-[#526A83]" }
+}
+
 function today(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -72,11 +87,15 @@ export default function PublishingPlanPanel({
   profile,
   onExecutionChanged,
   mode = "full",
+  selectedDate: summaryDate,
+  refreshKey = "",
 }: {
   client: Client
   profile?: ClientExecutionProfile
   onExecutionChanged?: () => void
   mode?: "full" | "summary"
+  selectedDate?: string
+  refreshKey?: string
 }) {
   const endpointPath = `/api/client-feedback/${encodeURIComponent(client.id)}/publishing-plans`
   const endpointFor = useCallback((suffix = "") => {
@@ -97,28 +116,37 @@ export default function PublishingPlanPanel({
   const [completionTask, setCompletionTask] = useState<PublishingTask | null>(null)
   const [completionTitle, setCompletionTitle] = useState("")
   const [completionUrl, setCompletionUrl] = useState("")
+  const [publicationProgress, setPublicationProgress] = useState<ClientPublicationProgress | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setError("")
     try {
-      const response = await fetch(endpointFor(), { cache: "no-store" })
+      const baseUrl = endpointFor()
+      const response = await fetch(
+        mode === "summary"
+          ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}summary=1`
+          : baseUrl,
+        { cache: "no-store" },
+      )
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(body?.error || "发布规划读取失败")
       const next = body as Payload
       setPayload(next)
-      setDraft(next.current?.input || defaultInput(next.profile || profile))
+      setDraft(next.current?.input
+        ? draftInputForEditor(next.current.input)
+        : defaultInput(next.profile || profile))
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "发布规划读取失败")
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [endpointFor, profile])
+  }, [endpointFor, mode, profile])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
     return () => window.clearTimeout(timer)
-  }, [load])
+  }, [load, refreshKey])
 
   const plan = payload?.current || null
   const tasks = useMemo(() => plan?.calculation.tasks || [], [plan])
@@ -132,8 +160,36 @@ export default function PublishingPlanPanel({
   )
   const completedCount = tasks.filter(task => task.status === "completed").length
   const completionRate = tasks.length > 0 ? completedCount / tasks.length : 0
-  const todayTasks = tasks.filter(task => task.plannedDate === today())
-  const todayCompleted = todayTasks.filter(task => task.status === "completed").length
+  const progressDate = mode === "summary" ? summaryDate || today() : effectiveSelectedDate
+
+  useEffect(() => {
+    if (!plan?.id || !progressDate) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      const query = new URLSearchParams({
+        date: progressDate,
+        limit: "10000",
+        progressOnly: "1",
+      })
+      const teamId = currentWorkspaceTeamId()
+      if (teamId) query.set("teamId", teamId)
+      void fetch(`${endpointPath}/${encodeURIComponent(plan.id)}/tasks?${query.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      }).then(async response => {
+        const body = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(body?.error || "发布进度读取失败")
+        if (!controller.signal.aborted) setPublicationProgress(body.progress || null)
+      }).catch(caught => {
+        if (caught instanceof DOMException && caught.name === "AbortError") return
+        if (!controller.signal.aborted) setPublicationProgress(null)
+      })
+    }, 0)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [endpointPath, plan?.id, progressDate, refreshKey])
 
   function updateDraft(patch: Partial<PublishingPlanInput>) {
     setDraft(current => ({ ...current, ...patch }))
@@ -163,13 +219,20 @@ export default function PublishingPlanPanel({
         }),
       })
       const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.error || "平台建议生成失败")
+      if (!response.ok) throw new Error(toUserFacingError(body?.error, {
+        status: response.status,
+        subject: "平台建议",
+        fallback: "平台建议暂未生成，请稍后重试。",
+      }))
       const next = body.recommendation as PublishingPlanRecommendation
       setRecommendation(next)
       updateDraft({ platformConfigs: next.platformConfigs })
-      setNotice(next.usedFallback ? "已根据现有报告生成平台建议" : "AI 已结合报告完成平台权重建议")
+      setNotice(recommendationStatus(next).label)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "平台建议生成失败")
+      setError(toUserFacingError(caught, {
+        subject: "平台建议",
+        fallback: "平台建议暂未生成，请稍后重试。",
+      }))
     } finally {
       setPending("")
     }
@@ -303,28 +366,22 @@ export default function PublishingPlanPanel({
 
   if (mode === "summary") {
     return (
-      <section className="rounded-lg border border-[#D7E5F2] bg-white px-4 py-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="overflow-hidden rounded-lg border border-[#BFDDF5] bg-white shadow-[0_16px_38px_-34px_rgba(0,78,180,.55)]">
+        <div className="flex flex-col gap-3 border-b border-[#E3EDF6] bg-[linear-gradient(110deg,#F2F8FF,#F0FCFF)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#EAF4FF] text-[#1677FF]"><ClipboardCheck className="h-4 w-4" /></span>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#1677FF] text-white"><ClipboardCheck className="h-4 w-4" /></span>
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-[#102A43]">发布执行进度</h3>
+              <h3 className="text-sm font-semibold text-[#102A43]">{progressDate} 发布达成</h3>
               <p className="mt-0.5 text-[10px] text-[#6B8299]">
-                {plan
-                  ? `今日 ${todayCompleted}/${todayTasks.length} 项，全部 ${completedCount}/${tasks.length} 项已完成`
-                  : "尚未在关键词策略中制定发布规划"}
+                {plan ? `计划第 ${plan.version} 版 · 上传发布网址后自动核销` : "尚未在关键词策略中制定发布规划"}
               </p>
             </div>
           </div>
-          {plan ? (
-            <div className="flex min-w-44 items-center gap-3">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#E7EFF7]">
-                <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#13C2C2]" style={{ width: `${Math.round(completionRate * 100)}%` }} />
-              </div>
-              <span className="font-mono text-xs font-bold text-[#0958D9]">{Math.round(completionRate * 100)}%</span>
-            </div>
+          {publicationProgress?.plannedCount ? (
+            <span className="font-mono text-lg font-bold text-[#0958D9]">{Math.round(publicationProgress.completionRate * 100)}%</span>
           ) : null}
         </div>
+        {plan && publicationProgress ? <PublicationProgressCompact progress={publicationProgress} /> : null}
         {error ? <p className="mt-2 text-[10px] text-rose-600">{error}</p> : null}
       </section>
     )
@@ -480,6 +537,20 @@ function PlanEditor({
             <Field label="服务结束日期"><input type="date" value={input.endDate} onChange={event => onChange({ endDate: event.target.value })} className={inputClass()} /></Field>
           </div>
 
+          <div className="rounded-lg border border-[#C9E1F7] bg-[#F4FAFF] p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-[#102A43]">账号容量策略</h4>
+                <p className="mt-1 text-[10px] leading-5 text-[#6B8299]">系统会同时校验单账号日上限和安全利用率，任何账号都不会被安排超量任务。</p>
+              </div>
+              <div className="inline-flex w-full rounded-lg border border-[#B9DDFC] bg-white p-1 lg:w-auto" role="group" aria-label="账号容量策略">
+                <button type="button" onClick={() => onChange({ capacityMode: "existing_accounts" })} className={`min-h-9 flex-1 rounded-md px-3 text-xs font-semibold transition lg:flex-none ${input.capacityMode === "existing_accounts" ? "bg-[#1677FF] text-white shadow-sm" : "text-[#526A83] hover:bg-[#EEF6FF]"}`}>按现有账号排期</button>
+                <button type="button" onClick={() => onChange({ capacityMode: "planned_expansion" })} className={`min-h-9 flex-1 rounded-md px-3 text-xs font-semibold transition lg:flex-none ${input.capacityMode === "planned_expansion" ? "bg-[#1677FF] text-white shadow-sm" : "text-[#526A83] hover:bg-[#EEF6FF]"}`}>允许新增账号测算</button>
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] font-medium text-[#0958D9]">{input.capacityMode === "existing_accounts" ? "推荐：只生成当前账号能够真实执行的任务，超出容量的预算保留未分配。" : "用于扩容预演：系统会计算需新增的账号数，并按每个账号的日上限拆分任务。"}</p>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="客户阶段"><select value={input.customerStage} onChange={event => onChange({ customerStage: event.target.value === "maintenance" ? "maintenance" : "new_launch" })} className={inputClass()}><option value="new_launch">新客户冲刺</option><option value="maintenance">老客户维护</option></select></Field>
             <Field label="首月占总预算"><PercentInput value={input.firstMonthBudgetBps} disabled={input.customerStage === "maintenance"} onChange={value => onChange({ firstMonthBudgetBps: value })} /></Field>
@@ -489,16 +560,24 @@ function PlanEditor({
 
           <div className="rounded-lg border border-[#D7E5F2] bg-[#F8FBFF] p-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-sm font-bold text-[#102A43]">平台与执行参数</h4><p className="mt-1 text-[10px] text-[#6B8299]">重复引用会计入平台权重，所有数值仍可人工调整</p></div><div className="flex gap-2"><button type="button" onClick={addPlatform} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#C8D9E8] bg-white px-3 text-xs font-semibold text-[#526A83]"><Plus className="h-3.5 w-3.5" />添加平台</button><button type="button" onClick={onRecommend} disabled={pending === "recommend"} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white disabled:opacity-50">{pending === "recommend" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}AI读取报告推荐</button></div></div>
-            {recommendation?.notes.map(note => <p key={note} className="mt-2 text-[10px] text-amber-700">{note}</p>)}
+            {recommendation ? (() => {
+              const status = recommendationStatus(recommendation)
+              return <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className={`inline-flex min-h-7 items-center gap-1.5 rounded-md border px-2.5 text-[10px] font-semibold ${status.className}`}><Check className="h-3.5 w-3.5" />{status.label}</span>
+                {recommendation.webEvidenceUsed ? <span className="text-[10px] text-[#6B8299]">已结合 {recommendation.webSourceCount || 0} 条实时资料</span> : null}
+              </div>
+            })() : null}
+            {recommendation?.notes.map(note => <p key={note} className="mt-2 text-[10px] text-[#526A83]">{note}</p>)}
             <div className="mt-4 overflow-x-auto">
-              <table className="min-w-[1040px] w-full text-left text-[10px]">
-                <thead><tr className="border-b border-[#DCE8F4] text-[#6B8299]"><th className="pb-2 pr-2">启用</th><th className="pb-2 pr-2">平台</th><th className="pb-2 pr-2">内容类型</th><th className="pb-2 pr-2">权重</th><th className="pb-2 pr-2">单账号日上限</th><th className="pb-2 pr-2">已有账号</th><th className="pb-2 pr-2">单次发布成本</th><th className="pb-2 pr-2">最多复用平台</th><th className="pb-2">推荐依据</th></tr></thead>
+              <table className="min-w-[1160px] w-full text-left text-[10px]">
+                <thead><tr className="border-b border-[#DCE8F4] text-[#6B8299]"><th className="pb-2 pr-2">启用</th><th className="pb-2 pr-2">平台</th><th className="pb-2 pr-2">内容类型</th><th className="pb-2 pr-2">权重</th><th className="pb-2 pr-2">单账号日上限</th><th className="pb-2 pr-2">安全利用率</th><th className="pb-2 pr-2">已有账号</th><th className="pb-2 pr-2">单次发布成本</th><th className="pb-2 pr-2">最多复用平台</th><th className="pb-2">推荐依据</th></tr></thead>
                 <tbody>{input.platformConfigs.map((platform, index) => <tr key={platform.id} className="border-b border-[#E7EFF6] align-top">
                   <td className="py-2 pr-2"><input type="checkbox" checked={platform.enabled} onChange={event => onPlatformChange(index, { enabled: event.target.checked })} className="h-4 w-4 accent-[#1677FF]" /></td>
                   <td className="py-2 pr-2"><input value={platform.platformName} onChange={event => onPlatformChange(index, { platformName: event.target.value })} className={tableInputClass("w-28")} /></td>
                   <td className="py-2 pr-2"><select value={platform.contentType} onChange={event => onPlatformChange(index, { contentType: event.target.value as PublishingContentType })} className={tableInputClass("w-28")}><option value="article">自媒体文章</option><option value="authority_article">权威稿件</option><option value="video">短视频</option></select></td>
                   <td className="py-2 pr-2"><PercentInput compact value={platform.weightBps} onChange={value => onPlatformChange(index, { weightBps: value })} /></td>
                   <td className="py-2 pr-2"><input type="number" min="1" value={platform.dailyLimitPerAccount} onChange={event => onPlatformChange(index, { dailyLimitPerAccount: Number(event.target.value || 1) })} className={tableInputClass("w-20")} /></td>
+                  <td className="py-2 pr-2"><PercentInput compact value={platform.safeUtilizationBps} onChange={value => onPlatformChange(index, { safeUtilizationBps: value })} /></td>
                   <td className="py-2 pr-2"><input type="number" min="0" value={platform.existingAccountCount} onChange={event => onPlatformChange(index, { existingAccountCount: Number(event.target.value || 0) })} className={tableInputClass("w-20")} /></td>
                   <td className="py-2 pr-2"><div className="relative w-24"><input type="number" min="0" step="0.01" value={platform.publishUnitCostCents / 100} onChange={event => onPlatformChange(index, { publishUnitCostCents: Math.round(Number(event.target.value || 0) * 100) })} className={tableInputClass("w-24 pr-5")} /><span className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8AA0B5]">元</span></div></td>
                   <td className="py-2 pr-2"><input type="number" min="1" value={platform.maxReusePlatforms} onChange={event => onPlatformChange(index, { maxReusePlatforms: Number(event.target.value || 1) })} className={tableInputClass("w-20")} /></td>
@@ -520,19 +599,89 @@ function PlanEditor({
   )
 }
 
+function PublicationProgressCompact({ progress }: { progress: ClientPublicationProgress }) {
+  const metrics = [
+    { label: "计划", value: progress.plannedCount, color: "text-[#0958D9]", surface: "bg-[#EAF4FF]" },
+    { label: "已发布", value: progress.actualCount, color: "text-emerald-700", surface: "bg-emerald-50" },
+    { label: "待完成", value: progress.remainingCount, color: "text-amber-700", surface: "bg-amber-50" },
+    { label: "超额", value: progress.overageCount, color: "text-fuchsia-700", surface: "bg-fuchsia-50" },
+  ]
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-px bg-[#E3EDF6] sm:grid-cols-4">
+        {metrics.map(metric => (
+          <div key={metric.label} className="bg-white px-4 py-3">
+            <div className={`inline-flex rounded-md px-2 py-1 text-[9px] font-semibold ${metric.surface} ${metric.color}`}>{metric.label}</div>
+            <p className={`mt-2 font-mono text-lg font-bold ${metric.color}`}>{metric.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {progress.platforms.length > 0 ? (
+        <div className="divide-y divide-[#EDF2F7] px-4">
+          {progress.platforms.map(platform => {
+            const rate = platform.plannedCount > 0
+              ? Math.min(100, Math.round((platform.matchedCount / platform.plannedCount) * 100))
+              : platform.actualCount > 0 ? 100 : 0
+            return (
+              <div key={platform.platformKey} className="grid gap-2 py-3 sm:grid-cols-[minmax(88px,0.7fr)_minmax(120px,1.3fr)_auto] sm:items-center">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-[#102A43]" title={platform.platformName}>{platform.platformName}</p>
+                  <p className="mt-0.5 text-[9px] text-[#8AA0B5]">已发布 {platform.actualCount} / 计划 {platform.plannedCount}</p>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[#E7EFF7]" aria-label={`${platform.platformName} 完成度 ${rate}%`}>
+                  <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] via-[#00AEEA] to-[#13C2C2] transition-[width]" style={{ width: `${rate}%` }} />
+                </div>
+                <div className="flex items-center gap-1.5 text-[9px] font-semibold">
+                  {platform.remainingCount > 0 ? <span className="rounded bg-amber-50 px-1.5 py-1 text-amber-700">待 {platform.remainingCount}</span> : null}
+                  {platform.overageCount > 0 ? <span className="rounded bg-fuchsia-50 px-1.5 py-1 text-fuchsia-700">超 {platform.overageCount}</span> : null}
+                  {platform.remainingCount === 0 && platform.plannedCount > 0 ? <span className="rounded bg-emerald-50 px-1.5 py-1 text-emerald-700">达标</span> : null}
+                  {platform.plannedCount === 0 ? <span className="rounded bg-slate-100 px-1.5 py-1 text-slate-600">计划外</span> : null}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="px-4 py-6 text-center text-xs text-[#8AA0B5]">当天暂无发布计划或执行记录</p>
+      )}
+
+      {progress.needsReviewCount > 0 ? (
+        <div className="flex items-center gap-2 border-t border-amber-100 bg-amber-50 px-4 py-2.5 text-[10px] text-amber-700">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          {progress.needsReviewCount} 条网址尚未识别平台，请删除后重新导入并手动选择平台。
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function QuotaTable({ plan, costsVisible }: { plan: PublishingPlan; costsVisible: boolean }) {
-  return <div className="overflow-x-auto"><table className="min-w-[860px] w-full text-left text-xs"><thead><tr className="border-b border-[#E7EFF6] bg-[#F8FBFF] text-[10px] text-[#6B8299]"><th className="px-4 py-3">平台</th><th className="px-3 py-3">权重</th><th className="px-3 py-3">发布额度</th><th className="px-3 py-3">峰值/日</th><th className="px-3 py-3">账号需求</th>{costsVisible ? <th className="px-3 py-3">计划成本</th> : null}<th className="px-4 py-3">依据</th></tr></thead><tbody>{plan.calculation.platformQuotas.map(quota => {
+  return <div className="overflow-x-auto"><table className="min-w-[1040px] w-full text-left text-xs"><thead><tr className="border-b border-[#E7EFF6] bg-[#F8FBFF] text-[10px] text-[#6B8299]"><th className="px-4 py-3">平台</th><th className="px-3 py-3">权重</th><th className="px-3 py-3">发布额度</th><th className="px-3 py-3">日发布能力</th><th className="px-3 py-3">账号规划</th>{costsVisible ? <th className="px-3 py-3">计划成本</th> : null}<th className="px-4 py-3">依据</th></tr></thead><tbody>{plan.calculation.platformQuotas.map(quota => {
     const config = plan.input.platformConfigs.find(item => item.platformKey === quota.platformKey)
-    return <tr key={quota.platformKey} className="border-b border-[#EDF2F7] align-top"><td className="px-4 py-3"><div className="font-semibold text-[#102A43]">{quota.platformName}</div><div className="mt-1 text-[10px] text-[#8AA0B5]">{CONTENT_LABELS[quota.contentType]}</div></td><td className="px-3 py-3"><div className="w-24"><div className="flex justify-between text-[10px]"><span>{(quota.weightBps / 100).toFixed(1)}%</span></div><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#E7EFF7]"><div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#13C2C2]" style={{ width: `${Math.min(100, quota.weightBps / 100)}%` }} /></div></div></td><td className="px-3 py-3 font-mono font-bold text-[#0958D9]">{quota.publicationCount}</td><td className="px-3 py-3">{quota.peakDailyCount}</td><td className="px-3 py-3"><span className={quota.accountGap > 0 ? "font-semibold text-amber-700" : "text-emerald-700"}>{quota.requiredAccountCount} 需 / {quota.existingAccountCount} 有</span>{quota.accountGap > 0 ? <div className="mt-1 text-[10px] text-amber-600">缺 {quota.accountGap} 个</div> : null}</td>{costsVisible ? <td className="px-3 py-3 font-mono">{money(quota.plannedCostCents)}</td> : null}<td className="max-w-72 px-4 py-3 text-[10px] leading-5 text-[#6B8299]">{config?.recommendationReason || "人工配置"}</td></tr>
+    const configuredLimit = quota.dailyLimitPerAccount ?? config?.dailyLimitPerAccount ?? quota.effectiveDailyLimitPerAccount
+    const utilization = quota.safeUtilizationBps ?? config?.safeUtilizationBps ?? 10_000
+    const plannedAccounts = quota.plannedAccountCount ?? quota.requiredAccountCount
+    const additionalAccounts = quota.additionalAccountCount ?? quota.accountGap
+    const capacity = quota.dailyCapacity ?? quota.effectiveDailyLimitPerAccount * (plan.input.capacityMode === "existing_accounts" ? quota.existingAccountCount : plannedAccounts)
+    return <tr key={quota.platformKey} className="border-b border-[#EDF2F7] align-top"><td className="px-4 py-3"><div className="font-semibold text-[#102A43]">{quota.platformName}</div><div className="mt-1 text-[10px] text-[#8AA0B5]">{CONTENT_LABELS[quota.contentType]}</div></td><td className="px-3 py-3"><div className="w-24"><div className="flex justify-between text-[10px]"><span>{(quota.weightBps / 100).toFixed(1)}%</span></div><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[#E7EFF7]"><div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#13C2C2]" style={{ width: `${Math.min(100, quota.weightBps / 100)}%` }} /></div></div></td><td className="px-3 py-3 font-mono font-bold text-[#0958D9]">{quota.publicationCount}</td><td className="px-3 py-3"><span className="font-semibold text-[#102A43]">计划 {quota.peakDailyCount} / 容量 {capacity}</span><div className="mt-1 text-[10px] text-[#8AA0B5]">单号 {quota.effectiveDailyLimitPerAccount} / {configuredLimit} 篇 · {(utilization / 100).toFixed(0)}%</div></td><td className="px-3 py-3"><span className={additionalAccounts > 0 ? "font-semibold text-amber-700" : "text-emerald-700"}>{plannedAccounts} 计划 / {quota.existingAccountCount} 已有</span>{additionalAccounts > 0 ? <div className="mt-1 text-[10px] text-amber-600">需新增 {additionalAccounts} 个</div> : null}{quota.capacityConstrained ? <div className="mt-1 text-[10px] font-semibold text-[#0958D9]">已按现有容量限制</div> : null}</td>{costsVisible ? <td className="px-3 py-3 font-mono">{money(quota.plannedCostCents)}</td> : null}<td className="max-w-72 px-4 py-3 text-[10px] leading-5 text-[#6B8299]">{config?.recommendationReason || "人工配置"}</td></tr>
   })}</tbody></table></div>
 }
 
 function DailyTasks({ dates, selectedDate, onDateChange, tasks, assets, canEdit, onComplete }: { dates: string[]; selectedDate: string; onDateChange: (value: string) => void; tasks: PublishingTask[]; assets: PublishingContentAsset[]; canEdit: boolean; onComplete: (task: PublishingTask) => void }) {
   const assetMap = new Map(assets.map(asset => [asset.id, asset]))
-  return <div><div className="flex flex-wrap items-center gap-2 border-b border-[#E7EFF6] bg-[#F8FBFF] px-4 py-3"><CalendarDays className="h-4 w-4 text-[#1677FF]" /><select value={selectedDate} onChange={event => onDateChange(event.target.value)} className="h-8 rounded-md border border-[#C8D9E8] bg-white px-2 text-xs outline-none focus:border-[#1677FF]">{dates.map(date => <option key={date} value={date}>{date}</option>)}</select><span className="text-[10px] text-[#6B8299]">当日 {tasks.length} 项发布任务</span></div><div className="divide-y divide-[#EDF2F7]">{tasks.length === 0 ? <div className="px-4 py-10 text-center text-xs text-[#8AA0B5]">当天没有发布任务</div> : tasks.map(task => {
+  const groups = Array.from(tasks.reduce((map, task) => {
+    const key = `${task.platformKey}\u0000${task.accountSlot}`
+    const current = map.get(key) || { key, platformName: task.platformName, accountSlot: task.accountSlot, tasks: [] as PublishingTask[] }
+    current.tasks.push(task)
+    map.set(key, current)
+    return map
+  }, new Map<string, { key: string; platformName: string; accountSlot: number; tasks: PublishingTask[] }>()).values())
+  return <div><div className="flex flex-wrap items-center gap-2 border-b border-[#E7EFF6] bg-[#F8FBFF] px-4 py-3"><CalendarDays className="h-4 w-4 text-[#1677FF]" /><select value={selectedDate} onChange={event => onDateChange(event.target.value)} className="h-8 rounded-md border border-[#C8D9E8] bg-white px-2 text-xs outline-none focus:border-[#1677FF]">{dates.map(date => <option key={date} value={date}>{date}</option>)}</select><span className="text-[10px] text-[#6B8299]">当日 {tasks.length} 项发布任务 · {groups.length} 个账号槽位</span></div><div className="divide-y divide-[#DCE8F4]">{tasks.length === 0 ? <div className="px-4 py-10 text-center text-xs text-[#8AA0B5]">当天没有发布任务</div> : groups.map(group => <section key={group.key}><div className="flex items-center justify-between bg-[#F6FAFE] px-4 py-2"><div className="flex items-center gap-2"><span className="text-xs font-bold text-[#102A43]">{group.platformName}</span><span className="rounded bg-[#E5F1FF] px-2 py-1 text-[9px] font-semibold text-[#0958D9]">账号槽位 {group.accountSlot}</span></div><span className="text-[10px] font-semibold text-[#526A83]">{group.tasks.length} 篇</span></div><div className="divide-y divide-[#EDF2F7]">{group.tasks.map(task => {
     const asset = assetMap.get(task.assetId)
-    return <article key={task.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-bold text-[#102A43]">{task.platformName}</span><span className="rounded bg-[#EDF5FF] px-1.5 py-0.5 text-[9px] font-semibold text-[#0958D9]">账号槽位 {task.accountSlot}</span><span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${task.status === "completed" ? "bg-emerald-50 text-emerald-700" : task.status === "failed" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{STATUS_LABELS[task.status]}</span></div><p className="mt-1 truncate text-xs text-[#314A62]">{asset?.question || `内容编号 ${task.assetId}`}</p>{asset?.matchedAdvantage ? <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-emerald-700">匹配优势：{asset.matchedAdvantage}</p> : null}{task.publishedUrl ? <a href={task.publishedUrl} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[10px] text-[#1677FF] underline">{task.publishedUrl}</a> : null}</div>{canEdit && task.status !== "completed" ? <button type="button" onClick={() => onComplete(task)} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] px-3 text-[10px] font-semibold text-white"><Check className="h-3 w-3" />登记完成</button> : null}</article>
-  })}</div></div>
+    return <article key={task.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${task.status === "completed" ? "bg-emerald-50 text-emerald-700" : task.status === "failed" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{STATUS_LABELS[task.status]}</span></div><p className="mt-1 truncate text-xs text-[#314A62]">{asset?.question || `内容编号 ${task.assetId}`}</p>{asset?.matchedAdvantage ? <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-emerald-700">匹配优势：{asset.matchedAdvantage}</p> : null}{task.publishedUrl ? <a href={task.publishedUrl} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[10px] text-[#1677FF] underline">{task.publishedUrl}</a> : null}</div>{canEdit && task.status !== "completed" ? <button type="button" onClick={() => onComplete(task)} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] px-3 text-[10px] font-semibold text-white"><Check className="h-3 w-3" />登记完成</button> : null}</article>
+  })}</div></section>)}</div></div>
 }
 
 function ReuseMatrix({ plan }: { plan: PublishingPlan }) {
@@ -561,6 +710,7 @@ function MoneyInput({ value, onChange }: { value: number; onChange: (value: numb
 function defaultInput(profile?: ClientExecutionProfile): PublishingPlanInput {
   const startDate = profile?.startDate || today()
   return {
+    capacityMode: "existing_accounts",
     totalServiceFeeCents: 1_000_000,
     executionCostRateBps: 3_250,
     startDate,
@@ -571,6 +721,13 @@ function defaultInput(profile?: ClientExecutionProfile): PublishingPlanInput {
     firstSevenDaysBudgetBps: 5_000,
     contentCreationCostsCents: { article: 0, authority_article: 0, video: 0 },
     platformConfigs: [],
+  }
+}
+
+function draftInputForEditor(input: PublishingPlanInput): PublishingPlanInput {
+  return {
+    ...input,
+    capacityMode: input.capacityMode || "planned_expansion",
   }
 }
 

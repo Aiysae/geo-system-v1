@@ -4,13 +4,14 @@ import { extractSourcesFromUnknown } from "./source-extract"
 import { withBeijingTime } from "./time-context"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
-import { chatWithAuditableExternalSearch } from "./auditable-external-search"
+import { chatWithAuditableExternalSearch, moonshotAuditableSearch } from "./auditable-external-search"
 
 // Kimi (Moonshot) 适配器
 //
-// 渗透率严格联网盲测由 Kimi 负责工具选择和最终作答，由百度公开搜索
-// 返回可审计的标题、摘要和网址。分析/裁判路径仍可使用 Moonshot
-// 官方 $web_search；TokenHub 等路径不参与严格盲测。
+// 渗透率严格联网盲测由 Kimi 负责工具选择和最终作答，检索走 Moonshot 官方
+// 搜索接口 /v1/tools/search，返回可审计的标题、摘要和网址（$web_search 不把
+// 来源交给调用方，无法审计）。分析/裁判路径仍可使用官方 $web_search；
+// TokenHub 等路径不参与严格盲测。
 // 严格按 Moonshot 文档处理 tool_calls 循环：
 //   https://platform.moonshot.cn/docs/api/tool_use#web-search
 //
@@ -224,20 +225,15 @@ async function chatKimiDirect(args: ChatArgs): Promise<string> {
 }
 
 async function chatKimiStrictSearch(args: ChatArgs): Promise<string> {
-  const [kimiConfig, baiduConfig] = await Promise.all([
-    getChatRuntimeSetting("kimi", args),
-    getChatRuntimeSetting("ernie", {
-      runtimeOverride: args.searchRuntimeOverride,
-    }),
-  ])
+  const kimiConfig = await getChatRuntimeSetting("kimi", args)
   const key = kimiConfig.apiKey
   const selectedModel = kimiConfig.model || "kimi-k2.6"
   const url = buildAiChatUrl(kimiConfig)
   if (!key) throw new Error("Kimi 严格联网缺少 Moonshot API Key。")
-  if (!baiduConfig.apiKey) throw new Error("Kimi 严格联网缺少百度千帆搜索 API Key。")
   if (!isOfficialMoonshotUrl(url)) {
     throw new Error("Kimi 严格联网必须使用 Moonshot 国内官方 API 地址。")
   }
+  const timeoutSec = args.timeoutSec ?? kimiConfig.timeout
 
   return chatWithAuditableExternalSearch({
     args,
@@ -246,9 +242,8 @@ async function chatKimiStrictSearch(args: ChatArgs): Promise<string> {
     model: selectedModel,
     label: LABEL,
     modelProvider: "moonshot",
-    searchApiKey: baiduConfig.apiKey,
-    requestTimeoutSec: args.timeoutSec ?? kimiConfig.timeout,
-    searchTimeoutSec: args.timeoutSec ?? baiduConfig.timeout,
+    search: moonshotAuditableSearch(key, url, timeoutSec),
+    requestTimeoutSec: timeoutSec,
     temperature: shouldDisableThinking(selectedModel) ? undefined : args.temperature,
     extraBody: shouldDisableThinking(selectedModel)
       ? { thinking: { type: "disabled" } }

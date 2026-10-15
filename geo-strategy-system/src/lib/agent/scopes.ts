@@ -16,6 +16,7 @@ export const AGENT_CALLABLE_MODULE_SCOPES = [
   "client.view",
   "penetration.view",
   "penetration.execute",
+  "penetration.manage",
   "research.view",
   "research.execute",
   "diagnosis.view",
@@ -27,6 +28,7 @@ export const AGENT_CALLABLE_MODULE_SCOPES = [
   "article.view",
   "article.execute",
   "article.export",
+  "article.manage",
   "feedback.view",
   "feedback.edit",
   "feedback.manage",
@@ -63,6 +65,7 @@ export const AGENT_SCOPE_PRESETS = {
       || scope.endsWith(".export")
       || scope === "feedback.edit"
     )),
+    "penetration.manage",
     "tasks.view",
     "tasks.cancel",
     "outputs.view",

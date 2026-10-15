@@ -33,6 +33,7 @@ import type {
   PenetrationModelProgress,
   PenetrationPromptPurity,
   PenetrationQuestionIntentHint,
+  PenetrationUserLocation,
   PenetrationRetryableSlot,
   PenetrationResult,
   PenetrationSource,
@@ -46,6 +47,8 @@ interface Props {
   identityReadOnly?: boolean
   questionReadOnly?: boolean
   canExecute?: boolean
+  canManageAutomation?: boolean
+  teamId?: string
 }
 
 type PenetrationRunParams = {
@@ -54,6 +57,8 @@ type PenetrationRunParams = {
   brandAliases: string[]
   competitors: string[]
   questionIntents: PenetrationQuestionIntentHint[]
+  userLocation?: PenetrationUserLocation
+  samplesPerQuestion?: number
   operation?: "replace" | "append"
   retestSampleId?: string
   slotSelection?: Array<{
@@ -68,6 +73,8 @@ export default function PenetrationModule({
   identityReadOnly = false,
   questionReadOnly = false,
   canExecute = true,
+  canManageAutomation = true,
+  teamId,
 }: Props) {
   const subjectType = getClientSubjectType(client)
   const [loading, setLoading] = useState(Boolean(client.penetrationJobId))
@@ -254,6 +261,11 @@ export default function PenetrationModule({
           models: params.models,
           slotSelection: params.slotSelection,
           operation: params.operation || "replace",
+          userLocation: params.userLocation ?? client.penetrationUserLocation,
+          // Re-testing one answer adds one sample; other runs repeat as set.
+          samplesPerQuestion: params.retestSampleId
+            ? 1
+            : params.samplesPerQuestion ?? client.penetrationSamplesPerQuestion,
         },
         onRetry: () => {
           setProgressLabel("网络暂时中断，正在确认检测是否已开始...")
@@ -416,7 +428,13 @@ export default function PenetrationModule({
               <div className="mt-0.5 text-[11px] text-slate-500">填写检测范围，完成后将在下方展示结果和来源</div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <PenetrationAutomationPanel key={client.id} client={client} canExecute={canExecute} />
+              <PenetrationAutomationPanel
+                key={client.id}
+                client={client}
+                canExecute={canExecute}
+                canManage={canManageAutomation}
+                teamId={teamId}
+              />
               <div className="rounded-md bg-[#001D66] px-2.5 py-1 text-[10px] font-semibold text-cyan-100">
                 可审计联网 · 纯净盲测
               </div>

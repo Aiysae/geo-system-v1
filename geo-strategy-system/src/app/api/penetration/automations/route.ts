@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import {
   getPenetrationAutomationScheduleByClient,
   listPenetrationAutomationExecutions,
+  setPenetrationAutomationDetectionConfig,
   upsertPenetrationAutomationSchedule,
 } from "@/lib/penetration/automation-store"
+import { buildPenetrationAutomationDetectionConfig } from "@/lib/penetration/automation-config"
 import { requireOperationAccess, isOperationAccessError } from "@/lib/team-access"
 import { requireUserId } from "@/lib/with-credits"
 import { listWorkspaceClients } from "@/lib/workspace-store"
@@ -28,10 +30,22 @@ export async function GET(request: NextRequest) {
       module: "penetration",
       action: "view",
     })
-    const schedule = await getPenetrationAutomationScheduleByClient(
+    let schedule = await getPenetrationAutomationScheduleByClient(
       access.dataOwnerUserId,
       clientId,
     )
+    if (schedule && !schedule.detectionConfig) {
+      const client = (await listWorkspaceClients(access.dataOwnerUserId))
+        .find(item => item.client.id === clientId)?.client
+      if (client?.questions.length && client.selectedModels.length) {
+        const detectionConfig = buildPenetrationAutomationDetectionConfig({ client })
+        schedule = await setPenetrationAutomationDetectionConfig({
+          ownerUserId: access.dataOwnerUserId,
+          id: schedule.id,
+          detectionConfig,
+        }) || { ...schedule, detectionConfig }
+      }
+    }
     const executions = schedule
       ? await listPenetrationAutomationExecutions({
           ownerUserId: access.dataOwnerUserId,
@@ -62,18 +76,31 @@ export async function POST(request: NextRequest) {
       clientId,
       teamId,
       module: "penetration",
-      action: "execute",
+      action: "manage",
     })
     const client = (await listWorkspaceClients(access.dataOwnerUserId))
       .find(item => item.client.id === clientId)?.client
     if (!client) {
       return NextResponse.json({ error: "当前客户不存在或已被删除" }, { status: 404 })
     }
+    const detectionConfig = buildPenetrationAutomationDetectionConfig({
+      client,
+      questions: body.questions,
+      questionIntents: body.questionIntents,
+      requestedModels: body.models,
+    })
+    if (!detectionConfig.questionCount) {
+      return NextResponse.json({ error: "请为自动检测至少选择一个疑问句" }, { status: 400 })
+    }
+    if (!detectionConfig.modelCount) {
+      return NextResponse.json({ error: "请为自动检测至少选择一个模型" }, { status: 400 })
+    }
     const schedule = await upsertPenetrationAutomationSchedule({
       ownerUserId: access.dataOwnerUserId,
       clientId,
       clientName: client.name,
-      actorUserId: access.actorUserId,
+      createdByUserId: access.actorUserId,
+      actorUserId: access.teamId ? access.billingUserId : access.actorUserId,
       billingUserId: access.billingUserId,
       teamId: access.teamId,
       intervalDays: body.intervalDays,
@@ -84,6 +111,7 @@ export async function POST(request: NextRequest) {
       inAppEnabled: body.inAppEnabled !== false,
       emailEnabled: body.emailEnabled !== false,
       monthlyCreditLimit: body.monthlyCreditLimit,
+      detectionConfig,
       status: body.status === "paused" ? "paused" : "active",
     })
     return NextResponse.json({ schedule }, { status: 201 })

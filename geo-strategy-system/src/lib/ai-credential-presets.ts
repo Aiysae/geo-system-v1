@@ -124,8 +124,8 @@ export const AI_CREDENTIAL_VENDOR_PRESETS: AiCredentialVendorPreset[] = [
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     chatPath: "/chat/completions",
     defaultModels: ["glm-5.1"],
-    allowedModules: ["article", "question", "research", "diagnosis", "difficulty", "judge"],
-    declaredCapabilities: ["chat", "json", "long_text", "vision"],
+    allowedModules: ["article", "question", "research", "diagnosis", "difficulty", "penetration", "judge"],
+    declaredCapabilities: ["chat", "json", "long_text", "vision", "native_web", "auditable_sources"],
     defaultConcurrency: 2,
   },
 ]

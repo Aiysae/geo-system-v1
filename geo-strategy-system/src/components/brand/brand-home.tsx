@@ -15,7 +15,9 @@ import {
   UserPlus,
 } from "lucide-react"
 import DiamondStarfield from "@/components/brand/diamond-starfield"
+import FounderBusinessSection from "@/components/brand/founder-business-section"
 import SiteFooter from "@/components/site-footer"
+import DesktopDownloadDialog from "@/components/desktop/desktop-download-dialog"
 import type { PublicUser } from "@/lib/auth"
 
 type BrandHomeProps = {
@@ -92,6 +94,16 @@ export default function BrandHome({ user }: BrandHomeProps) {
             </Link>
 
             <div className="flex shrink-0 items-center gap-2">
+              <DesktopDownloadDialog variant="header" />
+              <Link
+                href="/agent"
+                className="hidden h-9 items-center justify-center gap-1.5 rounded-lg border border-cyan-200/24 bg-cyan-200/10 px-3 text-xs font-semibold text-cyan-50 transition-colors hover:bg-cyan-200/18 sm:inline-flex"
+                title="Agent 接入"
+              >
+                <Bot className="h-4 w-4" />
+                <span className="sm:hidden">Agent</span>
+                <span className="hidden sm:inline">Agent 接入</span>
+              </Link>
               {user ? (
                 <>
                   {user.role === "admin" ? (
@@ -159,6 +171,7 @@ export default function BrandHome({ user }: BrandHomeProps) {
                 {primaryLabel}
                 <ArrowRight className="h-4 w-4" />
               </Link>
+              <DesktopDownloadDialog variant="hero" />
               {user ? (
                 <Link
                   href="#workspace-preview-title"
@@ -258,6 +271,8 @@ export default function BrandHome({ user }: BrandHomeProps) {
           </div>
         </div>
       </section>
+
+      <FounderBusinessSection />
 
       <section className="brand-final-cta text-white">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-6 px-4 py-12 sm:flex-row sm:items-center md:px-8 md:py-14">

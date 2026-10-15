@@ -26,6 +26,8 @@ process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 process.env.TENCENT_HUNYUAN_API_KEY = "test-tokenhub-key"
 process.env.TENCENT_HUNYUAN_MODEL = "hy3"
 process.env.TENCENT_HUNYUAN_CHAT_URL = "https://tokenhub.tencentmaas.com/v1/chat/completions"
+process.env.ZHIPU_API_KEY = "test-zhipu-key"
+process.env.ZHIPU_MODEL = "glm-5.1"
 
 type CapturedRequest = { url: string; body: Record<string, unknown> }
 const requests: CapturedRequest[] = []
@@ -55,6 +57,28 @@ globalThis.fetch = async (input, init) => {
   const url = String(input)
   const body = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>
   requests.push({ url, body })
+
+  if (url === "https://open.bigmodel.cn/api/paas/v4/chat/completions") {
+    return jsonResponse({
+      id: "zhipu-completion-1",
+      request_id: "zhipu-request-1",
+      choices: [{
+        finish_reason: "stop",
+        message: { role: "assistant", content: "智谱 原始联网回答" },
+      }],
+      web_search: [
+        {
+          title: "智谱联网信源",
+          link: "https://example.com/news/zhipu-search",
+          content: "用于验证智谱官方联网搜索返回公开文章网址。",
+          media: "示例网站",
+          publish_date: "2026-10-01",
+        },
+        { title: "无网址的结果", link: "", content: "没有网址的结果不能作为信源。" },
+      ],
+      usage: { prompt_tokens: 12, completion_tokens: 20, total_tokens: 32 },
+    })
+  }
 
   if (url.includes("dashscope.aliyuncs.com")) {
     return jsonResponse({
@@ -115,6 +139,19 @@ globalThis.fetch = async (input, init) => {
     })
   }
 
+  if (url === "https://api.moonshot.cn/v1/tools/search") {
+    return new Response(JSON.stringify({
+      search_results: [{
+        authority: "S",
+        date: "2026-10-01",
+        title: "Kimi 联网信源",
+        snippet: "用于验证 Kimi 官方搜索返回公开文章网址。",
+        url: "https://example.com/news/kimi-search",
+        site_name: "示例网站",
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json", "X-Msh-Track-Id": "moonshot-search-track-1" } })
+  }
+
   if (url.includes("api.moonshot.cn")) {
     kimiMoonshotRound += 1
     if (kimiMoonshotRound === 1) {
@@ -148,14 +185,13 @@ globalThis.fetch = async (input, init) => {
 
   if (url.includes("qianfan.baidubce.com/v2/ai_search/web_search")) {
     baiduWebSearchRound += 1
-    const slug = baiduWebSearchRound === 1 ? "deepseek" : "kimi"
     return jsonResponse({
-      request_id: `baidu-${slug}-search-request-1`,
+      request_id: "baidu-deepseek-search-request-1",
       references: [{
         type: "web",
-        title: `${slug === "kimi" ? "Kimi" : "DeepSeek"} 联网信源`,
+        title: "DeepSeek 联网信源",
         content: "用于验证百度透明搜索返回公开文章网址。",
-        url: `https://example.com/news/${slug}-search`,
+        url: "https://example.com/news/deepseek-search",
         website: "示例网站",
       }],
     })
@@ -255,6 +291,7 @@ const { chatKimi } = await import("../src/lib/llm/kimi")
 const { chatErnie } = await import("../src/lib/llm/ernie")
 const { chatDoubao } = await import("../src/lib/llm/doubao")
 const { chatHunyuan } = await import("../src/lib/llm/hunyuan")
+const { chatZhipu } = await import("../src/lib/llm/zhipu")
 const { isAuditableSourceUrl } = await import("../src/lib/llm/source-extract")
 
 const question = "今天有哪些最新的人工智能新闻？"
@@ -344,7 +381,7 @@ try {
     onRequestAudit: audit => kimiAudits.push(audit),
   })
   assert.equal(kimiAnswer, "Kimi 原始联网回答")
-  const kimiRequests = requests.filter(request => request.url.includes("api.moonshot.cn"))
+  const kimiRequests = requests.filter(request => request.url.includes("api.moonshot.cn/v1/chat"))
   assert.equal(kimiRequests.length, 2)
   assert.deepEqual(kimiRequests[0]?.body.messages, [{ role: "user", content: question }])
   assert.equal(kimiRequests[0]?.body.tool_choice, "required")
@@ -355,15 +392,14 @@ try {
       ?.function?.name,
     "search_web",
   )
+  // Kimi searches with its own official endpoint, not Baidu.
   const kimiSearchRequest = requests.find(request =>
-    request.url.includes("/v2/ai_search/web_search")
+    request.url === "https://api.moonshot.cn/v1/tools/search"
   )
   assert.ok(kimiSearchRequest)
-  assert.deepEqual(kimiSearchRequest.body.messages, [{ role: "user", content: question }])
-  assert.deepEqual(
-    kimiSearchRequest.body.resource_type_filter,
-    [{ type: "web", top_k: 20 }],
-  )
+  assert.equal(kimiSearchRequest.body.text_query, question)
+  assert.equal(kimiSearchRequest.body.limit, 20)
+  assert.equal(baiduWebSearchRound, 1, "only DeepSeek used Baidu search")
   const secondKimiMessages = kimiRequests[1]?.body.messages as Array<Record<string, unknown>>
   assert.equal(secondKimiMessages[0]?.role, "user")
   assert.equal(secondKimiMessages[1]?.role, "assistant")
@@ -383,7 +419,7 @@ try {
   assert.equal(kimiEvents.some(event => event.mode === "external_tool_web"), true)
   assert.equal(kimiAudits[0]?.verified, true)
   assert.equal(kimiAudits[0]?.modelProvider, "moonshot")
-  assert.equal(kimiAudits[0]?.searchProvider, "baidu_search")
+  assert.equal(kimiAudits[0]?.searchProvider, "moonshot_search")
   assert.equal(kimiAudits[0]?.searchMode, "external_tool_web")
 
   const ernieEvents: SearchSourceEvent[] = []
@@ -400,6 +436,8 @@ try {
   assert.ok(ernieRequest)
   assert.deepEqual(ernieRequest.body.messages, [{ role: "user", content: question }])
   assert.equal(ernieRequest.body.search_mode, "required")
+  // The callers here pass temperature 0, which Baidu rejects as an invalid body.
+  assert.equal(ernieRequest.body.temperature, 0.01)
   assert.equal(ernieEvents[0]?.sources.length, 1)
   assert.equal(ernieAudits[0]?.verified, true)
   assert.equal(ernieAudits[0]?.searchMode, "native_web")
@@ -408,6 +446,7 @@ try {
   const doubaoAudits: PenetrationRequestAudit[] = []
   const doubaoAnswer = await chatDoubao({
     ...baseArgs,
+    userLocation: { region: "浙江", city: "杭州" },
     onSearchSources: event => doubaoEvents.push(event),
     onRequestAudit: audit => doubaoAudits.push(audit),
   })
@@ -415,8 +454,13 @@ try {
   const doubaoRequest = requests.find(request => request.url.includes("/api/v3/responses"))
   assert.ok(doubaoRequest)
   assert.equal(doubaoRequest.body.input, question)
-  assert.deepEqual(doubaoRequest.body.tools, [{ type: "web_search" }])
+  // The asker's city is search metadata; the prompt stays the raw question.
+  assert.deepEqual(doubaoRequest.body.tools, [{
+    type: "web_search",
+    user_location: { type: "approximate", country: "中国", region: "浙江", city: "杭州" },
+  }])
   assert.equal(doubaoRequest.body.tool_choice, "required")
+  assert.deepEqual(doubaoRequest.body.thinking, { type: "disabled" }, "detection asks in the app's fast mode")
   assert.equal(doubaoEvents[0]?.sources.length, 1)
   assert.equal(doubaoAudits[0]?.verified, true)
   assert.equal(doubaoAudits[0]?.searchMode, "native_web")
@@ -425,6 +469,7 @@ try {
   const hunyuanAudits: PenetrationRequestAudit[] = []
   const hunyuanAnswer = await chatHunyuan({
     ...baseArgs,
+    userLocation: { region: "浙江", city: "杭州" },
     onSearchSources: event => hunyuanEvents.push(event),
     onRequestAudit: audit => hunyuanAudits.push(audit),
   })
@@ -435,11 +480,12 @@ try {
   assert.equal(hunyuanRequest.body.input, question)
   assert.deepEqual(hunyuanRequest.body.tools, [{
     type: "web_search",
-    search_source: "lite",
-    search_context_size: "medium",
+    search_context_size: "high",
     user_location: {
       type: "approximate",
       country: "CN",
+      region: "浙江",
+      city: "杭州",
       timezone: "Asia/Shanghai",
     },
   }])
@@ -451,6 +497,32 @@ try {
   assert.equal(hunyuanEvents[0]?.sources.length, 1)
   assert.equal(hunyuanAudits[0]?.verified, true)
   assert.equal(hunyuanAudits[0]?.searchMode, "native_web")
+
+  const zhipuEvents: SearchSourceEvent[] = []
+  const zhipuAudits: PenetrationRequestAudit[] = []
+  const zhipuAnswer = await chatZhipu({
+    ...baseArgs,
+    onSearchSources: event => zhipuEvents.push(event),
+    onRequestAudit: audit => zhipuAudits.push(audit),
+  })
+  assert.equal(zhipuAnswer, "智谱 原始联网回答")
+  const zhipuRequest = requests.find(request => request.url.startsWith("https://open.bigmodel.cn/"))
+  assert.ok(zhipuRequest)
+  assert.deepEqual(zhipuRequest.body.messages, [{ role: "user", content: question }])
+  assert.deepEqual(zhipuRequest.body.tools, [{
+    type: "web_search",
+    web_search: { enable: true, search_engine: "search_pro", search_result: true, count: 10 },
+  }])
+  assert.deepEqual(zhipuRequest.body.thinking, { type: "disabled" })
+  assert.deepEqual(
+    zhipuEvents.flatMap(event => event.sources).map(source => source.url),
+    ["https://example.com/news/zhipu-search"],
+    "only results with a URL count as sources",
+  )
+  assert.equal(zhipuEvents[0]?.providerRequestId, "zhipu-request-1")
+  assert.equal(zhipuAudits[0]?.verified, true)
+  assert.equal(zhipuAudits[0]?.modelProvider, "zhipu")
+  assert.equal(zhipuAudits[0]?.searchProvider, "zhipu_search")
 
   assert.equal(
     requests.some(request =>

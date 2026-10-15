@@ -34,10 +34,15 @@ function feedbackReminderNotificationId(userId: string, date: string): string {
 }
 
 function penetrationAutomationNotificationId(
-  type: "penetration_automation_alert" | "penetration_automation_attention",
+  type:
+    | "penetration_automation_completed"
+    | "penetration_automation_alert"
+    | "penetration_automation_attention",
   executionId: string,
+  userId: string,
 ): string {
-  return `notice_${type}_${executionId}`.slice(0, 220)
+  const recipient = createHash("sha256").update(userId).digest("hex").slice(0, 12)
+  return `notice_${type}_${executionId}_${recipient}`.slice(0, 220)
 }
 
 function feedbackAutomationNotificationId(
@@ -185,6 +190,46 @@ export async function notifyFeedbackActionReminder(input: {
   })
 }
 
+export async function notifyPenetrationAutomationCompleted(input: {
+  userId: string
+  executionId: string
+  clientId: string
+  clientName: string
+  historyRecordId: string
+  currentRate?: number
+  questionCount: number
+  modelCount: number
+  partial?: boolean
+}): Promise<UserNotification> {
+  const rate = typeof input.currentRate === "number"
+    ? `，当前渗透率 ${(input.currentRate * 100).toFixed(1)}%`
+    : ""
+  return await saveUserNotification({
+    id: penetrationAutomationNotificationId(
+      "penetration_automation_completed",
+      input.executionId,
+      input.userId,
+    ),
+    userId: input.userId,
+    type: "penetration_automation_completed",
+    title: `${input.clientName}自动检测${input.partial ? "部分" : "已"}完成`,
+    body: `已完成 ${input.questionCount} 条疑问句、${input.modelCount} 个模型的检测${rate}。`,
+    actionUrl: `/workspace/results/penetration/${encodeURIComponent(input.historyRecordId)}`,
+    entityType: "penetration_automation_execution",
+    entityId: input.executionId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 180 * 24 * 60 * 60 * 1000,
+    metadata: {
+      clientId: input.clientId,
+      historyRecordId: input.historyRecordId,
+      currentRate: input.currentRate,
+      questionCount: input.questionCount,
+      modelCount: input.modelCount,
+      partial: Boolean(input.partial),
+    },
+  })
+}
+
 export async function notifyPenetrationAutomationAlert(input: {
   userId: string
   executionId: string
@@ -197,7 +242,11 @@ export async function notifyPenetrationAutomationAlert(input: {
   absoluteDropPoints: number
 }): Promise<UserNotification> {
   return await saveUserNotification({
-    id: penetrationAutomationNotificationId("penetration_automation_alert", input.executionId),
+    id: penetrationAutomationNotificationId(
+      "penetration_automation_alert",
+      input.executionId,
+      input.userId,
+    ),
     userId: input.userId,
     type: "penetration_automation_alert",
     title: `${input.clientName}渗透率下降提醒`,
@@ -227,7 +276,11 @@ export async function notifyPenetrationAutomationAttention(input: {
 }): Promise<UserNotification> {
   const params = new URLSearchParams({ clientId: input.clientId, module: "penetration" })
   return await saveUserNotification({
-    id: penetrationAutomationNotificationId("penetration_automation_attention", input.executionId),
+    id: penetrationAutomationNotificationId(
+      "penetration_automation_attention",
+      input.executionId,
+      input.userId,
+    ),
     userId: input.userId,
     type: "penetration_automation_attention",
     title: `${input.clientName}自动检测需要处理`,

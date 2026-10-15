@@ -1,4 +1,6 @@
+import type { PenetrationSource } from "@/types"
 import { searchBaiduWeb } from "./baidu-ai-search"
+import { searchMoonshotWeb } from "./moonshot-web-search"
 import { emitPenetrationRequestAudit } from "./blind-request-audit"
 import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
 
@@ -21,6 +23,36 @@ const SEARCH_TOOL = {
   },
 }
 
+export interface AuditableWebSearchResult {
+  query: string
+  sources: PenetrationSource[]
+  requestId: string
+}
+
+/** A search engine that returns every result's URL and an auditable request id. */
+export interface AuditableWebSearch {
+  provider: "baidu_search" | "moonshot_search"
+  run(query: string, signal?: AbortSignal): Promise<AuditableWebSearchResult>
+}
+
+export function baiduAuditableSearch(apiKey: string, timeoutSec: number): AuditableWebSearch {
+  return {
+    provider: "baidu_search",
+    run: (query, signal) => searchBaiduWeb({ apiKey, query, timeoutSec, signal, topK: 20 }),
+  }
+}
+
+export function moonshotAuditableSearch(
+  apiKey: string,
+  baseUrl: string,
+  timeoutSec: number,
+): AuditableWebSearch {
+  return {
+    provider: "moonshot_search",
+    run: (query, signal) => searchMoonshotWeb({ apiKey, baseUrl, query, timeoutSec, signal, limit: 20 }),
+  }
+}
+
 interface AuditableExternalSearchArgs {
   args: ChatArgs
   endpoint: string
@@ -28,9 +60,8 @@ interface AuditableExternalSearchArgs {
   model: string
   label: string
   modelProvider: string
-  searchApiKey: string
+  search: AuditableWebSearch
   requestTimeoutSec: number
-  searchTimeoutSec: number
   temperature?: number
   extraBody?: Record<string, unknown>
 }
@@ -76,7 +107,7 @@ export async function chatWithAuditableExternalSearch(
     endpoint: input.endpoint,
     model: input.model,
     modelProvider: input.modelProvider,
-    searchProvider: "baidu_search",
+    searchProvider: input.search.provider,
     searchMode: "external_tool_web",
     messages,
     tools: [SEARCH_TOOL],
@@ -148,13 +179,7 @@ export async function chatWithAuditableExternalSearch(
         const queryKey = searchQueryKey(query)
         let toolContent = searchPayloads.get(queryKey)
         if (!toolContent && searchPayloads.size < maxUniqueSearches) {
-          const search = await searchBaiduWeb({
-            apiKey: input.searchApiKey,
-            query,
-            timeoutSec: input.searchTimeoutSec,
-            signal: args.signal,
-            topK: 20,
-          })
+          const search = await input.search.run(query, args.signal)
           searchExecuted = true
           for (const source of search.sources) auditableUrls.add(source.url)
           args.onSearchSources?.({

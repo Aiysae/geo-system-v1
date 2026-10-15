@@ -297,6 +297,15 @@ async function waitForSessionReady(): Promise<boolean> {
 
 function sanitizeRedirect(value?: string): string {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return "/"
-  if (value.startsWith("/sign-in") || value.startsWith("/sign-up")) return "/"
-  return value
+  // Browsers treat "\" like "/", so "/\evil.com" would become "//evil.com".
+  // Resolving against a fixed origin catches that and any other off-site form.
+  let resolved: URL
+  try {
+    resolved = new URL(value, "http://redirect.invalid")
+  } catch {
+    return "/"
+  }
+  if (resolved.origin !== "http://redirect.invalid" || /[\\\u0000-\u001f]/.test(value)) return "/"
+  if (resolved.pathname.startsWith("/sign-in") || resolved.pathname.startsWith("/sign-up")) return "/"
+  return `${resolved.pathname}${resolved.search}${resolved.hash}`
 }

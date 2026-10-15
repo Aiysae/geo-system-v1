@@ -4,6 +4,7 @@ import { AdminHeader } from "@/components/admin/admin-header"
 import SiteFooter from "@/components/site-footer"
 import { isAdminUser } from "@/lib/admin"
 import { listAiCredentialsPublic } from "@/lib/ai-credential-store"
+import { listAiCredentialRouteHealth } from "@/lib/ai-credential-route-health"
 import { getCurrentUser } from "@/lib/auth"
 import {
   AI_OFFICIAL_PRESETS,
@@ -33,10 +34,11 @@ export default async function AdminAiModelsPage() {
   }
 
   await migrateLegacyAiProviderSecrets(user.id)
-  const [connections, legacySettings, credentials] = await Promise.all([
+  const [connections, legacySettings, credentials, routeHealth] = await Promise.all([
     listAiGatewayProvidersPublic(),
     listAiProviderPublicSettings(),
     listAiCredentialsPublic(),
+    listAiCredentialRouteHealth(),
   ])
 
   return (
@@ -48,7 +50,10 @@ export default async function AdminAiModelsPage() {
         active="ai-models"
       />
       <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
-        <AiCredentialPoolManager credentials={credentials} />
+        <AiCredentialPoolManager
+          credentials={credentials}
+          routeHealth={routeHealth}
+        />
         <AiModelCenter
           officialPresets={AI_OFFICIAL_PRESETS}
           relayPresets={AI_RELAY_PRESETS}

@@ -54,10 +54,15 @@ import type {
   PenetrationQuestionCategory,
   PenetrationQuestionGenerationSettings,
   PenetrationQuestionIntentHint,
+  PenetrationUserLocation,
   PersonSubjectProfile,
 } from "@/types"
+import {
+  normalizePenetrationSamplesPerQuestion,
+  normalizePenetrationUserLocation,
+} from "@/lib/penetration/user-location"
 
-const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan"]
+const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan", "zhipu"]
 
 type InputMode = "manual" | "ai"
 type ModelReadiness = Partial<Record<ModelKey, { ready: boolean; reason?: string }>>
@@ -72,6 +77,8 @@ interface Props {
     brandAliases: string[]
     competitors: string[]
     questionIntents: PenetrationQuestionIntentHint[]
+    userLocation?: PenetrationUserLocation
+    samplesPerQuestion?: number
   }) => void
   onStop: () => void
   loading: boolean
@@ -401,6 +408,8 @@ export default function BatchInputPanel({
       brandAliases,
       competitors,
       questionIntents,
+      userLocation: normalizePenetrationUserLocation(client.penetrationUserLocation),
+      samplesPerQuestion,
     })
   }
 
@@ -432,6 +441,8 @@ export default function BatchInputPanel({
     : []
   const eligibleModelCount = eligibleSelectedModels.length
   const plannedSlots = questionCount * eligibleModelCount
+  const samplesPerQuestion = normalizePenetrationSamplesPerQuestion(client.penetrationSamplesPerQuestion)
+  const userLocation = client.penetrationUserLocation || {}
   const sampleQuality = useMemo(
     () => buildPenetrationSampleQuality(currentQuestions, {
       modelCount: eligibleModelCount,
@@ -1019,6 +1030,49 @@ export default function BatchInputPanel({
         </span>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div>
+          <Label className="text-xs text-slate-600 mb-2 block">模拟提问者所在地（选填）</Label>
+          <div className="flex gap-2">
+            <Input
+              value={userLocation.region || ""}
+              disabled={questionReadOnly}
+              placeholder="省份，如 浙江"
+              onChange={event => onChangeClient({
+                penetrationUserLocation: { ...userLocation, region: event.target.value },
+              })}
+            />
+            <Input
+              value={userLocation.city || ""}
+              disabled={questionReadOnly}
+              placeholder="城市，如 杭州"
+              onChange={event => onChangeClient({
+                penetrationUserLocation: { ...userLocation, city: event.target.value },
+              })}
+            />
+          </div>
+          <p className="mt-1 text-[10px] leading-4 text-slate-400">
+            豆包和腾讯元宝会像手机 App 一样，按这个位置回答“附近”“本地”类问题。
+          </p>
+        </div>
+        <div>
+          <Label className="text-xs text-slate-600 mb-2 block">每题提问次数</Label>
+          <select
+            value={samplesPerQuestion}
+            disabled={questionReadOnly}
+            onChange={event => onChangeClient({ penetrationSamplesPerQuestion: Number(event.target.value) })}
+            className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700"
+          >
+            <option value={1}>1 次</option>
+            <option value={2}>2 次</option>
+            <option value={3}>3 次（推荐）</option>
+          </select>
+          <p className="mt-1 max-w-[220px] text-[10px] leading-4 text-slate-400">
+            同一问题每次回答都可能不同，多问几次能看出被提到的稳定程度；积分按次数计算。
+          </p>
+        </div>
+      </div>
+
       {skipped && skipped.length > 0 && (
         <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
           <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -1088,7 +1142,7 @@ export default function BatchInputPanel({
         {canExecute ? (
           <CreditCostBadge
             featureKey="penetrationSlot"
-            units={Math.max(1, questionCount * eligibleSelectedModels.length)}
+            units={Math.max(1, questionCount * eligibleSelectedModels.length * samplesPerQuestion)}
             className="w-fit"
           />
         ) : <span />}
@@ -1110,7 +1164,7 @@ export default function BatchInputPanel({
             className="h-11 w-full gap-2 border-0 px-6 text-sm font-medium lg:w-auto lg:min-w-[300px]"
           >
             <Play className="h-4 w-4" />
-            开始多模型检测 ({eligibleSelectedModels.length} × {questionCount})
+            开始多模型检测 ({eligibleSelectedModels.length} × {questionCount}{samplesPerQuestion > 1 ? ` × ${samplesPerQuestion} 次` : ""})
           </Button>
         )}
       </div>

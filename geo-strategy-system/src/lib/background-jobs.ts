@@ -1,8 +1,17 @@
 import "server-only"
 
+import {
+  ArticleModelWaitError,
+  prepareArticleModelSelection,
+  type ArticleModelWaitReason,
+} from "@/lib/article-model-runtime"
+
+import { articleCheckpointContext, type ArticleCheckpoint } from "@/lib/article-checkpoint"
 import { randomUUID } from "crypto"
 import { gzipSync, gunzipSync } from "zlib"
+import { NextRequest } from "next/server"
 import { kv } from "@/lib/kv"
+import { acquireJobSettlementLock } from "@/lib/distributed-concurrency"
 import { syncBackgroundJobTask } from "@/lib/task-center/adapters"
 import {
   clearTaskCancellation,
@@ -14,16 +23,9 @@ import {
   durableTaskQueueEnabled,
   type TaskWorkerOutcome,
 } from "@/lib/task-queue"
-import {
-  createInternalApiHeaders,
-  INTERNAL_API_USER_HEADER,
-} from "@/lib/internal-api"
-import {
-  ARTICLE_PROMPT_PRICE_KEYS,
-  estimateFeatureCredits,
-  getFeaturePrice,
-  type FeaturePriceKey,
-} from "@/lib/pricing"
+import { createInternalApiHeaders } from "@/lib/internal-api"
+import { estimateFeatureCredits } from "@/lib/pricing"
+import { resolveBackgroundTask } from "@/lib/background-job-definitions"
 import {
   refundReservedCredits,
   reserveCreditsForUser,
@@ -39,10 +41,15 @@ import {
   type BackgroundWorkspacePhase,
 } from "@/lib/background-job-workspace-state"
 import type {
-  ArticlePromptKey,
   BackgroundJobKind,
   BackgroundJobRecord,
 } from "@/types"
+
+export {
+  estimateBackgroundJob,
+  isBackgroundJobKind,
+  type BackgroundJobEstimate,
+} from "@/lib/background-job-definitions"
 
 type StoredBackgroundJob = BackgroundJobRecord & {
   ownerUserId: string
@@ -55,17 +62,10 @@ type StoredBackgroundJob = BackgroundJobRecord & {
   reservation: CreditReservation
   creditCost: number
   creditsSettledAt?: string
-}
-
-type TaskDefinition = {
-  endpoint: string
-  featureKey: FeaturePriceKey
-  units: number
-  label: string
-}
-
-export type BackgroundJobEstimate = TaskDefinition & {
-  credits: number
+  articleWaitStartedAt?: string
+  articleWaitReason?: ArticleModelWaitReason
+  articleRetryAt?: string
+  articleCheckpoint?: ArticleCheckpoint
 }
 
 export type CreateBackgroundJobResult =
@@ -80,6 +80,22 @@ const JOB_TTL_SECONDS = 60 * 60 * 24 * 7
 const IDEMPOTENCY_CLAIM_SECONDS = 120
 const MAX_PAYLOAD_BYTES = 22 * 1024 * 1024
 const JOB_TIMEOUT_MS = 15 * 60 * 1000
+// A cooling route may be broken, so waiting is capped tightly. A capacity wait
+// means healthy accounts are busy with other articles: the queue is moving,
+// so it gets a longer, configurable cap instead of failing paid drafts.
+const ARTICLE_COOLDOWN_WAIT_MS = JOB_TIMEOUT_MS
+function articleCapacityWaitMs(): number {
+  const minutes = Number(process.env.ARTICLE_CAPACITY_WAIT_MINUTES)
+  return Math.max(15, Math.min(240, Number.isFinite(minutes) && minutes > 0 ? minutes : 60)) * 60_000
+}
+function articleWaitLimitMs(reason: ArticleModelWaitReason | undefined): number {
+  return reason === "capacity" ? articleCapacityWaitMs() : ARTICLE_COOLDOWN_WAIT_MS
+}
+function articleWaitExpiredMessage(reason: ArticleModelWaitReason | undefined): string {
+  return reason === "capacity"
+    ? `模型账号持续繁忙，排队已超过 ${Math.round(articleCapacityWaitMs() / 60_000)} 分钟，积分已退回；请稍后重试或在后台增加该型号的账号并发`
+    : "模型线路等待恢复已超过 15 分钟，请检查账号状态后重试"
+}
 const JOB_RUN_LEASE_SECONDS = Math.ceil(JOB_TIMEOUT_MS / 1000) + 120
 const PENDING_SET_KEY = "geo:background-jobs:pending"
 const MAX_ATTEMPTS = 2
@@ -108,7 +124,6 @@ const scheduledJobs = new Set<string>()
 const pendingArticleJobs: string[] = []
 const pendingGeneralJobs: string[] = []
 const activeControllers = new Map<string, AbortController>()
-const settlingJobs = new Set<string>()
 const outputSavingJobs = new Set<string>()
 
 const jobKey = (id: string) => `geo:background-jobs:${id}`
@@ -145,107 +160,6 @@ function isRetryable(error: unknown): boolean {
   )
 }
 
-function resolveTask(kind: BackgroundJobKind, payload: unknown): TaskDefinition {
-  const body = record(payload)
-  switch (kind) {
-    case "articleGeneration": {
-      const promptKey = String(body.promptKey || "") as ArticlePromptKey
-      const featureKey = ARTICLE_PROMPT_PRICE_KEYS[promptKey]
-      if (!featureKey) throw new Error("请选择有效的文章 Prompt")
-      return {
-        endpoint: "/api/article-generation",
-        featureKey,
-        units: 1,
-        label: getFeaturePrice(featureKey).label,
-      }
-    }
-    case "queryGeneration": {
-      const categoryCounts = record(body.categoryCounts)
-      const customUnits = body.allocationMode === "custom"
-        ? Object.values(categoryCounts).reduce<number>(
-            (sum, value) => sum + Math.max(0, Math.floor(Number(value) || 0)),
-            0,
-          )
-        : 0
-      const requestedUnits = customUnits > 0 ? customUnits : Number(body.count) || 28
-      const units = Math.min(84, Math.max(1, Math.floor(requestedUnits)))
-      return {
-        endpoint: "/api/generate-queries",
-        featureKey: "legacyQueryGenerateUnit",
-        units,
-        label: getFeaturePrice("legacyQueryGenerateUnit").label,
-      }
-    }
-    case "research": {
-      const featureKey = body.mode === "hypothesis" ? "researchHypothesis" : "researchAi"
-      return {
-        endpoint: "/api/research",
-        featureKey,
-        units: 1,
-        label: getFeaturePrice(featureKey).label,
-      }
-    }
-    case "diagnosis":
-      return {
-        endpoint: "/api/diagnose",
-        featureKey: "diagnose",
-        units: 1,
-        label: getFeaturePrice("diagnose").label,
-      }
-    case "competitorCompare": {
-      const competitors = Array.isArray(body.selectedCompetitors)
-        ? body.selectedCompetitors.filter(Boolean).slice(0, 5)
-        : []
-      return {
-        endpoint: "/api/competitor-compare",
-        featureKey: "competitorCompareUnit",
-        units: Math.max(1, competitors.length),
-        label: getFeaturePrice("competitorCompareUnit").label,
-      }
-    }
-    case "keywordExtract":
-    case "knowledgeImport":
-      return {
-        endpoint: "/api/geo-strategy/extract",
-        featureKey: "keywordExtract",
-        units: 1,
-        label: getFeaturePrice("keywordExtract").label,
-      }
-    case "keywordAdvantages":
-      return {
-        endpoint: "/api/geo-strategy/advantages",
-        featureKey: "keywordAdvantages",
-        units: 1,
-        label: getFeaturePrice("keywordAdvantages").label,
-      }
-    case "keywordStrategy":
-      return {
-        endpoint: "/api/geo-strategy/generate",
-        featureKey: "keywordStrategyGenerate",
-        units: 1,
-        label: getFeaturePrice("keywordStrategyGenerate").label,
-      }
-    case "keywordWebsitePrompt":
-      return {
-        endpoint: "/api/geo-strategy/website-prompt",
-        featureKey: "keywordWebsitePrompt",
-        units: 1,
-        label: getFeaturePrice("keywordWebsitePrompt").label,
-      }
-  }
-}
-
-export function estimateBackgroundJob(
-  kind: BackgroundJobKind,
-  payload: unknown,
-): BackgroundJobEstimate {
-  const definition = resolveTask(kind, payload)
-  return {
-    ...definition,
-    credits: estimateFeatureCredits(definition.featureKey, definition.units),
-  }
-}
-
 function encodePayload(payload: unknown): string {
   const json = JSON.stringify(payload)
   const size = Buffer.byteLength(json)
@@ -270,6 +184,10 @@ function toPublicJob(job: StoredBackgroundJob): BackgroundJobRecord {
   delete publicJob.endpoint
   delete publicJob.reservation
   delete publicJob.creditCost
+  delete publicJob.articleWaitStartedAt
+  delete publicJob.articleWaitReason
+  delete publicJob.articleRetryAt
+  delete publicJob.articleCheckpoint
   delete publicJob.creditsSettledAt
   return publicJob as BackgroundJobRecord
 }
@@ -434,12 +352,10 @@ async function waitForClaimedJob(
 }
 
 async function settleJobCredits(jobId: string, successful: boolean): Promise<void> {
-  for (let attempt = 0; settlingJobs.has(jobId) && attempt < 100; attempt++) {
-    await sleep(50)
-  }
-  if (settlingJobs.has(jobId)) throw new Error("任务积分结算繁忙，请稍后自动重试")
-
-  settlingJobs.add(jobId)
+  // The web process (cancel) and the worker process (completion or abort) can
+  // settle the same job at once; the lock must be shared across processes or
+  // both would see creditsSettledAt unset and refund twice.
+  const release = await acquireJobSettlementLock("background", jobId)
   try {
     const job = await getStoredJob(jobId)
     if (!job || job.creditsSettledAt) return
@@ -454,7 +370,7 @@ async function settleJobCredits(jobId: string, successful: boolean): Promise<voi
       creditsRefunded: !shouldCharge,
     })
   } finally {
-    settlingJobs.delete(jobId)
+    await release()
   }
 }
 
@@ -473,6 +389,139 @@ async function readJsonResponse(response: Response): Promise<unknown> {
     return JSON.parse(text)
   } catch {
     throw new Error(`后台任务返回格式异常（HTTP ${response.status}）`)
+  }
+}
+
+export function isDirectBackgroundJobKind(
+  kind: BackgroundJobKind,
+): kind is Extract<BackgroundJobKind, "research" | "competitorCompare" | "articleGeneration"> {
+  return kind === "research" || kind === "competitorCompare" || kind === "articleGeneration"
+}
+
+function directTaskUserError(kind: BackgroundJobKind, error: unknown): Error {
+  const message = safeError(error)
+  if (/\u7528\u6237\u5df2\u505c\u6b62\u4efb\u52a1/.test(message)) return new Error("用户已停止任务")
+  if (error instanceof ArticleModelWaitError) return error
+  if (kind === "articleGeneration") return new Error(message)
+  if (/未达到生成可审计报告的最低标准|请补充更准确的主体/.test(message)) {
+    return new Error(message)
+  }
+  if (/billing|overdue|欠费|余额不足|account.*balance/i.test(message)) {
+    return new Error("豆包账号当前不可用，本次任务已停止并退回积分，请稍后重试。")
+  }
+  if (/timeout|timed out|超时|abort|fetch failed|network|socket/i.test(message)) {
+    return new Error("豆包响应时间较长，本次任务未能完成，系统已退回积分。请稍后重试。")
+  }
+  if (/JSON|字段|引用|蓝图|证据绑定|数据格式/i.test(message)) {
+    return new Error("豆包本次返回的报告结构不完整，系统自动重试后仍未通过校验，已退回积分。")
+  }
+  return new Error(
+    kind === "research"
+      ? "调研任务未能完成，系统已退回积分，请稍后重试。"
+      : "竞品对比任务未能完成，系统已退回积分，请稍后重试。",
+  )
+}
+
+async function executeDirectBackgroundRequest(
+  job: StoredBackgroundJob,
+  payload: unknown,
+): Promise<unknown> {
+  const startedAt = Date.now()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS)
+  activeControllers.set(job.id, controller)
+  const unregisterTaskController = registerTaskAbortController(
+    "background",
+    job.id,
+    controller,
+  )
+  let progressPercent = 10
+  let progressQueue: Promise<unknown> = Promise.resolve()
+  const onProgress = (percent: number, stage: string): Promise<void> => {
+    const nextPercent = Math.max(progressPercent, Math.min(95, Math.round(percent)))
+    progressPercent = nextPercent
+    progressQueue = progressQueue.then(async () => {
+      const current = await getStoredJob(job.id)
+      if (!current || current.status === "cancelled") {
+        controller.abort()
+        throw new Error("用户已停止任务")
+      }
+      await patchJob(job.id, { progressPercent: nextPercent, stage })
+    })
+    return progressQueue.then(() => undefined)
+  }
+
+  try {
+    if (job.kind === "articleGeneration") {
+      await onProgress(15, "正在生成文章")
+      const { POST } = await import("@/app/api/article-generation/route")
+      // Keep the same validation, runtime user and credit bypass without replaying a paid pipeline over HTTP.
+      const response = await articleCheckpointContext.run({
+        jobId: job.id,
+        checkpoint: job.articleCheckpoint,
+        save: async checkpoint => {
+          // A saved stage is progress: later waits start a fresh clock
+          // instead of inheriting time spent before the draft existed.
+          const saved = await patchJob(job.id, {
+            articleCheckpoint: checkpoint,
+            partialArticle: checkpoint.repairedDraft || checkpoint.draft,
+            articleWaitStartedAt: undefined,
+            articleWaitReason: undefined,
+          })
+          if (!saved) throw new Error("文章任务不存在")
+        },
+      }, () => POST(new NextRequest("http://localhost/api/article-generation", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...createInternalApiHeaders("background-job", job.runtimeUserId || job.ownerUserId),
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })))
+      const result = await readJsonResponse(response)
+      if (!response.ok) {
+        if (record(result).code === "ARTICLE_MODEL_WAIT") {
+          throw new ArticleModelWaitError(
+            String(record(result).error),
+            record(result).waitReason === "capacity" ? "capacity" : "cooldown",
+          )
+        }
+        throw new Error(String(record(result).error || `文章任务执行失败（HTTP ${response.status}）`))
+      }
+      controller.signal.throwIfAborted()
+      console.info("[background-jobs] direct task completed", job.id, job.kind, `${Date.now() - startedAt}ms`)
+      return result
+    }
+    if (job.kind === "research") {
+      const { executeResearchTask } = await import("@/app/api/research/route")
+      const result = await executeResearchTask(payload, {
+        signal: controller.signal,
+        onProgress,
+      })
+      console.info("[background-jobs] direct task completed", job.id, job.kind, `${Date.now() - startedAt}ms`)
+      return result
+    }
+    const { executeCompetitorCompareTask } = await import(
+      "@/app/api/competitor-compare/route"
+    )
+    const result = await executeCompetitorCompareTask(payload, {
+      signal: controller.signal,
+      onProgress,
+    })
+    console.info("[background-jobs] direct task completed", job.id, job.kind, `${Date.now() - startedAt}ms`)
+    return result
+  } catch (error) {
+    const current = await getStoredJob(job.id)
+    if (current?.status === "cancelled") throw new Error("用户已停止任务")
+    console.error("[background-jobs] direct task failed", job.id, safeError(error))
+    throw controller.signal.aborted
+      ? new Error("后台任务执行超时，系统已退回积分。")
+      : directTaskUserError(job.kind, error)
+  } finally {
+    clearTimeout(timer)
+    unregisterTaskController()
+    if (activeControllers.get(job.id) === controller) activeControllers.delete(job.id)
   }
 }
 
@@ -499,8 +548,7 @@ async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown
           cache: "no-store",
           headers: {
             "Content-Type": "application/json",
-            ...createInternalApiHeaders("background-job"),
-            [INTERNAL_API_USER_HEADER]: job.runtimeUserId || job.ownerUserId,
+            ...createInternalApiHeaders("background-job", job.runtimeUserId || job.ownerUserId),
           },
           body: JSON.stringify(payload),
           signal: controller.signal,
@@ -529,6 +577,13 @@ async function executeInternalRequest(job: StoredBackgroundJob): Promise<unknown
   throw lastError instanceof Error ? lastError : new Error("后台任务执行失败")
 }
 
+async function executeBackgroundRequest(job: StoredBackgroundJob): Promise<unknown> {
+  if (isDirectBackgroundJobKind(job.kind)) {
+    return executeDirectBackgroundRequest(job, decodePayload(job.payloadGzip))
+  }
+  return executeInternalRequest(job)
+}
+
 async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
   if (activeJobs.has(jobId)) return
   activeJobs.add(jobId)
@@ -548,8 +603,17 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
 
     let job = await getStoredJob(jobId)
     if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) return
+    if (job.result === undefined && job.articleRetryAt && Date.parse(job.articleRetryAt) > Date.now()) return
+    if (
+      job.result === undefined
+      && job.articleWaitStartedAt
+      && Date.now() - Date.parse(job.articleWaitStartedAt) >= articleWaitLimitMs(job.articleWaitReason)
+    ) {
+      throw new Error(articleWaitExpiredMessage(job.articleWaitReason))
+    }
     job = await patchJob(jobId, {
       status: "running",
+      articleRetryAt: undefined,
       progressPercent: 10,
       stage: job.kind === "diagnosis"
         ? "正在读取网站并核验页面结构"
@@ -558,7 +622,10 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
       error: undefined,
     }) || job
 
-    const result = await executeInternalRequest(job)
+    // A recovered article may have finished generation but not output persistence or settlement.
+    const result = job.kind === "articleGeneration" && job.result !== undefined
+      ? job.result
+      : await executeBackgroundRequest(job)
     const current = await getStoredJob(jobId)
     if (!current || current.status === "cancelled") throw new Error("用户已停止任务")
 
@@ -605,6 +672,28 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
       return
     }
 
+    if (current && error instanceof ArticleModelWaitError) {
+      const waitStartedAt = current.articleWaitStartedAt || nowIso()
+      const limitMs = articleWaitLimitMs(error.reason)
+      if (Date.now() - Date.parse(waitStartedAt) < limitMs) {
+        // Tasks that already hold a paid draft retry sooner so new drafts
+        // cannot keep taking the only free account ahead of them.
+        const retryDelayMs = current.articleCheckpoint ? 10_000 : 30_000
+        await patchJob(jobId, {
+          status: "queued",
+          stage: error.reason === "capacity"
+            ? `模型账号正在处理其他文章，排队等待空闲通道（最多 ${Math.round(limitMs / 60_000)} 分钟）`
+            : "模型线路暂时不可用，等待恢复后继续（最多 15 分钟）",
+          articleWaitStartedAt: waitStartedAt,
+          articleWaitReason: error.reason,
+          articleRetryAt: new Date(Math.min(Date.now() + retryDelayMs, Date.parse(waitStartedAt) + limitMs)).toISOString(),
+          error: undefined,
+        })
+        return
+      }
+      // Report why the task ended, not the transient "waiting" message.
+      error = new Error(articleWaitExpiredMessage(error.reason))
+    }
     console.error("[background-jobs] job failed", jobId, safeError(error))
     const failedAt = nowIso()
     if (current) {
@@ -636,6 +725,13 @@ async function runJob(jobId: string, kind: BackgroundJobKind): Promise<void> {
     activeJobs.delete(jobId)
     activeKindJobs.delete(jobId)
     activeControllers.delete(jobId)
+    if (!durableTaskQueueEnabled("background")) {
+      const latest = await getStoredJob(jobId)
+      if (latest?.status === "queued" && latest.articleRetryAt) {
+        const timer = setTimeout(() => scheduleLocalJob(jobId, kind), Math.max(1, Date.parse(latest.articleRetryAt) - Date.now()))
+        timer.unref()
+      }
+    }
     drainQueue()
   }
 }
@@ -689,21 +785,6 @@ function removePendingJob(jobId: string, kind: BackgroundJobKind): void {
   }
 }
 
-export function isBackgroundJobKind(value: unknown): value is BackgroundJobKind {
-  return [
-    "articleGeneration",
-    "queryGeneration",
-    "research",
-    "diagnosis",
-    "competitorCompare",
-    "keywordExtract",
-    "knowledgeImport",
-    "keywordAdvantages",
-    "keywordStrategy",
-    "keywordWebsitePrompt",
-  ].includes(String(value))
-}
-
 export async function createBackgroundJob(args: {
   kind: BackgroundJobKind
   clientId: string
@@ -722,8 +803,7 @@ export async function createBackgroundJob(args: {
     }
   }
 
-  const definition = resolveTask(args.kind, args.payload)
-  const payloadGzip = encodePayload(args.payload)
+  const definition = resolveBackgroundTask(args.kind, args.payload)
   const key = requestKey(args.ownerUserId, args.kind, args.requestId)
   const existingPointer = await kv.get<string>(key)
   if (existingPointer) {
@@ -734,6 +814,17 @@ export async function createBackgroundJob(args: {
       return { ok: true, job: toPublicJob(existing), reused: true }
     }
   }
+
+  let payload = args.payload
+  if (args.kind === "articleGeneration") {
+    try {
+      const selection = await prepareArticleModelSelection(record(payload).modelProvider, record(payload).model)
+      payload = { ...record(payload), ...selection }
+    } catch (error) {
+      return { ok: false, response: Response.json({ error: safeError(error) }, { status: 400 }) }
+    }
+  }
+  const payloadGzip = encodePayload(payload)
 
   const claim = `pending:${randomUUID()}`
   const claimed = await kv.set(key, claim, { nx: true, ex: IDEMPOTENCY_CLAIM_SECONDS })
@@ -828,7 +919,7 @@ export async function createBackgroundJobsBatch(args: {
     if (!/^[A-Za-z0-9_-]{16,160}$/.test(item.requestId)) {
       throw new Error("批次任务请求编号无效，请刷新后重试")
     }
-    const definition = resolveTask(args.kind, item.payload)
+    const definition = resolveBackgroundTask(args.kind, item.payload)
     return {
       ...item,
       definition,
@@ -844,6 +935,24 @@ export async function createBackgroundJobsBatch(args: {
         ok: false,
         response: Response.json({ error: "该批次任务已经创建，请刷新任务列表" }, { status: 409 }),
       }
+    }
+  }
+
+  if (args.kind === "articleGeneration") {
+    const selections = new Map<string, Awaited<ReturnType<typeof prepareArticleModelSelection>>>()
+    try {
+      for (const item of prepared) {
+        const payload = record(item.payload)
+        const selectionKey = JSON.stringify([payload.modelProvider, payload.model])
+        let selection = selections.get(selectionKey)
+        if (!selection) {
+          selection = await prepareArticleModelSelection(payload.modelProvider, payload.model)
+          selections.set(selectionKey, selection)
+        }
+        item.payloadGzip = encodePayload({ ...payload, ...selection })
+      }
+    } catch (error) {
+      return { ok: false, response: Response.json({ error: safeError(error) }, { status: 400 }) }
     }
   }
 
@@ -949,7 +1058,7 @@ export async function createUnchargedBackgroundJob(args: {
   if (!/^[A-Za-z0-9_-]{16,160}$/.test(args.requestId)) {
     throw new Error("任务请求编号无效，请刷新后重试")
   }
-  const definition = resolveTask(args.kind, args.payload)
+  const definition = resolveBackgroundTask(args.kind, args.payload)
   const key = requestKey(args.ownerUserId, args.kind, args.requestId)
   const existingPointer = await kv.get<string>(key)
   if (existingPointer && !existingPointer.startsWith("pending:")) {
@@ -1047,12 +1156,18 @@ export async function resumePendingBackgroundJobs(): Promise<void> {
   }
 
   for (const id of ids) {
-    const job = await getStoredJob(id)
-    if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
-      await kv.srem(PENDING_SET_KEY, id)
-      continue
+    // Recover each item independently so one unreadable or undispatchable
+    // record cannot leave every later pending job stranded.
+    try {
+      const job = await getStoredJob(id)
+      if (!job || ["succeeded", "failed", "cancelled"].includes(job.status)) {
+        await kv.srem(PENDING_SET_KEY, id)
+        continue
+      }
+      await dispatchBackgroundJob(id, job.kind)
+    } catch (error) {
+      console.error("[background-jobs] failed to resume pending item", id, error instanceof Error ? error.message : error)
     }
-    await dispatchBackgroundJob(id, job.kind)
   }
 }
 
@@ -1071,7 +1186,8 @@ export async function runBackgroundJobFromWorker(
   if (!latest || ["succeeded", "failed", "cancelled"].includes(latest.status)) {
     return {}
   }
-  return { requeue: true, delayMs: 2_000 }
+  return { requeue: true, delayMs: latest.articleRetryAt
+    ? Math.max(1, Date.parse(latest.articleRetryAt) - Date.now()) : 2_000 }
 }
 
 export async function cancelBackgroundJob(

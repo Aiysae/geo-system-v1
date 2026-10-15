@@ -25,6 +25,7 @@ import {
 } from "@/lib/task-queue"
 import SiteFooter from "@/components/site-footer"
 import { AdminHeader } from "@/components/admin/admin-header"
+import { AdminInternalDataNotice } from "@/components/admin/internal-data-notice"
 import type { ModelKey } from "@/types"
 
 export const dynamic = "force-dynamic"
@@ -96,6 +97,8 @@ export default async function AdminMetricsPage() {
       />
 
       <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 md:px-8 md:py-8">
+        <AdminInternalDataNotice />
+
         <section className="grid gap-3 md:grid-cols-4">
           <MetricCard
             icon={<TrendingUp className="h-4 w-4" />}
@@ -385,7 +388,7 @@ export default async function AdminMetricsPage() {
         </section>
 
         <section className="rounded-2xl bg-white p-4 text-xs leading-6 text-slate-500 shadow-sm ring-1 ring-slate-200">
-          数据更新时间：{formatTime(metrics.generatedAt)}。统计口径：功能使用次数按 `usage_reserved` 流水计算；净消耗 = 功能扣费 - 失败/未使用退回；充值金额只统计已审批到账的固定套餐金额。
+          数据更新时间：{formatTime(metrics.generatedAt)}。统计口径：功能使用次数按 `usage_reserved` 流水计算；净消耗 = 功能扣费 - 失败/未使用退回；页面统计合并内部测试数据，充值金额按已审批到账的固定套餐金额计算。
         </section>
       </main>
       <SiteFooter />
