@@ -1,10 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Target, ChevronDown, MessageSquare, Globe2, ExternalLink, CheckCircle2, RefreshCw, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Target, ChevronDown, MessageSquare, Globe2, ExternalLink, CheckCircle2, RefreshCw, Pencil, X } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
+import PenetrationResultSummary from "./result-summary"
 import PenetrationDonut from "./penetration-donut"
 import IndustryShareChart from "./industry-share-chart"
 import BrandRankingCard from "./brand-ranking-card"
@@ -88,6 +90,19 @@ export default function PenetrationModule({
   const [retestingSampleId, setRetestingSampleId] = useState<string | null>(null)
   const [retryableSlots, setRetryableSlots] = useState<PenetrationRetryableSlot[]>([])
   const publishedResultAtRef = useRef(client.penetration?.generatedAt || "")
+  const detectionConfigId = useId()
+  const detectionConfigRef = useRef<HTMLDetailsElement>(null)
+  const questionEntryRef = useRef<HTMLDivElement>(null)
+
+  function openQuestionEntry() {
+    if ((!canExecute && questionReadOnly) || !detectionConfigRef.current) return
+    detectionConfigRef.current.open = true
+    questionEntryRef.current?.scrollIntoView({
+      block: "start",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    })
+    questionEntryRef.current?.focus({ preventScroll: true })
+  }
 
   useEffect(() => {
     if (!completionNotice) return
@@ -410,7 +425,7 @@ export default function PenetrationModule({
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="flex items-center gap-3 text-sm text-slate-800 sm:text-base">
           <span className="geo-module-icon">
             <Target className="h-5 w-5 text-white" />
@@ -419,9 +434,18 @@ export default function PenetrationModule({
             {subjectType === "person" ? "个人 IP 可见度与同行情报" : "关键词渗透率与竞品情报"}
           </span>
         </CardTitle>
+        {canExecute || !questionReadOnly ? (
+          <Button type="button" className="w-full shrink-0 sm:w-auto" aria-controls={detectionConfigId} onClick={openQuestionEntry}>
+            <Pencil aria-hidden="true" />
+            {questionReadOnly ? "发起检测" : canExecute ? "填写疑问句 / 发起检测" : "填写疑问句"}
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="geo-section-panel no-print min-w-0 p-4 sm:p-5">
+        {pen ? <PenetrationResultSummary result={pen} /> : null}
+        <details key={client.id} id={detectionConfigId} ref={detectionConfigRef} open={!pen || loading || Boolean(error) || retryableSlots.length > 0} className="no-print min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1677FF]">检测配置与任务状态</summary>
+          <div className="pt-4">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-3">
             <div>
               <div className="text-sm font-semibold text-slate-900">检测配置</div>
@@ -455,6 +479,7 @@ export default function PenetrationModule({
               identityReadOnly={identityReadOnly}
               questionReadOnly={questionReadOnly}
               canExecute={canExecute}
+              questionEntryRef={questionEntryRef}
             />
             {!loading && retryableSlots.length > 0 ? (
               <div className="mt-3 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -477,15 +502,16 @@ export default function PenetrationModule({
                 </button>
               </div>
             ) : null}
-        </div>
+          </div>
+        </details>
 
         <div className="min-w-0 space-y-4">
             {!pen ? (
                 <div className="geo-empty-state min-h-[180px]">
                 <div>
-                  <div className="text-sm text-slate-500 mb-1">情报大盘待生成</div>
+                  <div className="text-sm text-slate-500 mb-1">尚未生成检测结果</div>
                   <div className="text-xs text-slate-400">
-                    填写上方信息后开始检测，完成后会自动保存结果
+                    展开检测配置，确认问题和模型后开始检测；完成后会自动保存结果
                   </div>
                 </div>
               </div>
@@ -562,7 +588,7 @@ export default function PenetrationModule({
                     <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
                       <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
                         <div className="geo-section-kicker">
-                          各模型渗透率对比 · 趋势图
+                          各模型被提及率对比
                         </div>
                         <div className="inline-flex shrink-0 items-center gap-1.5 text-[10px] text-amber-600">
                           <span className="inline-block w-3 border-t-2 border-dashed border-amber-400"></span>

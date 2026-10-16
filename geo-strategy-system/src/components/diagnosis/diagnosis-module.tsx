@@ -1,5 +1,7 @@
 "use client"
 
+import ResultGuide from "@/components/reports/result-guide"
+
 import { useState } from "react"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
@@ -135,7 +137,19 @@ export default function DiagnosisModule({ client, onChangeClient }: Props) {
           </div>
         </div>
       </div>
-      <div className="p-3 sm:p-4">
+      <ResultGuide
+        title="网站诊断导读"
+        status={loading ? "诊断进行中" : diag ? "已有诊断结果" : "待诊断"}
+        summary={diag?.audit?.aiSummary.executiveSummary || (diag ? "已有网站诊断结果。请结合下方维度表现，确认需要完善的页面内容与证据。" : "诊断会检查网站能否被读取、内容是否清晰，以及是否具备可引用的证据。")}
+        facts={diag?.audit ? [
+          { label: "已读取 / 计划页面", value: `${diag.audit.pagesFetched} / ${diag.audit.pagesRequested}` },
+          { label: "未通过检查", value: diag.audit.checks.length ? `${diag.audit.checks.filter(check => check.status === "fail").length} 项` : "暂无检查记录" },
+          { label: "结果可信度", value: diag.audit.confidenceLabel },
+        ] : []}
+        note={loading ? "新诊断完成前，下方已有报告仍为上一次结果。" : "网站诊断反映本次读取范围内的基础状况，得分不等于 AI 推荐率。"}
+        nextSteps={diag?.audit?.aiSummary.actions.length ? diag.audit.aiSummary.actions.slice(0, 3) : diag ? ["查看下方诊断维度，确认薄弱项与对应证据。", "由项目负责人安排页面修正，完成后使用相同网址复查。"] : ["确认下方官网或个人资料页网址。", "由项目负责人发起诊断，完成后优先处理未通过的检查项。"]}
+      />
+      <div className="p-4 sm:p-6">
         <div className="mb-4 rounded-lg border border-[#D8E9FA] bg-[#F7FBFF] p-3 sm:p-4">
           <Label className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-700">
             <Globe2 className="h-3.5 w-3.5 text-[#1677FF]" />

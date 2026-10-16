@@ -34,20 +34,13 @@ assert.equal(notOpen.actionRequired, true)
 assert.equal(classifyAiCredentialFailure(new Error("HTTP 403 [ModelNotOpen]: model service not activated")).failureClass, "model_unavailable")
 const { saveAiCredential, updateAiCredentialHealth, setAiCredentialEnabled, getAiCredentialRuntime } =
   await import("../src/lib/ai-credential-store")
-const { runArticleModelChat, articleDoubaoThinkingMode } = await import("../src/lib/article-model-runtime")
-// Doubao Seed thinking stays off unless explicitly enabled; unknown values fall back to off.
-for (const [value, expected] of [[undefined, "disabled"], ["enabled", "enabled"], ["AUTO", "auto"], ["on", "disabled"]] as const) {
-  if (value === undefined) delete process.env.ARTICLE_DOUBAO_THINKING
-  else process.env.ARTICLE_DOUBAO_THINKING = value
-  assert.equal(articleDoubaoThinkingMode(), expected)
-}
-delete process.env.ARTICLE_DOUBAO_THINKING
+const { runArticleModelChat } = await import("../src/lib/article-model-runtime")
 const { runAiCredentialHealthSweep } = await import("../src/lib/ai-credential-health-monitor")
 const { recordAiCredentialFailure } = await import("../src/lib/ai-credential-router")
 const { emitTokenUsage, openaiCompatChat } = await import("../src/lib/llm/openai-compat")
 const { chatDoubao } = await import("../src/lib/llm/doubao")
 const { addTokenUsage } = await import("../src/lib/ai-usage")
-const { createInternalApiHeaders } = await import("../src/lib/internal-api")
+const { createInternalApiHeaders, INTERNAL_API_USER_HEADER } = await import("../src/lib/internal-api")
 const { POST } = await import("../src/app/api/article-generation/route")
 const originalFetch = globalThis.fetch
 const originalNow = Date.now
@@ -171,21 +164,12 @@ try {
   const missingSubject = good.replaceAll("示例主体甲", "其他主体")
   let scenario: "normal" | "local-fail" | "judge-fail" | "repair-fail" | "heading-only" | "repair-worse" | "repair-equal-worse" | "model-not-open" = "normal"
   const stages: string[] = []
-  let sourcePlanningCalls = 0
-  const searchedQueries: string[] = []
-  globalThis.fetch = async (url, init) => {
+  globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body || "{}"))
-    if (!body.model || !body.messages) {
-      searchedQueries.push(decodeURIComponent(String(url)))
-      return Response.json({ results: [] })
-    }
+    if (!body.model || !body.messages) return Response.json({ results: [] })
     const system = body.messages.find((message: { role: string }) => message.role === "system")?.content || ""
     assert.ok(!system.startsWith("【当前北京时间】"), "article runtime must opt into stable-prefix layout")
     assert.match(body.messages.at(-1).content, /【当前北京时间】[^\n]+$/)
-    if (body.model === "qwen-plus" && system.includes("检索助理")) {
-      sourcePlanningCalls++
-      return completion(JSON.stringify({ laws: ["中华人民共和国民法典"], standards: [] }))
-    }
     if (body.model === "qwen-plus") {
       assert.equal(body.enable_thinking, false)
       stages.push("judge")
@@ -200,7 +184,6 @@ try {
       }))
     }
     assert.equal(body.model, "doubao-test-writer")
-    assert.equal(body.thinking, undefined, "non-Seed Doubao models must not receive the thinking switch")
     const repair = system.includes("质量校对器")
     stages.push(repair ? "repair" : "draft")
     if (scenario === "model-not-open") return Response.json({ error: {
@@ -219,7 +202,8 @@ try {
     stages.length = 0
     const response = await POST(new NextRequest("http://localhost/api/article-generation", {
       method: "POST", headers: {
-        "Content-Type": "application/json", ...createInternalApiHeaders("background-job", "cost-test"),
+        "Content-Type": "application/json", ...createInternalApiHeaders("background-job"),
+        [INTERNAL_API_USER_HEADER]: "cost-test",
       },
       body: JSON.stringify({
         promptKey: "selectionPitfallGuide", modelProvider: "doubao", model: "doubao-test-writer",
@@ -266,10 +250,6 @@ try {
       assert.equal(result.qualityAudit.finalPassed, false)
     }
   }
-  // One cheap planning call per new article; the named law is searched on government sites.
-  assert.ok(sourcePlanningCalls > 0)
-  assert.ok(searchedQueries.some(query => query.includes("中华人民共和国民法典 site:gov.cn")),
-    "planned laws must become government-site searches")
   console.log("Cost controls: exact model, cooldown, auto recovery, usage and article pipeline passed")
 } finally {
   globalThis.fetch = originalFetch

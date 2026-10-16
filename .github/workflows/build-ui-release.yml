@@ -1,0 +1,40 @@
+name: Build reviewed GEO UI release
+on:
+  push:
+    branches: [codex/sidebar-release-20261016]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Prepare isolated production source
+        run: |
+          sudo mkdir -p /var/www/geo-strategy-system/geo-system-v1/.releases/sidebar-20261016/build
+          sudo chown -R "$USER" /var/www/geo-strategy-system
+          cp -a geo-strategy-system/. /var/www/geo-strategy-system/geo-system-v1/.releases/sidebar-20261016/build/
+      - name: Build
+        working-directory: /var/www/geo-strategy-system/geo-system-v1/.releases/sidebar-20261016/build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          GEO_LOW_MEMORY_BUILD: '1'
+          RAYON_NUM_THREADS: '1'
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          npm ci --include=dev --no-audit --no-fund
+          npm run test:client-accounts
+          npm run test:workspace-navigation
+          npm run test:team-permissions
+          npm run build -- --webpack
+          tar -czf /tmp/geo-ui-linux.tgz --exclude='.next/cache' --exclude='.next/trace' .next
+          sha256sum /tmp/geo-ui-linux.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geo-ui-linux
+          path: /tmp/geo-ui-linux.tgz
+          retention-days: 3

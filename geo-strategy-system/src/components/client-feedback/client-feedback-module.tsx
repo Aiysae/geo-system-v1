@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
+import { createPortal } from "react-dom"
 import {
   Activity,
   ArrowLeft,
@@ -29,6 +30,7 @@ import {
   X,
 } from "lucide-react"
 import BatchEvidenceImportDialog from "@/components/client-feedback/batch-evidence-import-dialog"
+import ClientOverview from "@/components/client-feedback/client-overview"
 import ClientFeedbackReportView from "@/components/client-feedback/client-feedback-report-view"
 import FeedbackAutomationPanel from "@/components/client-feedback/feedback-automation-panel"
 import PublishingPlanPanel from "@/components/client-feedback/publishing-plan-panel"
@@ -198,6 +200,21 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
   const [baselineHistoryRecordId, setBaselineHistoryRecordId] = useState("")
   const [currentHistoryRecordId, setCurrentHistoryRecordId] = useState("")
   const [previewReport, setPreviewReport] = useState<ClientFeedbackReport | null>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
+  const previewId = previewReport?.id
+
+  useEffect(() => {
+    if (!previewId) return
+    const trigger = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    previewRef.current?.focus({ preventScroll: true })
+    return () => {
+      document.body.style.overflow = previousOverflow
+      trigger?.focus({ preventScroll: true })
+    }
+  }, [previewId])
+
   const [copiedReportId, setCopiedReportId] = useState("")
   const [shareUrl, setShareUrl] = useState("")
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([])
@@ -705,15 +722,16 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
   }
 
   return (
-    <div className="space-y-4">
-      <section className="overflow-hidden rounded-lg border border-[#B9DDFC] bg-white shadow-[0_18px_44px_-34px_rgba(0,78,180,.62)]">
+    <div className="space-y-5">
+      <ClientOverview reports={payload.reports} profile={payload.profile} onOpenReport={setPreviewReport} />
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div className="grid gap-px bg-[#CFE4F7] sm:grid-cols-2 lg:grid-cols-[1.25fr_.75fr_.75fr_.75fr]">
-          <div className="bg-[linear-gradient(135deg,#003EB3_0%,#1677FF_58%,#00AEEA_100%)] p-5 text-white">
-            <div className="flex items-center gap-2 text-xs font-semibold text-cyan-100/80">
-              <Activity className="h-4 w-4" />客户执行中心
+          <div className="bg-slate-50 p-5 text-slate-900">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+              <Activity className="h-4 w-4" />项目执行进度
             </div>
             <h2 className="mt-3 break-words text-2xl font-bold">{client.name}</h2>
-            <p className="mt-2 text-xs text-cyan-50/75">
+            <p className="mt-2 text-sm text-slate-600">
               正式执行日期 {payload.profile.startDate}
               {payload.profile.endDate ? ` 至 ${payload.profile.endDate}` : ""}
               {" · "}{payload.profile.periodMode === "service" ? "按服务周期" : "按自然周期"}
@@ -725,14 +743,14 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             { label: "当前月", value: `第 ${payload.counters.serviceMonth} 月` },
           ].map(item => (
             <div key={item.label} className="bg-white p-5">
-              <p className="text-[11px] text-[#7E91A7]">{item.label}</p>
+              <p className="text-xs text-slate-600">{item.label}</p>
               <p className="mt-2 text-xl font-bold text-[#0958D9]">{item.value}</p>
             </div>
           ))}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E3EDF6] px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="text-xs text-[#6B8299]">阶段</span>
+            <span className="text-xs text-slate-600">阶段</span>
             <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-xs font-semibold text-[#0958D9]">
               {STAGE_OPTIONS.find(item => item.value === payload.profile.currentStage)?.label}
             </span>
@@ -757,7 +775,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
               </button>
             </div>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-xs text-[#6B8299]"><LockKeyhole className="h-3.5 w-3.5" />客户浏览模式</span>
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-600"><LockKeyhole className="h-3.5 w-3.5" />客户浏览模式</span>
           )}
         </div>
       </section>
@@ -768,8 +786,8 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
       {shareUrl ? (
         <div className="flex flex-col gap-2 rounded-lg border border-[#91CAFF] bg-[#F0F8FF] px-4 py-3 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold text-[#0958D9]">客户私密验证链接</p>
-            <input readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} className="mt-1 h-8 w-full rounded-md border border-[#C8D9E8] bg-white px-2 font-mono text-[10px] text-[#38536E]" />
+            <p className="text-xs font-semibold text-[#0958D9]">客户私密验证链接</p>
+            <input readOnly value={shareUrl} onFocus={event => event.currentTarget.select()} className="mt-1 h-8 w-full rounded-md border border-[#C8D9E8] bg-white px-2 font-mono text-xs text-[#38536E]" />
           </div>
           <button type="button" onClick={() => void navigator.clipboard.writeText(shareUrl).then(() => setNotice("私密链接已复制")).catch(() => undefined)} className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md bg-[#1677FF] px-3 text-xs font-semibold text-white"><Copy className="h-3.5 w-3.5" />复制链接</button>
         </div>
@@ -790,25 +808,25 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
           <header className="flex items-center justify-between gap-3 border-b border-[#E7EFF6] px-4 py-3">
             <div>
               <h3 className="flex items-center gap-2 text-sm font-semibold"><CalendarDays className="h-4 w-4 text-[#1677FF]" />执行日历</h3>
-              <p className="mt-0.5 text-[10px] text-[#7E91A7]">检测结果与执行记录按日期汇总</p>
+              <p className="mt-0.5 text-xs text-slate-600">检测结果与执行记录按日期汇总</p>
             </div>
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setCalendarMonth(value => shiftMonth(value, -1))} className="rounded-md p-2 text-[#6B8299] hover:bg-[#EEF5FC]" aria-label="上个月"><ChevronLeft className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setCalendarMonth(value => shiftMonth(value, -1))} className="rounded-md p-2 text-slate-600 hover:bg-[#EEF5FC]" aria-label="上个月"><ChevronLeft className="h-4 w-4" /></button>
               <span className="w-24 text-center text-xs font-semibold">{monthLabel(calendarMonth)}</span>
-              <button type="button" onClick={() => setCalendarMonth(value => shiftMonth(value, 1))} className="rounded-md p-2 text-[#6B8299] hover:bg-[#EEF5FC]" aria-label="下个月"><ChevronRight className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setCalendarMonth(value => shiftMonth(value, 1))} className="rounded-md p-2 text-slate-600 hover:bg-[#EEF5FC]" aria-label="下个月"><ChevronRight className="h-4 w-4" /></button>
             </div>
           </header>
           {payload.canManageVisibility ? (
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E7EFF6] bg-[#F8FBFF] px-4 py-2.5">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold text-[#526A83]">未单独设置的检测默认展示</span>
+                <span className="text-xs font-semibold text-[#526A83]">未单独设置的检测默认展示</span>
                 <select
                   value={payload.publicationPolicy?.defaultPenetration || "full"}
                   disabled={pending === "publication-default" || customerActionPreview}
                   onChange={event => void saveDefaultPenetrationPublication(
                     event.target.value as ClientExecutionActionPublication,
                   )}
-                  className="h-8 rounded-md border border-[#C8D9E8] bg-white px-2 text-[10px] font-semibold text-[#38536E] outline-none focus:border-[#1677FF] disabled:opacity-50"
+                  className="h-8 rounded-md border border-[#C8D9E8] bg-white px-2 text-xs font-semibold text-[#38536E] outline-none focus:border-[#1677FF] disabled:opacity-50"
                 >
                   <option value="full">动作和完整报告</option>
                   <option value="summary">只展示动作</option>
@@ -821,7 +839,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                   setCustomerActionPreview(current => !current)
                   setSelectedActionIds([])
                 }}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-semibold transition ${
+                className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ${
                   customerActionPreview
                     ? "bg-[#1677FF] text-white"
                     : "border border-[#C8D9E8] bg-white text-[#526A83]"
@@ -833,7 +851,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             </div>
           ) : null}
           <div className="p-3 sm:p-4">
-            <div className="grid grid-cols-7 text-center text-[10px] font-semibold text-[#8AA0B5]">
+            <div className="grid grid-cols-7 text-center text-xs font-semibold text-slate-600">
               {"一二三四五六日".split("").map(value => <span key={value} className="py-2">周{value}</span>)}
             </div>
             <div className="grid grid-cols-7 overflow-hidden rounded-lg border border-[#E3EDF6] bg-[#E3EDF6] gap-px">
@@ -843,7 +861,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                 return day ? (
                   <button key={day} type="button" onClick={() => setSelectedDate(day)} className={`relative min-h-16 bg-white p-2 text-left transition hover:bg-[#F3F9FF] ${selected ? "ring-2 ring-inset ring-[#1677FF]" : ""}`}>
                     <span className={`text-xs font-semibold ${day === today() ? "text-[#1677FF]" : "text-[#526A83]"}`}>{Number(day.slice(-2))}</span>
-                    {count ? <span className="absolute bottom-2 left-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#1677FF] px-1.5 text-[9px] font-bold text-white">{count}</span> : null}
+                    {count ? <span className="absolute bottom-2 left-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#1677FF] px-1.5 text-xs font-bold text-white">{count}</span> : null}
                   </button>
                 ) : <span key={`empty-${index}`} className="min-h-16 bg-[#F7FAFC]" />
               })}
@@ -854,23 +872,23 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         <section className="rounded-lg border border-[#D7E5F2] bg-white">
           <header className="border-b border-[#E7EFF6] px-4 py-3">
             <h3 className="flex items-center gap-2 text-sm font-semibold"><ClipboardList className="h-4 w-4 text-[#13C2C2]" />{selectedDate} 动作</h3>
-            <p className="mt-0.5 text-[10px] text-[#7E91A7]">
+            <p className="mt-0.5 text-xs text-slate-600">
               {customerActionPreview ? "当前仅显示客户登录后能看到的动作" : "可逐条控制客户是否能查看动作和对应报告"}
             </p>
           </header>
           {canEditActionVisibility && selectedActionIds.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 border-b border-[#E7EFF6] bg-[#F8FBFF] px-4 py-2.5">
-              <span className="mr-auto text-[10px] font-semibold text-[#526A83]">
+              <span className="mr-auto text-xs font-semibold text-[#526A83]">
                 已选择 {selectedActionIds.length} 条
               </span>
-              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "internal")} className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><EyeOff className="h-3 w-3" />隐藏</button>
-              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "summary")} className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-200 bg-white px-2.5 text-[10px] font-semibold text-amber-700"><Eye className="h-3 w-3" />只展示动作</button>
-              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "full")} className="inline-flex h-8 items-center gap-1 rounded-md bg-[#1677FF] px-2.5 text-[10px] font-semibold text-white"><FileSearch2 className="h-3 w-3" />开放报告</button>
+              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "internal")} className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600"><EyeOff className="h-3 w-3" />隐藏</button>
+              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "summary")} className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-200 bg-white px-2.5 text-xs font-semibold text-amber-700"><Eye className="h-3 w-3" />只展示动作</button>
+              <button type="button" disabled={pending === "publication"} onClick={() => void saveActionPublication(selectedActionIds, "full")} className="inline-flex h-8 items-center gap-1 rounded-md bg-[#1677FF] px-2.5 text-xs font-semibold text-white"><FileSearch2 className="h-3 w-3" />开放报告</button>
             </div>
           ) : null}
           <div className="max-h-[420px] divide-y divide-[#EDF2F7] overflow-y-auto">
             {selectedActionGroups.length === 0 ? (
-              <div className="px-5 py-16 text-center text-xs text-[#8AA0B5]">当天没有执行记录</div>
+              <div className="px-5 py-16 text-center text-xs text-slate-600">当天没有执行记录</div>
             ) : selectedActionGroups.map(group => {
               const action = group.action
               const detailAllowed = payload.accessMode !== "client"
@@ -910,20 +928,20 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                           ? `${CATEGORY_LABELS[action.category]} · ${group.totalQuantity}${group.unit}`
                           : action.title}
                       </h4>
-                      <span className="rounded-md bg-[#EDF5FF] px-2 py-0.5 text-[10px] font-semibold text-[#0958D9]">{CATEGORY_LABELS[action.category] || "其他动作"}</span>
+                      <span className="rounded-md bg-[#EDF5FF] px-2 py-0.5 text-xs font-semibold text-[#0958D9]">{CATEGORY_LABELS[action.category] || "其他动作"}</span>
                       {canEditActionVisibility ? (
-                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${PUBLICATION_META[group.publication].className}`}>
+                        <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${PUBLICATION_META[group.publication].className}`}>
                           {PUBLICATION_META[group.publication].label}
                         </span>
                       ) : null}
                     </div>
                     {group.isBatch ? (
-                      <p className="mt-1 text-xs leading-5 text-[#6B8299]">
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
                         本批次包含 {group.itemCount} 条发布明细，可进入详情逐条查看标题与网址。
                       </p>
                     ) : null}
-                    {action.description ? <p className="mt-1 break-words text-xs leading-5 text-[#6B8299]">{action.description}</p> : null}
-                    <div className="mt-2 flex flex-wrap gap-x-3 text-[10px] text-[#8AA0B5]">
+                    {action.description ? <p className="mt-1 break-words text-xs leading-5 text-slate-600">{action.description}</p> : null}
+                    <div className="mt-2 flex flex-wrap gap-x-3 text-xs text-slate-600">
                       <span>{formatTime(action.occurredAt)}</span>
                       {group.platformNames.length > 0 ? (
                         <span title={group.platformNames.join("、")}>
@@ -938,13 +956,13 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                     {detailAllowed ? (
                       <Link
                         href={detailHref}
-                        className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-[10px] font-semibold text-white shadow-sm transition hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1677FF]"
+                        className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold text-white shadow-sm transition hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1677FF]"
                       >
                         <FileSearch2 className="h-3.5 w-3.5" />
                         {detailLabel}
                       </Link>
                     ) : (
-                      <div className="mt-2 inline-flex items-center gap-1 text-[10px] text-[#8AA0B5]">
+                      <div className="mt-2 inline-flex items-center gap-1 text-xs text-slate-600">
                         <LockKeyhole className="h-3 w-3" />该动作详情尚未开放
                       </div>
                     )}
@@ -959,7 +977,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                           group.actionIds,
                           event.target.value as ClientExecutionActionPublication,
                         )}
-                        className="h-8 max-w-24 rounded-md border border-[#D7E5F2] bg-white px-1.5 text-[9px] font-semibold text-[#526A83] outline-none focus:border-[#1677FF]"
+                        className="h-8 max-w-24 rounded-md border border-[#D7E5F2] bg-white px-1.5 text-xs font-semibold text-[#526A83] outline-none focus:border-[#1677FF]"
                       >
                         <option value="internal">仅内部</option>
                         <option value="summary">只展示</option>
@@ -967,7 +985,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                       </select>
                     ) : null}
                     {payload.canManage && group.actions.every(item => item.source === "manual") ? (
-                      <button type="button" onClick={() => void deleteActionGroup(group)} disabled={pending === `delete:${group.key}`} className="rounded-md p-2 text-[#8AA0B5] hover:bg-rose-50 hover:text-rose-600" aria-label={group.isBatch ? "删除整批动作" : "删除动作"}><Trash2 className="h-3.5 w-3.5" /></button>
+                      <button type="button" onClick={() => void deleteActionGroup(group)} disabled={pending === `delete:${group.key}`} className="rounded-md p-2 text-slate-600 hover:bg-rose-50 hover:text-rose-600" aria-label={group.isBatch ? "删除整批动作" : "删除动作"}><Trash2 className="h-3.5 w-3.5" /></button>
                     ) : null}
                   </div>
                 </div>
@@ -981,8 +999,8 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
       <section className="rounded-lg border border-[#D7E5F2] bg-white">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E7EFF6] px-4 py-3">
           <div>
-            <h3 className="flex items-center gap-2 text-sm font-semibold"><FileBarChart2 className="h-4 w-4 text-[#6C5CE7]" />周报与月报</h3>
-            <p className="mt-0.5 text-[10px] text-[#7E91A7]">发布后客户可在账号中查看，也可通过私密链接验证</p>
+            <h3 id="client-reports" className="scroll-mt-20 flex items-center gap-2 text-sm font-semibold"><FileBarChart2 className="h-4 w-4 text-[#6C5CE7]" />周报与月报</h3>
+            <p className="mt-0.5 text-xs text-slate-600">发布后客户可在账号中查看，也可通过私密链接验证</p>
           </div>
           {payload.canManage ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -1000,24 +1018,24 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
           <div className="px-5 py-14 text-center">
             <FileBarChart2 className="mx-auto h-8 w-8 text-[#A6BCD0]" />
             <p className="mt-3 text-sm font-semibold">{payload.canManage ? "还没有反馈报告" : "暂无已发布反馈报告"}</p>
-            <p className="mt-1 text-xs text-[#7E91A7]">{payload.canManage ? "选择一个周期日期生成第一份周报或月报。" : "主账号发布后会自动出现在这里。"}</p>
+            <p className="mt-1 text-xs text-slate-600">{payload.canManage ? "选择一个周期日期生成第一份周报或月报。" : "主账号发布后会自动出现在这里。"}</p>
           </div>
         ) : (
-          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 p-4 lg:grid-cols-2">
             {visibleReports.map(report => (
-              <article key={report.id} className="rounded-lg border border-[#DCE8F4] bg-[#F9FCFF] p-4">
+              <article key={report.id} className="rounded-lg border border-slate-200 bg-white p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-1.5">
-                    <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${report.type === "weekly" ? "bg-cyan-50 text-cyan-700" : "bg-indigo-50 text-indigo-700"}`}>{report.type === "weekly" ? "周报" : "月报"}</span>
-                    <span className="text-[10px] font-semibold text-[#7E91A7]">V{report.version}</span>
+                    <span className={`rounded-md px-2 py-1 text-xs font-semibold ${report.type === "weekly" ? "bg-cyan-50 text-cyan-700" : "bg-indigo-50 text-indigo-700"}`}>{report.type === "weekly" ? "周报" : "月报"}</span>
+                    <span className="text-xs font-semibold text-slate-600">V{report.version}</span>
                   </div>
-                  <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${report.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{report.status === "published" ? "已发布" : "草稿"}</span>
+                  <span className={`rounded-md px-2 py-1 text-xs font-semibold ${report.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{report.status === "published" ? "已发布" : "草稿"}</span>
                 </div>
-                <h4 className="mt-3 break-words text-sm font-semibold">{report.snapshot.reportTitle}</h4>
-                <p className="mt-1 text-[11px] text-[#7E91A7]">{report.periodStart} 至 {report.periodEnd}</p>
+                <h4 className="mt-4 break-words text-base font-semibold leading-6">{report.snapshot.reportTitle}</h4>
+                <p className="mt-1 text-xs text-slate-600">{report.periodStart} 至 {report.periodEnd}</p>
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => setPreviewReport(report)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[#C8D9E8] bg-white text-xs font-semibold text-[#38536E] hover:border-[#91CAFF]">
-                    <ExternalLink className="h-3.5 w-3.5" />查看
+                  <button type="button" onClick={() => setPreviewReport(report)} aria-label={`查看${report.type === "weekly" ? "周报" : "月报"}：${report.periodStart} 至 ${report.periodEnd}`} className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[#0958D9] px-4 text-sm font-semibold text-white hover:bg-[#003EB3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                    <ExternalLink className="h-4 w-4" />查看完整{report.type === "weekly" ? "周报" : "月报"}
                   </button>
                   {payload.canManage ? (
                     <>
@@ -1065,8 +1083,8 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         )}
       </section>
 
-      {reportDialogType ? (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#00133F]/58 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="feedback-report-dialog-title">
+      {reportDialogType ? createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-[#00133F]/58 p-3" role="dialog" aria-modal="true" aria-labelledby="feedback-report-dialog-title">
           <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-2xl">
             <header className="flex items-start justify-between gap-4 border-b border-[#E3EDF6] px-5 py-4">
               <div>
@@ -1074,11 +1092,11 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                   <h3 id="feedback-report-dialog-title" className="text-base font-semibold">
                     {reportDialogSource ? "重新生成" : "生成"}{reportDialogType === "weekly" ? "周反馈" : "月反馈"}
                   </h3>
-                  <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-[10px] font-semibold text-[#0958D9]">
+                  <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-xs font-semibold text-[#0958D9]">
                     {reportDialogType === "weekly" ? "连续 7 天" : "连续 30 天"}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-[#7E91A7]">{reportDialogSource ? `原 V${reportDialogSource.version} 会保留，本次生成一份新版本。` : "确认动作范围，并选择用于效果对比的两次真实检测记录。"}</p>
+                <p className="mt-1 text-xs text-slate-600">{reportDialogSource ? `原 V${reportDialogSource.version} 会保留，本次生成一份新版本。` : "确认动作范围，并选择用于效果对比的两次真实检测记录。"}</p>
               </div>
               <button type="button" onClick={closeReportDialog} disabled={pending.startsWith("generate:")} className="rounded-md p-2 hover:bg-[#EEF5FC] disabled:opacity-50" aria-label="关闭"><X className="h-4 w-4" /></button>
             </header>
@@ -1096,18 +1114,18 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                   />
                 </label>
                 <div className="rounded-lg border border-[#CFE1F5] bg-[linear-gradient(135deg,#F1F8FF_0%,#F3FDFF_100%)] px-4 py-3">
-                  <p className="text-[10px] font-semibold text-[#6B8299]">动作统计范围</p>
+                  <p className="text-xs font-semibold text-slate-600">动作统计范围</p>
                   <p className="mt-1 text-sm font-bold text-[#0958D9]">
                     {reportOptions
                       ? `${reportOptions.period.start} 至 ${reportOptions.period.end}`
                       : reportOptionsLoading ? "正在计算…" : "等待加载"}
                   </p>
-                  <p className="mt-1 text-[10px] text-[#7E91A7]">按北京时间计算，首尾日期均计入报告</p>
+                  <p className="mt-1 text-xs text-slate-600">按北京时间计算，首尾日期均计入报告</p>
                 </div>
               </div>
 
               {reportOptionsLoading ? (
-                <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-[#C8D9E8] py-12 text-sm text-[#6B8299]">
+                <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-[#C8D9E8] py-12 text-sm text-slate-600">
                   <LoaderCircle className="h-4 w-4 animate-spin text-[#1677FF]" />正在读取历史检测记录
                 </div>
               ) : reportOptionsError ? (
@@ -1121,22 +1139,22 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                     <div className="flex flex-wrap items-end justify-between gap-2">
                       <div>
                         <h4 id="feedback-action-preview-title" className="text-xs font-semibold text-[#102A43]">报告动作预览</h4>
-                        <p className="mt-1 text-[10px] text-[#7E91A7]">本次将收录 {reportOptions.actionCount} 项客户可见动作</p>
+                        <p className="mt-1 text-xs text-slate-600">本次将收录 {reportOptions.actionCount} 项客户可见动作</p>
                       </div>
-                      <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-[10px] font-semibold text-[#0958D9]">
+                      <span className="rounded-md bg-[#EAF4FF] px-2 py-1 text-xs font-semibold text-[#0958D9]">
                         {reportOptions.actionDays.filter(day => day.count > 0).length} 个日期有记录
                       </span>
                     </div>
                     <div className={`mt-3 grid gap-2 ${reportDialogType === "weekly" ? "grid-cols-2 sm:grid-cols-4 lg:grid-cols-7" : "grid-cols-4 sm:grid-cols-6 lg:grid-cols-10"}`}>
                       {reportOptions.actionDays.map(day => (
                         <div key={day.date} className={`min-h-16 rounded-lg border px-2 py-2 ${day.count > 0 ? "border-[#91CAFF] bg-[#EFF8FF]" : "border-[#E3EDF6] bg-white"}`}>
-                          <p className={`text-[9px] font-semibold ${day.count > 0 ? "text-[#0958D9]" : "text-[#8AA0B5]"}`}>{day.date.slice(5)}</p>
+                          <p className={`text-xs font-semibold ${day.count > 0 ? "text-[#0958D9]" : "text-slate-600"}`}>{day.date.slice(5)}</p>
                           <p className={`mt-2 text-xs font-bold ${day.count > 0 ? "text-[#102A43]" : "text-[#A0B1C1]"}`}>{day.count > 0 ? `${day.count} 项` : "无动作"}</p>
                         </div>
                       ))}
                     </div>
                     {reportOptions.actionCount === 0 ? (
-                      <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">该周期没有可向客户展示的动作，仍可生成只包含阶段进度和效果对比的报告。</p>
+                      <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">该周期没有可向客户展示的动作，仍可生成只包含阶段进度和效果对比的报告。</p>
                     ) : null}
                   </section>
 
@@ -1184,18 +1202,18 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
                       ].map(entry => (
                         <div key={entry.label} className="min-w-0 rounded-lg border border-[#DCE8F4] bg-[#F8FBFF] p-4">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-semibold text-[#6B8299]">{entry.label}</span>
-                            {entry.item ? <span className={`rounded-md px-2 py-0.5 text-[9px] font-semibold ${entry.item.status === "partial" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{entry.item.status === "partial" ? "部分完成" : "完整完成"}</span> : null}
+                            <span className="text-xs font-semibold text-slate-600">{entry.label}</span>
+                            {entry.item ? <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${entry.item.status === "partial" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{entry.item.status === "partial" ? "部分完成" : "完整完成"}</span> : null}
                           </div>
                           <p className="mt-2 text-2xl font-bold text-[#102A43]">{metricPercent(entry.item?.penetrationRate)}</p>
-                          <p className="mt-1 break-words text-[10px] text-[#7E91A7]">{entry.item ? formatTime(entry.item.completedAt) : "未选择"}</p>
-                          {entry.item ? <p className="mt-2 text-[10px] text-[#526A83]">{entry.item.questionCount} 个问题 · {entry.item.modelCount} 个模型 · {entry.item.completedSlots}/{entry.item.totalSlots} 次采样</p> : null}
+                          <p className="mt-1 break-words text-xs text-slate-600">{entry.item ? formatTime(entry.item.completedAt) : "未选择"}</p>
+                          {entry.item ? <p className="mt-2 text-xs text-[#526A83]">{entry.item.questionCount} 个问题 · {entry.item.modelCount} 个模型 · {entry.item.completedSlots}/{entry.item.totalSlots} 次采样</p> : null}
                         </div>
                       ))}
                     </div>
                   )}
 
-                  <div className="rounded-lg border border-[#CFE7FA] bg-[#F2F9FF] px-4 py-3 text-[11px] leading-5 text-[#526A83]">
+                  <div className="rounded-lg border border-[#CFE7FA] bg-[#F2F9FF] px-4 py-3 text-xs leading-5 text-[#526A83]">
                     系统会在生成时校验两次检测的模型和疑问句样本。样本一致会标记为“可直接对比”；不一致仍可保留观察结果，但会明确标注差异原因。
                     {reportOptions.truncated ? " 当前历史记录超过 1000 次，列表已展示最近 1000 次。" : ""}
                   </div>
@@ -1225,14 +1243,14 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
               </button>
             </footer>
           </div>
-        </div>
+        </div>, document.body
       ) : null}
 
       {settingsOpen ? (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#00133F]/58 p-3 backdrop-blur-sm" role="dialog" aria-modal="true">
           <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-2xl">
             <header className="flex items-center justify-between border-b border-[#E3EDF6] px-5 py-4">
-              <div><h3 className="text-base font-semibold">执行设置</h3><p className="mt-1 text-xs text-[#7E91A7]">开始与结束日期共同确定服务周期，自动报送会按该周期生成周报和月报</p></div>
+              <div><h3 className="text-base font-semibold">执行设置</h3><p className="mt-1 text-xs text-slate-600">开始与结束日期共同确定服务周期，自动报送会按该周期生成周报和月报</p></div>
               <button type="button" onClick={() => setSettingsOpen(false)} className="rounded-md p-2 hover:bg-[#EEF5FC]" aria-label="关闭"><X className="h-4 w-4" /></button>
             </header>
             <div className="grid gap-4 p-5 sm:grid-cols-2">
@@ -1256,7 +1274,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
       {actionOpen ? (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#00133F]/58 p-3 backdrop-blur-sm" role="dialog" aria-modal="true">
           <form onSubmit={addAction} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b border-[#E3EDF6] px-5 py-4"><div><h3 className="text-base font-semibold">记录执行动作</h3><p className="mt-1 text-xs text-[#7E91A7]">证据链接将提高客户反馈的可信度</p></div><button type="button" onClick={() => setActionOpen(false)} className="rounded-md p-2 hover:bg-[#EEF5FC]" aria-label="关闭"><X className="h-4 w-4" /></button></header>
+            <header className="flex items-center justify-between border-b border-[#E3EDF6] px-5 py-4"><div><h3 className="text-base font-semibold">记录执行动作</h3><p className="mt-1 text-xs text-slate-600">证据链接将提高客户反馈的可信度</p></div><button type="button" onClick={() => setActionOpen(false)} className="rounded-md p-2 hover:bg-[#EEF5FC]" aria-label="关闭"><X className="h-4 w-4" /></button></header>
             <div className="grid gap-4 p-5 sm:grid-cols-2">
               <label className="space-y-1.5 text-xs font-semibold sm:col-span-2">动作名称<input name="title" required maxLength={160} placeholder="例如：发布 10 篇行业疑问型内容" className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal outline-none focus:border-[#1677FF]" /></label>
               <label className="space-y-1.5 text-xs font-semibold">动作类型<select name="category" className="h-10 w-full rounded-lg border border-[#C8D9E8] px-3 font-normal">{CATEGORY_OPTIONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
@@ -1282,26 +1300,54 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
         />
       ) : null}
 
-      {previewReport ? (
-        <div className="fixed inset-0 z-[9999] overflow-y-auto bg-[#00133F]/72 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true">
-          <div className="mx-auto mb-4 flex max-w-6xl flex-col items-stretch justify-between gap-2 rounded-lg bg-[#001D66] px-3 py-2 text-white sm:flex-row sm:items-center sm:gap-3">
-            <button type="button" onClick={() => setPreviewReport(null)} className="inline-flex h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold hover:bg-white/10"><ArrowLeft className="h-4 w-4" />返回执行中心</button>
+      {previewReport ? createPortal(
+        <div
+          key={previewReport.id}
+          ref={previewRef}
+          tabIndex={-1}
+          className="fixed inset-0 z-[9999] overflow-y-auto overscroll-contain bg-slate-100 px-3 pb-6 outline-none sm:px-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label={previewReport.snapshot.reportTitle}
+          onKeyDown={event => {
+            if (reportDialogType) return
+            if (event.key === "Escape") {
+              event.stopPropagation()
+              setPreviewReport(null)
+            }
+            if (event.key !== "Tab") return
+            const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+              'a[href], button:not([disabled]), [tabindex="0"]',
+            ))
+            const first = controls[0]
+            const last = controls[controls.length - 1]
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) {
+              event.preventDefault()
+              last?.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault()
+              first?.focus()
+            }
+          }}
+        >
+          <div className="sticky top-0 z-20 mx-auto mb-4 flex max-w-6xl flex-col items-stretch justify-between gap-2 border-b border-slate-200 bg-slate-100 py-3 text-slate-900 sm:flex-row sm:items-center sm:gap-3">
+            <button type="button" onClick={() => setPreviewReport(null)} className="inline-flex min-h-11 items-center gap-2 rounded-md px-3 text-sm font-semibold hover:bg-slate-200"><ArrowLeft className="h-4 w-4" />返回执行中心</button>
             {payload.canManage ? (
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <button type="button" onClick={() => openReportDialog(previewReport.type, previewReport)} disabled={pending.startsWith("generate:")} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10 disabled:opacity-50"><RefreshCw className="h-4 w-4" />生成新版</button>
+                <button type="button" onClick={() => openReportDialog(previewReport.type, previewReport)} disabled={pending.startsWith("generate:")} className="inline-flex min-h-11 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"><RefreshCw className="h-4 w-4" />生成新版</button>
                 {previewReport.status === "draft" ? (
-                  <button type="button" onClick={() => void deleteReport(previewReport)} disabled={pending === `delete-report:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10 disabled:opacity-50"><Trash2 className="h-4 w-4" />删除草稿</button>
+                  <button type="button" onClick={() => void deleteReport(previewReport)} disabled={pending === `delete-report:${previewReport.id}`} className="inline-flex min-h-11 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"><Trash2 className="h-4 w-4" />删除草稿</button>
                 ) : previewReport.shareEnabled ? (
-                  <button type="button" onClick={() => void revokeReportShare(previewReport)} disabled={pending === `revoke:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10 disabled:opacity-50"><LockKeyhole className="h-4 w-4" />停止分享</button>
+                  <button type="button" onClick={() => void revokeReportShare(previewReport)} disabled={pending === `revoke:${previewReport.id}`} className="inline-flex min-h-11 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-semibold hover:bg-slate-200 disabled:opacity-50"><LockKeyhole className="h-4 w-4" />停止分享</button>
                 ) : null}
                 {previewReport.status === "published" && previewReport.shareEnabled ? (
                   <>
-                    <button type="button" onClick={() => openReportShareUrl(previewReport)} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold"><ExternalLink className="h-4 w-4" />打开网页</button>
-                    <button type="button" onClick={() => void copyReportShareUrl(previewReport)} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10">{copiedReportId === previewReport.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copiedReportId === previewReport.id ? "已复制" : "复制链接"}</button>
-                    <button type="button" onClick={() => openReportShareUrl(previewReport, true)} className="inline-flex h-9 items-center gap-2 rounded-md border border-white/25 px-3 text-xs font-semibold hover:bg-white/10"><FileDown className="h-4 w-4" />导出 PDF</button>
+                    <button type="button" onClick={() => openReportShareUrl(previewReport)} className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[#0958D9] text-white hover:bg-[#003EB3] px-3 text-sm font-semibold"><ExternalLink className="h-4 w-4" />打开网页</button>
+                    <button type="button" onClick={() => void copyReportShareUrl(previewReport)} className="inline-flex min-h-11 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-semibold hover:bg-slate-200">{copiedReportId === previewReport.id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copiedReportId === previewReport.id ? "已复制" : "复制链接"}</button>
+                    <button type="button" onClick={() => openReportShareUrl(previewReport, true)} className="inline-flex min-h-11 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-semibold hover:bg-slate-200"><FileDown className="h-4 w-4" />导出 PDF</button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => void publishReport(previewReport)} disabled={pending === `publish:${previewReport.id}`} className="inline-flex h-9 items-center gap-2 rounded-md bg-gradient-to-r from-[#1677FF] to-[#00AEEA] px-3 text-xs font-semibold disabled:opacity-50">
+                  <button type="button" onClick={() => void publishReport(previewReport)} disabled={pending === `publish:${previewReport.id}`} className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[#0958D9] text-white hover:bg-[#003EB3] px-3 text-sm font-semibold disabled:opacity-50">
                     {pending === `publish:${previewReport.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
                     {previewReport.status === "published" ? "恢复分享并复制链接" : "创建链接并复制"}
                   </button>
@@ -1310,7 +1356,7 @@ export default function ClientFeedbackModule({ client }: { client: Client }) {
             ) : null}
           </div>
           <ClientFeedbackReportView report={previewReport} />
-        </div>
+        </div>, document.body
       ) : null}
     </div>
   )

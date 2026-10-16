@@ -1,8 +1,11 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import {
+  BarChart3,
+  ChartNoAxesCombined,
   Brain,
   Building2,
   CalendarRange,
@@ -47,7 +50,7 @@ export const DASHBOARD_MODULES: ReadonlyArray<{
   { key: "feedback", label: "执行反馈", desc: "日历、周报与月报", icon: CalendarRange, accent: "from-[#00AEEA] to-[#13C2C2]" },
 ] as const
 
-type DashboardWorkflowKey = "insights" | "assessment" | "keyword" | "article" | "feedback"
+type DashboardWorkflowKey = "insights" | "assessment" | "keyword" | "article"
 
 const DASHBOARD_WORKFLOWS: ReadonlyArray<{
   key: DashboardWorkflowKey
@@ -60,11 +63,10 @@ const DASHBOARD_WORKFLOWS: ReadonlyArray<{
   {
     key: "insights",
     label: "情报洞察",
-    desc: "渗透率与联网调研",
+    desc: "品牌与竞品联网调研",
     icon: Radar,
     accent: "from-[#1677FF] to-[#00AEEA]",
     modules: [
-      { key: "penetration", label: "渗透率检测" },
       { key: "research", label: "联网调研" },
     ],
   },
@@ -95,14 +97,6 @@ const DASHBOARD_WORKFLOWS: ReadonlyArray<{
     accent: "from-[#6C5CE7] to-[#2F54EB]",
     modules: [{ key: "article", label: "内容生产" }],
   },
-  {
-    key: "feedback",
-    label: "执行复盘",
-    desc: "动作、周报与月报",
-    icon: CalendarRange,
-    accent: "from-[#00AEEA] to-[#13C2C2]",
-    modules: [{ key: "feedback", label: "执行复盘" }],
-  },
 ] as const
 
 export function isDashboardModuleKey(value: string | null): value is DashboardModuleKey {
@@ -128,6 +122,36 @@ export default function WorkspaceSidebar({
   monthlyCredits?: number
   monthlyAllowance?: number
 }) {
+  const [section, setSection] = useState("")
+  useEffect(() => {
+    const syncSection = () => setSection(window.location.hash)
+    syncSection()
+    window.addEventListener("hashchange", syncSection)
+    window.addEventListener("popstate", syncSection)
+    return () => {
+      window.removeEventListener("hashchange", syncSection)
+      window.removeEventListener("popstate", syncSection)
+    }
+  }, [])
+
+  // The feedback module loads asynchronously; position the selected section once it exists.
+  useEffect(() => {
+    if (active !== "feedback" || !["#client-overview", "#client-reports"].includes(section)) return
+    const scrollToSection = () => {
+      const target = document.getElementById(section.slice(1))
+      if (!target) return false
+      target.scrollIntoView({ block: "start" })
+      return true
+    }
+    if (scrollToSection()) return
+    const observer = new MutationObserver(() => {
+      if (scrollToSection()) observer.disconnect()
+    })
+    const main = document.querySelector("main")
+    if (main) observer.observe(main, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [active, client?.id, section])
+
   const restricted = access.mode === "client"
   const drawerClass = open ? "translate-x-0" : "-translate-x-full"
   const SubjectIcon = client && getClientSubjectType(client) === "person" ? UserRound : Building2
@@ -175,7 +199,44 @@ export default function WorkspaceSidebar({
         </Link>
       </div>
 
-      <div className="shrink-0 px-4 pb-2 text-[10px] font-semibold text-cyan-100/55">业务工作流</div>
+      {client && (canViewModule("feedback") || canViewModule("penetration")) ? <nav aria-label="客户工作台" className="shrink-0 space-y-1 px-3 pb-4">
+        <h2 className="px-2 py-2 text-xs font-semibold text-cyan-100/70">客户工作台</h2>
+        {([
+          { module: "feedback", hash: "#client-overview", label: "项目概览", icon: BarChart3 },
+          { module: "penetration", hash: "", label: "检测结果", icon: ChartNoAxesCombined },
+          { module: "feedback", hash: "#client-reports", label: "周月报", icon: CalendarRange },
+        ] as const).filter(item => canViewModule(item.module)).map(item => {
+          const Icon = item.icon
+          const selected = active === item.module && (item.module !== "feedback"
+            || (item.hash === "#client-reports" ? section === item.hash : section !== "#client-reports"))
+          const params = new URLSearchParams({ clientId: client.id, module: item.module })
+          if (access.mode === "team" && access.teamId) params.set("teamId", access.teamId)
+          return <Link
+            key={item.label}
+            href={`/workspace?${params}${item.hash}`}
+            onNavigate={event => {
+              event.preventDefault()
+              onChange(item.module)
+              const url = new URL(window.location.href)
+              url.searchParams.set("clientId", client.id)
+              url.searchParams.set("module", item.module)
+              url.searchParams.delete("view")
+              url.searchParams.delete("jobId")
+              if (access.mode === "team" && access.teamId) url.searchParams.set("teamId", access.teamId)
+              url.hash = item.hash
+              window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
+              setSection(item.hash)
+              // Repeated selection should also return to the section after scrolling away.
+              if (item.hash) document.getElementById(item.hash.slice(1))?.scrollIntoView({ block: "start" })
+              else document.querySelector("main")?.scrollTo({ top: 0 })
+              onClose?.()
+            }}
+            aria-current={selected ? "page" : undefined}
+            className={cn("flex min-h-11 items-center gap-3 rounded-md px-3 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300", selected ? "bg-blue-600 text-white" : "text-slate-200 hover:bg-white/10")}
+          ><Icon size={18} aria-hidden="true" />{item.label}</Link>
+        })}
+      </nav> : null}
+      <div className="shrink-0 px-4 pb-2 text-[10px] font-semibold text-cyan-100/55">优化工作</div>
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4" aria-label="工作台业务工作流">
         {visibleWorkflows.map(workflow => {
           const Icon = workflow.icon

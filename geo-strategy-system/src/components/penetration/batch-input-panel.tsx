@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type RefObject } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -90,6 +90,7 @@ interface Props {
   identityReadOnly?: boolean
   questionReadOnly?: boolean
   canExecute?: boolean
+  questionEntryRef?: RefObject<HTMLDivElement | null>
 }
 
 export default function BatchInputPanel({
@@ -106,6 +107,7 @@ export default function BatchInputPanel({
   identityReadOnly = false,
   questionReadOnly = false,
   canExecute = true,
+  questionEntryRef,
 }: Props) {
   const [questionsText, setQuestionsText] = useState(() => client.questions.join("\n"))
   const [brandAliasesText, setBrandAliasesText] = useState(() => (client.brandAliases ?? []).join("\n"))
@@ -657,7 +659,7 @@ export default function BatchInputPanel({
         </div>
       </details>
 
-      <div>
+      <div ref={questionEntryRef} tabIndex={-1} className="scroll-mt-24 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1677FF]">
         <div className="flex items-center justify-between mb-2">
           <Label className="text-xs text-slate-600 block">
             疑问句列表 * <span className="text-slate-400">（已识别 {questionCount} 条）</span>

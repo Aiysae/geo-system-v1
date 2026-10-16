@@ -13,7 +13,6 @@ const controller = new PenetrationConcurrencyController({
     kimi: 1,
     ernie: 1,
     hunyuan: 1,
-    zhipu: 1,
   },
 })
 
@@ -68,7 +67,6 @@ assert.deepEqual(controller.snapshot(), {
     kimi: { active: 0, waiting: 0, limit: 1 },
     ernie: { active: 0, waiting: 0, limit: 1 },
     hunyuan: { active: 0, waiting: 0, limit: 1 },
-    zhipu: { active: 0, waiting: 0, limit: 1 },
   },
 })
 

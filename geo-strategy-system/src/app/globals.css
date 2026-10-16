@@ -511,6 +511,13 @@ select {
   color: #8ba0b5;
 }
 
+/* Read-only article content stays readable while the fieldset blocks editing. */
+.geo-plain-editor:disabled {
+  color: var(--geo-text);
+  -webkit-text-fill-color: var(--geo-text);
+  opacity: 1;
+}
+
 .geo-segmented {
   display: grid;
   gap: 0.25rem;

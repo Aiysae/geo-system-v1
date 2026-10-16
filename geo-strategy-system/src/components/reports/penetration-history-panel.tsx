@@ -26,6 +26,7 @@ import ModelAvatar from "@/components/model-avatar"
 import BrandRankingCard from "@/components/penetration/brand-ranking-card"
 import IndustryShareChart from "@/components/penetration/industry-share-chart"
 import ModelRateTrend from "@/components/penetration/model-rate-trend"
+import PenetrationResultSummary from "@/components/penetration/result-summary"
 import PenetrationDonut from "@/components/penetration/penetration-donut"
 import PenetrationSampleQualityPanel from "@/components/penetration/sample-quality-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
@@ -634,30 +635,22 @@ export function PenetrationHistoryDetail({
 
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-6 sm:py-6">
-      <section className="overflow-hidden rounded-lg border border-sky-100 bg-white shadow-sm">
-        <div className="bg-gradient-to-r from-[#001D66] via-[#003EB3] to-[#00AEEA] px-4 py-4 text-white sm:px-5">
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="bg-white px-5 py-3 text-slate-900">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold text-cyan-100/70">
-                {subjectType === "person" ? "个人 IP 检测历史快照" : "渗透率检测历史快照"}
-              </div>
               <h3 className="mt-1 text-lg font-semibold">{record.clientName}</h3>
-              <p className="mt-1 text-xs text-cyan-50/75">
+              <p className="mt-1 text-xs text-slate-600">
                 {record.request.ourBrand || (subjectType === "person" ? "未填写人物姓名" : "未填写品牌")} · {record.request.industry || "未填写行业"}
               </p>
             </div>
-            <span className={`inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1.5 text-[11px] font-semibold ring-1 ring-inset ${status.className}`}>
+            <span className={`inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1.5 text-xs font-semibold ring-1 ring-inset ${status.className}`}>
               <StatusIcon className="h-3.5 w-3.5" />
               {status.label}
             </span>
           </div>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0">
-          <SnapshotMeta label="完成时间" value={formatDate(record.completedAt || record.createdAt)} />
-          <SnapshotMeta label="检测类型" value={record.operation === "append" ? "单题重测" : "完整检测"} />
-          <SnapshotMeta label="有效采样" value={`${record.summary.completedSlots}/${record.summary.totalSlots}`} />
-          <SnapshotMeta label="联网信源" value={`${record.summary.sourceCount} 次引用 · ${record.summary.uniqueSourceCount ?? record.summary.sourceCount} 个网址`} />
-        </div>
+
         {record.error ? (
           <div className="border-t border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 sm:px-5">
             {record.error}
@@ -665,6 +658,16 @@ export function PenetrationHistoryDetail({
         ) : null}
       </section>
 
+      {result ? <PenetrationResultSummary result={result} plannedSlots={record.summary.totalSlots} /> : null}
+      <details className="rounded-lg border border-slate-200 bg-white p-3">
+        <summary className="cursor-pointer py-2 text-sm font-medium text-slate-600">检测记录详情 · 时间、采样与信源</summary>
+        <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0">
+          <SnapshotMeta label="完成时间" value={formatDate(record.completedAt || record.createdAt)} />
+          <SnapshotMeta label="检测类型" value={record.operation === "append" ? "单题重测" : "完整检测"} />
+          <SnapshotMeta label="有效采样" value={`${record.summary.completedSlots}/${record.summary.totalSlots}`} />
+          <SnapshotMeta label="联网信源" value={`${record.summary.sourceCount} 次引用 · ${record.summary.uniqueSourceCount ?? record.summary.sourceCount} 个网址`} />
+        </div>
+      </details>
       <RequestSnapshot record={record} />
 
       {!result ? (
@@ -679,7 +682,7 @@ export function PenetrationHistoryDetail({
         <>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2">
             <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-1 text-[11px] font-semibold text-[#1677FF]">
+              <div className="mb-1 text-xs font-semibold text-[#1677FF]">
                 {subjectType === "person" ? "个人 IP 被提及率" : "品牌被提及率"}
               </div>
               <PenetrationDonut
@@ -703,7 +706,7 @@ export function PenetrationHistoryDetail({
 
           <div className="grid min-w-0 gap-4 xl:grid-cols-2">
             <section className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-3 text-[11px] font-semibold text-[#1677FF]">
+              <div className="mb-3 text-xs font-semibold text-[#1677FF]">
                 {subjectType === "person" ? "同行人物可见度" : "全品牌渗透率"} Top {Math.min(10, result.aggregated.industryShare.length)}
               </div>
               <div className="min-h-0 flex-1">
@@ -717,7 +720,7 @@ export function PenetrationHistoryDetail({
               </div>
             </section>
             <section className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-3 text-[11px] font-semibold text-[#1677FF]">各模型渗透率对比</div>
+              <div className="mb-3 text-xs font-semibold text-[#1677FF]">各模型渗透率对比</div>
               <div className="min-h-0 flex-1">
                 <ModelRateTrend
                   compact
@@ -730,7 +733,7 @@ export function PenetrationHistoryDetail({
 
           {subjectType === "person" && (result.aggregated.institutionShare?.length || 0) > 0 ? (
             <section className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-3 text-[11px] font-semibold text-[#1677FF]">
+              <div className="mb-3 text-xs font-semibold text-[#1677FF]">
                 关联机构提及 Top {Math.min(10, result.aggregated.institutionShare?.length || 0)}
               </div>
               <div className="min-h-0 flex-1">
@@ -794,8 +797,8 @@ export function PenetrationHistoryDetail({
 function SnapshotMeta({ label, value }: { label: string; value: string }) {
   return (
     <div className="px-4 py-3 sm:px-5">
-      <div className="text-[10px] text-slate-400">{label}</div>
-      <div className="mt-1 break-words text-xs font-semibold text-slate-700">{value}</div>
+      <div className="text-xs text-slate-600">{label}</div>
+      <div className="mt-1 break-words text-sm font-semibold text-slate-700">{value}</div>
     </div>
   )
 }

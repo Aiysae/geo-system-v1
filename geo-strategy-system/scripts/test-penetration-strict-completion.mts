@@ -108,14 +108,14 @@ assert.equal(
   true,
 )
 
-assert.deepEqual(PENETRATION_SLOT_RETRY_DELAYS_MS, [2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 180_000])
+assert.deepEqual(PENETRATION_SLOT_RETRY_DELAYS_MS, [3_000, 10_000, 30_000, 90_000, 180_000, 300_000])
 const base = Date.parse("2026-07-16T00:00:00.000Z")
-assert.equal(nextPenetrationRetryAt(1, base), "2026-07-16T00:00:02.000Z")
-assert.equal(nextPenetrationRetryAt(7, base), "2026-07-16T00:03:00.000Z")
-assert.equal(nextPenetrationRetryAt(8, base), null)
+assert.equal(nextPenetrationRetryAt(1, base), "2026-07-16T00:00:03.000Z")
+assert.equal(nextPenetrationRetryAt(6, base), "2026-07-16T00:05:00.000Z")
+assert.equal(nextPenetrationRetryAt(7, base), null)
 const jittered = Date.parse(nextPenetrationRetryAt(1, base, "job:model:1") || "")
-assert.ok(jittered >= base + 2_200)
-assert.ok(jittered <= base + 2_600)
+assert.ok(jittered >= base + 3_300)
+assert.ok(jittered <= base + 3_900)
 
 assert.deepEqual(PENETRATION_AUDIT_RETRY_DELAYS_MS, [5_000, 30_000])
 const auditError = "通义千问 百炼联网未返回可审计来源（search_results=0）"
@@ -130,7 +130,7 @@ assert.equal(
 assert.equal(nextPenetrationRetryAtForError(auditError, 3, base), null)
 assert.equal(
   nextPenetrationRetryAtForError("普通网络失败", 1, base),
-  "2026-07-16T00:00:02.000Z",
+  "2026-07-16T00:00:03.000Z",
 )
 
 console.log("Penetration strict completion policy passed.")
