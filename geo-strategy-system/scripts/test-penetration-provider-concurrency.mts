@@ -13,6 +13,7 @@ const controller = new PenetrationConcurrencyController({
     kimi: 1,
     ernie: 1,
     hunyuan: 1,
+    zhipu: 1,
   },
 })
 
