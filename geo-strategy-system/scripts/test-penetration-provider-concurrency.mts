@@ -68,6 +68,7 @@ assert.deepEqual(controller.snapshot(), {
     kimi: { active: 0, waiting: 0, limit: 1 },
     ernie: { active: 0, waiting: 0, limit: 1 },
     hunyuan: { active: 0, waiting: 0, limit: 1 },
+    zhipu: { active: 0, waiting: 0, limit: 1 },
   },
 })
 
