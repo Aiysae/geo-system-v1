@@ -141,6 +141,7 @@ export default function WorkspaceSidebar({
       const target = document.getElementById(section.slice(1))
       if (!target) return false
       target.scrollIntoView({ block: "start" })
+      if (section === "#client-overview") document.querySelector("main")?.scrollBy({ top: -80 })
       return true
     }
     if (scrollToSection()) return
@@ -227,7 +228,10 @@ export default function WorkspaceSidebar({
               window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
               setSection(item.hash)
               // Repeated selection should also return to the section after scrolling away.
-              if (item.hash) document.getElementById(item.hash.slice(1))?.scrollIntoView({ block: "start" })
+              if (item.hash) {
+                document.getElementById(item.hash.slice(1))?.scrollIntoView({ block: "start" })
+                if (item.hash === "#client-overview") document.querySelector("main")?.scrollBy({ top: -80 })
+              }
               else document.querySelector("main")?.scrollTo({ top: 0 })
               onClose?.()
             }}
