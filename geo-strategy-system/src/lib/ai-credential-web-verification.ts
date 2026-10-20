@@ -168,7 +168,9 @@ export async function verifyAiCredentialWeb(
         accountFailure = true
         break
       }
-      failedWebModels.add(model)
+      // An uncited answer, a cancelled probe or a full lane says nothing
+      // about whether this model can search, so it keeps its verification.
+      if (failure.scope !== "ignored") failedWebModels.add(model)
     }
   }
 

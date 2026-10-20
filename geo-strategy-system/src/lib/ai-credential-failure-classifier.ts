@@ -160,6 +160,20 @@ export function classifyAiCredentialFailure(
     })
   }
 
+  if (/已执行联网搜索，但本次回答没有引用网页来源/.test(message)) {
+    // The account searched; this one answer just cited nothing. Ask again
+    // without marking the account unhealthy, or a single remaining account
+    // would take the model offline for up to an hour.
+    return diagnosis({
+      failureClass: "web_evidence",
+      scope: "ignored",
+      code: "WEB_ANSWER_UNCITED",
+      message,
+      countsTowardCircuit: false,
+      cooldownMs: 0,
+    })
+  }
+
   if (
     /search_results=0|(?:未返回|没有返回|未取得|没有取得).{0,30}(?:可审计|有效信源|信源网址|网页来源)|未执行.{0,12}(?:联网|web_search)|厂商未确认执行官方联网|联网返回空内容/i.test(message)
   ) {

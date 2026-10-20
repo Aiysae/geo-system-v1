@@ -147,7 +147,9 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
 
     if (!answer.trim()) throw new Error("豆包 Responses 联网返回空内容。")
     if (args.requireWebEvidence && sources.length === 0) {
-      throw new Error("豆包 Responses 联网未返回可审计网页来源，已进入后台补采。")
+      throw new Error(searchExecuted
+        ? "豆包 已执行联网搜索，但本次回答没有引用网页来源，已改为重新提问。"
+        : "豆包 Responses 联网未返回可审计网页来源，已进入后台补采。")
     }
     if (!data.id?.trim()) throw new Error("豆包 Responses 联网未返回请求编号，已进入后台补采。")
     return answer

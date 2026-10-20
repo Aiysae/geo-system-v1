@@ -298,6 +298,46 @@ try {
   assert.deepEqual(usedModels, ["doubao-seed-2-0-lite-260215"], "falls back to lite while pro cannot serve")
   await setAiCredentialEnabled(flagship.id, false, "test")
 
+  // A search that ran but whose answer cited nothing is that answer's problem:
+  // it must neither open the route nor strip the account's web verification,
+  // or one remaining account takes the model offline for an hour.
+  const uncitedClass = classifyAiCredentialFailure(new Error("豆包 已执行联网搜索，但本次回答没有引用网页来源，已改为重新提问。"))
+  assert.equal(uncitedClass.scope, "ignored")
+  assert.equal(uncitedClass.countsTowardCircuit, false)
+  for (const credential of await (await import("../src/lib/ai-credential-store")).listAiCredentialsPublic()) {
+    if (credential.vendor === "doubao" && credential.enabled) await setAiCredentialEnabled(credential.id, false, "test")
+  }
+  const uncited = await saveAiCredential({
+    vendor: "doubao", name: "豆包未引用", accountLabel: "豆包未引用", apiKey: "doubao-uncited-secret",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3", chatPath: "/chat/completions", enabled: false,
+    allowedModels: ["doubao-seed-2-1-pro-260628"], allowedModules: ["penetration"],
+    declaredCapabilities: ["chat", "native_web", "auditable_sources"],
+  }, "test")
+  await updateAiCredentialHealth(uncited.id, {
+    status: "healthy", verifiedCapabilities: ["chat", "native_web", "auditable_sources"],
+    verifiedWebModels: ["doubao-seed-2-1-pro-260628"],
+  })
+  await setAiCredentialEnabled(uncited.id, true, "test")
+  globalThis.fetch = async () => Response.json({
+    id: "resp_uncited",
+    output: [
+      { type: "web_search_call", status: "completed" },
+      { type: "message", content: [{ type: "output_text", text: "没有标注来源的回答。", annotations: [] }] },
+    ],
+  })
+  const { runAdapterCredentialPoolChat: runUncited } = await import("../src/lib/ai-credential-adapter")
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await assert.rejects(runUncited("doubao", "penetration", {
+      system: "", user: "哪家监理公司做过斜拉桥项目？", mode: "consumer", forceWebSearch: true,
+      rawQuestionOnly: true, requireWebEvidence: true, officialWebOnly: true, timeoutSec: 30,
+    }), /没有引用网页来源/)
+  }
+  assert.equal((await getPenetrationModelReadiness("doubao")).ready, true, "uncited answers keep the account in service")
+  await runAiCredentialHealthSweep({ credentialId: uncited.id, force: true })
+  assert.deepEqual((await getAiCredentialRuntime(uncited.id)).verifiedWebModels, ["doubao-seed-2-1-pro-260628"],
+    "an uncited probe answer keeps the model's web verification")
+  await setAiCredentialEnabled(uncited.id, false, "test")
+
   // An account that never declared web search capability says so.
   const qwen = await saveAiCredential({
     vendor: "qwen", name: "千问", accountLabel: "千问", apiKey: "qwen-secret",

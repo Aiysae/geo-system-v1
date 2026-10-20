@@ -278,7 +278,10 @@ async function chatTokenHubNativeSearch(
       throw new Error(`${LABEL} TokenHub 返回空内容。`)
     }
     if (args.requireWebEvidence && sources.length === 0) {
-      throw new Error(`${LABEL} TokenHub 未返回可审计网页来源，已阻断模型自答。`)
+      // A search that ran but was not cited says nothing about the account.
+      throw new Error(searchExecuted
+        ? `${LABEL} 已执行联网搜索，但本次回答没有引用网页来源，已改为重新提问。`
+        : `${LABEL} TokenHub 未返回可审计网页来源，已阻断模型自答。`)
     }
     return parsed.answer
   } catch (error) {
