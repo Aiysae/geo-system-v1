@@ -1,0 +1,186 @@
+{
+  "ZhiHu": {
+    "authorizeUrl": "https://www.zhihu.com/signin?next=%2Fcreator",
+    "entryUrl": "https://www.zhihu.com/creator"
+  },
+  "DouYin": {
+    "authorizeUrl": "https://creator.douyin.com/",
+    "entryUrl": "https://creator.douyin.com/creator-micro/home"
+  },
+  "KuaiShou": {
+    "authorizeUrl": "https://passport.kuaishou.com/pc/account/login/?sid=kuaishou.web.cp.api&callback=https%3A%2F%2Fcp.kuaishou.com%2Frest%2Finfra%2Fsts%3FfollowUrl%3Dhttps%253A%252F%252Fcp.kuaishou.com%252Fprofile%26setRootDomain%3Dtrue",
+    "entryUrl": "https://cp.kuaishou.com/profile"
+  },
+  "ShiPinHao": {
+    "authorizeUrl": "https://channels.weixin.qq.com/login.html",
+    "entryUrl": "https://channels.weixin.qq.com/platform"
+  },
+  "ShiPinHaoStore": {
+    "authorizeUrl": "https://store.weixin.qq.com/talent/?redirect_url=%2Fchannel%2Ffinder",
+    "entryUrl": "https://store.weixin.qq.com/talent/channel/finder"
+  },
+  "XiaoHongShu": {
+    "authorizeUrl": "https://creator.xiaohongshu.com/login",
+    "entryUrl": "https://creator.xiaohongshu.com/new/home"
+  },
+  "RedNote": {
+    "authorizeUrl": "https://creator.rednote.com/login",
+    "entryUrl": "https://creator.rednote.com/publish/publish"
+  },
+  "XiaoHongShuShouYe": {
+    "authorizeUrl": "https://www.xiaohongshu.com/login",
+    "entryUrl": "https://www.xiaohongshu.com/explore"
+  },
+  "BiLiBiLi": {
+    "authorizeUrl": "https://passport.bilibili.com/login",
+    "entryUrl": "https://member.bilibili.com/platform"
+  },
+  "BaiJiaHao": {
+    "authorizeUrl": "https://baijiahao.baidu.com/builder/theme/bjh/login",
+    "entryUrl": "https://baijiahao.baidu.com/builder/rc/home"
+  },
+  "TouTiaoHao": {
+    "authorizeUrl": "https://mp.toutiao.com/auth/page/login",
+    "entryUrl": "https://mp.toutiao.com/profile_v4"
+  },
+  "XinLangWeiBo": {
+    "authorizeUrl": "https://passport.weibo.com/sso/signin",
+    "entryUrl": "https://me.weibo.com/"
+  },
+  "QiEHao": {
+    "authorizeUrl": "https://om.qq.com/userAuth/index",
+    "entryUrl": "https://om.qq.com/main"
+  },
+  "SouHuHao": {
+    "authorizeUrl": "https://mp.sohu.com/mpfe/v4/login",
+    "entryUrl": "https://mp.sohu.com/mpfe/v4/contentManagement/first/page"
+  },
+  "YiDianHao": {
+    "authorizeUrl": "https://mp.yidianzixun.com/",
+    "entryUrl": "https://mp.yidianzixun.com/"
+  },
+  "DaYuHao": {
+    "authorizeUrl": "https://mp.dayu.com/",
+    "entryUrl": "https://mp.dayu.com/dashboard/index"
+  },
+  "WangYiHao": {
+    "authorizeUrl": "https://mp.163.com/login.html",
+    "entryUrl": "https://mp.163.com/subscribe_v4/index.html#/"
+  },
+  "AiQiYi": {
+    "authorizeUrl": "https://mp.iqiyi.com/",
+    "entryUrl": "https://mp.iqiyi.com/"
+  },
+  "TengXunWeiShi": {
+    "authorizeUrl": "https://h5.weishi.qq.com/weishi/account/login?r_url=http%3A%2F%2Fmedia.weishi.qq.com%2F",
+    "entryUrl": "https://media.weishi.qq.com/"
+  },
+  "SouHuShiPin": {
+    "authorizeUrl": "https://tv.sohu.com/s/center/index.html#/",
+    "entryUrl": "https://tv.sohu.com/s/center/index.html#/"
+  },
+  "PiPiXia": {
+    "authorizeUrl": "https://pipix.com/",
+    "entryUrl": "https://pipix.com/mp/upload"
+  },
+  "TengXunShiPin": {
+    "authorizeUrl": "https://mp.v.qq.com/",
+    "entryUrl": "https://mp.v.qq.com/"
+  },
+  "DuoDuoShiPin": {
+    "authorizeUrl": "https://live.pinduoduo.com/login/anchor",
+    "entryUrl": "https://live.pinduoduo.com/n-creator/live/home"
+  },
+  "MeiPai": {
+    "authorizeUrl": "https://www.meipai.com/medias/video_convert_list",
+    "entryUrl": "https://www.meipai.com/medias/video_convert_list"
+  },
+  "AcFun": {
+    "authorizeUrl": "https://www.acfun.cn/login/?returnUrl=http://member.acfun.cn%2F",
+    "entryUrl": "https://member.acfun.cn/"
+  },
+  "KuaiChuanHao": {
+    "authorizeUrl": "https://kuaichuan.360kuai.com/#/console/dashboard",
+    "entryUrl": "https://kuaichuan.360kuai.com/#/console/dashboard"
+  },
+  "XueQiuHao": {
+    "authorizeUrl": "https://xueqiu.com/account/login?url=https://mp.xueqiu.com",
+    "entryUrl": "https://mp.xueqiu.com/"
+  },
+  "XiaoHongShuShangJiaHao": {
+    "authorizeUrl": "https://customer.xiaohongshu.com/login?service=https://ark.xiaohongshu.com/app-system/home",
+    "entryUrl": "https://ark.xiaohongshu.com/app-system/home"
+  },
+  "MeiYou": {
+    "authorizeUrl": "https://mp.meiyou.com/page/sso/login",
+    "entryUrl": "https://mp.meiyou.com/home"
+  },
+  "CheJiaHao": {
+    "authorizeUrl": "https://account.autohome.com.cn/?backurl=https%3A%2F%2Fcreator.autohome.com.cn%2Fweb%2Fhome",
+    "entryUrl": "https://creator.autohome.com.cn/web/home"
+  },
+  "WeiXinGongZhongHao": {
+    "authorizeUrl": "https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome",
+    "entryUrl": "https://mp.weixin.qq.com/cgi-bin/home"
+  },
+  "YiCheHao": {
+    "authorizeUrl": "https://i.yiche.com/authenservice/login.html?returnurl=https://mp.yiche.com/",
+    "entryUrl": "https://mp.yiche.com/"
+  },
+  "DongCheHao": {
+    "authorizeUrl": "https://mp.dcdapp.com/login",
+    "entryUrl": "https://mp.dcdapp.com/profile_v2/home"
+  },
+  "FengWang": {
+    "authorizeUrl": "http://o.fun.tv/account/login/",
+    "entryUrl": "http://o.fun.tv/account/home"
+  },
+  "DouBan": {
+    "authorizeUrl": "https://accounts.douban.com/passport/login?redir=https://www.douban.com/",
+    "entryUrl": "https://www.douban.com/"
+  },
+  "CSDN": {
+    "authorizeUrl": "https://mp.csdn.net/",
+    "entryUrl": "https://mp.csdn.net/"
+  },
+  "DeWu": {
+    "authorizeUrl": "https://creator.dewu.com/login",
+    "entryUrl": "https://creator.dewu.com/release"
+  },
+  "JianShu": {
+    "authorizeUrl": "https://www.jianshu.com/sign_in",
+    "entryUrl": "https://www.jianshu.com/"
+  },
+  "WiFiWanNengYaoShi": {
+    "authorizeUrl": "https://mp.lsttnews.com/index.html#/login",
+    "entryUrl": "https://mp.lsttnews.com/index.html#/home"
+  },
+  "AI_DouBao": {
+    "authorizeUrl": "https://www.doubao.com/chat/",
+    "entryUrl": "https://www.doubao.com/chat/"
+  },
+  "AI_DeepSeek": {
+    "authorizeUrl": "https://chat.deepseek.com/",
+    "entryUrl": "https://chat.deepseek.com/"
+  },
+  "XiaoHongShuHome": {
+    "authorizeUrl": "https://www.xiaohongshu.com/login",
+    "entryUrl": "https://www.xiaohongshu.com/explore"
+  },
+  "TaoBaoGuangHe": {
+    "authorizeUrl": "https://login.taobao.com/havanaone/login/login.htm?bizName=taobao&sub=true&redirectURL=https%3A%2F%2Fcreator.guanghe.taobao.com%2Fpage",
+    "entryUrl": "https://creator.guanghe.taobao.com/page"
+  },
+  "JingDong": {
+    "authorizeUrl": "https://dr.jd.com/page/login.html",
+    "entryUrl": "https://dr.jd.com/n/home.html"
+  },
+  "Ximalaya": {
+    "authorizeUrl": "https://studio.ximalaya.com/uploadWorks",
+    "entryUrl": "https://studio.ximalaya.com/uploadWorks"
+  },
+  "XiaoYuZhou": {
+    "authorizeUrl": "https://podcaster.xiaoyuzhoufm.com",
+    "entryUrl": "https://podcaster.xiaoyuzhoufm.com/podcast"
+  }
+}

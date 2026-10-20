@@ -1,0 +1,531 @@
+[
+  {
+    "id": "AiQiYi",
+    "name": "爱奇艺号",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "AiqiyiHaoWorker",
+    "sourceLine": 85501,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "AcFun",
+    "name": "AcFun",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "AZhanWorker",
+    "sourceLine": 85657,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "BaiJiaHao",
+    "name": "百家号",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "BaiJiaHaoWorker",
+    "sourceLine": 85877,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "BiLiBiLi",
+    "name": "哔哩哔哩",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "BiliBiliWorker",
+    "sourceLine": 87103,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "CheJiaHao",
+    "name": "车家号",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "CheJiaHaoWorker",
+    "sourceLine": 87404,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "CSDN",
+    "name": "CSDN",
+    "contentTypes": [
+      "article"
+    ],
+    "draftTypes": [
+      "article"
+    ],
+    "worker": "CSDNWorker",
+    "sourceLine": 87558,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "DaYuHao",
+    "name": "大鱼号",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "DaYuHaoWorker",
+    "sourceLine": 87670,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "DeWu",
+    "name": "得物",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "DeWuWorker",
+    "sourceLine": 87860,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "DongCheHao",
+    "name": "懂车号",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "DongCheHaoWorker",
+    "sourceLine": 87982,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "DouBan",
+    "name": "豆瓣",
+    "contentTypes": [
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "DouBanWorker",
+    "sourceLine": 88131,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "DouYin",
+    "name": "抖音",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "DouYinWorker",
+    "sourceLine": 88288,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "DuoDuoShiPin",
+    "name": "多多视频",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "DuoDuoShiPinWorker",
+    "sourceLine": 89868,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "FengWang",
+    "name": "蜂网",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "FengWangWorker",
+    "sourceLine": 89972,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "JianShu",
+    "name": "简书",
+    "contentTypes": [
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "JianShuHaoWorker",
+    "sourceLine": 90084,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "JingDong",
+    "name": "京东",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "JingDongWorker",
+    "sourceLine": 90381,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "KuaiChuanHao",
+    "name": "快传号",
+    "contentTypes": [
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "KuaiChuanHaoWorker",
+    "sourceLine": 90724,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "KuaiShou",
+    "name": "快手",
+    "contentTypes": [
+      "video",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "KuaiShouWorker",
+    "sourceLine": 90896,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "MeiPai",
+    "name": "美拍",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "MeiPaiWorker",
+    "sourceLine": 91309,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "MeiYou",
+    "name": "美柚",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "MeiYouWorker",
+    "sourceLine": 91440,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "PiPiXia",
+    "name": "皮皮虾",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "PiPiXiaWorker",
+    "sourceLine": 91548,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "QiEHao",
+    "name": "企鹅号",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "QiehaoWorker",
+    "sourceLine": 91660,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "RedNote",
+    "name": "RedNote",
+    "contentTypes": [
+      "video",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "RedNoteWorker",
+    "sourceLine": 91929,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "ShiPinHao",
+    "name": "微信视频号",
+    "contentTypes": [
+      "video",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "ShiPinHaoWorker",
+    "sourceLine": 92215,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "SouHuHao",
+    "name": "搜狐号",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "SouHuHaoWorker",
+    "sourceLine": 92846,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "SouHuShiPin",
+    "name": "搜狐视频",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "SouHuShiPinWorker",
+    "sourceLine": 93237,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "TaoBaoGuangHe",
+    "name": "淘宝光合",
+    "contentTypes": [
+      "video",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "TaoBaoGuangHeWorker",
+    "sourceLine": 93519,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "TengXunShiPin",
+    "name": "腾讯视频",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "TengXunShiPinWorker",
+    "sourceLine": 93711,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "TouTiaoHao",
+    "name": "头条号",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "TouTiaoHaoWorker",
+    "sourceLine": 93859,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "WangYiHao",
+    "name": "网易号",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "WangYiHaoWorker",
+    "sourceLine": 94213,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "TengXunWeiShi",
+    "name": "腾讯微视",
+    "contentTypes": [
+      "video"
+    ],
+    "draftTypes": [],
+    "worker": "WeiShiWorker",
+    "sourceLine": 94581,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "WeiXinGongZhongHao",
+    "name": "微信公众号",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText",
+      "wechat"
+    ],
+    "draftTypes": [],
+    "worker": "WeiXinGongZhongHaoWorker",
+    "sourceLine": 94795,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "WiFiWanNengYaoShi",
+    "name": "WiFi万能钥匙",
+    "contentTypes": [
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "WiFIWanNengWorker",
+    "sourceLine": 95322,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "XiaoHongShuShangJiaHao",
+    "name": "小红书商家号",
+    "contentTypes": [
+      "video",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "XiaoHongShuShopWorker",
+    "sourceLine": 95738,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "XiaoHongShu",
+    "name": "小红书创作端",
+    "contentTypes": [
+      "video",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "XiaoHongShuWorker",
+    "sourceLine": 96051,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "XiaoYuZhou",
+    "name": "小宇宙",
+    "contentTypes": [
+      "audio"
+    ],
+    "draftTypes": [],
+    "worker": "XiaoyuzhouWorker",
+    "sourceLine": 96703,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "Ximalaya",
+    "name": "喜马拉雅",
+    "contentTypes": [
+      "video",
+      "audio"
+    ],
+    "draftTypes": [],
+    "worker": "XimalayaWorker",
+    "sourceLine": 96845,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "XinLangWeiBo",
+    "name": "新浪微博",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "XinLangWeiBoWorker",
+    "sourceLine": 97167,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "XueQiuHao",
+    "name": "雪球号",
+    "contentTypes": [
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "XueQiuHaoWorker",
+    "sourceLine": 97807,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "YiCheHao",
+    "name": "易车号",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "YiCheHaoWorker",
+    "sourceLine": 97912,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "YiDianHao",
+    "name": "一点号",
+    "contentTypes": [
+      "video",
+      "article"
+    ],
+    "draftTypes": [],
+    "worker": "YiDianHaoWorker",
+    "sourceLine": 98133,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  },
+  {
+    "id": "ZhiHu",
+    "name": "知乎",
+    "contentTypes": [
+      "video",
+      "article",
+      "imageText"
+    ],
+    "draftTypes": [],
+    "worker": "ZhihuWorker",
+    "sourceLine": 98313,
+    "implementation": "static",
+    "verification": "当前快照静态调用链存在；本次未连接真实平台验证"
+  }
+]

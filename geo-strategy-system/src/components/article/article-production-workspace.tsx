@@ -14,12 +14,13 @@ import {
   Square,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import ArticleDistributionButton, { type ArticleDistributionRequest } from "@/components/article/article-distribution-button"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import { WORKSPACE_NAVIGATION_EVENT } from "@/lib/workspace-navigation"
 import type { ArticleModelProviderKey } from "@/types"
-import type { ContentProductionRun } from "@/types/content-production"
+import type { ContentProductionItem, ContentProductionRun } from "@/types/content-production"
 import type { PublishingPlan, PublishingTask } from "@/types/publishing-plan"
 
 type Payload = {
@@ -91,6 +92,7 @@ export default function ArticleProductionWorkspace({
   const [dateTo, setDateTo] = useState(today())
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(new Set())
   const [selectedRunId, setSelectedRunId] = useState("")
+  const [selectedDistributionIds, setSelectedDistributionIds] = useState<Set<string>>(new Set())
   const initialized = useRef(false)
 
   const apiUrl = useCallback((suffix = "", extra?: Record<string, string>) => {
@@ -187,6 +189,8 @@ export default function ArticleProductionWorkspace({
   const assetCount = new Set(filteredTasks.map(task => task.assetId)).size
   const reusedCount = Math.max(0, filteredTasks.length - assetCount)
   const selectedRun = runs.find(run => run.id === selectedRunId) || runs[0]
+  const importableItems = (selectedRun?.items || []).filter(canImportProductionItem)
+  const selectedImportableItems = importableItems.filter(item => selectedDistributionIds.has(item.id))
   const progress = selectedRun?.requestedAssetCount
     ? Math.round((selectedRun.completedCount + selectedRun.failedCount + selectedRun.cancelledCount) / selectedRun.requestedAssetCount * 100)
     : 0
@@ -283,7 +287,7 @@ export default function ArticleProductionWorkspace({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-2 text-sm font-bold text-[#003EB3]"><Layers3 className="h-4 w-4" />按发布计划生产</h3>
-            <p className="mt-1 text-[11px] leading-5 text-[#6B8299]">一份母稿可对应多个平台交付任务，生成完成后按平台打包下载。</p>
+            <p className="mt-1 text-[11px] leading-5 text-[#6B8299]">一份母稿可对应多个平台交付任务，生成完成后可按平台打包下载，或选择文章加入独立分发台。</p>
           </div>
           <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">第 {plan.version} 版规划 · 已启用</span>
         </div>
@@ -332,7 +336,30 @@ export default function ArticleProductionWorkspace({
                 <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><span className="text-sm font-bold text-[#102A43]">{selectedRun.stage}</span><span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${statusClass(selectedRun)}`}>{statusLabel(selectedRun)}</span></div><p className="mt-1 text-[10px] text-[#6B8299]">质检通过 {selectedRun.passedCount} · 待复核 {selectedRun.reviewRequiredCount} · 未完成 {selectedRun.failedCount + selectedRun.cancelledCount}</p></div><div className="flex flex-wrap items-center gap-2">{!TERMINAL.has(selectedRun.status) ? <Button type="button" variant="outline" onClick={() => void cancelRun()} disabled={acting} className="h-8 gap-1.5 border-rose-200 px-2.5 text-[10px] text-rose-600">{acting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3 w-3" />}停止</Button> : null}<a href={apiUrl(`/${encodeURIComponent(selectedRun.id)}/download`, { scope: "passed" })} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#91CAFF] bg-white px-2.5 text-[10px] font-semibold text-[#0958D9]"><Download className="h-3.5 w-3.5" />仅质检通过</a><a href={apiUrl(`/${encodeURIComponent(selectedRun.id)}/download`, { scope: "all" })} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#1677FF] px-2.5 text-[10px] font-semibold text-white"><Download className="h-3.5 w-3.5" />下载全部稿件</a></div></div>
                 <div className="mt-3 flex items-center gap-3"><div className="h-2 flex-1 overflow-hidden rounded-full bg-[#E7EFF7]"><div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#13C2C2]" style={{ width: `${progress}%` }} /></div><span className="font-mono text-xs font-bold text-[#0958D9]">{progress}%</span></div>
               </div>
-              <div className="max-h-[410px] divide-y divide-[#EDF2F7] overflow-y-auto">{selectedRun.items.map((item, index) => <article key={item.id} className="px-4 py-3"><div className="flex items-start gap-3"><span className="mt-0.5 font-mono text-[10px] text-[#8AA0B5]">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0 flex-1"><p className="text-xs font-semibold leading-5 text-[#102A43]">{item.title || item.question}</p><div className="mt-1.5 flex flex-wrap gap-1.5">{item.deliveries.map(delivery => <span key={delivery.publishingTaskId} className="rounded bg-[#EEF5FC] px-1.5 py-0.5 text-[9px] font-semibold text-[#526A83]">{delivery.platformName}</span>)}<span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">{item.reuseMode === "master_reuse" ? "跨平台母稿" : "平台专稿"}</span></div>{item.error ? <p className="mt-1.5 text-[10px] text-rose-600">{item.error}</p> : null}</div><span className="shrink-0 text-[10px] font-semibold text-[#6B8299]">{item.status === "ready" ? "质检通过" : item.status === "review_required" ? "待复核" : item.status === "failed" ? "失败" : item.status === "cancelled" ? "已停止" : item.status === "running" ? "生成中" : "排队中"}</span></div></article>)}</div>
+              <div className="flex flex-wrap items-center gap-3 border-b border-[#E7EFF6] bg-[#F8FBFF] px-4 py-3">
+                <label className="flex items-center gap-2 text-xs text-[#526A83]"><input type="checkbox" aria-label="全选本次生产的可导入文章" checked={importableItems.length > 0 && selectedImportableItems.length === importableItems.length} disabled={importableItems.length === 0} onChange={event => setSelectedDistributionIds(current => { const next = new Set(current); for (const item of importableItems) { if (event.target.checked) next.add(item.id); else next.delete(item.id) }; return next })} className="h-4 w-4 accent-[#1677FF]" />全选可用文章</label>
+                <ArticleDistributionButton request={productionDistributionRequests(selectedImportableItems)} disabled={selectedImportableItems.length === 0}>勾选稿件加入分发台（{selectedImportableItems.length}）</ArticleDistributionButton>
+                <p className="text-[10px] leading-5 text-[#6B8299]">加入后在分发台选择账号和分发方式；视频文案仍可通过原入口下载。</p>
+              </div>
+              <div className="max-h-[410px] divide-y divide-[#EDF2F7] overflow-y-auto">
+                {selectedRun.items.map((item, index) => <article key={item.id} className="px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 flex flex-col items-center gap-2 font-mono text-[10px] text-[#8AA0B5]">
+                      {item.contentType !== "video" ? <input type="checkbox" aria-label={`选择生产文章 ${index + 1} 加入分发台`} checked={selectedDistributionIds.has(item.id)} disabled={!canImportProductionItem(item)} onChange={event => setSelectedDistributionIds(current => { const next = new Set(current); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next })} className="h-4 w-4 accent-[#1677FF]" /> : null}
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold leading-5 text-[#102A43]">{item.title || item.question}</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">{item.deliveries.map(delivery => <span key={delivery.publishingTaskId} className="rounded bg-[#EEF5FC] px-1.5 py-0.5 text-[9px] font-semibold text-[#526A83]">{delivery.platformName}</span>)}<span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">{item.reuseMode === "master_reuse" ? "跨平台母稿" : "平台专稿"}</span></div>
+                      {item.error ? <p className="mt-1.5 text-[10px] text-rose-600">{item.error}</p> : null}
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <span className="text-[10px] font-semibold text-[#6B8299]">{item.status === "ready" ? "质检通过" : item.status === "review_required" ? "待复核" : item.status === "failed" ? "失败" : item.status === "cancelled" ? "已停止" : item.status === "running" ? "生成中" : "排队中"}</span>
+                      {canImportProductionItem(item) ? <ArticleDistributionButton request={productionDistributionRequests([item])} compact className="h-8 w-8" /> : null}
+                    </div>
+                  </div>
+                </article>)}
+              </div>
             </>}
           </div>
         </div>
@@ -353,4 +380,20 @@ function currentWorkspaceTeamId(): string {
 function currentWorkspaceRunId(): string {
   if (typeof window === "undefined") return ""
   return String(new URL(window.location.href).searchParams.get("jobId") || "").trim().slice(0, 240)
+}
+
+function canImportProductionItem(item: ContentProductionItem): boolean {
+  return item.contentType !== "video" && Boolean(item.articleBatchId && item.articleItemId)
+    && (item.status === "ready" || item.status === "review_required")
+}
+
+function productionDistributionRequests(items: ContentProductionItem[]): ArticleDistributionRequest[] {
+  const batches = new Map<string, string[]>()
+  for (const item of items) {
+    if (!canImportProductionItem(item)) continue
+    const ids = batches.get(item.articleBatchId!) || []
+    ids.push(item.articleItemId!)
+    batches.set(item.articleBatchId!, ids)
+  }
+  return [...batches].map(([batchId, itemIds]) => ({ kind: "batch", batchId, itemIds, variant: "original" }))
 }

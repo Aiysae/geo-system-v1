@@ -14,15 +14,15 @@ import {
   FileDown,
   FileText,
   Palette,
-  Send,
 } from "lucide-react"
-import ArticlePublishPanel from "@/components/article/article-publish-panel"
+import ArticleDistributionButton from "@/components/article/article-distribution-button"
+import { extractMarkdownTitle, parsePublishTags } from "@/lib/article-publishing/content"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import type { ArticlePublishingSettings } from "@/types"
+import type { ArticleDistributionMetadata } from "@/types"
 import { parseBrandVideoScript } from "@/lib/article-video-script"
 
-type WorkspaceTab = "edit" | "preview" | "export" | "publish"
+type WorkspaceTab = "edit" | "preview" | "export"
 type ThemeKey = "default" | "wechat"
 type CopyState = "idle" | "markdown" | "html" | "body" | "tags"
 
@@ -34,8 +34,8 @@ interface Props {
   statusText: string
   placeholder: string
   contentKind?: "article" | "video_script"
-  publishing?: ArticlePublishingSettings
-  onPublishingChange: (patch: Partial<ArticlePublishingSettings>) => void
+  clientId: string
+  publishing?: ArticleDistributionMetadata
 }
 
 interface MarkdownTheme {
@@ -322,10 +322,9 @@ export default function ArticleMarkdownWorkspace({
   placeholder,
   contentKind = "article",
   publishing,
-  onPublishingChange,
+  clientId,
 }: Props) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("edit")
-  const [publishVisited, setPublishVisited] = useState(false)
   const [themeKey, setThemeKey] = useState<ThemeKey>("default")
   const [copyState, setCopyState] = useState<CopyState>("idle")
   const previewRef = useRef<HTMLDivElement | null>(null)
@@ -407,6 +406,21 @@ export default function ArticleMarkdownWorkspace({
             <div className="text-[11px] text-slate-500">{statusText}</div>
           </div>
           <div className="flex flex-wrap gap-2">
+            {!isVideoScript && <ArticleDistributionButton
+              disabled={!hasContent}
+              request={{
+                kind: "current",
+                clientId,
+                title: publishing?.title?.trim() || extractMarkdownTitle(value, title),
+                markdown: value,
+                metadata: {
+                  digest: publishing?.digest,
+                  tags: parsePublishTags(publishing?.tags || ""),
+                  coverUrl: publishing?.coverUrl,
+                  original: publishing?.original,
+                },
+              }}
+            />}
             <Button size="sm" variant="outline" onClick={copyMarkdown} disabled={!hasContent}>
               {copyState === "markdown" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               {copyState === "markdown" ? "已复制" : isVideoScript ? "复制全文" : "复制文章"}
@@ -432,9 +446,7 @@ export default function ArticleMarkdownWorkspace({
         </div>
 
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className={`grid gap-1 rounded-xl bg-slate-100 p-1 text-xs font-semibold ${
-            isVideoScript ? "grid-cols-3 md:w-[330px]" : "grid-cols-4 md:w-[440px]"
-          }`}>
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 text-xs font-semibold md:w-[330px]">
             <button type="button" onClick={() => setActiveTab("edit")} className={tabClass(activeTab === "edit")}>
               <Code2 className="h-3.5 w-3.5" />
               编辑
@@ -447,20 +459,6 @@ export default function ArticleMarkdownWorkspace({
               <Download className="h-3.5 w-3.5" />
               导出
             </button>
-            {!isVideoScript && (
-              <button
-                type="button"
-                onClick={() => {
-                  setPublishVisited(true)
-                  setActiveTab("publish")
-                }}
-                disabled={!hasContent}
-                className={`${tabClass(activeTab === "publish")} disabled:cursor-not-allowed disabled:opacity-45`}
-              >
-                <Send className="h-3.5 w-3.5" />
-                发布
-              </button>
-            )}
           </div>
 
           {!isVideoScript && <label className="flex items-center gap-2 text-xs text-slate-500">
@@ -486,6 +484,7 @@ export default function ArticleMarkdownWorkspace({
             value={value}
             onChange={event => onChange(event.target.value)}
             placeholder={placeholder}
+            style={{ minHeight: "min(35rem, 65svh)" }}
             className={`geo-plain-editor h-full flex-1 resize-none rounded-none border-0 bg-transparent p-4 font-mono text-sm leading-7 shadow-none focus-visible:ring-0 ${
               hasContent ? "min-h-[560px]" : "min-h-[360px]"
             }`}
@@ -547,18 +546,6 @@ export default function ArticleMarkdownWorkspace({
           </div>
 
         </div>
-
-        {!isVideoScript && publishVisited && (
-          <div className={activeTab === "publish" ? "h-full overflow-auto" : "hidden"}>
-            <ArticlePublishPanel
-              markdown={value}
-              getRenderedHtml={() => getRenderedHtml(previewRef.current)}
-              fallbackTitle={title}
-              settings={publishing}
-              onSettingsChange={onPublishingChange}
-            />
-          </div>
-        )}
       </div>
     </section>
   )

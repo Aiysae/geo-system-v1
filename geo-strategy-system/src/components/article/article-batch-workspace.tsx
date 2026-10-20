@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react"
 import ArticleMediaDialog from "@/components/article/article-media-dialog"
+import ArticleDistributionButton from "@/components/article/article-distribution-button"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -176,6 +177,8 @@ export default function ArticleBatchWorkspace({
   const [previewVariant, setPreviewVariant] = useState<"original" | "media">("original")
   const [mediaOpen, setMediaOpen] = useState(false)
   const [resultFilter, setResultFilter] = useState<ArticleBatchResultFilter>("all")
+  const [distributionVariant, setDistributionVariant] = useState<"original" | "media">("original")
+  const [selectedDistributionIds, setSelectedDistributionIds] = useState<Set<string>>(new Set())
   const previousStatuses = useRef<Map<string, ArticleBatchRecord["status"]>>(new Map())
   const initialized = useRef(false)
 
@@ -270,6 +273,10 @@ export default function ArticleBatchWorkspace({
     }
     return true
   }), [activeResultFilter, selectedBatch])
+  const importableItems = visibleItems.filter(item => item.hasDraft && (distributionVariant === "original" || item.hasMediaVersion))
+  const selectedImportableItems = (selectedBatch?.items || []).filter(item => (
+    selectedDistributionIds.has(item.id) && item.hasDraft && (distributionVariant === "original" || item.hasMediaVersion)
+  ))
   const previewAudit = previewDetail?.qualityAudit || previewItem?.qualityAudit
   const previewNeedsReview = (
     previewDetail?.qualityStatus || previewItem?.qualityStatus
@@ -829,6 +836,24 @@ export default function ArticleBatchWorkspace({
               ))}
             </div>
 
+            {!selectedBatchVideoScript && <div className="mb-3 space-y-2 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" aria-label="全选当前筛选下的可导入文章" checked={importableItems.length > 0 && importableItems.every(item => selectedDistributionIds.has(item.id))} disabled={importableItems.length === 0} onChange={event => setSelectedDistributionIds(current => {
+                    const next = new Set(current)
+                    for (const item of importableItems) { if (event.target.checked) next.add(item.id); else next.delete(item.id) }
+                    return next
+                  })} className="h-4 w-4 accent-[#1677FF]" />全选当前列表
+                </label>
+                <select aria-label="导入分发台的文章版本" value={distributionVariant} onChange={event => setDistributionVariant(event.target.value as "original" | "media")} className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700">
+                  <option value="original">原文版</option>
+                  <option value="media">图文版（仅已配图文章）</option>
+                </select>
+                <ArticleDistributionButton disabled={selectedImportableItems.length === 0} request={{ kind: "batch", batchId: selectedBatch.id, itemIds: selectedImportableItems.map(item => item.id), variant: distributionVariant }}>勾选稿件加入分发台（{selectedImportableItems.length}）</ArticleDistributionButton>
+              </div>
+              <p className="text-[11px] leading-5 text-slate-500">仅加入分发内容库；平台账号、草稿或正式发布方式在分发台中另行确认。待复核稿件仍需检查内容。</p>
+            </div>}
+
             <div className="min-h-0 flex-1 overflow-y-auto border-y border-slate-100">
               {visibleItems.length === 0 ? (
                 <div className="flex min-h-40 items-center justify-center px-5 text-center text-xs text-slate-400">
@@ -836,7 +861,10 @@ export default function ArticleBatchWorkspace({
                 </div>
               ) : visibleItems.map(item => (
                 <div key={item.id} className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-100 px-1 py-3 last:border-b-0">
-                  <span className="text-center text-[11px] font-semibold text-slate-400">{String(item.position).padStart(2, "0")}</span>
+                  <span className="flex flex-col items-center gap-1 text-center text-[11px] font-semibold text-slate-400">
+                    {!selectedBatchVideoScript && <input type="checkbox" aria-label={`选择第 ${item.position} 篇文章加入分发台`} checked={selectedDistributionIds.has(item.id)} disabled={!item.hasDraft || (distributionVariant === "media" && !item.hasMediaVersion)} onChange={event => setSelectedDistributionIds(current => { const next = new Set(current); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next })} className="h-4 w-4 accent-[#1677FF]" />}
+                    {String(item.position).padStart(2, "0")}
+                  </span>
                   <div className="min-w-0">
                     <div className="truncate text-xs font-semibold text-slate-700" title={item.title || item.topic}>
                       {item.title || item.topic}
@@ -897,6 +925,7 @@ export default function ArticleBatchWorkspace({
                   </div>
                   {item.hasDraft ? (
                     <div className="flex items-center gap-1">
+                      {!selectedBatchVideoScript && <ArticleDistributionButton compact request={{ kind: "batch", batchId: selectedBatch.id, itemIds: [item.id], variant: "original" }} className="h-8 w-8">将原文版加入分发台</ArticleDistributionButton>}
                       <button
                         type="button"
                         onClick={() => void openPreview(item)}
@@ -1047,6 +1076,7 @@ export default function ArticleBatchWorkspace({
                   ? "请重点核对事实、品牌信息和发布适配性"
                   : `${selectedBatchVideoScript ? "视频文案" : "文章"}已通过当前质量规则`}
               </span>
+              {previewBatchId && previewItem.hasDraft && !selectedBatchVideoScript && <ArticleDistributionButton request={{ kind: "batch", batchId: previewBatchId, itemIds: [previewItem.id], variant: previewVariant }}>将当前版本加入分发台</ArticleDistributionButton>}
               {previewBatchId && previewItem.hasDraft && (
                 <a
                   href={`/api/article-generation/batches/${encodeURIComponent(previewBatchId)}/items/${encodeURIComponent(previewItem.id)}/download${previewVariant === "media" ? "?variant=media" : ""}`}

@@ -391,7 +391,8 @@ export interface ArticleGenerationState {
   videoScriptConfig?: ArticleVideoScriptConfig
   selectedQuestionTask?: ArticleBatchQuestionTask
   output: string
-  publishing?: ArticlePublishingSettings
+  /** 历史稿件字段，保留内容元数据供独立分发台导入。 */
+  publishing?: ArticleDistributionMetadata
   status: GenerationStatus
   error?: string
   generatedAt?: string
@@ -451,15 +452,12 @@ export interface ArticleGenerationQualityAudit {
   issues: string[]
 }
 
-export interface ArticlePublishingSettings {
+export interface ArticleDistributionMetadata {
   title?: string
   digest?: string
   tags?: string
   coverUrl?: string
-  selectedPlatforms?: string[]
-  publishMode?: "review" | "auto"
   original?: boolean
-  allowComment?: boolean
 }
 
 export interface ArticleGenerationLineage {

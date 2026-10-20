@@ -6,7 +6,7 @@
     "shitu-geo": "./cli/shitu-geo.mjs"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "desktop:dev": "npm --prefix desktop run dev",
     "desktop:test": "npm --prefix desktop test",
     "desktop:test:smoke": "npm --prefix desktop run test:smoke",
@@ -104,6 +104,7 @@
     "test:publishing-plan": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-plan.mts",
     "test:publishing-recommendation": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-recommendation.mts",
     "test:publishing-evidence": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-evidence-reconciliation.mts",
+    "test:publishing-file-import": "tsx scripts/test-publishing-file-import.mts",
     "test:content-production": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-content-production.mts",
     "preview:action-reminders": "NODE_OPTIONS=--conditions=react-server tsx scripts/preview-action-reminders.mts",
     "test:difficulty-scoring": "tsx scripts/test-difficulty-scoring.mts",
@@ -180,6 +181,7 @@
     "papaparse": "^5.5.4",
     "pdfjs-dist": "5.4.149",
     "pg": "^8.22.0",
+    "playwright": "1.61.1",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",

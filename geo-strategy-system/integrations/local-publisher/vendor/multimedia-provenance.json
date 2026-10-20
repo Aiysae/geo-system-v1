@@ -1,0 +1,6 @@
+{
+  "capturedAt": "2026-10-19T08:25:20.745Z",
+  "sha256": "7b2e173c4f6f05310237b5a79d523da959d5b4620127ad81a85767dc0392c636",
+  "sourceSnapshot": "full-benchmark-20261019/runtime-code/platform-service.cjs",
+  "scope": "Fixed current-client module for video/imageText/audio/wechat; old article module remains unchanged. Platform availability remains unverified."
+}
