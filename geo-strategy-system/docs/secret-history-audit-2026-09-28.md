@@ -15,7 +15,7 @@ Gitleaks 共命中 **4 处**：**1 项硬编码 API 凭据风险，1 项测试�
 - Git 根目录为 `Cursor—GEO`，覆盖整个仓库，包含 `geo-strategy-system` 和 `humanizer-app`。
 - 扫描前 `git fetch --all --tags` 成功；仓库不是浅克隆。远端公开给当前账号的两个分支与一个标签已通过 `git ls-remote --heads --tags origin` 核对。
 - 扫描起点 HEAD：`08b8542fe51019320eabbfea383d44a44e8815d6`。
-- 本地分支：`commercial/mvp-billing`、`main`；远程分支：`origin/commercial/mvp-billing`、`origin/main`；标签：`desktop-v1.0.0`。`--all` 同时包含本地 Codex 引用。
+- 本地分支：`commercial/mvp-billing`、`main`；远程分支：`origin/commercial/mvp-billing`、`origin/main`；标签：`desktop-v1.0.0`。`--all` 同时包含其他本地引用。
 - 共扫描 **275 个可达提交**，约 **157.10 MB**；工具退出码 **1** 表示发现命中，扫描正常完成。
 - 工具：Gitleaks **8.30.1**，官方 Darwin ARM64 发布包，已核对官方发布的 SHA-256 校验和。工具安装在仓库外临时目录，项目依赖保持原样。
 - 使用默认检测规则，空的忽略文件路径，忽略 `gitleaks:allow` 注释；没有新增白名单。报告全量脱敏。
