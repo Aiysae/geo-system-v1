@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "shitu_geo": {
+      "type": "streamableHttp",
+      "url": "https://shitugeo.top/api/agent/mcp",
+      "headers": { "Authorization": "Bearer ${SHITU_GEO_TOKEN}" },
+      "timeout": 30000
+    }
+  }
+}

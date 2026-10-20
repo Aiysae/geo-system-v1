@@ -1,0 +1,17 @@
+{
+  "title": "连接势途 GEO",
+  "title_en": "Connect Shitu GEO",
+  "description": "登录势途 GEO，在 Agent 接入中心创建仅授权所需客户的密钥。凭证由 WorkBuddy 保存在本机；调用业务接口时发送至势途 GEO。付费任务执行前会预估势途 GEO 积分。",
+  "description_en": "Create a client-scoped Agent token in Shitu GEO. WorkBuddy stores it locally and sends it to Shitu GEO when calling its API. Paid tasks are estimated before execution.",
+  "docUrl": "https://shitugeo.top/agent",
+  "docLabel": "查看接入指南与获取密钥",
+  "fields": [{
+    "key": "SHITU_GEO_TOKEN",
+    "label": "Agent 密钥",
+    "label_en": "Agent token",
+    "type": "password",
+    "required": true,
+    "placeholder": "从势途 GEO 的 Agent 接入中心复制",
+    "description": "业务执行需要对应客户和模块权限；请设置单任务及每日积分上限。"
+  }]
+}

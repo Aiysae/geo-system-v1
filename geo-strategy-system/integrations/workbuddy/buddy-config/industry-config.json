@@ -1,0 +1,808 @@
+{
+  "templateId": "cb_uHle8TwvapBxB3XvooNW",
+  "version": 1,
+  "brand": {
+    "title": "brand.title",
+    "logo": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_app_icon/4942da9c-260c-44b7-bd3c-1d6436c02741/9e49166a-3024-41fc-a04e-4cc167e64e09.jpg"
+  },
+  "ui": {
+    "nav": {
+      "items": [
+        {
+          "id": "home",
+          "target": "builtin:new_task",
+          "title": "conversation.newTask",
+          "order": 10,
+          "config": {
+            "header": {
+              "visible": true,
+              "title": "home.header.title"
+            },
+            "modes": {
+              "defaultSelected": "mode_musadww6_16xm",
+              "items": [
+                {
+                  "modeId": "mode_musadww6_16xm",
+                  "title": "home.modes.mode_musadww6_16xm.title",
+                  "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                  "iconFileName": "geo-mode.svg",
+                  "systemPromptAppend": "你是势途 GEO 品牌诊断助手。先确认客户，读取已有资料和报告，再按需检查 AI 品牌提及、竞品、官网与 GEO 难度。需要连接时引导用户在应用市场添加势途 GEO 连接器，并在连接器配置中填写自己的 Agent Token，不在聊天中发送密钥。执行使用真实工具；写入或扣积分先 dryRun 并确认范围及费用，使用同一 requestId 执行。轮询任务并读取真实结果。区分事实、来源与推断，不承诺排名。",
+                  "skills": [
+                    {
+                      "id": "skill_2106633892653674496"
+                    }
+                  ],
+                  "scenes": [
+                    {
+                      "id": "capsule_mus9xgce_5kmx",
+                      "title": "home.scenes.capsule_mus9xgce_5kmx.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/24914a7d-c45f-4d62-abb3-243a44f77ac1.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "先解析客户并读取有权限的客户资料，区分已提供事实和缺失信息。仅执行只读查询，不推断未记录的品牌事实。",
+                      "templates": [
+                        {
+                          "id": "tpl0_mus9xgce_9aki",
+                          "title": "home.scenes.capsule_mus9xgce_5kmx.templates.tpl0_mus9xgce_9aki.title",
+                          "prompt": "home.scenes.capsule_mus9xgce_5kmx.templates.tpl0_mus9xgce_9aki.prompt"
+                        },
+                        {
+                          "id": "tpl1_mus9xgce_nn0t",
+                          "title": "home.scenes.capsule_mus9xgce_5kmx.templates.tpl1_mus9xgce_nn0t.title",
+                          "prompt": "home.scenes.capsule_mus9xgce_5kmx.templates.tpl1_mus9xgce_nn0t.prompt"
+                        },
+                        {
+                          "id": "tpl2_mus9xgce_0thx",
+                          "title": "home.scenes.capsule_mus9xgce_5kmx.templates.tpl2_mus9xgce_0thx.title",
+                          "prompt": "home.scenes.capsule_mus9xgce_5kmx.templates.tpl2_mus9xgce_0thx.prompt"
+                        },
+                        {
+                          "id": "tpl3_mus9xgce_imgg",
+                          "title": "home.scenes.capsule_mus9xgce_5kmx.templates.tpl3_mus9xgce_imgg.title",
+                          "prompt": "home.scenes.capsule_mus9xgce_5kmx.templates.tpl3_mus9xgce_imgg.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_musa06zv_6j3c",
+                      "title": "home.scenes.capsule_musa06zv_6j3c.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/b8d1cc18-2bcc-41c9-847f-d0b3d568e8e7.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用势途 GEO 的品牌提及工具。先解析客户；付费动作 dryRun 预估后确认执行；轮询任务读取真实结果。保持问题与模型口径一致。",
+                      "templates": [
+                        {
+                          "id": "tpl0_musa06zv_brul",
+                          "title": "home.scenes.capsule_musa06zv_6j3c.templates.tpl0_musa06zv_brul.title",
+                          "prompt": "home.scenes.capsule_musa06zv_6j3c.templates.tpl0_musa06zv_brul.prompt"
+                        },
+                        {
+                          "id": "tpl1_musa06zv_u595",
+                          "title": "home.scenes.capsule_musa06zv_6j3c.templates.tpl1_musa06zv_u595.title",
+                          "prompt": "home.scenes.capsule_musa06zv_6j3c.templates.tpl1_musa06zv_u595.prompt"
+                        },
+                        {
+                          "id": "tpl2_musa06zv_kkv6",
+                          "title": "home.scenes.capsule_musa06zv_6j3c.templates.tpl2_musa06zv_kkv6.title",
+                          "prompt": "home.scenes.capsule_musa06zv_6j3c.templates.tpl2_musa06zv_kkv6.prompt"
+                        },
+                        {
+                          "id": "tpl3_musa06zv_ui88",
+                          "title": "home.scenes.capsule_musa06zv_6j3c.templates.tpl3_musa06zv_ui88.title",
+                          "prompt": "home.scenes.capsule_musa06zv_6j3c.templates.tpl3_musa06zv_ui88.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_musa199y_wqp6",
+                      "title": "home.scenes.capsule_musa199y_wqp6.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/8ac7a404-789e-4281-81fc-73da75cf4d16.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "确认客户及竞品范围，使用 shitu_compare_competitors 或读取已有 research 结果；付费前预估并确认，引用真实来源，明确不确定性。",
+                      "templates": [
+                        {
+                          "id": "tpl0_musa199y_3npu",
+                          "title": "home.scenes.capsule_musa199y_wqp6.templates.tpl0_musa199y_3npu.title",
+                          "prompt": "home.scenes.capsule_musa199y_wqp6.templates.tpl0_musa199y_3npu.prompt"
+                        },
+                        {
+                          "id": "tpl1_musa199y_iti8",
+                          "title": "home.scenes.capsule_musa199y_wqp6.templates.tpl1_musa199y_iti8.title",
+                          "prompt": "home.scenes.capsule_musa199y_wqp6.templates.tpl1_musa199y_iti8.prompt"
+                        },
+                        {
+                          "id": "tpl2_musa199y_tmet",
+                          "title": "home.scenes.capsule_musa199y_wqp6.templates.tpl2_musa199y_tmet.title",
+                          "prompt": "home.scenes.capsule_musa199y_wqp6.templates.tpl2_musa199y_tmet.prompt"
+                        },
+                        {
+                          "id": "tpl3_musa199y_p0ov",
+                          "title": "home.scenes.capsule_musa199y_wqp6.templates.tpl3_musa199y_p0ov.title",
+                          "prompt": "home.scenes.capsule_musa199y_wqp6.templates.tpl3_musa199y_p0ov.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_musa2xum_el28",
+                      "title": "home.scenes.capsule_musa2xum_el28.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/25b5aa8b-e242-4de2-90de-2be28249f748.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_run_ai_diagnosis，确认官网归属及客户资料，付费前 dryRun 并确认；以工具真实诊断结果提供问题和建议，不声称已修改网站。",
+                      "templates": [
+                        {
+                          "id": "tpl0_musa2xum_j3mc",
+                          "title": "home.scenes.capsule_musa2xum_el28.templates.tpl0_musa2xum_j3mc.title",
+                          "prompt": "home.scenes.capsule_musa2xum_el28.templates.tpl0_musa2xum_j3mc.prompt"
+                        },
+                        {
+                          "id": "tpl1_musa2xum_a8m4",
+                          "title": "home.scenes.capsule_musa2xum_el28.templates.tpl1_musa2xum_a8m4.title",
+                          "prompt": "home.scenes.capsule_musa2xum_el28.templates.tpl1_musa2xum_a8m4.prompt"
+                        },
+                        {
+                          "id": "tpl2_musa2xum_3dpf",
+                          "title": "home.scenes.capsule_musa2xum_el28.templates.tpl2_musa2xum_3dpf.title",
+                          "prompt": "home.scenes.capsule_musa2xum_el28.templates.tpl2_musa2xum_3dpf.prompt"
+                        },
+                        {
+                          "id": "tpl3_musa2xum_ahu5",
+                          "title": "home.scenes.capsule_musa2xum_el28.templates.tpl3_musa2xum_ahu5.title",
+                          "prompt": "home.scenes.capsule_musa2xum_el28.templates.tpl3_musa2xum_ahu5.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_musa71sd_wswd",
+                      "title": "home.scenes.capsule_musa71sd_wswd.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/3ba57581-bfe5-4fa3-a089-f952305d0f29.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_run_difficulty；先确认行业、地区、品牌及商业参数；缺失参数向用户核实。预估积分并确认执行。解读真实结果，不承诺排名和收益。",
+                      "templates": [
+                        {
+                          "id": "tpl0_musa71sd_jbt6",
+                          "title": "home.scenes.capsule_musa71sd_wswd.templates.tpl0_musa71sd_jbt6.title",
+                          "prompt": "home.scenes.capsule_musa71sd_wswd.templates.tpl0_musa71sd_jbt6.prompt"
+                        },
+                        {
+                          "id": "tpl1_musa71sd_swt2",
+                          "title": "home.scenes.capsule_musa71sd_wswd.templates.tpl1_musa71sd_swt2.title",
+                          "prompt": "home.scenes.capsule_musa71sd_wswd.templates.tpl1_musa71sd_swt2.prompt"
+                        },
+                        {
+                          "id": "tpl2_musa71sd_w12t",
+                          "title": "home.scenes.capsule_musa71sd_wswd.templates.tpl2_musa71sd_w12t.title",
+                          "prompt": "home.scenes.capsule_musa71sd_wswd.templates.tpl2_musa71sd_w12t.prompt"
+                        },
+                        {
+                          "id": "tpl3_musa71sd_15xa",
+                          "title": "home.scenes.capsule_musa71sd_wswd.templates.tpl3_musa71sd_15xa.title",
+                          "prompt": "home.scenes.capsule_musa71sd_wswd.templates.tpl3_musa71sd_15xa.prompt"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "modeId": "mode_shitu_strategy",
+                  "title": "home.modes.mode_shitu_strategy.title",
+                  "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                  "iconFileName": "geo-mode.svg",
+                  "systemPromptAppend": "先读取客户资料与已有诊断，制定有依据的关键词、问题、渠道和内容计划。需要连接时引导用户在应用市场添加势途 GEO 连接器，并在连接器配置中填写自己的 Agent Token，不在聊天中发送密钥。执行使用真实工具；写入或扣积分先 dryRun 并确认范围及费用，使用同一 requestId 执行。轮询任务并读取真实结果。区分事实、来源与推断，不承诺排名。",
+                  "skills": [
+                    {
+                      "id": "skill_2106707573367545856"
+                    }
+                  ],
+                  "scenes": [
+                    {
+                      "id": "capsule_shitu_advantages",
+                      "title": "home.scenes.capsule_shitu_advantages.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_generate_advantages，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_advantages_0",
+                          "title": "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_0.title",
+                          "prompt": "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_advantages_1",
+                          "title": "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_1.title",
+                          "prompt": "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_advantages_2",
+                          "title": "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_2.title",
+                          "prompt": "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_advantages_3",
+                          "title": "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_3.title",
+                          "prompt": "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_3.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_shitu_keywords",
+                      "title": "home.scenes.capsule_shitu_keywords.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_generate_keyword_strategy，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_keywords_0",
+                          "title": "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_0.title",
+                          "prompt": "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_keywords_1",
+                          "title": "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_1.title",
+                          "prompt": "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_keywords_2",
+                          "title": "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_2.title",
+                          "prompt": "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_keywords_3",
+                          "title": "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_3.title",
+                          "prompt": "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_3.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_shitu_questions",
+                      "title": "home.scenes.capsule_shitu_questions.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_generate_questions，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_questions_0",
+                          "title": "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_0.title",
+                          "prompt": "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_questions_1",
+                          "title": "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_1.title",
+                          "prompt": "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_questions_2",
+                          "title": "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_2.title",
+                          "prompt": "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_questions_3",
+                          "title": "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_3.title",
+                          "prompt": "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_3.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_shitu_channels",
+                      "title": "home.scenes.capsule_shitu_channels.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_recommend_publishing_platforms，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_channels_0",
+                          "title": "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_0.title",
+                          "prompt": "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_channels_1",
+                          "title": "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_1.title",
+                          "prompt": "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_channels_2",
+                          "title": "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_2.title",
+                          "prompt": "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_channels_3",
+                          "title": "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_3.title",
+                          "prompt": "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_3.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_shitu_plan",
+                      "title": "home.scenes.capsule_shitu_plan.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_plan_strategy_articles，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_plan_0",
+                          "title": "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_0.title",
+                          "prompt": "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_plan_1",
+                          "title": "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_1.title",
+                          "prompt": "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_plan_2",
+                          "title": "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_2.title",
+                          "prompt": "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_plan_3",
+                          "title": "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_3.title",
+                          "prompt": "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_3.prompt"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "modeId": "mode_shitu_content",
+                  "title": "home.modes.mode_shitu_content.title",
+                  "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                  "iconFileName": "geo-mode.svg",
+                  "systemPromptAppend": "先确认客户及任务，使用已有资料生成内容，读取实际执行结果开展复盘。需要连接时引导用户在应用市场添加势途 GEO 连接器，并在连接器配置中填写自己的 Agent Token，不在聊天中发送密钥。执行使用真实工具；写入或扣积分先 dryRun 并确认范围及费用，使用同一 requestId 执行。轮询任务并读取真实结果。区分事实、来源与推断，不承诺排名。",
+                  "skills": [
+                    {
+                      "id": "skill_2106927329535832064"
+                    }
+                  ],
+                  "scenes": [
+                    {
+                      "id": "capsule_shitu_article",
+                      "title": "home.scenes.capsule_shitu_article.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_generate_article，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_article_0",
+                          "title": "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_0.title",
+                          "prompt": "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_article_1",
+                          "title": "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_1.title",
+                          "prompt": "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_article_2",
+                          "title": "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_2.title",
+                          "prompt": "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_article_3",
+                          "title": "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_3.title",
+                          "prompt": "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_3.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_shitu_batch",
+                      "title": "home.scenes.capsule_shitu_batch.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_generate_article_batch，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_batch_0",
+                          "title": "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_0.title",
+                          "prompt": "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_batch_1",
+                          "title": "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_1.title",
+                          "prompt": "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_batch_2",
+                          "title": "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_2.title",
+                          "prompt": "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_batch_3",
+                          "title": "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_3.title",
+                          "prompt": "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_3.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_shitu_rewrite",
+                      "title": "home.scenes.capsule_shitu_rewrite.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_rewrite_article，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_rewrite_0",
+                          "title": "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_0.title",
+                          "prompt": "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_rewrite_1",
+                          "title": "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_1.title",
+                          "prompt": "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_rewrite_2",
+                          "title": "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_2.title",
+                          "prompt": "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_rewrite_3",
+                          "title": "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_3.title",
+                          "prompt": "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_3.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_shitu_tasks",
+                      "title": "home.scenes.capsule_shitu_tasks.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_list_tasks、shitu_get_task、shitu_get_task_result、shitu_list_outputs，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_tasks_0",
+                          "title": "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_0.title",
+                          "prompt": "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_tasks_1",
+                          "title": "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_1.title",
+                          "prompt": "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_tasks_2",
+                          "title": "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_2.title",
+                          "prompt": "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_tasks_3",
+                          "title": "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_3.title",
+                          "prompt": "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_3.prompt"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "capsule_shitu_review",
+                      "title": "home.scenes.capsule_shitu_review.title",
+                      "icon": "https://codebuddy-platform-1258344699.cos.accelerate.myqcloud.com/public/common/buddy_menu_config/4942da9c-260c-44b7-bd3c-1d6436c02741/7718386b-bc67-430e-98aa-e5f73674dce6.svg",
+                      "iconFileName": "geo-mode.svg",
+                      "systemPromptAppend": "使用 shitu_get_feedback、shitu_create_feedback_report，遵循工作模式规则和工具实际参数。先确认客户、目标与范围，优先复用已有结果。",
+                      "templates": [
+                        {
+                          "id": "tpl_shitu_review_0",
+                          "title": "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_0.title",
+                          "prompt": "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_0.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_review_1",
+                          "title": "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_1.title",
+                          "prompt": "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_1.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_review_2",
+                          "title": "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_2.title",
+                          "prompt": "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_2.prompt"
+                        },
+                        {
+                          "id": "tpl_shitu_review_3",
+                          "title": "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_3.title",
+                          "prompt": "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_3.prompt"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "i18n": {
+    "defaultLocale": "zh-CN",
+    "fallbackLocale": "zh-CN",
+    "source": {
+      "zh-CN": {
+        "brand.title": "势途 GEO",
+        "home.header.title": "势途 GEO · 让品牌被看见",
+        "home.modes.mode_musadww6_16xm.title": "品牌诊断",
+        "home.modes.mode_shitu_strategy.title": "策略规划",
+        "home.modes.mode_shitu_content.title": "内容与复盘",
+        "home.scenes.capsule_mus9xgce_5kmx.title": "查看客户资料",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl0_mus9xgce_9aki.title": "客户概览",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl0_mus9xgce_9aki.prompt": "请列出我有权限访问的客户，确认目标客户后，概括其品牌、产品和目标受众。",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl1_mus9xgce_nn0t.title": "资料完整度",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl1_mus9xgce_nn0t.prompt": "检查目标客户的现有资料，列出开展 GEO 诊断还缺哪些信息。",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl2_mus9xgce_0thx.title": "品牌优势",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl2_mus9xgce_0thx.prompt": "从客户已提供的资料中整理有证据支持的品牌优势，标明资料来源。",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl3_mus9xgce_imgg.title": "近期产出",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl3_mus9xgce_imgg.prompt": "查看目标客户近期任务和历史产出，概括已完成工作与待办。",
+        "home.scenes.capsule_musa06zv_6j3c.title": "检查AI品牌提及",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl0_musa06zv_brul.title": "检测准备",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl0_musa06zv_brul.prompt": "请确认目标客户，读取已有品牌资料和问题池，给出本次 AI 品牌提及检测的范围与预计积分。",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl1_musa06zv_u595.title": "启动检测",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl1_musa06zv_u595.prompt": "为目标客户检测 AI 品牌提及情况。先确认问题与模型，预估积分并获得确认后执行，返回任务编号。",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl2_musa06zv_kkv6.title": "解读结果",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl2_musa06zv_kkv6.prompt": "读取目标客户最近一次已完成的品牌提及检测，说明各模型表现和信源，不补写缺失数据。",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl3_musa06zv_ui88.title": "复测建议",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl3_musa06zv_ui88.prompt": "根据已有品牌提及结果提出同口径复测建议，先给方案，不自动启用定时检测。",
+        "home.scenes.capsule_musa199y_wqp6.title": "分析竞争品牌",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl0_musa199y_3npu.title": "竞品范围",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl0_musa199y_3npu.prompt": "读取目标客户资料，整理已有竞品名单，向我确认本次对比对象与维度。",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl1_musa199y_iti8.title": "联网对比",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl1_musa199y_iti8.prompt": "对目标客户与确认的竞品开展联网对比，先展示预估积分，经确认后执行。",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl2_musa199y_tmet.title": "差异总结",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl2_musa199y_tmet.prompt": "读取已有竞品调研结果，对比产品、受众和公开内容，逐项列明依据。",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl3_musa199y_p0ov.title": "行动建议",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl3_musa199y_p0ov.prompt": "根据已有竞品对比，提出三项优先改进建议，区分事实和推断。",
+        "home.scenes.capsule_musa2xum_el28.title": "诊断官网",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl0_musa2xum_j3mc.title": "确认网站",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl0_musa2xum_j3mc.prompt": "读取目标客户的官网地址，确认待诊断页面和业务目标，检查已有诊断。",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl1_musa2xum_a8m4.title": "启动诊断",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl1_musa2xum_a8m4.prompt": "对确认的官网进行 GEO 诊断，先预估积分，经确认后启动并返回任务编号。",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl2_musa2xum_3dpf.title": "问题清单",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl2_musa2xum_3dpf.prompt": "读取最近一次官网诊断，列出有依据的问题、影响和改进优先级。",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl3_musa2xum_ahu5.title": "改进计划",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl3_musa2xum_ahu5.prompt": "依据已有官网诊断，生成可交给网站维护人员执行的改进清单。",
+        "home.scenes.capsule_musa71sd_wswd.title": "评估GEO难度",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl0_musa71sd_jbt6.title": "评估准备",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl0_musa71sd_jbt6.prompt": "读取客户行业、地区和品牌资料，列出 GEO 难度评估需要补充的参数。",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl1_musa71sd_swt2.title": "启动评估",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl1_musa71sd_swt2.prompt": "按确认的客户与地区评估 GEO 难度，先预估积分，经确认后执行。",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl2_musa71sd_w12t.title": "解读难度",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl2_musa71sd_w12t.prompt": "读取已有难度评估，说明影响因素、依据和不确定性。",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl3_musa71sd_15xa.title": "投入建议",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl3_musa71sd_15xa.prompt": "结合已有难度评估提出分阶段投入建议，不承诺排名或收益。",
+        "home.scenes.capsule_shitu_advantages.title": "提炼品牌优势",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_0.title": "资料梳理",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_0.prompt": "读取客户资料，整理可用于提炼优势的事实和证据。",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_1.title": "生成优势",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_1.prompt": "根据确认的资料提炼品牌优势，先预估积分并确认执行。",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_2.title": "核验证据",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_2.prompt": "核对已有品牌优势与事实来源，标出证据不足的表述。",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_3.title": "应用建议",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_3.prompt": "将有依据的品牌优势映射到目标受众和内容主题。",
+        "home.scenes.capsule_shitu_keywords.title": "制定关键词策略",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_0.title": "关键词盘点",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_0.prompt": "读取客户已有关键词和目标受众，找出缺口。",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_1.title": "生成策略",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_1.prompt": "为确认的客户生成关键词策略，先预估积分并确认执行。",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_2.title": "意图分组",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_2.prompt": "按用户意图整理已有关键词，说明分组依据。",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_3.title": "优先级排序",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_3.prompt": "结合已有诊断给关键词排序，并标出仍需验证的假设。",
+        "home.scenes.capsule_shitu_questions.title": "生成用户问题",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_0.title": "问题盘点",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_0.prompt": "读取已有问题池，检查重复项和受众覆盖。",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_1.title": "生成问题",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_1.prompt": "围绕确认的受众和关键词生成用户问题，先预估积分并确认执行。",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_2.title": "意图检查",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_2.prompt": "检查已有问题是否清晰表达购买、比较或使用意图。",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_3.title": "检测选题",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_3.prompt": "从已有问题中挑选适合品牌提及检测的一组，说明选择理由。",
+        "home.scenes.capsule_shitu_channels.title": "规划发布渠道",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_0.title": "渠道盘点",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_0.prompt": "整理客户现有发布渠道和目标受众，列出信息缺口。",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_1.title": "推荐渠道",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_1.prompt": "根据客户定位推荐发布渠道，先预估积分并确认执行。",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_2.title": "渠道匹配",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_2.prompt": "将已有内容主题匹配到建议渠道，说明适配理由。",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_3.title": "发布建议",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_3.prompt": "按现有渠道能力制定发布建议，保持为草案，不代替实际发文。",
+        "home.scenes.capsule_shitu_plan.title": "制定内容计划",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_0.title": "选题盘点",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_0.prompt": "读取已有策略、问题和文章，整理可复用与待补充的选题。",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_1.title": "生成计划",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_1.prompt": "根据确认的关键词策略制定内容计划，先预估积分并确认执行。",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_2.title": "计划检查",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_2.prompt": "检查已有内容计划的受众、主题覆盖及重复内容。",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_3.title": "执行排期",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_3.prompt": "把已有内容计划整理为可执行排期，明确依赖和待确认项。",
+        "home.scenes.capsule_shitu_article.title": "生成单篇文章",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_0.title": "写作准备",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_0.prompt": "读取客户资料与文章设置，确认主题、受众和篇幅。",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_1.title": "生成文章",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_1.prompt": "根据确认的写作要求生成一篇文章，先预估积分并确认执行。",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_2.title": "事实核对",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_2.prompt": "核对已有文章中的品牌事实，标注缺少来源的内容。",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_3.title": "获取成果",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_3.prompt": "查找最近完成的单篇文章任务并提供真实成果链接。",
+        "home.scenes.capsule_shitu_batch.title": "批量生成内容",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_0.title": "批量准备",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_0.prompt": "确认客户、选题清单、文章数量和统一写作要求。",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_1.title": "批量生成",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_1.prompt": "按确认的选题批量生成文章，先展示数量与预估积分并确认执行。",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_2.title": "进度查看",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_2.prompt": "查看指定批次进度，列出完成、运行中和失败项目。",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_3.title": "下载批次",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_3.prompt": "读取已完成批次并获取真实打包下载链接。",
+        "home.scenes.capsule_shitu_rewrite.title": "改写已有文章",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_0.title": "改写准备",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_0.prompt": "读取目标文章并确认需要保留的事实、目标风格和改写范围。",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_1.title": "执行改写",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_1.prompt": "按确认的要求改写已有文章，先预估积分并确认执行。",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_2.title": "改写核对",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_2.prompt": "对照原稿与改写结果，检查事实偏移和无依据新增。",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_3.title": "成果提取",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_3.prompt": "查看指定改写任务的状态并获取真实结果。",
+        "home.scenes.capsule_shitu_tasks.title": "查看任务与下载结果",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_0.title": "近期任务",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_0.prompt": "列出目标客户近期任务及状态，优先展示未完成和失败任务。",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_1.title": "任务详情",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_1.prompt": "查看指定任务的进度、错误与结果，不重复提交任务。",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_2.title": "下载结果",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_2.prompt": "获取已完成任务的真实成果和下载链接。",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_3.title": "产出汇总",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_3.prompt": "汇总指定客户与时间范围内的已完成产出。",
+        "home.scenes.capsule_shitu_review.title": "生成执行复盘",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_0.title": "复盘准备",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_0.prompt": "读取客户已有任务与报告，确认复盘时间范围和目标。",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_1.title": "生成复盘",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_1.prompt": "按确认的范围生成执行复盘，先预估积分并确认执行。",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_2.title": "结果解读",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_2.prompt": "读取已有复盘报告，区分已执行动作、观测结果与推断。",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_3.title": "下一步行动",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_3.prompt": "根据已有复盘提出下一阶段行动建议，注明依据和待验证项。"
+      },
+      "en": {
+        "brand.title": "Shitu GEO",
+        "home.header.title": "Shitu GEO · Make Your Brand Visible",
+        "home.modes.mode_musadww6_16xm.title": "Brand Diagnosis",
+        "home.modes.mode_shitu_strategy.title": "Strategy Planning",
+        "home.modes.mode_shitu_content.title": "Content and Review",
+        "home.scenes.capsule_mus9xgce_5kmx.title": "Client Overview",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl0_mus9xgce_9aki.title": "Client summary",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl0_mus9xgce_9aki.prompt": "List my accessible clients, confirm the target, then summarize its brand, products and audience.",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl1_mus9xgce_nn0t.title": "Knowledge gaps",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl1_mus9xgce_nn0t.prompt": "Inspect the selected client and list the information missing for a GEO assessment.",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl2_mus9xgce_0thx.title": "Brand strengths",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl2_mus9xgce_0thx.prompt": "Summarize evidence-backed brand strengths from existing client records and identify sources.",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl3_mus9xgce_imgg.title": "Recent outputs",
+        "home.scenes.capsule_mus9xgce_5kmx.templates.tpl3_mus9xgce_imgg.prompt": "Review recent tasks and outputs for the selected client and summarize completed work and next actions.",
+        "home.scenes.capsule_musa06zv_6j3c.title": "AI Brand Mentions",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl0_musa06zv_brul.title": "Prepare assessment",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl0_musa06zv_brul.prompt": "Confirm the client, inspect existing brand records and questions, and estimate scope and credits for an AI mention assessment.",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl1_musa06zv_u595.title": "Run assessment",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl1_musa06zv_u595.prompt": "Assess AI brand mentions for the selected client. Confirm questions and models, estimate credits, obtain approval, then return the task ID.",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl2_musa06zv_kkv6.title": "Explain findings",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl2_musa06zv_kkv6.prompt": "Read the latest completed mention assessment and explain model results and sources without inventing missing data.",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl3_musa06zv_ui88.title": "Plan reassessment",
+        "home.scenes.capsule_musa06zv_6j3c.templates.tpl3_musa06zv_ui88.prompt": "Suggest a comparable reassessment based on existing results. Present the plan without enabling a schedule.",
+        "home.scenes.capsule_musa199y_wqp6.title": "Competitor Analysis",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl0_musa199y_3npu.title": "Select competitors",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl0_musa199y_3npu.prompt": "Inspect the client records and confirm the competitor list and comparison dimensions.",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl1_musa199y_iti8.title": "Research comparison",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl1_musa199y_iti8.prompt": "Compare the client with confirmed competitors using research tools; estimate credits and obtain approval first.",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl2_musa199y_tmet.title": "Explain differences",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl2_musa199y_tmet.prompt": "Read existing competitor research and compare products, audiences and public content with supporting evidence.",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl3_musa199y_p0ov.title": "Recommend actions",
+        "home.scenes.capsule_musa199y_wqp6.templates.tpl3_musa199y_p0ov.prompt": "Use existing competitor findings to recommend three priority actions, separating facts from inferences.",
+        "home.scenes.capsule_musa2xum_el28.title": "Website Diagnosis",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl0_musa2xum_j3mc.title": "Confirm website",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl0_musa2xum_j3mc.prompt": "Read the client website, confirm the pages and goals, and check existing assessments.",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl1_musa2xum_a8m4.title": "Run website audit",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl1_musa2xum_a8m4.prompt": "Audit the confirmed website for GEO readiness; estimate credits, obtain approval, then return the task ID.",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl2_musa2xum_3dpf.title": "Review issues",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl2_musa2xum_3dpf.prompt": "Read the latest website audit and list evidenced issues, impact and priorities.",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl3_musa2xum_ahu5.title": "Plan improvements",
+        "home.scenes.capsule_musa2xum_el28.templates.tpl3_musa2xum_ahu5.prompt": "Turn the existing website audit into an actionable checklist for the website maintainer.",
+        "home.scenes.capsule_musa71sd_wswd.title": "GEO Difficulty",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl0_musa71sd_jbt6.title": "Prepare evaluation",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl0_musa71sd_jbt6.prompt": "Read the client industry, region and brand records and identify inputs needed for a GEO difficulty assessment.",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl1_musa71sd_swt2.title": "Run evaluation",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl1_musa71sd_swt2.prompt": "Evaluate GEO difficulty for the confirmed client and region; estimate credits and obtain approval before execution.",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl2_musa71sd_w12t.title": "Explain difficulty",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl2_musa71sd_w12t.prompt": "Explain the factors, evidence and uncertainty in the existing difficulty assessment.",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl3_musa71sd_15xa.title": "Prioritize investment",
+        "home.scenes.capsule_musa71sd_wswd.templates.tpl3_musa71sd_15xa.prompt": "Recommend phased priorities based on the existing assessment without promising rankings or returns.",
+        "home.scenes.capsule_shitu_advantages.title": "Brand Strengths",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_0.title": "Review evidence",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_0.prompt": "Read client records and collect facts and evidence for brand strengths.",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_1.title": "Generate strengths",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_1.prompt": "Generate brand strengths from confirmed records after estimating credits and obtaining approval.",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_2.title": "Verify support",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_2.prompt": "Check existing brand strengths against sources and flag unsupported claims.",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_3.title": "Apply strengths",
+        "home.scenes.capsule_shitu_advantages.templates.tpl_shitu_advantages_3.prompt": "Map evidenced strengths to audiences and content topics.",
+        "home.scenes.capsule_shitu_keywords.title": "Keyword Strategy",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_0.title": "Review keywords",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_0.prompt": "Review existing keywords and audiences and identify gaps.",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_1.title": "Generate strategy",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_1.prompt": "Generate a keyword strategy for the confirmed client after credit estimation and approval.",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_2.title": "Group by intent",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_2.prompt": "Group existing keywords by user intent and explain the rationale.",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_3.title": "Prioritize keywords",
+        "home.scenes.capsule_shitu_keywords.templates.tpl_shitu_keywords_3.prompt": "Prioritize keywords using existing assessments and flag assumptions requiring validation.",
+        "home.scenes.capsule_shitu_questions.title": "Audience Questions",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_0.title": "Review questions",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_0.prompt": "Read the existing question pool and check duplication and audience coverage.",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_1.title": "Generate questions",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_1.prompt": "Generate audience questions for confirmed keywords after estimating credits and approval.",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_2.title": "Check intent",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_2.prompt": "Check whether existing questions express purchase, comparison or usage intent clearly.",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_3.title": "Select test questions",
+        "home.scenes.capsule_shitu_questions.templates.tpl_shitu_questions_3.prompt": "Select existing questions for a brand mention assessment and explain the selection.",
+        "home.scenes.capsule_shitu_channels.title": "Channel Planning",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_0.title": "Review channels",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_0.prompt": "Review existing publishing channels and audiences and list missing information.",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_1.title": "Recommend channels",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_1.prompt": "Recommend channels based on client positioning after credit estimation and approval.",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_2.title": "Match content",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_2.prompt": "Match existing topics to suggested channels and explain the fit.",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_3.title": "Plan distribution",
+        "home.scenes.capsule_shitu_channels.templates.tpl_shitu_channels_3.prompt": "Draft distribution recommendations based on available channels without publishing content.",
+        "home.scenes.capsule_shitu_plan.title": "Content Planning",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_0.title": "Review topics",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_0.prompt": "Review strategies, questions and articles to identify reusable and missing topics.",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_1.title": "Generate plan",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_1.prompt": "Create a content plan from the confirmed keyword strategy after credit estimation and approval.",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_2.title": "Review plan",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_2.prompt": "Check an existing content plan for audience coverage, topics and duplication.",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_3.title": "Draft schedule",
+        "home.scenes.capsule_shitu_plan.templates.tpl_shitu_plan_3.prompt": "Turn the existing content plan into a schedule with dependencies and open questions.",
+        "home.scenes.capsule_shitu_article.title": "Single Article",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_0.title": "Prepare article",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_0.prompt": "Read client records and article settings; confirm the topic, audience and length.",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_1.title": "Generate article",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_1.prompt": "Generate one article from confirmed requirements after credit estimation and approval.",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_2.title": "Check facts",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_2.prompt": "Check brand facts in an existing article and flag unsupported content.",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_3.title": "Get output",
+        "home.scenes.capsule_shitu_article.templates.tpl_shitu_article_3.prompt": "Find the latest completed article task and provide its actual output link.",
+        "home.scenes.capsule_shitu_batch.title": "Batch Content",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_0.title": "Prepare batch",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_0.prompt": "Confirm the client, topic list, article count and shared writing requirements.",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_1.title": "Generate batch",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_1.prompt": "Generate a batch from confirmed topics after presenting count, estimated credits and obtaining approval.",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_2.title": "Check progress",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_2.prompt": "Check the selected batch and list completed, running and failed items.",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_3.title": "Download batch",
+        "home.scenes.capsule_shitu_batch.templates.tpl_shitu_batch_3.prompt": "Read the completed batch and obtain its actual archive download link.",
+        "home.scenes.capsule_shitu_rewrite.title": "Rewrite Article",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_0.title": "Prepare rewrite",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_0.prompt": "Read the target article and confirm facts to preserve, target style and rewrite scope.",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_1.title": "Rewrite content",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_1.prompt": "Rewrite the existing article to confirmed requirements after credit estimation and approval.",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_2.title": "Review changes",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_2.prompt": "Compare the source and rewrite for factual drift and unsupported additions.",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_3.title": "Get rewrite",
+        "home.scenes.capsule_shitu_rewrite.templates.tpl_shitu_rewrite_3.prompt": "Check the selected rewrite task and retrieve its actual result.",
+        "home.scenes.capsule_shitu_tasks.title": "Tasks and Downloads",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_0.title": "Recent tasks",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_0.prompt": "List recent client tasks and statuses, highlighting unfinished and failed tasks.",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_1.title": "Task details",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_1.prompt": "Read the selected task progress, errors and result without resubmitting it.",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_2.title": "Download result",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_2.prompt": "Retrieve actual outputs and download links for the completed task.",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_3.title": "Output summary",
+        "home.scenes.capsule_shitu_tasks.templates.tpl_shitu_tasks_3.prompt": "Summarize completed outputs for the selected client and period.",
+        "home.scenes.capsule_shitu_review.title": "Execution Review",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_0.title": "Prepare review",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_0.prompt": "Read existing tasks and reports and confirm the review period and goals.",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_1.title": "Generate review",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_1.prompt": "Generate an execution review for the confirmed scope after credit estimation and approval.",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_2.title": "Explain results",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_2.prompt": "Read the existing review and distinguish actions, observations and inferences.",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_3.title": "Next actions",
+        "home.scenes.capsule_shitu_review.templates.tpl_shitu_review_3.prompt": "Recommend next actions from the existing review with evidence and uncertainties."
+      }
+    }
+  },
+  "models": {
+    "custom": {
+      "disabled": false
+    }
+  },
+  "authConfig": {
+    "mcpOnly": true,
+    "skipJump": true,
+    "capabilityDescription": ""
+  }
+}

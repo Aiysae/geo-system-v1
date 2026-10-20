@@ -1,0 +1,15 @@
+{
+  "name": "势途 GEO",
+  "name_zh": "势途 GEO",
+  "name_en": "Shitu GEO",
+  "description": "Connect your Shitu GEO account to assess brand visibility, plan GEO strategy, generate content, and retrieve task results.",
+  "description_zh": "连接势途 GEO 账号，查询客户资料，开展品牌诊断、关键词策略、内容生成和执行复盘，查看后台任务并下载成果。",
+  "description_en": "Connect your Shitu GEO account to assess brand visibility, plan GEO strategy, generate content, and retrieve task results.",
+  "source": "shitu-geo",
+  "type": "mcp",
+  "version": "1.0.0",
+  "auth_mode": "token",
+  "minWorkbuddyVersion": "4.24.0",
+  "examples_zh": ["列出我有权限访问的客户", "检查目标客户的 AI 品牌提及情况，先估算积分", "根据客户资料制定关键词策略", "为确认的问题生成一篇文章，先预估积分", "查看最近任务并下载已完成的成果"],
+  "examples_en": ["List the clients I can access", "Assess AI brand mentions for my client, estimating credits first", "Plan keyword strategy from client records", "Generate an article for the confirmed question, estimating credits first", "Review recent tasks and download completed outputs"]
+}
