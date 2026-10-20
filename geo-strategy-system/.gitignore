@@ -27,6 +27,21 @@
 # misc
 .DS_Store
 *.pem
+/wechat-miniprogram/project.private.config.json
+/wechat-miniprogram/private.*.key
+
+# third-party client modules, installed separately on each publishing host
+/integrations/local-publisher/vendor/platform-service.cjs
+/integrations/local-publisher/vendor/multimedia-platform-service.cjs
+/integrations/local-publisher/vendor/login-detectors.cjs
+
+# internal records
+/integrations/workbuddy/STATUS.md
+/integrations/workbuddy/backups/
+/integrations/workbuddy/dist/
+/integrations/workbuddy/evidence/
+/docs/local-publishing-validation/
+/软著材料/
 
 # debug
 npm-debug.log*

@@ -109,6 +109,9 @@ jobs:
               --exclude '.data' \
               --exclude '.env.local' \
               --exclude '.env.production' \
+              --exclude 'integrations/local-publisher/vendor/platform-service.cjs' \
+              --exclude 'integrations/local-publisher/vendor/multimedia-platform-service.cjs' \
+              --exclude 'integrations/local-publisher/vendor/login-detectors.cjs' \
               -e "$SSH_RSYNC" \
               geo-strategy-system/ "$ECS_USER@$ECS_HOST:$REMOTE_APP_DIR/"; then
               upload_ok=1
