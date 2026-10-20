@@ -8,13 +8,15 @@ import { marked } from "marked"
 import { preparePublishArticle } from "@/lib/article-publishing/content"
 import { getOwnedArticleMediaAsset, readArticleMediaAssetBuffer } from "@/lib/article-media/assets"
 import { requireArticleBatchAccess } from "@/lib/article-batches/access"
-import { listOwnedStoredArticleBatches, type StoredArticleBatch } from "@/lib/article-batches/store"
+import { getOwnedStoredArticleBatch, listOwnedStoredArticleBatches, type StoredArticleBatch, type StoredArticleBatchItem } from "@/lib/article-batches/store"
+import { getContentProductionRun, listContentProductionRuns } from "@/lib/content-production/store"
 import { resolveWorkspaceAccess } from "@/lib/client-accounts"
 import { listAccessibleTeamClientShares } from "@/lib/team-store"
 import { listWorkspaceClientSummaries } from "@/lib/workspace-store"
 import { requireOperationAccess, resolveOperationAccess } from "@/lib/team-access"
 import { publishingService } from "@/lib/local-publishing/service"
 import type { PublishingArticle, PublishingAsset, PublishingSource } from "@/lib/local-publishing/types"
+import type { ContentProductionRun } from "@/types/content-production"
 
 export type ProductionImportResult = {
   article: PublishingArticle
@@ -45,21 +47,50 @@ function batchSummary(batch: StoredArticleBatch) {
     })),
   }
 }
-export async function listProductionImportSources(userId: string, query: { clientId?: string; teamId?: string; batchId?: string }) {
+function runSummary(run: ContentProductionRun) {
+  return {
+    id: run.id, clientId: run.clientId, createdAt: run.createdAt, status: run.status,
+    items: run.items.filter(item => item.contentType !== "video").map(item => ({
+      id: item.id, title: item.title || item.question, status: item.status,
+      hasDraft: Boolean(item.articleBatchId && item.articleItemId && ["ready", "review_required"].includes(item.status)),
+      hasMediaVersion: false,
+    })),
+  }
+}
+export async function listProductionImportSources(userId: string, query: { clientId?: string; teamId?: string; batchId?: string; runId?: string; itemId?: string }) {
   if (query.batchId) {
     const authorized = await requireArticleBatchAccess({ userId, batchId: query.batchId, action: "view" })
     if (!authorized) throw new Error("文章批次不存在或无权访问")
     return { batch: batchSummary(authorized.batch) }
   }
+  if (query.runId) {
+    if (!query.clientId) throw new Error("请先选择客户")
+    const access = await requireOperationAccess({ userId, clientId: query.clientId, teamId: query.teamId, module: "article", action: "view" })
+    const run = await getContentProductionRun(access.dataOwnerUserId, query.runId)
+    if (!run || run.clientId !== query.clientId) throw new Error("内容生产记录不存在或无权查看")
+    if (query.itemId) {
+      const runItem = run.items.find(item => item.id === query.itemId)
+      if (!runItem || runItem.contentType === "video" || !["ready", "review_required"].includes(runItem.status) || !runItem.articleBatchId || !runItem.articleItemId || !run.childBatches.some(child => child.id === runItem.articleBatchId)) throw new Error("文章不存在或尚未完成")
+      const batch = await getOwnedStoredArticleBatch(runItem.articleBatchId, run.articleOwnerUserId)
+      if (!batch || batch.clientId !== query.clientId || batch.teamId !== run.teamId) throw new Error("文章批次不存在或无权查看")
+      const item = batch.items.find(candidate => candidate.id === runItem.articleItemId)
+      if (!item?.markdown?.trim()) throw new Error("文章正文尚未完成")
+      return { preview: { id: runItem.id, title: item.title || item.topic || "文章", markdown: item.markdown } }
+    }
+    return { run: runSummary(run) }
+  }
   if (query.clientId) {
-    await requireOperationAccess({ userId, clientId: query.clientId, teamId: query.teamId, module: "article", action: "view" })
-    const batches = await listOwnedStoredArticleBatches(userId, query.clientId, 30)
+    const access = await requireOperationAccess({ userId, clientId: query.clientId, teamId: query.teamId, module: "article", action: "view" })
+    const [batches, runs] = await Promise.all([
+      listOwnedStoredArticleBatches(userId, query.clientId, 30),
+      listContentProductionRuns(access.dataOwnerUserId, query.clientId, { limit: 30 }),
+    ])
     // Individual batch authorization also accounts for a revoked team share.
     const visible = await Promise.all(batches.map(async batch => {
       const access = await resolveOperationAccess({ userId, clientId: batch.clientId, teamId: batch.teamId, module: "article", action: "view" })
       return access.ok ? batchSummary(batch) : null
     }))
-    return { batches: visible.filter(batch => batch !== null) }
+    return { batches: visible.filter(batch => batch !== null), runs: runs.map(runSummary) }
   }
   const workspace = await resolveWorkspaceAccess(userId)
   if (!workspace.ok) throw new Error(workspace.message)
@@ -137,6 +168,26 @@ async function importOne(userId: string, input: {
   }) as ProductionImportResult
 }
 
+async function importBatchItems(userId: string, batch: StoredArticleBatch, selected: StoredArticleBatchItem[], variant: "original" | "media", results: ProductionImportResult[], warnings: string[]) {
+  if (!selected.length) throw new Error("请先选择已生成正文的文章")
+  if (selected.length > 50) throw new Error("单次最多导入 50 篇文章")
+  if (selected.some(item => !item.markdown?.trim() || ["queued", "running", "word_processing"].includes(item.status))) throw new Error("所选文章仍在生成或尚无正文，请等待完成后导入")
+  if (variant === "media" && selected.some(item => !item.mediaRevision?.markdown?.trim())) throw new Error("所选文章尚未生成配图版本，请选择原文或先完成配图")
+  for (const item of selected) {
+    const markdown = variant === "media" ? item.mediaRevision?.markdown : item.markdown
+    if (!markdown?.trim()) throw new Error("所选文章尚未生成配图版本，请选择原文或先完成配图")
+    if (markdown.length > 300000) throw new Error("文章正文超过导入大小限制")
+    const title = item.title || item.topic || "文章"
+    const metadata = { tags: item.keyword ? [item.keyword] : [], original: false }
+    const source: PublishingSource = {
+      kind: "production", id: `production:batch:${batch.id}:${item.id}:${variant}`,
+      version: sourceHash({ title, markdown, metadata }), name: title, clientId: batch.clientId, batchId: batch.id, itemId: item.id, variant,
+    }
+    results.push(await importOne(userId, { source, sourceOwnerId: batch.ownerUserId, title, markdown, metadata }))
+    if (item.qualityStatus === "review_required" || item.qualityAudit?.finalPassed === false) warnings.push(`《${title}》待质量复核，分发前请检查正文`)
+  }
+}
+
 export async function importProductionArticles(userId: string, raw: Record<string, unknown>) {
   const results: ProductionImportResult[] = [], warnings: string[] = []
   if (raw.kind === "current") {
@@ -167,23 +218,30 @@ export async function importProductionArticles(userId: string, raw: Record<strin
     if (wanted && [...wanted].some(id => !batch.items.some(item => item.id === id))) throw new Error("所选文章不属于此批次")
     if (wanted && batch.items.some(item => wanted.has(item.id) && !item.markdown?.trim())) throw new Error("所选文章还没有可导入的正文")
     const selected = batch.items.filter(item => (!wanted || wanted.has(item.id)) && Boolean(item.markdown?.trim()))
-    if (!selected.length) throw new Error("请先选择已生成正文的文章")
-    if (selected.some(item => ["queued", "running", "word_processing"].includes(item.status))) throw new Error("所选文章仍在生成，请等待完成后导入")
-    if (selected.length > 50) throw new Error("单次最多导入 50 篇文章")
-    if (variant === "media" && selected.some(item => !item.mediaRevision?.markdown?.trim())) throw new Error("所选文章尚未生成配图版本，请选择原文或先完成配图")
-    if (selected.some(item => (variant === "media" ? item.mediaRevision?.markdown : item.markdown)!.length > 300000)) throw new Error("文章正文超过导入大小限制")
+    await importBatchItems(userId, batch, selected, variant, results, warnings)
+  } else if (raw.kind === "production_run") {
+    const runId = requiredText(raw.runId, "生产记录标识", 200)
+    const clientId = requiredText(raw.clientId, "客户标识", 200)
+    const access = await requireOperationAccess({ userId, clientId, teamId: optionalText(raw.teamId, 200), module: "article", action: "export" })
+    const run = await getContentProductionRun(access.dataOwnerUserId, runId)
+    if (!run || run.clientId !== clientId) throw new Error("内容生产记录不存在或无权导入")
+    if (!Array.isArray(raw.itemIds) || raw.itemIds.length < 1 || raw.itemIds.length > 50 || raw.itemIds.some(id => typeof id !== "string" || id.length > 200)) throw new Error("请选择 1～50 篇本次生产的文章")
+    const wanted = new Set(raw.itemIds as string[])
+    const selected = run.items.filter(item => wanted.has(item.id))
+    if (selected.length !== wanted.size || selected.some(item => item.contentType === "video" || !["ready", "review_required"].includes(item.status) || !item.articleBatchId || !item.articleItemId)) throw new Error("所选文章不属于此生产记录或尚未完成")
+    const groups = new Map<string, string[]>()
     for (const item of selected) {
-      const markdown = variant === "media" ? item.mediaRevision?.markdown : item.markdown
-      if (!markdown?.trim()) throw new Error("所选文章尚未生成配图版本，请选择原文或先完成配图")
-      if (markdown.length > 300000) throw new Error("文章正文超过导入大小限制")
-      const title = item.title || item.topic || "文章"
-      const metadata = { tags: item.keyword ? [item.keyword] : [], original: false }
-      const source: PublishingSource = {
-        kind: "production", id: `production:batch:${batch.id}:${item.id}:${variant}`,
-        version: sourceHash({ title, markdown, metadata }), name: title, clientId: batch.clientId, batchId: batch.id, itemId: item.id, variant,
-      }
-      results.push(await importOne(userId, { source, sourceOwnerId: batch.ownerUserId, title, markdown, metadata }))
-      if (item.qualityStatus === "review_required" || item.qualityAudit?.finalPassed === false) warnings.push(`《${title}》待质量复核，分发前请检查正文`)
+      const ids = groups.get(item.articleBatchId!) || []
+      ids.push(item.articleItemId!)
+      groups.set(item.articleBatchId!, ids)
+    }
+    for (const [batchId, itemIds] of groups) {
+      if (!run.childBatches.some(child => child.id === batchId)) throw new Error("文章批次与生产记录不匹配")
+      const batch = await getOwnedStoredArticleBatch(batchId, run.articleOwnerUserId)
+      if (!batch || batch.clientId !== clientId || batch.teamId !== run.teamId) throw new Error("文章批次不存在或无权导入")
+      const items = itemIds.map(itemId => batch.items.find(item => item.id === itemId))
+      if (items.some(item => !item)) throw new Error("文章与生产记录不匹配")
+      await importBatchItems(userId, batch, items as StoredArticleBatchItem[], "original", results, warnings)
     }
   } else throw new Error("请选择有效的文章导入来源")
   return {

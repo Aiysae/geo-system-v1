@@ -33,8 +33,9 @@ export async function POST(request: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
-    const origin = request.headers.get("origin")
-    if (!origin || new URL(origin).origin !== request.nextUrl.origin) return NextResponse.json({ error: "请从当前工作台导入文章" }, { status: 403, headers })
+    const origin = new URL(request.headers.get("origin") || "")
+    if (origin.host !== (request.headers.get("host") || request.nextUrl.host) || origin.protocol !== request.nextUrl.protocol)
+      return NextResponse.json({ error: "请从当前工作台导入文章" }, { status: 403, headers })
   } catch { return NextResponse.json({ error: "请求来源无效" }, { status: 403, headers }) }
   try {
     const form = await readForm(request)

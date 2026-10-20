@@ -22,6 +22,11 @@ export type ArticleDistributionRequest = {
   batchId: string
   itemIds?: string[]
   variant: "original" | "media"
+} | {
+  kind: "production_run"
+  runId: string
+  clientId: string
+  itemIds: string[]
 }
 
 export default function ArticleDistributionButton({

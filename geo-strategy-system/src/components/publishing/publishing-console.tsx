@@ -28,6 +28,7 @@ import {
   Search,
   Send,
   ShieldCheck,
+  Upload,
   Users,
   X,
 } from "lucide-react"
@@ -198,6 +199,12 @@ async function send<T = unknown>(action: string, input: Record<string, unknown> 
   if (!response.ok) throw new Error(data.error || "操作失败")
   return data
 }
+async function importRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, { cache: "no-store", ...init })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error || "文章导入失败")
+  return data as T
+}
 const statusNames: Record<string, string> = {
   ready: "已登录",
   needs_login: "待登录",
@@ -220,6 +227,13 @@ const contentNames: Record<PublishingContentType,string> = {
   article:"文章",video:"视频",imageText:"图文笔记",audio:"音频",wechat:"公众号内容包",dynamic:"短动态",
 }
 type ContentOverride = { title?:string; metadata?:{digest?:string;coverAssetId?:string} }
+type FileImportPreview = { name:string; title:string; markdown:string; warnings:string[]; sourceHash:string; imageCount:number }
+type ProductionClient = { id:string; name:string; teamId?:string }
+type ProductionBatch = {
+  id:string; clientId:string; promptTitle:string; createdAt:string; status:string; kind?:"batch"|"production_run";
+  items:Array<{id:string; title:string; status:string; hasDraft:boolean; hasMediaVersion:boolean}>
+}
+type ProductionArticlePreview = { id:string; title:string; markdown:string; mediaMarkdown?:string }
 const time = (v: number) => new Date(v).toLocaleString("zh-CN", { hour12: false })
 const datetimeLocal = (v:number) => new Date(v-new Date(v).getTimezoneOffset()*60000).toISOString().slice(0,16)
 const toggle = (values: string[], id: string) =>
@@ -263,6 +277,21 @@ export default function PublishingConsole({ userName }: { userName: string }) {
   const [wechatEntries,setWechatEntries]=useState<Array<{title:string;markdown:string;coverAssetId:string}>>([])
   const [uploadKind,setUploadKind]=useState<PublishingAsset["kind"]>("image")
   const [importId,setImportId]=useState("")
+  const [fileImportOpen,setFileImportOpen]=useState(false)
+  const [fileImportFiles,setFileImportFiles]=useState<File[]>([])
+  const [fileImportPreviews,setFileImportPreviews]=useState<FileImportPreview[]>([])
+  const [fileImportSelected,setFileImportSelected]=useState<number[]>([])
+  const [productionImportOpen,setProductionImportOpen]=useState(false)
+  const [productionClients,setProductionClients]=useState<ProductionClient[]>([])
+  const [productionClientId,setProductionClientId]=useState("")
+  const [productionBatches,setProductionBatches]=useState<ProductionBatch[]>([])
+  const [productionRuns,setProductionRuns]=useState<ProductionBatch[]>([])
+  const [productionBatch,setProductionBatch]=useState<ProductionBatch|null>(null)
+  const [productionIds,setProductionIds]=useState<string[]>([])
+  const [productionVariant,setProductionVariant]=useState<"original"|"media">("original")
+  const [productionPreview,setProductionPreview]=useState<ProductionArticlePreview|null>(null)
+  const [importBusy,setImportBusy]=useState(false)
+  const [importError,setImportError]=useState("")
   const [preflight,setPreflight]=useState<{ok:boolean;errors:Array<{message:string}>;warnings:Array<{message:string}>}|null>(null)
   const [overrides,setOverrides]=useState<Record<string,Record<string,ContentOverride>>>({})
   const [draftId,setDraftId]=useState("")
@@ -454,6 +483,174 @@ export default function PublishingConsole({ userName }: { userName: string }) {
     if(!response.ok)throw new Error(data.error||"素材上传失败")
     setNotice(`${file.name} 已加入本机素材库`)
     return data.asset as PublishingAsset
+  }
+  async function postArticleFiles(files:File[],mode:"preview"|"import") {
+    const form = new FormData()
+    form.set("mode",mode)
+    for (const file of files) form.append("files",file)
+    return importRequest<{
+      items:Array<FileImportPreview & { article?:PublishingArticle; status?:string }>;
+      importedCount?:number; reusedCount?:number
+    }>(`${endpoint}/import/files`,{method:"POST",body:form})
+  }
+  async function previewArticleFiles(files:File[]) {
+    if (!files.length) return
+    setPicker(null)
+    setFileImportFiles(files)
+    setFileImportPreviews([])
+    setFileImportSelected([])
+    setFileImportOpen(true)
+    setImportBusy(true)
+    setImportError("")
+    try {
+      const result = await postArticleFiles(files,"preview")
+      setFileImportPreviews(result.items)
+      setFileImportSelected(result.items.map((_,index)=>index))
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "文章文件预览失败")
+    } finally {
+      setImportBusy(false)
+    }
+  }
+  async function confirmArticleFiles() {
+    if (!fileImportSelected.length || importBusy) return
+    setImportBusy(true)
+    setImportError("")
+    try {
+      const result = await postArticleFiles(fileImportSelected.map(index=>fileImportFiles[index]),"import")
+      const ids = result.items.map(item=>item.article?.id).filter((id):id is string=>Boolean(id))
+      if (ids.length !== result.items.length) throw new Error("部分文章导入结果缺少编号，请刷新内容库核对")
+      setArticles(previous=>[...new Set([...previous,...ids])])
+      await refresh()
+      setArticlePage(1)
+      setTab("articles")
+      setEditing(false)
+      setFileImportOpen(false)
+      setFileImportFiles([])
+      setFileImportPreviews([])
+      setFileImportSelected([])
+      setNotice(`已导入 ${result.items.length} 篇文章并加入分发选择；新导入 ${result.importedCount||0} 篇，复用 ${result.reusedCount||0} 篇。请检查正文后再创建任务。`)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "文章文件导入失败")
+    } finally {
+      setImportBusy(false)
+    }
+  }
+  async function openProductionImport() {
+    setPicker(null)
+    setProductionImportOpen(true)
+    setProductionClientId("")
+    setProductionBatches([])
+    setProductionRuns([])
+    setProductionBatch(null)
+    setProductionIds([])
+    setProductionVariant("original")
+    setProductionPreview(null)
+    setImportBusy(true)
+    setImportError("")
+    try {
+      const result = await importRequest<{clients:ProductionClient[]}>(`${endpoint}/import`)
+      setProductionClients(result.clients)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "读取内容生产客户失败")
+    } finally {
+      setImportBusy(false)
+    }
+  }
+  async function selectProductionClient(id:string) {
+    setProductionClientId(id)
+    setProductionBatches([])
+    setProductionRuns([])
+    setProductionBatch(null)
+    setProductionIds([])
+    setProductionPreview(null)
+    setImportError("")
+    if (!id) return
+    setImportBusy(true)
+    try {
+      const client = productionClients.find(item=>item.id===id)
+      const query = new URLSearchParams({clientId:id})
+      if (client?.teamId) query.set("teamId",client.teamId)
+      const result = await importRequest<{batches:ProductionBatch[];runs?:ProductionBatch[]}>(`${endpoint}/import?${query}`)
+      setProductionBatches(result.batches)
+      setProductionRuns((result.runs||[]).map(run=>({...run,kind:"production_run",promptTitle:"按计划生产"})))
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "读取文章批次失败")
+    } finally {
+      setImportBusy(false)
+    }
+  }
+  async function selectProductionBatch(id:string) {
+    setProductionBatch(null)
+    setProductionIds([])
+    setProductionPreview(null)
+    setImportError("")
+    if (!id) return
+    if (id.startsWith("run:")) {
+      setProductionVariant("original")
+      setProductionBatch(productionRuns.find(run=>run.id===id.slice(4))||null)
+      return
+    }
+    setImportBusy(true)
+    try {
+      const result = await importRequest<{batch:ProductionBatch}>(`${endpoint}/import?batchId=${encodeURIComponent(id.slice(6))}`)
+      setProductionBatch(result.batch)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "读取批次文章失败")
+    } finally {
+      setImportBusy(false)
+    }
+  }
+  function productionItemReady(item:ProductionBatch["items"][number],variant=productionVariant) {
+    if (productionBatch?.kind==="production_run") return item.hasDraft && ["ready","review_required"].includes(item.status)
+    return item.hasDraft && !["queued","running","word_processing"].includes(item.status)
+      && (variant==="original" || item.hasMediaVersion)
+  }
+  async function previewProductionArticle(id:string) {
+    if (!productionBatch) return
+    setImportBusy(true)
+    setImportError("")
+    try {
+      if (productionBatch.kind==="production_run") {
+        const query = new URLSearchParams({runId:productionBatch.id,itemId:id,clientId:productionClientId})
+        const teamId = productionClients.find(client=>client.id===productionClientId)?.teamId
+        if (teamId) query.set("teamId",teamId)
+        const result = await importRequest<{preview:ProductionArticlePreview}>(`${endpoint}/import?${query}`)
+        setProductionPreview(result.preview)
+      } else {
+        const result = await importRequest<ProductionArticlePreview>(`/api/article-generation/batches/${encodeURIComponent(productionBatch.id)}/items/${encodeURIComponent(id)}`)
+        setProductionPreview(result)
+      }
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "读取文章正文失败")
+    } finally {
+      setImportBusy(false)
+    }
+  }
+  async function confirmProductionArticles() {
+    if (!productionBatch || !productionIds.length || importBusy) return
+    setImportBusy(true)
+    setImportError("")
+    try {
+      const teamId = productionClients.find(client=>client.id===productionClientId)?.teamId
+      const result = await importRequest<{articleIds:string[];reused:number;warnings:string[]}>(`${endpoint}/import`,{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(productionBatch.kind==="production_run"
+          ? {kind:"production_run",runId:productionBatch.id,clientId:productionClientId,teamId,itemIds:productionIds}
+          : {kind:"batch",batchId:productionBatch.id,itemIds:productionIds,variant:productionVariant}),
+      })
+      setArticles(previous=>[...new Set([...previous,...result.articleIds])])
+      await refresh()
+      setArticlePage(1)
+      setTab("articles")
+      setEditing(false)
+      setProductionImportOpen(false)
+      setNotice(`已从内容生产导入 ${result.articleIds.length} 篇并加入分发选择；复用 ${result.reused} 篇。${result.warnings.length ? `其中 ${result.warnings.length} 篇待质量复核，请检查正文。` : "请检查正文后再创建任务。"}`)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "内容生产文章导入失败")
+    } finally {
+      setImportBusy(false)
+    }
   }
   async function createBatch() {
     const input = {
@@ -688,9 +885,9 @@ export default function PublishingConsole({ userName }: { userName: string }) {
           </Link>
           <p>
             <span className={state?.runtime.running ? s.dot : s.offDot} />
-            <span>{state?.runtime.running ? "本机执行器已连接" : "连接执行器…"}</span>
+            <span>{state?.runtime.running ? "分发执行器已连接" : "连接执行器…"}</span>
           </p>
-          <small>本机运行 · 未上线部署</small>
+          <small>独立运行 · 由 GEO 管理</small>
         </div>
       </aside>
       <div className={s.workspace}>
@@ -1063,6 +1260,14 @@ export default function PublishingConsole({ userName }: { userName: string }) {
                   />
                 </label>
                 <div className={s.actions}>
+                  <button disabled={busy || importBusy} onClick={() => void openProductionImport()}>
+                    从内容生产导入
+                  </button>
+                  <label className={s.fileChoose}>
+                    <Upload size={15} /> 上传文章文件
+                    <input type="file" accept=".md,.txt,.docx" multiple disabled={busy || importBusy}
+                      onChange={event=>{const files=Array.from(event.target.files||[]);event.target.value="";void previewArticleFiles(files)}} />
+                  </label>
                   <button
                     disabled={!articles.length}
                     onClick={() => {
@@ -1143,7 +1348,7 @@ export default function PublishingConsole({ userName }: { userName: string }) {
               )}
               <Pagination page={articlePage} total={articleList.length} onChange={setArticlePage} />
               <p className={s.hint}>
-                这里保存本地内容；平台草稿的执行结果可在“发布记录”中查看。
+                可从内容生产导入，也可上传 Markdown、TXT、Word 文章文件；平台草稿的执行结果可在“发布记录”中查看。
               </p>
             </section>
           )}
@@ -1973,6 +2178,15 @@ export default function PublishingConsole({ userName }: { userName: string }) {
             </span>
             <div className={s.actions}>
               {picker === "articles" && (
+                <>
+                <button disabled={busy || importBusy} onClick={() => void openProductionImport()}>
+                  从内容生产导入
+                </button>
+                <label className={s.fileChoose}>
+                  <Upload size={15} /> 上传文章文件
+                  <input type="file" accept=".md,.txt,.docx" multiple disabled={busy || importBusy}
+                    onChange={event=>{const files=Array.from(event.target.files||[]);event.target.value="";void previewArticleFiles(files)}} />
+                </label>
                 <button
                   disabled={busy}
                   onClick={() => {
@@ -1983,9 +2197,105 @@ export default function PublishingConsole({ userName }: { userName: string }) {
                   <Plus size={15} />
                   新建文章
                 </button>
+                </>
               )}
               <button className={s.primary} onClick={() => setPicker(null)}>
                 确定选择
+              </button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+      {fileImportOpen && (
+        <Dialog title="上传文章文件" wide errorMessage={importError}
+          onClose={()=>{if(importBusy)return;setFileImportOpen(false);setFileImportFiles([]);setFileImportPreviews([])}}>
+          <p className={s.hint}>支持一次上传 1～20 个 .md、.txt、.docx 文件。先在这里核对标题、正文和解析提示，确认后才加入内容库；不会提交给内容平台。</p>
+          {importBusy && !fileImportPreviews.length && <p role="status" className={s.hint}>正在解析文章文件…</p>}
+          <div className={s.importItems}>
+            {fileImportPreviews.map((item,index)=>(
+              <article key={`${item.sourceHash}-${index}`} className={s.importItem}>
+                <label className={s.importChoice}>
+                  <input type="checkbox" checked={fileImportSelected.includes(index)} disabled={importBusy}
+                    onChange={()=>setFileImportSelected(previous=>previous.includes(index)?previous.filter(value=>value!==index):[...previous,index])} />
+                  <span><strong>{item.title}</strong><small>{item.name} · {item.imageCount} 张内嵌图片</small></span>
+                </label>
+                {item.warnings.length>0 && <ul className={s.importWarnings}>{item.warnings.map((warning,warningIndex)=><li key={warningIndex}>{warning}</li>)}</ul>}
+                <details><summary>查看正文预览</summary><pre className={s.importExcerpt}>{item.markdown.replace(/data:image\/[^)\s]+/g,"[内嵌图片]").slice(0,1800)}{item.markdown.length>1800?"\n…（仅显示前 1800 字，导入后可查看全文）":""}</pre></details>
+              </article>
+            ))}
+          </div>
+          <div className={s.dialogFoot}>
+            <span>已选择 {fileImportSelected.length} / {fileImportPreviews.length} 篇；Word 复杂排版请对照原文检查。</span>
+            <div className={s.actions}>
+              <button disabled={importBusy} onClick={()=>{setFileImportOpen(false);setFileImportFiles([]);setFileImportPreviews([])}}>取消</button>
+              <button className={s.primary} disabled={importBusy || !fileImportSelected.length} onClick={()=>void confirmArticleFiles()}>
+                {importBusy?"处理中…":"确认导入内容库"}
+              </button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+      {productionImportOpen && (
+        <Dialog title="从内容生产导入文章" wide errorMessage={importError}
+          onClose={()=>{if(!importBusy)setProductionImportOpen(false)}}>
+          <p className={s.hint}>选择已生成的文章，可单篇或批量导入。分发台保存独立副本，后续编辑不会改动内容生产原稿。</p>
+          <div className={s.importFields}>
+            <label>内容生产客户
+              <select value={productionClientId} disabled={importBusy}
+                onChange={event=>void selectProductionClient(event.target.value)}>
+                <option value="">选择客户</option>
+                {productionClients.map(client=><option key={`${client.id}:${client.teamId||"personal"}`} value={client.id}>{client.name}{client.teamId?" · 团队共享":""}</option>)}
+              </select>
+            </label>
+            <label>文章批次
+              <select value={productionBatch?`${productionBatch.kind==="production_run"?"run":"batch"}:${productionBatch.id}`:""} disabled={importBusy || !productionClientId}
+                onChange={event=>void selectProductionBatch(event.target.value)}>
+                <option value="">选择批次</option>
+                {productionBatches.map(batch=><option key={batch.id} value={`batch:${batch.id}`}>{batch.promptTitle || "文章批次"} · {new Date(batch.createdAt).toLocaleDateString("zh-CN")}</option>)}
+                {productionRuns.map(run=><option key={run.id} value={`run:${run.id}`}>按计划生产 · {new Date(run.createdAt).toLocaleDateString("zh-CN")} · {run.items.length} 篇</option>)}
+              </select>
+            </label>
+            <label>导入版本
+              <select value={productionVariant} disabled={importBusy || !productionBatch || productionBatch.kind==="production_run"}
+                onChange={event=>{const variant=event.target.value as "original"|"media";setProductionVariant(variant);setProductionIds(previous=>previous.filter(id=>productionBatch?.items.some(item=>item.id===id&&productionItemReady(item,variant))))}}>
+                <option value="original">原文</option>
+                {productionBatch?.kind!=="production_run" && <option value="media">图文版（仅可选已生成配图的文章）</option>}
+              </select>
+            </label>
+          </div>
+          {importBusy && <p role="status" className={s.hint}>正在读取或导入文章…</p>}
+          {!importBusy && !productionClients.length && !importError && <p className={s.hint}>暂无可访问的内容生产客户。</p>}
+          {productionClientId && !productionBatches.length && !productionRuns.length && !importBusy && !importError && <p className={s.hint}>该客户暂无可导入的文章批次或按计划生产记录。</p>}
+          {productionBatch && <>
+            <div className={s.importSelectionHead}>
+              <strong>{productionBatch.promptTitle || "文章批次"} · 已选 {productionIds.length} 篇</strong>
+              <button type="button" disabled={importBusy} onClick={()=>setProductionIds(productionBatch.items.filter(item=>productionItemReady(item)).map(item=>item.id))}>选择本批可用文章</button>
+            </div>
+            <div className={s.importItems}>
+              {productionBatch.items.map(item=>(
+                <article key={item.id} className={s.importItem}>
+                  <div className={s.importChoice}>
+                    <label><input type="checkbox" checked={productionIds.includes(item.id)} disabled={importBusy || !productionItemReady(item)}
+                      onChange={()=>setProductionIds(previous=>previous.includes(item.id)?previous.filter(id=>id!==item.id):[...previous,item.id])} />
+                      <span><strong>{item.title}</strong><small>{item.hasDraft?item.hasMediaVersion?"原文、图文版均可用":"原文可用，图文版待生成":"正文尚未生成"}</small></span>
+                    </label>
+                    <button type="button" disabled={importBusy || !item.hasDraft} onClick={()=>void previewProductionArticle(item.id)}>预览正文</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            {productionPreview && <section className={s.importPreview}>
+              <strong>《{productionPreview.title}》{productionVariant==="media"?"图文版":"原文"}预览</strong>
+              <pre className={s.importExcerpt}>{(productionVariant==="media"?productionPreview.mediaMarkdown:productionPreview.markdown)?.slice(0,2200)||"该版本暂无正文"}</pre>
+              <small>仅显示前 2200 字；导入后可在内容编辑器查看全文。</small>
+            </section>}
+          </>}
+          <div className={s.dialogFoot}>
+            <span>导入只保存到 GEO 内容库，不会正式发布文章。</span>
+            <div className={s.actions}>
+              <button disabled={importBusy} onClick={()=>setProductionImportOpen(false)}>取消</button>
+              <button className={s.primary} disabled={importBusy || !productionIds.length} onClick={()=>void confirmProductionArticles()}>
+                {importBusy?"处理中…":`确认导入 ${productionIds.length} 篇`}
               </button>
             </div>
           </div>

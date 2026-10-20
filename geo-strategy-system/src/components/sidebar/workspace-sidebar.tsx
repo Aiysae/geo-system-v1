@@ -241,7 +241,7 @@ export default function WorkspaceSidebar({
         })}
       </nav> : null}
       <div className="shrink-0 px-4 pb-2 text-[10px] font-semibold text-cyan-100/55">优化工作</div>
-      {canViewModule("article") && <Link href="/publishing" className="mx-3 mb-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm font-medium text-blue-700"><FileText className="size-4"/>账号与文章分发</Link>}
+      <Link href="/publishing" className="mx-3 mb-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm font-medium text-blue-700"><FileText className="size-4"/>账号与文章分发</Link>
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4" aria-label="工作台业务工作流">
         {visibleWorkflows.map(workflow => {
           const Icon = workflow.icon

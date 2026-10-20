@@ -1423,6 +1423,86 @@
   font-size: 12px;
   color: #91919d;
 }
+.importFields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.importItems {
+  display: grid;
+  gap: 10px;
+  max-height: 45vh;
+  overflow: auto;
+  margin-top: 14px;
+}
+.importItem,
+.importPreview {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px 14px;
+}
+.importChoice,
+.importChoice label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.importChoice label,
+.importChoice > span {
+  flex: 1;
+}
+.importChoice strong,
+.importChoice small {
+  display: block;
+}
+.importChoice strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.importChoice button {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+.importWarnings {
+  margin: 8px 0 0 25px;
+  padding: 0;
+  color: #995e20;
+  font-size: 11px;
+}
+.importItem details {
+  margin-left: 25px;
+}
+.importExcerpt {
+  max-height: 185px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f8f8fa;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.importSelectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+.importPreview {
+  margin-top: 12px;
+}
+.importPreview strong,
+.importPreview small {
+  display: block;
+}
+@media (max-width: 690px) {
+  .importFields { grid-template-columns: 1fr; }
+  .dialogFoot { flex-wrap: wrap; }
+}
 .loginDialog {
   width: min(1050px, 100%);
 }
@@ -2053,8 +2133,8 @@
 .mediaPicker, .wechatEntries { display: grid; gap: 10px; margin-bottom: 22px; }
 .mediaPicker strong, .wechatEntries strong { font-size: 12px; }
 .mediaPicker small, .wechatEntries small { color: #777d8d; font-size: 11px; line-height: 1.5; }
-.fileChoose { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; width: fit-content; min-height: 34px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 7px; background: white; color: #444a61; font-size: 12px; }
-.fileChoose input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.fileChoose { position: relative; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; width: fit-content; min-height: 34px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 7px; background: white; color: #444a61; font-size: 12px; }
+.fileChoose input { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .fileChoose:focus-within { outline: 2px solid #7257d9; outline-offset: 2px; }
 .mediaOptions { display: grid; gap: 5px; max-height: 215px; overflow: auto; }
 .mediaOptions label { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 11px; }

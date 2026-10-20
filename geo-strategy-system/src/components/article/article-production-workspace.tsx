@@ -338,7 +338,7 @@ export default function ArticleProductionWorkspace({
               </div>
               <div className="flex flex-wrap items-center gap-3 border-b border-[#E7EFF6] bg-[#F8FBFF] px-4 py-3">
                 <label className="flex items-center gap-2 text-xs text-[#526A83]"><input type="checkbox" aria-label="全选本次生产的可导入文章" checked={importableItems.length > 0 && selectedImportableItems.length === importableItems.length} disabled={importableItems.length === 0} onChange={event => setSelectedDistributionIds(current => { const next = new Set(current); for (const item of importableItems) { if (event.target.checked) next.add(item.id); else next.delete(item.id) }; return next })} className="h-4 w-4 accent-[#1677FF]" />全选可用文章</label>
-                <ArticleDistributionButton request={productionDistributionRequests(selectedImportableItems)} disabled={selectedImportableItems.length === 0}>勾选稿件加入分发台（{selectedImportableItems.length}）</ArticleDistributionButton>
+                <ArticleDistributionButton request={productionDistributionRequests(selectedRun, clientId, selectedImportableItems)} disabled={selectedImportableItems.length === 0}>勾选稿件加入分发台（{selectedImportableItems.length}）</ArticleDistributionButton>
                 <p className="text-[10px] leading-5 text-[#6B8299]">加入后在分发台选择账号和分发方式；视频文案仍可通过原入口下载。</p>
               </div>
               <div className="max-h-[410px] divide-y divide-[#EDF2F7] overflow-y-auto">
@@ -355,7 +355,7 @@ export default function ArticleProductionWorkspace({
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-2">
                       <span className="text-[10px] font-semibold text-[#6B8299]">{item.status === "ready" ? "质检通过" : item.status === "review_required" ? "待复核" : item.status === "failed" ? "失败" : item.status === "cancelled" ? "已停止" : item.status === "running" ? "生成中" : "排队中"}</span>
-                      {canImportProductionItem(item) ? <ArticleDistributionButton request={productionDistributionRequests([item])} compact className="h-8 w-8" /> : null}
+                      {canImportProductionItem(item) ? <ArticleDistributionButton request={productionDistributionRequests(selectedRun, clientId, [item])} compact className="h-8 w-8" /> : null}
                     </div>
                   </div>
                 </article>)}
@@ -387,13 +387,11 @@ function canImportProductionItem(item: ContentProductionItem): boolean {
     && (item.status === "ready" || item.status === "review_required")
 }
 
-function productionDistributionRequests(items: ContentProductionItem[]): ArticleDistributionRequest[] {
-  const batches = new Map<string, string[]>()
-  for (const item of items) {
-    if (!canImportProductionItem(item)) continue
-    const ids = batches.get(item.articleBatchId!) || []
-    ids.push(item.articleItemId!)
-    batches.set(item.articleBatchId!, ids)
+function productionDistributionRequests(run: ContentProductionRun, clientId: string, items: ContentProductionItem[]): ArticleDistributionRequest[] {
+  const ids = items.filter(canImportProductionItem).map(item => item.id)
+  const requests: ArticleDistributionRequest[] = []
+  for (let offset = 0; offset < ids.length; offset += 50) {
+    requests.push({ kind: "production_run", runId: run.id, clientId, itemIds: ids.slice(offset, offset + 50) })
   }
-  return [...batches].map(([batchId, itemIds]) => ({ kind: "batch", batchId, itemIds, variant: "original" }))
+  return requests
 }

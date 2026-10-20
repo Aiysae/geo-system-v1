@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response
   try {
     const value = (name: string) => request.nextUrl.searchParams.get(name)?.trim().slice(0, 200) || undefined
-    return reply(await listProductionImportSources(auth.userId, { clientId: value("clientId"), teamId: value("teamId"), batchId: value("batchId") }))
+    return reply(await listProductionImportSources(auth.userId, { clientId: value("clientId"), teamId: value("teamId"), batchId: value("batchId"), runId: value("runId"), itemId: value("itemId") }))
   } catch (error) {
     return reply({ error: error instanceof Error ? error.message : "读取生成文章失败" }, isOperationAccessError(error) ? 403 : 400)
   }
@@ -22,8 +22,8 @@ export async function POST(request: NextRequest) {
   const auth = await requireUserId()
   if (!auth.ok) return auth.response
   try {
-    const origin = request.headers.get("origin")
-    if (!origin || new URL(origin).origin !== request.nextUrl.origin) return reply({ error: "请从当前工作台导入文章" }, 403)
+    const origin = new URL(request.headers.get("origin") || "")
+    if (origin.host !== (request.headers.get("host") || request.nextUrl.host) || origin.protocol !== request.nextUrl.protocol) return reply({ error: "请从当前工作台导入文章" }, 403)
   } catch { return reply({ error: "请求来源无效" }, 403) }
   try {
     const source = await request.text()
