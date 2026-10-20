@@ -1,0 +1,9 @@
+{
+  "desc": "势途 GEO 小程序页面索引",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
+}

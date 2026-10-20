@@ -1,0 +1,13 @@
+<web-view
+  wx:if="{{!failed && webAppUrl}}"
+  src="{{webAppUrl}}"
+  bindload="handleLoad"
+  binderror="handleError"
+></web-view>
+
+<view wx:else class="error-state">
+  <view class="brand-mark">势途 GEO</view>
+  <view class="error-title">页面暂时没有加载成功</view>
+  <view class="error-copy">请检查网络后重试；如果持续出现，请联系势途 GEO 客服。</view>
+  <button class="retry-button" bindtap="retry">重新加载</button>
+</view>

@@ -1,0 +1,40 @@
+.error-state {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 180rpx 64rpx 80rpx;
+  text-align: center;
+}
+
+.brand-mark {
+  color: #0637a6;
+  font-size: 34rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+}
+
+.error-title {
+  margin-top: 64rpx;
+  color: #0f172a;
+  font-size: 36rpx;
+  font-weight: 700;
+}
+
+.error-copy {
+  margin-top: 24rpx;
+  color: #64748b;
+  font-size: 28rpx;
+  line-height: 1.7;
+}
+
+.retry-button {
+  margin-top: 56rpx;
+  border-radius: 16rpx;
+  background: linear-gradient(90deg, #1677ff, #00b8e6);
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.retry-button::after {
+  border: 0;
+}

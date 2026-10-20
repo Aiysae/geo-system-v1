@@ -1,0 +1,13 @@
+{
+  "pages": [
+    "pages/index/index"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#0637A6",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "势途 GEO",
+    "backgroundColor": "#F5F8FC",
+    "backgroundTextStyle": "light"
+  },
+  "sitemapLocation": "sitemap.json"
+}
