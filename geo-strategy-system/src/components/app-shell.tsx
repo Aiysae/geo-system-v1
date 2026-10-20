@@ -1,5 +1,7 @@
 "use client"
 
+import customerStyle from "./reports/effect-dashboard.module.css"
+
 import { useState, useCallback, useEffect, useRef } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
@@ -288,7 +290,7 @@ export default function Home({
   }, [])
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden geo-workspace-bg print-root">
+    <div className={`flex h-screen w-screen overflow-hidden geo-workspace-bg print-root ${restricted ? customerStyle.customerShell : ""}`}>
       {/* 移动端：抽屉展开时的半透明遮罩，点击关闭 */}
       {sidebarOpen && (
         <div
@@ -494,7 +496,7 @@ function StickyHeader({
           </div>
         </div>
 
-        <div className="no-print hidden items-center gap-2 lg:flex">
+        <div className={`no-print hidden items-center gap-2 ${access.mode === "client" ? "" : "lg:flex"}`}>
           <Link
             href="/agent"
             className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#69DFFF]/55 bg-[#00AEEA]/18 px-3 text-xs font-bold text-cyan-50 shadow-[0_10px_24px_-18px_rgba(0,200,255,0.9)] transition hover:bg-[#00AEEA]/28"
@@ -550,7 +552,7 @@ function StickyHeader({
           {userNotifier}
           {adminNotifier}
           {taskNotifier}
-          <div className="relative lg:hidden">
+          <div className={`relative ${access.mode === "client" ? "" : "lg:hidden"}`}>
             <button
               type="button"
               onClick={() => setMobileActionsOpen(open => !open)}
@@ -883,39 +885,39 @@ function Dashboard({
 
   return (
     <div className="geo-page-wrap animate-fade-in-up py-3 md:py-4 print-container">
-      <header className="geo-client-banner mb-3 hidden overflow-hidden rounded-lg border border-white/12 shadow-[0_16px_36px_-26px_rgba(0,0,0,0.78)] sm:block">
-        <div className="flex min-h-[76px] items-center justify-between gap-4 px-5 py-3">
+      {!(access.mode === "client" && activeModule === "feedback") && <header className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 px-5 py-4">
         <div>
-          <div className="mb-1 text-[10px] font-semibold text-cyan-50/65">
+          <div className="mb-1 text-xs text-slate-600">
             当前客户 · {subjectCopy.modeLabel}
           </div>
-          <h1 className="break-words text-2xl font-semibold text-white">
+          <h1 className="break-words text-xl font-semibold text-slate-900">
             {client.name}
           </h1>
           {client.industry && (
-            <span className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-cyan-50/78">
+            <span className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-slate-600">
               <span className="h-1.5 w-1.5 rounded-full bg-[#00C8FF]"></span>
               {client.industry}
             </span>
           )}
           {access.mode === "client" ? (
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-cyan-50 ring-1 ring-white/15">
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
               <LockKeyhole className="h-3 w-3" />
               客户专属授权
             </span>
           ) : null}
           {access.mode === "team" ? (
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-cyan-50 ring-1 ring-white/15">
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
               <ShieldCheck className="h-3 w-3" />
               {access.teamName || "团队协作"} · {access.teamRole === "owner" ? "所有者" : access.teamRole === "admin" ? "管理员" : "成员"}
             </span>
           ) : null}
         </div>
-        <div className="text-xs text-white/55">
+        <div className="text-xs text-slate-600">
           创建于 {new Date(client.createdAt).toLocaleDateString("zh-CN")}
         </div>
         </div>
-      </header>
+      </header>}
 
       <section className="mt-1 md:mt-2">
         {readOnlyModule ? (
@@ -923,7 +925,7 @@ function Dashboard({
             <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {access.mode === "team"
               ? "当前成员在本模块只有查看权限。需要执行或编辑时，请联系团队所有者调整模块权限。"
-              : "当前为客户专属账号，本模块展示关联主体的现有数据；可使用渗透率情报，并查看已发布的执行反馈。"}
+              : "当前为查看模式，可阅读本项目已有结果。需要补充资料、重新生成或执行下一步时，请联系项目负责人。"}
           </div>
         ) : null}
         <fieldset

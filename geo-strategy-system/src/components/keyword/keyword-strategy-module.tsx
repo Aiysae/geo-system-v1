@@ -1,5 +1,7 @@
 "use client"
 
+import ResultGuide from "@/components/reports/result-guide"
+
 import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import {
   DEFAULT_CATEGORY_CONFIG,
@@ -1460,6 +1462,18 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
         </div>
       </div>
 
+      <ResultGuide
+        title="关键词策略导读"
+        status={extractJobRef || advantagesJobRef || strategyJobRef ? "策略处理中" : ab.strategyPlan ? "已有策略方案" : ab.extractedProfile ? "待确认资料" : "待整理资料"}
+        summary={ab.strategyPlan?.summary || (ab.extractedProfile ? "资料已整理，确认客户画像、优势和证据后，即可生成关键词与内容策略。" : "把客户需求、产品优势和真实证据整理成关键词、用户问题与发布计划。")}
+        facts={ab.strategyPlan ? [
+          { label: "核心关键词", value: `${ab.strategyPlan.keyword_strategy.core_keywords.length} 个` },
+          { label: "已生成疑问句", value: `${ab.questions.length} 条` },
+          { label: "执行阶段", value: `${ab.strategyPlan.execution_roadmap.length} 个` },
+        ] : []}
+        note={extractJobRef || advantagesJobRef || strategyJobRef ? "新任务完成前，已展示方案仍为此前版本。" : "关键词和问题是内容规划依据；生成方案不代表已经发布或获得 AI 推荐。"}
+        nextSteps={ab.strategyPlan ? ["先核对策略总览中的目标客户与核心关键词。", ab.questions.length ? "从疑问句池中确认优先回答的问题，并结合执行排期安排内容。" : "由项目负责人生成疑问句池，再安排内容制作。", "执行后在周月报中查看动作与检测变化。"] : ab.extractedProfile ? ["检查整理结果中的事实、优势与证据来源。", "由项目负责人确认资料并生成策略。"] : ["补充客户资料、产品服务和目标用户。", "由项目负责人整理资料，核对后进入策略规划。"]}
+      />
         <div className="overflow-x-auto border-b border-[#E8EEF5] bg-[#F8FAFD] px-3 pt-3 sm:px-5 lg:px-6">
           <StepProgress current={ab.step} />
         </div>
@@ -2476,11 +2490,11 @@ function StrategyStep({
         <button
           type="button"
           onClick={revealQuestionPool}
-          className="group flex w-full items-center justify-between gap-3 rounded-xl border border-[#69DFFF] bg-gradient-to-r from-[#EAF5FF] via-[#F3FBFF] to-[#E8FBFF] px-4 py-3 text-left shadow-[0_12px_30px_-24px_rgba(0,119,255,0.75)] transition hover:border-[#1677FF] hover:shadow-[0_16px_34px_-22px_rgba(0,119,255,0.72)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2"
+          className="group flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:border-[#0958D9] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2"
           aria-label={`查看全部 ${questions.length} 条疑问句`}
         >
           <span className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00AEEA] text-white shadow-sm">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0958D9] text-white">
               <ListOrdered className="h-5 w-5" />
             </span>
             <span className="min-w-0">

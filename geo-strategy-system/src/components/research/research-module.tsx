@@ -1,5 +1,7 @@
 "use client"
 
+import ResultGuide from "@/components/reports/result-guide"
+
 import { useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -314,7 +316,19 @@ export default function ResearchModule({ client, onChangeClient }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <ResultGuide
+          title="调研结果导读"
+          status={researchLoading || compareLoading ? "调研进行中" : research || compare ? "已有调研结果" : "待生成调研"}
+          summary={research?.executiveSummary || (compare ? "竞品对比已生成，可结合双方优劣势和内容建议确定优化方向。" : "这里帮助你了解品牌或个人 IP 如何被理解、有哪些证据缺口，以及与同行相比可以优先改善什么。")}
+          facts={research ? [
+            { label: "参考来源", value: `${research.sources?.length || 0} 条` },
+            { label: "证据缺口", value: `${research.evidenceGaps.length} 项` },
+            { label: "行动建议", value: `${research.recommendations.length} 项` },
+          ] : []}
+          note={researchLoading || compareLoading ? "新任务完成前，已有内容仍为上一次结果。" : "调研是基于当前资料的分析。先核对下方来源与证据，再决定执行动作。"}
+          nextSteps={research?.recommendations.length ? research.recommendations.slice(0, 3) : compare ? ["查看下方竞品对比中的内容行动建议，确认适合本项目的方向。", "补充可核验的事实与案例，再交由项目负责人落实。"] : ["由项目负责人确认调研对象与资料来源。", "生成调研后，先读结论，再核对证据缺口与行动建议。"]}
+        />
+        <div className="mt-6 grid min-w-0 gap-6 2xl:grid-cols-2">
           <section className="geo-panel p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2">
@@ -755,7 +769,7 @@ function ResearchReport({
       {result.dimensions.length > 0 && (
         <div className="space-y-2">
           {result.dimensions.map((item, dimensionIndex) => (
-            <div key={item.name} className="rounded-lg border border-slate-200 bg-white/80 p-3">
+            <div key={item.name} className="border-t border-slate-200 py-4">
               <div className="flex items-center justify-between gap-3 mb-2">
                 <div className="text-sm font-medium text-slate-800">{item.name}</div>
                 <div className="font-mono text-sm font-semibold text-[#0958D9]">{item.score}</div>
@@ -763,7 +777,7 @@ function ResearchReport({
               <div className="h-1.5 rounded-full bg-slate-100 mb-2 overflow-hidden">
                 <div className="h-full rounded-full bg-gradient-to-r from-[#1677FF] to-[#00C8FF]" style={{ width: `${item.score}%` }} />
               </div>
-              <p className="text-xs leading-6 text-slate-600">{item.insight}</p>
+              <p className="text-sm leading-6 text-slate-700">{item.insight}</p>
               <SourceBadges
                 path={`dimensions.${dimensionIndex}.insight`}
                 references={references}
@@ -912,9 +926,9 @@ function MiniPanel({
   sources?: ResearchEvidenceSource[]
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white/80 p-3">
-      <div className="text-xs font-semibold text-slate-700 mb-1">{title}</div>
-      <p className="text-xs leading-6 text-slate-600">{text}</p>
+    <div className="border-t border-slate-200 py-4">
+      <div className="text-sm font-semibold text-slate-900 mb-2">{title}</div>
+      <p className="text-sm leading-6 text-slate-700">{text}</p>
       <SourceBadges sourceIds={sourceIds} sources={sources} />
     </div>
   )
@@ -935,28 +949,21 @@ function ListPanel({
   references?: ResearchEvidenceReference[]
   sources?: ResearchEvidenceSource[]
 }) {
-  const color = {
-    emerald: "border-emerald-100 bg-emerald-50/35 text-emerald-700",
-    rose: "border-rose-100 bg-rose-50/35 text-rose-700",
-    amber: "border-amber-100 bg-amber-50/45 text-amber-700",
-    blue: "border-blue-100 bg-blue-50/35 text-blue-700",
-    cyan: "border-cyan-100 bg-cyan-50/35 text-cyan-700",
-    slate: "border-slate-200 bg-slate-50/70 text-slate-700",
-  }[tone]
+  const color = tone === "rose" ? "text-rose-800" : tone === "amber" ? "text-amber-800" : "text-slate-900"
 
   return (
-    <div className={`rounded-lg border p-3 ${color}`}>
-      <div className="text-xs font-semibold mb-2">{title}</div>
+    <div className={`border-t border-slate-200 py-4 ${color}`}>
+      <div className="text-sm font-semibold mb-2">{title}</div>
       {items.length === 0 ? (
-        <div className="text-xs opacity-70">暂无</div>
+        <div className="text-sm text-slate-600">暂无</div>
       ) : (
         <ul className="space-y-1.5">
           {items.map((item, index) => (
-            <li key={`${item}-${index}`} className="flex gap-2 text-xs leading-6 text-slate-700">
-              {tone === "rose" ? (
-                <TriangleAlert className="mt-1 h-3.5 w-3.5 shrink-0 text-rose-500" />
+            <li key={`${item}-${index}`} className="flex gap-2 text-sm leading-6 text-slate-700">
+              {tone === "rose" || tone === "amber" ? (
+                <TriangleAlert className="mt-1 h-3.5 w-3.5 shrink-0 text-current" />
               ) : (
-                <CheckCircle2 className="mt-1 h-3.5 w-3.5 shrink-0 text-current" />
+                <span aria-hidden="true" className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" />
               )}
               <span className="min-w-0">
                 <span>{item}</span>
