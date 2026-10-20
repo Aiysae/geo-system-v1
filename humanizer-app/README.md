@@ -7,7 +7,7 @@
 1. 确保你的电脑已安装 Python (建议 Python 3.8 或以上版本)
 2. 打开终端，进入本项目目录：
    ```bash
-   cd /Users/mac/Desktop/humanizer-app
+   cd humanizer-app
    ```
 3. (可选但推荐) 创建并激活虚拟环境：
    ```bash
