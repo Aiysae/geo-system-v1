@@ -313,6 +313,7 @@ const { chatDoubao } = await import("../src/lib/llm/doubao")
 const { chatHunyuan } = await import("../src/lib/llm/hunyuan")
 const { chatZhipu } = await import("../src/lib/llm/zhipu")
 const { isAuditableSourceUrl } = await import("../src/lib/llm/source-extract")
+const { searchMoonshotWeb } = await import("../src/lib/llm/moonshot-web-search")
 
 const question = "今天有哪些最新的人工智能新闻？"
 const baseArgs = {
@@ -530,6 +531,23 @@ try {
   assert.equal(declinedEvents.at(-1)?.declinedAnswer, "我是腾讯元宝，一个 AI 助手。")
   assert.equal(declinedEvents.at(-1)?.providerRequestId, "hunyuan-request-declined")
   assert.equal(declinedEvents.at(-1)?.searchExecuted, false)
+
+  // A burst of searches on one key must stay under Moonshot's per-second cap.
+  const searchStartedAt: number[] = []
+  const burstFetch = globalThis.fetch
+  globalThis.fetch = async (input, init) => {
+    if (String(input).endsWith("/v1/tools/search")) searchStartedAt.push(Date.now())
+    return burstFetch(input, init)
+  }
+  await Promise.all(Array.from({ length: 5 }, (_, index) => searchMoonshotWeb({
+    apiKey: "test-moonshot-burst-key",
+    baseUrl: "https://api.moonshot.cn",
+    query: `${question} ${index}`,
+    timeoutSec: 30,
+  })))
+  globalThis.fetch = burstFetch
+  searchStartedAt.sort((a, b) => a - b)
+  assert.ok(searchStartedAt[4] - searchStartedAt[0] >= 1_000, "five searches span at least two one-second windows")
 
   const zhipuEvents: SearchSourceEvent[] = []
   const zhipuAudits: PenetrationRequestAudit[] = []

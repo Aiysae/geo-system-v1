@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto"
 import type { PenetrationSource } from "@/types"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
+import { reserveRateLimit } from "@/lib/rate-limit"
 import {
   dedupePenetrationSources,
   isAuditableSourceUrl,
@@ -43,6 +45,23 @@ export class MoonshotWebSearchError extends Error {
   override name = "MoonshotWebSearchError"
 }
 
+// Moonshot caps search at 1 QPS on Tier0 and 3 on Tier1, separately from chat
+// concurrency. A detection job starts many questions at once, and each 429
+// cools the whole route, so searches queue below the Tier1 cap instead.
+const SEARCH_PER_SECOND = 2
+const SEARCH_QUEUE_LIMIT_MS = 30_000
+
+async function waitForSearchSlot(apiKey: string, signal: AbortSignal): Promise<void> {
+  const identifier = createHash("sha256").update(apiKey).digest("hex").slice(0, 24)
+  const deadline = Date.now() + SEARCH_QUEUE_LIMIT_MS
+  while (!(await reserveRateLimit("moonshot-search", identifier, 1, SEARCH_PER_SECOND, 1)).ok) {
+    if (signal.aborted) throw new DOMException("aborted", "AbortError")
+    // Past the deadline, send anyway and let the provider decide.
+    if (Date.now() > deadline) return
+    await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 250))
+  }
+}
+
 /** The search endpoint lives on the API origin, whatever chat path the account uses. */
 export function moonshotSearchUrl(baseUrl: string): string {
   const origin = new URL(baseUrl)
@@ -70,6 +89,7 @@ export async function searchMoonshotWeb(
 
   try {
     const endpoint = moonshotSearchUrl(args.baseUrl)
+    await waitForSearchSlot(args.apiKey, controller.signal)
     const response = await fetch(endpoint, {
       method: "POST",
       cache: "no-store",
