@@ -562,7 +562,7 @@ try {
   assert.deepEqual(zhipuRequest.body.messages, [{ role: "user", content: question }])
   assert.deepEqual(zhipuRequest.body.tools, [{
     type: "web_search",
-    web_search: { enable: true, search_engine: "search_pro", search_result: true, count: 10 },
+    web_search: { enable: true, search_engine: "search_pro_quark", search_result: true, count: 30 },
   }])
   assert.deepEqual(zhipuRequest.body.thinking, { type: "disabled" })
   assert.deepEqual(

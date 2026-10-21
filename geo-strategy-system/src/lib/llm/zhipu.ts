@@ -23,8 +23,11 @@ import {
 // 关闭深度思考：思考模型会把输出额度耗在推理上，返回空正文。
 
 const LABEL = "智谱清言"
-// search_pro 与智谱清言使用的检索质量一致；search_std 更便宜但召回更窄。
-const SEARCH_ENGINE = "search_pro"
+// 2026-10-21 用同一批 22 个问题对照外部检测工具校准：夸克搜索 + 30 条结果
+// 最接近智谱清言 App 的回答（平均差距 26 点降到 18 点），耗时不变；
+// 开深度思考没有帮助，反而慢 3 倍。
+const SEARCH_ENGINE = "search_pro_quark"
+const SEARCH_RESULT_COUNT = 30
 
 interface ZhipuWebSearchResult {
   title?: string
@@ -77,7 +80,7 @@ function webSearchTool(searchResult: boolean) {
       enable: true,
       search_engine: SEARCH_ENGINE,
       search_result: searchResult,
-      count: 10,
+      count: SEARCH_RESULT_COUNT,
     },
   }
 }
