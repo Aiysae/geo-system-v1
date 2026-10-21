@@ -96,6 +96,21 @@ function searchQueryKey(query: string): string {
   return query.trim().replace(/\s+/g, " ").toLocaleLowerCase()
 }
 
+// A final turn that only announces more searching ("让我再搜索一些……") when no
+// tool may run. It is not an answer, and it names no brands.
+const SEARCH_INTENT_TAIL_RE =
+  /(?:让我|我(?:需要|将|会|来|再)|接下来|继续|再)[^。！？\n]{0,12}(?:搜索|查询|检索|查找|执行)|(?:搜索|查询)\s*\d+\s*[:：]|让我执行/u
+
+export function isUnfinishedSearchAnswer(content: string): boolean {
+  const text = content.trim()
+  if (!text) return false
+  const tail = text.slice(-160)
+  if (!SEARCH_INTENT_TAIL_RE.test(tail)) return false
+  // A complete answer may close by offering to search more; it ends on a
+  // question or a full stop, while a stalled turn ends on a colon or mid-plan.
+  return /[:：]\s*$/u.test(text) || text.length < 200 || /(?:搜索|查询)\s*\d+\s*[:：]/u.test(tail)
+}
+
 export async function chatWithAuditableExternalSearch(
   input: AuditableExternalSearchArgs,
 ): Promise<string> {
@@ -117,7 +132,10 @@ export async function chatWithAuditableExternalSearch(
   const searchPayloads = new Map<string, string>()
   let searchExecuted = false
   let forceFinalAnswer = false
-  const maxRounds = 3
+  // The consumer apps search more than once for list questions; one search
+  // and a forced answer left the model announcing searches it could not run.
+  // Each round is a chat request, which the router's per-minute budget counts.
+  const maxRounds = 4
   const maxUniqueSearches = 2
 
   for (let round = 0; round < maxRounds; round += 1) {
@@ -132,7 +150,9 @@ export async function chatWithAuditableExternalSearch(
       seed: args.seed,
       jsonMode: false,
       tools: [SEARCH_TOOL],
-      toolChoice: forceFinalAnswer ? "none" : "required",
+      toolChoice: forceFinalAnswer || round === maxRounds - 1
+        ? "none"
+        : searchExecuted ? "auto" : "required",
       extraBody: input.extraBody,
       timeoutMs: Math.max(30, input.requestTimeoutSec) * 1000,
       signal: args.signal,
@@ -213,7 +233,7 @@ export async function chatWithAuditableExternalSearch(
           content: toolContent,
         })
       }
-      forceFinalAnswer = searchExecuted && auditableUrls.size > 0
+      forceFinalAnswer = searchPayloads.size >= maxUniqueSearches && auditableUrls.size > 0
       continue
     }
 
@@ -227,6 +247,9 @@ export async function chatWithAuditableExternalSearch(
       throw new Error(
         `${input.label} 没有完成带可审计网址的联网搜索，已阻断模型自答。`,
       )
+    }
+    if (isUnfinishedSearchAnswer(content)) {
+      throw new Error(`${input.label} 回答停在“继续搜索”，没有给出最终回答，已改为重新提问。`)
     }
     return content
   }

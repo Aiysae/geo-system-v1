@@ -30,6 +30,8 @@ import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { DEFAULT_REPORT_BRANDING, resolveReportBranding } from "@/lib/report-branding"
+import { aggregatePenetration } from "@/lib/score-utils"
+import { getClientSubjectType } from "@/lib/analysis-subject"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import type {
   Client,
@@ -204,12 +206,26 @@ function compactItem(item: PenetrationItem, detail: CommercialReportDetail): Pen
 }
 
 function compactPenetration(
-  penetration: PenetrationResult | undefined,
+  client: Client,
   detail: CommercialReportDetail,
 ): PenetrationResult | undefined {
+  const penetration = client.penetration
   if (!penetration) return undefined
   return {
     ...penetration,
+    // Same rules as the detection page, so an older report exports the
+    // figures the page shows rather than those saved when it ran.
+    aggregated: aggregatePenetration(
+      penetration.byModel,
+      client.ourBrand,
+      client.brandAliases ?? [],
+      client.competitors,
+      getClientSubjectType(client),
+      {
+        plannedSlots: penetration.aggregated.plannedSlots,
+        modelCount: penetration.aggregated.perModelRate.length,
+      },
+    ),
     byModel: Object.fromEntries(
       Object.entries(penetration.byModel).map(([model, items]) => [
         model,
@@ -363,7 +379,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
         industry: client.industry,
         website: client.website,
       },
-      penetration: includePenetration ? compactPenetration(client.penetration, detail) : undefined,
+      penetration: includePenetration ? compactPenetration(client, detail) : undefined,
       research: includeResearch ? client.research : undefined,
       competitorCompare: includeResearch ? client.competitorCompare : undefined,
       diagnosis: includeDiagnosis ? client.diagnosis : undefined,

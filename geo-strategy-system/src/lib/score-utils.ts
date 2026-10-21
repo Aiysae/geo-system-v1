@@ -52,6 +52,26 @@ function meanRate(values: Iterable<RateAccumulator>): number {
     : 0
 }
 
+// Leading brands carry a per-model breakdown; the long tail does not need one.
+const PER_MODEL_SHARE_LIMIT = 10
+
+/**
+ * Names the judge recognised somewhere in the run that appear verbatim in this
+ * answer. An LLM reading a long list sometimes drops a name it found in other
+ * answers; the literal text settles it. Longer names are matched first and
+ * blanked out, so 江南工程管理 cannot also count inside 江苏江南工程管理.
+ */
+function literalBrandMentions(answer: string, namesLongestFirst: string[]): string[] {
+  let text = answer
+  const found: string[] = []
+  for (const name of namesLongestFirst) {
+    if (!text.includes(name)) continue
+    found.push(name)
+    text = text.split(name).join("\u0000")
+  }
+  return found
+}
+
 function representativeQuestions(byModel: PenetrationByModel): string[] {
   const candidates = Object.values(byModel)
     .map(items => (items || []).filter(item => item.answer?.trim()).map(item => item.question))
@@ -74,10 +94,31 @@ export function aggregatePenetration(
     competitors,
     observedBrands: collectObservedSubjects(byModel, subjectType),
   })
-  const brandCount = new Map<string, { displayName: string; count: number }>()
+  const brandCount = new Map<string, {
+    displayName: string
+    count: number
+    perModel: Partial<Record<ModelKey, number>>
+  }>()
+  const recognisedSlotsByModel: Partial<Record<ModelKey, number>> = {}
   const perModelRate: PerModelRate[] = []
   let ourMentions = 0
   let totalSlots = 0
+  let shareSlots = 0
+  // Only names seen in two or more answers: enough to be real, few enough to scan.
+  const observedFrequency = new Map<string, number>()
+  for (const name of resolver.observedNames) observedFrequency.set(name, 0)
+  for (const items of Object.values(byModel)) {
+    for (const item of items || []) {
+      for (const name of item.mentionedBrands || []) {
+        const trimmed = name.trim()
+        if (observedFrequency.has(trimmed)) observedFrequency.set(trimmed, (observedFrequency.get(trimmed) ?? 0) + 1)
+      }
+    }
+  }
+  const literalNames = subjectType !== "brand" ? [] : [...observedFrequency.entries()]
+    .filter(([name, count]) => count >= 2 && name.length >= 4)
+    .map(([name]) => name)
+    .sort((a, b) => b.length - a.length)
   const exactQuestionRates = new Map<string, RateAccumulator>()
   const intentRates = new Map<string, RateAccumulator>()
   const intentCategories = new Map<string, PenetrationQuestionCategory>()
@@ -117,9 +158,20 @@ export function aggregatePenetration(
       allQuestions.add(it.question)
       totalSlots++
       validModelSlots++
-      const canonicalBrands = isPenetrationExtractionUsable(it)
-        ? resolver.canonicalizeList(it.mentionedBrands)
+      const extractionUsable = isPenetrationExtractionUsable(it)
+      // Our own brand already has its literal check in hitOur; the recall only
+      // fills in competitors.
+      const canonicalBrands = extractionUsable
+        ? resolver.canonicalizeList([
+            ...it.mentionedBrands,
+            ...literalBrandMentions(it.answer, literalNames)
+              .filter(name => resolver.canonicalize(name)?.isTarget !== true),
+          ])
         : []
+      if (extractionUsable) {
+        shareSlots++
+        recognisedSlotsByModel[model as ModelKey] = (recognisedSlotsByModel[model as ModelKey] ?? 0) + 1
+      }
 
       // hitOur=true 是直接命中；裁判从原文抽取并校验过的简称/别名也可命中全称。
       // 这样能修复“排行榜识别到我方品牌，但提及率仍为 0%”的不一致。
@@ -141,15 +193,11 @@ export function aggregatePenetration(
       // 累计 brandCount：同一主体的简称、英文名、组合名合并到同一个 canonical key；
       // 同一 slot 内若同时出现 "势途" + "势途GEO" 只算 1 次。
       for (const brand of canonicalBrands) {
-        const prev = brandCount.get(brand.key)
-        if (prev) {
-          prev.count += 1
-        } else {
-          brandCount.set(brand.key, {
-            displayName: brand.display,
-            count: 1,
-          })
-        }
+        const entry = brandCount.get(brand.key)
+          ?? { displayName: brand.display, count: 0, perModel: {} }
+        entry.count += 1
+        entry.perModel[model as ModelKey] = (entry.perModel[model as ModelKey] ?? 0) + 1
+        brandCount.set(brand.key, entry)
       }
     }
     perModelRate.push({
@@ -161,14 +209,22 @@ export function aggregatePenetration(
   }
 
   const totalMentionsAll = Array.from(brandCount.values()).reduce((s, v) => s + v.count, 0)
-  const industryShare: IndustryShareItem[] = Array.from(brandCount.entries())
-    .map(([, v]) => ({
+  const industryShare: IndustryShareItem[] = Array.from(brandCount.values())
+    .sort((a, b) => b.count - a.count)
+    .map((v, index): IndustryShareItem => ({
       brand: v.displayName,
       count: v.count,
       ratio: totalMentionsAll ? v.count / totalMentionsAll : 0,
-      penetrationRate: totalSlots ? v.count / totalSlots : 0,
+      penetrationRate: shareSlots ? v.count / shareSlots : 0,
+      ...(index < PER_MODEL_SHARE_LIMIT
+        ? {
+            perModel: Object.fromEntries(
+              (Object.entries(recognisedSlotsByModel) as Array<[ModelKey, number]>)
+                .map(([model, total]) => [model, { mentions: v.perModel[model] ?? 0, total }]),
+            ),
+          }
+        : {}),
     }))
-    .sort((a, b) => b.count - a.count)
 
   const rankingIdx = industryShare.findIndex(s => resolver.canonicalize(s.brand)?.isTarget)
   const ourRanking = rankingIdx >= 0 ? rankingIdx + 1 : null
@@ -237,7 +293,7 @@ export function aggregatePenetration(
       brand: value.displayName,
       count: value.count,
       ratio: institutionMentions ? value.count / institutionMentions : 0,
-      penetrationRate: totalSlots ? value.count / totalSlots : 0,
+      penetrationRate: shareSlots ? value.count / shareSlots : 0,
     }))
     .sort((left, right) => right.count - left.count)
 
@@ -253,6 +309,7 @@ export function aggregatePenetration(
     sampleQuality,
     industryShare,
     institutionShare: subjectType === "person" ? institutionShare : undefined,
+    shareSlots,
     ourRanking,
     perModelRate,
     missedQuestions,

@@ -23,6 +23,7 @@ import type {
   GeoAuditCheck,
   GeoAuditCheckStatus,
   GeoAuditDimension,
+  IndustryShareItem,
   ModelKey,
   PenetrationItem,
   PenetrationSource,
@@ -1910,6 +1911,7 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
           ))}
         </View>
       </View>
+      <BrandModelMatrixSection brands={brands} />
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>各模型{terms.target}命中率</Text>
         <View style={styles.table}>
@@ -1929,6 +1931,9 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
           ))}
         </View>
         <Text style={styles.tableNote}>说明：同一疑问句由多个模型分别回答，因此模型表中的回答数与“检测问题数”不是同一口径。</Text>
+        {models.some(item => item.model === "deepseek") ? (
+          <Text style={styles.tableNote}>DeepSeek 官方接口没有联网搜索，本报告用百度搜索为它提供来源，百度收录较多的品牌在 DeepSeek 一栏可能高于 DeepSeek App 的实际表现。</Text>
+        ) : null}
       </View>
       {isPersonReport(input) && institutions.length > 0 ? (
         <View style={styles.section}>
@@ -1952,6 +1957,45 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
         </View>
       ) : null}
     </Page>
+  )
+}
+
+/** Leading brands' rates per model: one brand can differ several times between models. */
+function BrandModelMatrixSection({ brands }: { brands: IndustryShareItem[] }) {
+  const rows = brands.filter(item => item.perModel).slice(0, 8)
+  const models = Array.from(new Set(rows.flatMap(item => Object.keys(item.perModel || {})))) as ModelKey[]
+  if (rows.length === 0 || models.length === 0) return null
+  const brandWidth = 30
+  const overallWidth = 10
+  const modelWidth = `${(100 - brandWidth - overallWidth) / models.length}%`
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>头部品牌分模型渗透率</Text>
+      <View style={styles.table}>
+        <View style={[styles.tableRow, styles.tableHeader]}>
+          <TableCell width={`${brandWidth}%`} header>品牌</TableCell>
+          <TableCell width={`${overallWidth}%`} header>整体</TableCell>
+          {models.map(model => (
+            <TableCell key={model} width={modelWidth} header>{MODEL_LABELS[model]}</TableCell>
+          ))}
+        </View>
+        {rows.map((item, index) => (
+          <View key={item.brand} style={[styles.tableRow, index === rows.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
+            <TableCell width={`${brandWidth}%`} strong>{item.brand}</TableCell>
+            <TableCell width={`${overallWidth}%`} strong>{percent(item.penetrationRate)}</TableCell>
+            {models.map(model => {
+              const cell = item.perModel?.[model]
+              return (
+                <TableCell key={model} width={modelWidth}>
+                  {cell && cell.total > 0 ? percent(cell.mentions / cell.total) : "—"}
+                </TableCell>
+              )
+            })}
+          </View>
+        ))}
+      </View>
+      <Text style={styles.tableNote}>同一品牌在不同模型上的提及率可能相差数倍，与外部检测工具对比时请按模型逐一对照。</Text>
+    </View>
   )
 }
 

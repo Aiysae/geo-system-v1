@@ -1430,7 +1430,18 @@ async function processDueWave(
   }
 
   const judgedBatches = await Promise.all(pendingJudgeBatches)
-  for (const judged of judgedBatches) {
+  for (let judged of judgedBatches) {
+    if ((judged.error || !judged.data?.byModel) && !isCancelledError(judged.error)) {
+      // Judge batches time out while the whole job competes for the same
+      // judges. Every answer is in by now, so one more pass usually succeeds;
+      // an unread answer would otherwise drop out of the competitor ranking.
+      await assertNotCancelled(job.id)
+      try {
+        judged = { ...judged, data: await fetchBatchJudge(job, judged.batch, judged.sampledByModel), error: undefined }
+      } catch (error) {
+        judged = { ...judged, error }
+      }
+    }
     if (judged.error || !judged.data?.byModel) {
       const message = sanitizeAiUpstreamMessage(
         judged.error instanceof Error ? judged.error.message : "品牌实体整理失败",

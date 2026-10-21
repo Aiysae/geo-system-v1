@@ -128,6 +128,37 @@ export function areBrandVariants(a: string, b: string): boolean {
   return shorterLooksSpecific && longer.includes(shorter)
 }
 
+// Leading place names say where a company is, not which one it is.
+const REGION_PREFIX_RE =
+  /^(?:中国|北京|天津|上海|重庆|河北|山西|辽宁|吉林|黑龙江|江苏|浙江|安徽|福建|江西|山东|河南|湖北|湖南|广东|海南|四川|贵州|云南|陕西|甘肃|青海|台湾|内蒙古|广西|西藏|宁夏|新疆|香港|澳门|深圳|广州|杭州|南京|苏州|武汉|成都|西安|宁波|厦门|青岛|合肥|长沙|郑州|济南|福州|昆明|沈阳|大连|无锡|东莞|佛山)(?:省|市|自治区)?/u
+
+// Words that open many company names, so they cannot anchor an abbreviation.
+const GENERIC_NAME_HEAD_RE =
+  /^(?:工程|管理|咨询|建设|建筑|监理|科技|技术|信息|服务|设计|装饰|装修|实业|发展|投资|集团|国际|全国|国家|项目)/u
+
+function isSubsequence(short: string, long: string): boolean {
+  let index = 0
+  for (const char of long) {
+    if (char === short[index]) index += 1
+    if (index === short.length) return true
+  }
+  return false
+}
+
+/**
+ * Whether a short name such as 江南管理 abbreviates a full name such as
+ * 浙江江南工程管理: its characters appear in order, and its distinctive head
+ * (江南, after any place name) appears intact. 上海建工 is not 上海建科工程,
+ * because 建工 never appears there unbroken.
+ */
+export function isBrandAbbreviation(shortKey: string, longKey: string): boolean {
+  if (longKey.length <= shortKey.length) return false
+  if (!/^[\u3400-\u9fff]{3,6}$/u.test(shortKey)) return false
+  const head = shortKey.replace(REGION_PREFIX_RE, "").slice(0, 2)
+  if (head.length < 2 || GENERIC_NAME_HEAD_RE.test(head)) return false
+  return longKey.includes(head) && isSubsequence(shortKey, longKey)
+}
+
 export function parseAliasLine(value: string): BrandAliasGroup | null {
   const parts = value
     .split(/[|｜]/)
@@ -231,12 +262,38 @@ export function createBrandResolver(input: BrandResolverInput) {
     for (const key of groupKeys.slice(1)) union(groupKeys[0], key)
   }
 
-  for (let i = 0; i < keys.length; i++) {
-    const a = displayByKey.get(keys[i]) ?? keys[i]
-    for (let j = i + 1; j < keys.length; j++) {
-      const b = displayByKey.get(keys[j]) ?? keys[j]
-      if (areBrandVariants(a, b)) union(keys[i], keys[j])
+  // A shorter name joins the company it names. When it fits several (建科工程
+  // sits inside both 上海建科工程咨询 and 江苏建科工程咨询), it joins the one the
+  // answers name far more often, or stays apart. It never joins two companies
+  // to each other, which pairwise merging did through such shared fragments.
+  // Names the user entered keep the user's grouping and still collect variants.
+  const explicitKeys = new Set(explicitGroups
+    .flatMap(group => [group.canonical, ...group.aliases])
+    .map(normalizeBrandKey))
+  const longestFirst = [...keys].sort((a, b) => b.length - a.length)
+  for (const shortKey of longestFirst) {
+    const shortName = displayByKey.get(shortKey) ?? shortKey
+    const weightByRoot = new Map<string, number>()
+    for (const longKey of keys) {
+      if (longKey.length <= shortKey.length) continue
+      const longName = displayByKey.get(longKey) ?? longKey
+      const contained = areBrandVariants(shortName, longName)
+      const abbreviated = !explicitKeys.has(shortKey)
+        && !explicitKeys.has(longKey)
+        && isBrandAbbreviation(shortKey, longKey)
+      if (!contained && !abbreviated) continue
+      if (explicitKeys.has(shortKey) && contained) {
+        union(shortKey, longKey)
+        continue
+      }
+      const root = find(longKey)
+      weightByRoot.set(root, (weightByRoot.get(root) ?? 0) + (frequency.get(longKey) ?? 0))
     }
+    const ranked = [...weightByRoot.entries()]
+      .filter(([root]) => root !== find(shortKey))
+      .sort((a, b) => b[1] - a[1])
+    if (ranked.length === 0) continue
+    if (ranked.length === 1 || ranked[0][1] >= 3 * ranked[1][1]) union(ranked[0][0], shortKey)
   }
 
   const namesByRoot = new Map<string, string[]>()

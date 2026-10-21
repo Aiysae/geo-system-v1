@@ -13,6 +13,7 @@ import BrandRankingCard from "./brand-ranking-card"
 import ModelRateTrend from "./model-rate-trend"
 import PenetrationSampleQualityPanel from "./sample-quality-panel"
 import PenetrationAutomationPanel from "./automation-panel"
+import BrandModelMatrix from "./brand-model-matrix"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
@@ -83,6 +84,9 @@ export default function PenetrationModule({
   const [error, setError] = useState<string | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
   const [modelErrors, setModelErrors] = useState<Partial<Record<ModelKey, string>>>({})
+  // DeepSeek's API has no search of its own; its sources come from Baidu, so
+  // its rates can differ from the DeepSeek app. Viewers may leave it out.
+  const [excludeDeepseek, setExcludeDeepseek] = useState(false)
   const [modelProgress, setModelProgress] = useState<Partial<Record<ModelKey, PenetrationModelProgress>>>({})
   const [progressLabel, setProgressLabel] = useState("")
   const [completionNotice, setCompletionNotice] = useState("")
@@ -400,21 +404,25 @@ export default function PenetrationModule({
   // 旧报告也在展示时按最新规则重算，避免历史 hitOur=false 把简称命中显示成 0%。
   const pen = useMemo(() => {
     if (!client.penetration) return undefined
+    const countedByModel = excludeDeepseek
+      ? Object.fromEntries(Object.entries(client.penetration.byModel).filter(([model]) => model !== "deepseek"))
+      : client.penetration.byModel
     return {
       ...client.penetration,
       aggregated: aggregatePenetration(
-        client.penetration.byModel,
+        countedByModel,
         client.ourBrand,
         client.brandAliases ?? [],
         client.competitors,
         subjectType,
         {
-          plannedSlots: client.penetration.aggregated.plannedSlots,
-          modelCount: client.penetration.aggregated.perModelRate.length,
+          plannedSlots: excludeDeepseek ? undefined : client.penetration.aggregated.plannedSlots,
+          modelCount: Object.keys(countedByModel).length,
         },
       ),
     }
   }, [
+    excludeDeepseek,
     client.penetration,
     client.ourBrand,
     client.brandAliases,
@@ -624,6 +632,31 @@ export default function PenetrationModule({
                     </div>
                   ) : null}
                 </div>
+
+                {subjectType !== "person" && pen.aggregated.industryShare.some(item => item.perModel) ? (
+                  <div className="geo-data-panel min-w-0 rounded-lg p-4">
+                    <div className="mb-1 geo-section-kicker">头部品牌分模型渗透率</div>
+                    <p className="mb-3 text-[11px] leading-5 text-slate-500">
+                      同一品牌在不同模型上的提及率可能相差数倍，与外部检测工具对比时请按模型逐一对照。
+                    </p>
+                    <BrandModelMatrix items={pen.aggregated.industryShare} ourBrand={client.ourBrand} />
+                  </div>
+                ) : null}
+
+                {client.penetration?.byModel.deepseek?.length ? (
+                  <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={excludeDeepseek}
+                      onChange={event => setExcludeDeepseek(event.target.checked)}
+                    />
+                    <span>
+                      总体统计不计入 DeepSeek（百度搜索）。DeepSeek 官方接口没有联网搜索，本系统用百度搜索为它提供来源，
+                      百度收录较多的品牌在这里可能高于 DeepSeek App 的实际表现。
+                    </span>
+                  </label>
+                ) : null}
 
                 <BrandAndKeywordPanels
                   penetration={pen}

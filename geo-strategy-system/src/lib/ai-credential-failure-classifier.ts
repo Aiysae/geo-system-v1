@@ -172,7 +172,7 @@ export function classifyAiCredentialFailure(
     })
   }
 
-  if (/已执行联网搜索，但本次回答没有引用网页来源/.test(message)) {
+  if (/已执行联网搜索，但本次回答没有引用网页来源|回答停在“继续搜索”/.test(message)) {
     // The account searched; this one answer just cited nothing. Ask again
     // without marking the account unhealthy, or a single remaining account
     // would take the model offline for up to an hour.

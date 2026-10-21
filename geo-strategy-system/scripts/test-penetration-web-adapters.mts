@@ -357,8 +357,8 @@ try {
   assert.equal(deepSeekRequests[0]?.body.tool_choice, "required")
   assert.equal(
     deepSeekRequests[1]?.body.tool_choice,
-    "none",
-    "取得有效信源后必须关闭工具调用并要求模型直接作答",
+    "auto",
+    "取得信源后模型可以再搜索一次或直接作答，不能被逼着在想继续搜索时交出半句话",
   )
   assert.equal(deepSeekEvents.some(event => event.searchExecuted === true), true)
   assert.equal(deepSeekEvents.flatMap(event => event.sources).length, 1)
@@ -406,7 +406,7 @@ try {
   assert.equal(kimiRequests.length, 2)
   assert.deepEqual(kimiRequests[0]?.body.messages, [{ role: "user", content: question }])
   assert.equal(kimiRequests[0]?.body.tool_choice, "required")
-  assert.equal(kimiRequests[1]?.body.tool_choice, "none")
+  assert.equal(kimiRequests[1]?.body.tool_choice, "auto")
   assert.deepEqual(kimiRequests[0]?.body.thinking, { type: "disabled" })
   assert.equal(
     ((kimiRequests[0]?.body.tools as Array<{ function?: { name?: string } }>)[0])

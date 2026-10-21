@@ -1035,7 +1035,10 @@ export interface IndustryShareItem {
   brand: string
   count: number
   ratio: number
+  /** count over the answers whose brands were recognised (shareSlots). */
   penetrationRate: number
+  /** Mentions and recognised answers per model; kept for the leading brands only. */
+  perModel?: Partial<Record<ModelKey, { mentions: number; total: number }>>
 }
 
 export interface PerModelRate {
@@ -1137,6 +1140,11 @@ export interface PenetrationAggregated {
   sampleQuality?: PenetrationSampleQuality
   industryShare: IndustryShareItem[]
   institutionShare?: IndustryShareItem[]
+  /**
+   * Answers whose brands were recognised. An answer the judge could not read
+   * says nothing about competitors, so it stays out of their denominator.
+   */
+  shareSlots?: number
   ourRanking: number | null
   perModelRate: PerModelRate[]
   missedQuestions: string[]
