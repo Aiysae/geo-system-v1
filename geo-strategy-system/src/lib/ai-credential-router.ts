@@ -269,12 +269,13 @@ async function withinCredentialRpmLimit(
     || (credential.vendor === "kimi" && request.module === "penetration"
       ? defaultKimiRpm
       : undefined)
-  if (!rpmLimit) return true
+  if (!rpmLimit || request.rateUnits === 0) return true
   // Up to two searches and an answer: three chat requests per question.
-  const requestUnits = request.module === "penetration"
-    && (credential.vendor === "kimi" || credential.vendor === "deepseek")
-    ? 3
-    : 1
+  const requestUnits = request.rateUnits
+    ?? (request.module === "penetration"
+      && (credential.vendor === "kimi" || credential.vendor === "deepseek")
+      ? 3
+      : 1)
   const result = await reserveRateLimit(
     "ai-credential-rpm",
     credential.id,

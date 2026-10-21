@@ -538,7 +538,7 @@ try {
   assert.deepEqual(
     await getAdapterCredentialPoolCapacity("deepseek", "penetration", strictArgs),
     {
-      vendor: "ernie",
+      vendor: "kimi",
       candidateCount: 1,
       maxConcurrency: 1,
       quotaGroupCount: 1,
@@ -558,8 +558,32 @@ try {
     onSearchSources: event => deepSeekEvents.push(event),
   })
   assert.equal(deepSeekResult, "DeepSeek 双账号池联网回答")
+  // Kimi's search came closest to the DeepSeek App, so it is tried first.
+  assert.deepEqual(usedKeys, [deepSeekSecret, kimiSecret, deepSeekSecret])
+  assert.deepEqual(
+    deepSeekEvents.flatMap(event => event.sources).map(source => source.url),
+    ["https://example.com/news/kimi-current-date"],
+  )
+
+  // No Kimi account free: DeepSeek keeps working on Baidu's search.
+  await setAiCredentialEnabled(kimiCredential.id, false, "adapter-test")
+  usedKeys.length = 0
+  const baiduEvents: SearchSourceEvent[] = []
+  const baiduResult = await runAdapterCredentialPoolChat("deepseek", "penetration", {
+    system: "",
+    user: "今天是几月几号",
+    mode: "consumer",
+    forceWebSearch: true,
+    rawQuestionOnly: true,
+    requireWebEvidence: true,
+    officialWebOnly: true,
+    timeoutSec: 30,
+    onSearchSources: event => baiduEvents.push(event),
+  })
+  assert.equal(baiduResult, "DeepSeek 双账号池联网回答")
   assert.deepEqual(usedKeys, [deepSeekSecret, baiduSearchSecret, deepSeekSecret])
-  assert.equal(deepSeekEvents.flatMap(event => event.sources).length, 1)
+  assert.equal(baiduEvents.flatMap(event => event.sources).length, 1)
+  await setAiCredentialEnabled(kimiCredential.id, true, "adapter-test")
 
   // Baidu's daily quota runs out: DeepSeek keeps working on Kimi's official search.
   baiduQuotaExhausted = true

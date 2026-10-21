@@ -224,10 +224,11 @@ function selectionRequest(
   }
 }
 
-// Search accounts DeepSeek can borrow, in order of preference: Baidu Qianfan
-// search, then Kimi's official search endpoint when Baidu is out of quota.
+// Search accounts DeepSeek can borrow, in order of preference: Kimi's official
+// search, whose results came closest to the DeepSeek App's, then Baidu
+// Qianfan search when no Kimi account is free.
 type ExternalSearchVendor = "ernie" | "kimi"
-const EXTERNAL_SEARCH_VENDORS: ExternalSearchVendor[] = ["ernie", "kimi"]
+const EXTERNAL_SEARCH_VENDORS: ExternalSearchVendor[] = ["kimi", "ernie"]
 
 function externalSearchSelectionRequest(
   module: AiCredentialModule,
@@ -237,11 +238,13 @@ function externalSearchSelectionRequest(
   return vendor === "kimi"
     ? {
         // Same account and key as Kimi's own detection, so search failures
-        // share its route health.
+        // share its route health. Search has its own per-second cap and
+        // spends none of the account's chat requests per minute.
         vendor: "kimi",
         module,
         requiredCapabilities: ["chat"],
         excludeCredentialIds,
+        rateUnits: 0,
       }
     : {
         vendor: "ernie",
@@ -262,7 +265,7 @@ async function activeExternalSearchVendor(module: AiCredentialModule): Promise<E
   for (const vendor of EXTERNAL_SEARCH_VENDORS) {
     if (await hasAiCredentialCandidate(externalSearchSelectionRequest(module, undefined, vendor))) return vendor
   }
-  return "ernie"
+  return EXTERNAL_SEARCH_VENDORS[0]
 }
 
 async function hasRouteCandidate(
@@ -491,7 +494,7 @@ async function runAuditableExternalCredentialPoolChat(
       // Search is the shared bottleneck for Kimi and DeepSeek strict audits.
       // Acquire it first, then pair a generation lane with a short wait. This
       // avoids occupying a scarce generation account while waiting on search.
-      let searchVendor: ExternalSearchVendor = "ernie"
+      let searchVendor: ExternalSearchVendor = EXTERNAL_SEARCH_VENDORS[0]
       for (const vendor of EXTERNAL_SEARCH_VENDORS) {
         const request = externalSearchSelectionRequest(module, excludedSearchIds, vendor)
         // Only wait on a vendor that has an account at all; otherwise move on.

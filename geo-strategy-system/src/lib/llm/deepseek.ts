@@ -11,14 +11,21 @@ import {
 // DeepSeek 适配器
 //
 // 官方 DeepSeek API 不像千问 / Kimi 那样自带"联网开关"。本适配器在代码层为它"外挂搜索"。
-// 渗透率严格联网盲测不再允许本地 search_web 兜底；检索用百度千帆搜索，
-// 百度账号不可用时由账号池改派 Kimi 官方搜索，两者都返回可审计网址。
+// 渗透率严格联网盲测不再允许本地 search_web 兜底；检索优先用 Kimi 官方搜索，
+// Kimi 账号不可用时由账号池改派百度千帆搜索，两者都返回可审计网址。
+//
+// 2026-10-21 对照用户在 DeepSeek App 亲测的回答校准：App 会用多组关键词搜索、
+// 打开几个网页读全文。改为 Kimi 搜索、最多 4 次搜索（每次 10 条）、最多读 5 个
+// 网页后，与 App 提到的公司重合度最高，百度百科这类词条也少了。
 // 裁判/分析路径仍可默认带工具。
 // jsonMode 透传给底层，
 // 万一上游不接受 tools+response_format 同时启用，openai-compat 的 400 兜底会自动去掉
 // response_format 重试，仍返回可被 parseJsonLoose 解析的内容。
 
 const LABEL = "DeepSeek"
+const MAX_SEARCHES = 4
+const SEARCH_RESULTS = 10
+const MAX_PAGE_READS = 5
 
 function isTokenHub(baseUrl: string): boolean {
   return /tokenhub\.tencentmaas\.com/i.test(baseUrl)
@@ -61,8 +68,8 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     }
     const searchTimeoutSec = args.timeoutSec ?? searchConfig.timeout
     const search = searchVendor === "kimi"
-      ? moonshotAuditableSearch(searchConfig.apiKey, searchConfig.baseUrl, searchTimeoutSec)
-      : baiduAuditableSearch(searchConfig.apiKey, searchTimeoutSec)
+      ? moonshotAuditableSearch(searchConfig.apiKey, searchConfig.baseUrl, searchTimeoutSec, SEARCH_RESULTS)
+      : baiduAuditableSearch(searchConfig.apiKey, searchTimeoutSec, SEARCH_RESULTS)
     const requestedModel = args.runtimeOverride?.model?.trim()
       || process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim()
       || config.model
@@ -80,6 +87,8 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
       search,
       requestTimeoutSec: args.timeoutSec ?? config.timeout,
       temperature: args.temperature,
+      maxSearches: MAX_SEARCHES,
+      pageReads: MAX_PAGE_READS,
     })
   }
 

@@ -2,6 +2,7 @@ import type { PenetrationSource } from "@/types"
 import { searchBaiduWeb } from "./baidu-ai-search"
 import { searchMoonshotWeb } from "./moonshot-web-search"
 import { emitPenetrationRequestAudit } from "./blind-request-audit"
+import { extractArticleFromUrl } from "@/lib/article-extract"
 import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
 
 const SEARCH_TOOL = {
@@ -23,6 +24,28 @@ const SEARCH_TOOL = {
   },
 }
 
+const OPEN_PAGE_TOOL = {
+  type: "function",
+  function: {
+    name: "open_page",
+    description: "打开一个搜索结果网页，读取它的正文内容。",
+    parameters: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "要打开的网页地址，必须来自搜索结果。",
+        },
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+  },
+}
+
+// Enough of a page for a ranking list or a company profile.
+const PAGE_TEXT_LIMIT = 6_000
+
 export interface AuditableWebSearchResult {
   query: string
   sources: PenetrationSource[]
@@ -35,10 +58,14 @@ export interface AuditableWebSearch {
   run(query: string, signal?: AbortSignal): Promise<AuditableWebSearchResult>
 }
 
-export function baiduAuditableSearch(apiKey: string, timeoutSec: number): AuditableWebSearch {
+export function baiduAuditableSearch(
+  apiKey: string,
+  timeoutSec: number,
+  limit = 20,
+): AuditableWebSearch {
   return {
     provider: "baidu_search",
-    run: (query, signal) => searchBaiduWeb({ apiKey, query, timeoutSec, signal, topK: 20 }),
+    run: (query, signal) => searchBaiduWeb({ apiKey, query, timeoutSec, signal, topK: limit }),
   }
 }
 
@@ -46,10 +73,11 @@ export function moonshotAuditableSearch(
   apiKey: string,
   baseUrl: string,
   timeoutSec: number,
+  limit = 20,
 ): AuditableWebSearch {
   return {
     provider: "moonshot_search",
-    run: (query, signal) => searchMoonshotWeb({ apiKey, baseUrl, query, timeoutSec, signal, limit: 20 }),
+    run: (query, signal) => searchMoonshotWeb({ apiKey, baseUrl, query, timeoutSec, signal, limit }),
   }
 }
 
@@ -64,6 +92,10 @@ interface AuditableExternalSearchArgs {
   requestTimeoutSec: number
   temperature?: number
   extraBody?: Record<string, unknown>
+  /** Distinct searches one answer may run (default 2). */
+  maxSearches?: number
+  /** Search results the model may open and read in full (default none). */
+  pageReads?: number
 }
 
 function messageText(content: unknown): string {
@@ -92,6 +124,16 @@ function searchQuery(raw: unknown, fallback: string): string {
   return fallback
 }
 
+function pageUrl(raw: unknown): string {
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw || "{}") : raw
+    const value = parsed && typeof parsed === "object" ? (parsed as { url?: unknown }).url : undefined
+    return typeof value === "string" && value.trim() ? new URL(value.trim()).toString() : ""
+  } catch {
+    return ""
+  }
+}
+
 function searchQueryKey(query: string): string {
   return query.trim().replace(/\s+/g, " ").toLocaleLowerCase()
 }
@@ -118,6 +160,14 @@ export async function chatWithAuditableExternalSearch(
   const messages: Array<Record<string, unknown>> = [
     { role: "user", content: args.user },
   ]
+  // The consumer apps search more than once for list questions; one search
+  // and a forced answer left the model announcing searches it could not run.
+  // The DeepSeek App also opens a few results and reads them in full.
+  const maxUniqueSearches = Math.max(1, input.maxSearches ?? 2)
+  const maxPageReads = Math.max(0, input.pageReads ?? 0)
+  const tools = maxPageReads > 0 ? [SEARCH_TOOL, OPEN_PAGE_TOOL] : [SEARCH_TOOL]
+  // Each round is a chat request, which the router's per-minute budget counts.
+  const maxRounds = maxPageReads > 0 ? 6 : 4
   emitPenetrationRequestAudit(args, {
     endpoint: input.endpoint,
     model: input.model,
@@ -125,18 +175,15 @@ export async function chatWithAuditableExternalSearch(
     searchProvider: input.search.provider,
     searchMode: "external_tool_web",
     messages,
-    tools: [SEARCH_TOOL],
+    tools,
   })
 
   const auditableUrls = new Set<string>()
-  const searchPayloads = new Map<string, string>()
+  // Promises, so the same query twice in one turn runs one search.
+  const searchPayloads = new Map<string, Promise<string>>()
+  const openedPages = new Map<string, Promise<string>>()
   let searchExecuted = false
   let forceFinalAnswer = false
-  // The consumer apps search more than once for list questions; one search
-  // and a forced answer left the model announcing searches it could not run.
-  // Each round is a chat request, which the router's per-minute budget counts.
-  const maxRounds = 4
-  const maxUniqueSearches = 2
 
   for (let round = 0; round < maxRounds; round += 1) {
     const data = await openaiCompatRaw({
@@ -149,7 +196,7 @@ export async function chatWithAuditableExternalSearch(
       maxTokens: args.maxTokens,
       seed: args.seed,
       jsonMode: false,
-      tools: [SEARCH_TOOL],
+      tools,
       toolChoice: forceFinalAnswer || round === maxRounds - 1
         ? "none"
         : searchExecuted ? "auto" : "required",
@@ -184,56 +231,86 @@ export async function chatWithAuditableExternalSearch(
         content: messageText(message.content),
         tool_calls: message.tool_calls,
       })
-      for (const toolCall of message.tool_calls) {
-        if (toolCall.function?.name !== "search_web") {
-          messages.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            name: toolCall.function?.name ?? "unknown",
-            content: JSON.stringify({ error: "unsupported tool" }),
-          })
-          continue
+      // Budgets are assigned in call order, then the calls run together, as
+      // the App runs several searches at once.
+      let searchBudget = maxUniqueSearches - searchPayloads.size
+      let pageBudget = maxPageReads - openedPages.size
+      const results = await Promise.all(message.tool_calls.map(async toolCall => {
+        const name = toolCall.function?.name ?? "unknown"
+        if (name === "search_web") {
+          const query = searchQuery(toolCall.function.arguments, args.user)
+          const queryKey = searchQueryKey(query)
+          const pending = searchPayloads.get(queryKey)
+          if (pending) return { toolCall, name, content: await pending }
+          if (searchBudget <= 0) {
+            return {
+              toolCall,
+              name,
+              content: JSON.stringify({
+                query,
+                error: `本次回答最多执行 ${maxUniqueSearches} 条唯一联网检索，请使用已有证据直接回答。`,
+              }),
+            }
+          }
+          searchBudget -= 1
+          const run = (async () => {
+            const search = await input.search.run(query, args.signal)
+            searchExecuted = true
+            for (const source of search.sources) auditableUrls.add(source.url)
+            args.onSearchSources?.({
+              query: search.query,
+              sources: search.sources,
+              mode: "external_tool_web",
+              searchExecuted: true,
+              providerRequestId: search.requestId,
+            })
+            return JSON.stringify({
+              query: search.query,
+              results: search.sources.map(source => ({
+                title: source.title,
+                url: source.url,
+                snippet: source.snippet,
+                domain: source.domain,
+              })),
+            })
+          })()
+          searchPayloads.set(queryKey, run)
+          return { toolCall, name, content: await run }
         }
-
-        const query = searchQuery(toolCall.function.arguments, args.user)
-        const queryKey = searchQueryKey(query)
-        let toolContent = searchPayloads.get(queryKey)
-        if (!toolContent && searchPayloads.size < maxUniqueSearches) {
-          const search = await input.search.run(query, args.signal)
-          searchExecuted = true
-          for (const source of search.sources) auditableUrls.add(source.url)
-          args.onSearchSources?.({
-            query: search.query,
-            sources: search.sources,
-            mode: "external_tool_web",
-            searchExecuted: true,
-            providerRequestId: search.requestId,
-          })
-          toolContent = JSON.stringify({
-            query: search.query,
-            results: search.sources.map(source => ({
-              title: source.title,
-              url: source.url,
-              snippet: source.snippet,
-              domain: source.domain,
-            })),
-          })
-          searchPayloads.set(queryKey, toolContent)
+        if (name === "open_page" && maxPageReads > 0) {
+          const url = pageUrl(toolCall.function.arguments)
+          const pending = url ? openedPages.get(url) : undefined
+          if (pending) return { toolCall, name, content: await pending }
+          // Only pages the search returned, so every page read stays auditable.
+          if (!url || !auditableUrls.has(url)) {
+            return { toolCall, name, content: JSON.stringify({ error: "只能打开本次搜索结果中的网页。" }) }
+          }
+          if (pageBudget <= 0) {
+            return { toolCall, name, content: JSON.stringify({ error: `本次回答最多打开 ${maxPageReads} 个网页，请直接作答。` }) }
+          }
+          pageBudget -= 1
+          const read = extractArticleFromUrl(url)
+            .then(page => JSON.stringify({ url, title: page.title, text: page.markdown.slice(0, PAGE_TEXT_LIMIT) }))
+            .catch(error => JSON.stringify({
+              url,
+              error: `网页无法读取：${error instanceof Error ? error.message : String(error)}`.slice(0, 160),
+            }))
+          openedPages.set(url, read)
+          return { toolCall, name, content: await read }
         }
-        if (!toolContent) {
-          toolContent = JSON.stringify({
-            query,
-            error: `本次回答最多执行 ${maxUniqueSearches} 条唯一联网检索，请使用已有证据直接回答。`,
-          })
-        }
+        return { toolCall, name, content: JSON.stringify({ error: "unsupported tool" }) }
+      }))
+      for (const { toolCall, name, content } of results) {
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
-          name: toolCall.function.name,
-          content: toolContent,
+          name,
+          content,
         })
       }
-      forceFinalAnswer = searchPayloads.size >= maxUniqueSearches && auditableUrls.size > 0
+      forceFinalAnswer = auditableUrls.size > 0
+        && searchPayloads.size >= maxUniqueSearches
+        && openedPages.size >= maxPageReads
       continue
     }
 

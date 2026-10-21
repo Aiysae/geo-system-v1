@@ -151,6 +151,8 @@ export interface AiCredentialSelectionRequest {
   routeHealthCapabilities?: AiCredentialCapability[]
   spreadAcrossCredentials?: boolean
   excludeCredentialIds?: string[]
+  /** Requests this lease spends from the per-minute budget; 0 for search-only leases. */
+  rateUnits?: number
   waitTimeoutMs?: number
   leaseSeconds?: number
   estimatedTokens?: number

@@ -95,4 +95,71 @@ assert.equal(
   "a full answer that offers to search more is still an answer",
 )
 
+// The model may open only pages its own search returned, within budget.
+{
+  const { chatWithAuditableExternalSearch } = await import("../src/lib/llm/auditable-external-search")
+  const modelBodies: Array<Record<string, unknown>> = []
+  const originalFetch = globalThis.fetch
+  let searches = 0
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>
+    modelBodies.push(body)
+    const round = modelBodies.length
+    const message = round === 1
+      ? { role: "assistant", content: "", tool_calls: [
+          { id: "s1", type: "function", function: { name: "search_web", arguments: JSON.stringify({ query: "监理公司排名" }) } },
+          { id: "s2", type: "function", function: { name: "search_web", arguments: JSON.stringify({ query: "监理公司 百强" }) } },
+        ] }
+      : round === 2
+        ? { role: "assistant", content: "", tool_calls: [
+            { id: "o1", type: "function", function: { name: "open_page", arguments: JSON.stringify({ url: "https://elsewhere.example.org/secret" }) } },
+          ] }
+        : { role: "assistant", content: "上海建科工程咨询有限公司、浙江江南工程管理股份有限公司实力较强。" }
+    return new Response(JSON.stringify({
+      id: `model-${round}`,
+      choices: [{ finish_reason: message.tool_calls ? "tool_calls" : "stop", message }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })
+  }
+  try {
+    const answer = await chatWithAuditableExternalSearch({
+      args: {
+        system: "",
+        user: "国内实力强的监理公司有哪些？",
+        mode: "consumer",
+        forceWebSearch: true,
+        rawQuestionOnly: true,
+        requireWebEvidence: true,
+        officialWebOnly: true,
+      },
+      endpoint: "https://api.deepseek.com/chat/completions",
+      apiKey: "test-key",
+      model: "deepseek-chat",
+      label: "DeepSeek",
+      modelProvider: "deepseek",
+      requestTimeoutSec: 30,
+      maxSearches: 4,
+      pageReads: 5,
+      search: {
+        provider: "moonshot_search",
+        run: async query => {
+          searches += 1
+          return {
+            query,
+            requestId: `search-${searches}`,
+            sources: [{ title: "监理排名", snippet: "榜单", url: "https://example.com/rank", domain: "example.com", query }],
+          }
+        },
+      },
+    })
+    assert.match(answer, /上海建科/)
+    assert.equal(searches, 2, "two different queries in one turn both run")
+    const toolNames = (modelBodies[0].tools as Array<{ function: { name: string } }>).map(tool => tool.function.name)
+    assert.deepEqual(toolNames, ["search_web", "open_page"])
+    const refusal = (modelBodies[2].messages as Array<{ role: string; content: string }>).find(message => message.role === "tool" && message.content.includes("只能打开"))
+    assert.ok(refusal, "a page the search never returned is refused")
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
+
 console.log("Penetration brand merging, share denominator and stalled-search contracts passed.")
