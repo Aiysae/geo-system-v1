@@ -277,6 +277,20 @@ async function chatTokenHubNativeSearch(
     if (!parsed.answer.trim()) {
       throw new Error(`${LABEL} TokenHub 返回空内容。`)
     }
+    if (args.requireWebEvidence && !searchExecuted && parsed.providerRequestId) {
+      // hy3 decides per question whether to search; questions addressed to the
+      // assistant itself ("你们公司是本地的吗") never trigger it, whatever
+      // tool_choice says. That is the question, not the account.
+      args.onSearchSources?.({
+        query: args.user,
+        sources: [],
+        mode: "native_web",
+        searchExecuted: false,
+        providerRequestId: parsed.providerRequestId,
+        declinedAnswer: parsed.answer,
+      })
+      throw new Error(`${LABEL} 判断这个问题不需要联网，直接用自身知识作答（模型自行决定，未执行搜索）。`)
+    }
     if (args.requireWebEvidence && sources.length === 0) {
       // A search that ran but was not cited says nothing about the account.
       throw new Error(searchExecuted

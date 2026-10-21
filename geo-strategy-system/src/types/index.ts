@@ -1021,6 +1021,8 @@ export interface PenetrationItem {
   sourceCount?: number
   webVerified?: boolean
   webVerificationNote?: string
+  /** The model answered without searching on every attempt, as its app does for this question. */
+  webSearchDeclined?: boolean
   /** Independent entity-judge state; raw model answers remain valid even when this stage fails. */
   extraction?: PenetrationEntityExtraction
   // 客观判分结果：盲测回答中是否出现我方全称，或出现经原文字面校验的同品牌简称/别名。

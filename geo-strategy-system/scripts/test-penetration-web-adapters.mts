@@ -53,6 +53,8 @@ function sseResponse(events: unknown[]): Response {
   })
 }
 
+const SEARCH_DECLINED_QUESTION = "你们公司是本地的吗？"
+
 globalThis.fetch = async (input, init) => {
   const url = String(input)
   const body = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>
@@ -234,6 +236,24 @@ globalThis.fetch = async (input, init) => {
         },
       ],
     })
+  }
+
+  if (url.includes("tokenhub.tencentmaas.com") && body.input === SEARCH_DECLINED_QUESTION) {
+    return sseResponse([
+      { type: "response.output_text.delta", delta: "我是腾讯元宝，一个 AI 助手。" },
+      {
+        type: "response.completed",
+        response: {
+          id: "hunyuan-request-declined",
+          status: "completed",
+          output: [{
+            type: "message",
+            status: "completed",
+            content: [{ type: "output_text", text: "我是腾讯元宝，一个 AI 助手。", annotations: [] }],
+          }],
+        },
+      },
+    ])
   }
 
   if (url.includes("tokenhub.tencentmaas.com")) {
@@ -497,6 +517,19 @@ try {
   assert.equal(hunyuanEvents[0]?.sources.length, 1)
   assert.equal(hunyuanAudits[0]?.verified, true)
   assert.equal(hunyuanAudits[0]?.searchMode, "native_web")
+
+  const declinedEvents: SearchSourceEvent[] = []
+  await assert.rejects(
+    chatHunyuan({
+      ...baseArgs,
+      user: SEARCH_DECLINED_QUESTION,
+      onSearchSources: event => declinedEvents.push(event),
+    }),
+    /判断这个问题不需要联网/,
+  )
+  assert.equal(declinedEvents.at(-1)?.declinedAnswer, "我是腾讯元宝，一个 AI 助手。")
+  assert.equal(declinedEvents.at(-1)?.providerRequestId, "hunyuan-request-declined")
+  assert.equal(declinedEvents.at(-1)?.searchExecuted, false)
 
   const zhipuEvents: SearchSourceEvent[] = []
   const zhipuAudits: PenetrationRequestAudit[] = []

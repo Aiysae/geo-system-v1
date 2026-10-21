@@ -508,6 +508,49 @@ function buildAuditFields(
 // ============================================================================
 // Stage A · 客观联网单问
 // ============================================================================
+const SEARCH_DECLINED_MAX_ATTEMPTS = 3
+
+/**
+ * Keeps an answer the model gave without searching on every attempt. It is
+ * what the consumer app answers too, so it counts; it is never shown as a
+ * verified web answer.
+ */
+function declinedSearchResult(
+  label: string,
+  auditProfile: PenetrationAuditProfile,
+  sampleId: string,
+  answer: string,
+  audit: {
+    searchMode: PenetrationSearchMode
+    promptPurity: PenetrationPromptPurity
+    providerRequestIds: string[]
+    requestAudits: PenetrationRequestAudit[]
+    elapsedMs: number
+    questionLength: number
+  },
+) {
+  const note = `${label} 判断这个问题不需要联网，${SEARCH_DECLINED_MAX_ATTEMPTS} 次提问都直接用自身知识作答，与 App 中的行为一致。`
+  const auditFields = buildAuditFields(auditProfile, [], {
+    searchMode: audit.searchMode,
+    promptPurity: audit.promptPurity,
+    webFailureReason: note,
+    webExecutionVerified: false,
+    providerRequestIds: audit.providerRequestIds,
+    requestAudits: audit.requestAudits,
+    answerReceived: true,
+  })
+  console.log(
+    `[penetration·blind] ✓ ${label} | sample=${sampleId} | searchDeclinedByModel | payloadVerified=${auditFields.requestAuditVerified} | ${audit.elapsedMs}ms | answerLen=${answer.length} | questionLen=${audit.questionLength}`
+  )
+  return {
+    answer,
+    searchSources: [] as PenetrationSource[],
+    sourceDomains: [] as SourceDomainCount[],
+    topSourceDomain: null,
+    auditFields: { ...auditFields, webVerificationNote: note, webSearchDeclined: true as const },
+  }
+}
+
 async function blindQuery(
   model: ModelKey,
   question: string,
@@ -534,6 +577,7 @@ async function blindQuery(
     | "sourceCount"
     | "webVerified"
     | "webVerificationNote"
+    | "webSearchDeclined"
   >
 }> {
   const adapter = ADAPTERS[model]
@@ -547,12 +591,15 @@ async function blindQuery(
   let actualPromptPurity: PenetrationPromptPurity = "unknown"
   let webFailureReason: string | null = null
   let webExecutionVerified = false
+  let declinedAnswer = ""
 
   try {
     const maxAttempts = 1
     let answer = ""
+    let declinedAttempts = 0
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       let raw = ""
+      declinedAnswer = ""
       try {
         raw = await runPenetrationProviderCall(model, "consumer", () =>
           runAdapterCredentialPoolChat(model, "penetration", {
@@ -560,7 +607,7 @@ async function blindQuery(
             user: question,
             // Provider default sampling, as in the vendor's app: repeated
             // samples of one question must be able to differ.
-            seed: seed + attempt,
+            seed: seed + attempt + declinedAttempts,
             mode: "consumer",
             jsonMode: false,
             maxTokens: blindQueryMaxTokens(model),
@@ -592,12 +639,23 @@ async function blindQuery(
                 if (!event.failureReason) webFailureReason = null
               }
               if (event.providerRequestId?.trim()) providerRequestIds.add(event.providerRequestId.trim())
+              if (event.declinedAnswer?.trim()) declinedAnswer = event.declinedAnswer
               collectedSources.push(...event.sources)
             },
           }),
         )
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        if (declinedAnswer) {
+          // Sampling can flip the model's choice, so ask again before keeping
+          // its no-search answer as the real app's answer to this question.
+          declinedAttempts++
+          if (declinedAttempts < SEARCH_DECLINED_MAX_ATTEMPTS) {
+            attempt--
+            continue
+          }
+          break
+        }
         if (attempt < maxAttempts - 1 && !isPermanentPenetrationProviderError(message)) {
           console.warn(
             `[penetration·blind] ${adapter.label} 本次没有形成可验证联网回答，将以同一原始问题重试 (${attempt + 1}/${maxAttempts})。`,
@@ -611,6 +669,16 @@ async function blindQuery(
       if (answer.trim() || attempt === maxAttempts - 1) break
       console.warn(`[penetration·blind] ${adapter.label} 返回空内容，将串行重试一次。`)
       await sleep(1500)
+    }
+    if (!answer.trim() && declinedAnswer) {
+      return declinedSearchResult(adapter.label, auditProfile, sampleId, declinedAnswer, {
+        searchMode: actualSearchMode,
+        promptPurity: actualPromptPurity,
+        providerRequestIds: Array.from(providerRequestIds),
+        requestAudits,
+        elapsedMs: Date.now() - t0,
+        questionLength: question.length,
+      })
     }
     if (!answer.trim()) {
       throw new Error("官方联网返回空内容，自动重试后仍为空。")

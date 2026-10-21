@@ -304,6 +304,10 @@ try {
   const uncitedClass = classifyAiCredentialFailure(new Error("豆包 已执行联网搜索，但本次回答没有引用网页来源，已改为重新提问。"))
   assert.equal(uncitedClass.scope, "ignored")
   assert.equal(uncitedClass.countsTowardCircuit, false)
+  // Neither is a model that chose not to search for one question.
+  const declinedClass = classifyAiCredentialFailure(new Error("腾讯元宝/混元 判断这个问题不需要联网，直接用自身知识作答（模型自行决定，未执行搜索）。"))
+  assert.equal(declinedClass.scope, "ignored")
+  assert.equal(declinedClass.countsTowardCircuit, false)
   for (const credential of await (await import("../src/lib/ai-credential-store")).listAiCredentialsPublic()) {
     if (credential.vendor === "doubao" && credential.enabled) await setAiCredentialEnabled(credential.id, false, "test")
   }

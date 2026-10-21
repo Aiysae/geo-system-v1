@@ -160,6 +160,18 @@ export function classifyAiCredentialFailure(
     })
   }
 
+  if (/判断这个问题不需要联网/.test(message)) {
+    // The model chose not to search for this one question; the account is fine.
+    return diagnosis({
+      failureClass: "web_evidence",
+      scope: "ignored",
+      code: "WEB_SEARCH_DECLINED_BY_MODEL",
+      message,
+      countsTowardCircuit: false,
+      cooldownMs: 0,
+    })
+  }
+
   if (/已执行联网搜索，但本次回答没有引用网页来源/.test(message)) {
     // The account searched; this one answer just cited nothing. Ask again
     // without marking the account unhealthy, or a single remaining account

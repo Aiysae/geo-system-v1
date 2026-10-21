@@ -1006,7 +1006,7 @@ async function processDueBatch(
       const validationError = itemError || getPenetrationSlotValidationError(item)
 
       if (!validationError && item) {
-        item.webVerified = true
+        item.webVerified = item.webSearchDeclined !== true
         state.status = "success"
         state.attempts = attempts
         state.capacityDeferrals = 0
@@ -1272,7 +1272,7 @@ async function processDueWave(
         const validationError = itemError || getPenetrationSlotValidationError(item)
 
         if (!validationError && item) {
-          item.webVerified = true
+          item.webVerified = item.webSearchDeclined !== true
           state.status = "success"
           state.attempts = attempts
           state.capacityDeferrals = 0

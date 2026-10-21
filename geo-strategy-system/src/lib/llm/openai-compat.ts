@@ -29,6 +29,12 @@ export interface SearchSourceEvent {
   searchExecuted?: boolean
   /** Safe request identifier for support and audit; never contains credentials. */
   providerRequestId?: string
+  /**
+   * The model answered from its own knowledge and chose not to search, as the
+   * consumer app does for some questions. Carries that answer so the caller can
+   * keep it once retries show the choice is stable.
+   */
+  declinedAnswer?: string
 }
 
 export interface ChatRuntimeOverride {

@@ -73,6 +73,25 @@ const executionWithoutSources = validItem({
 assert.equal(isCompletePenetrationItem(executionWithoutSources), false)
 assert.match(getPenetrationSlotValidationError(executionWithoutSources) || "", /有效信源/)
 
+// A model that answered without searching on every ask gave its app's answer;
+// it completes the slot but never counts as a verified web answer.
+const declinedSearch = validItem({
+  searchSources: [],
+  sourceCount: 0,
+  webExecutionVerified: false,
+  webVerified: false,
+  webSearchDeclined: true,
+})
+assert.equal(getPenetrationSlotValidationError(declinedSearch), null)
+assert.match(
+  getPenetrationSlotValidationError({ ...declinedSearch, providerRequestIds: [] }) || "",
+  /请求编号/,
+)
+assert.match(
+  getPenetrationSlotValidationError({ ...declinedSearch, requestAuditVerified: false }) || "",
+  /纯净度/,
+)
+
 const imageOnlySource = validItem({
   searchSources: [{
     title: "新闻配图",

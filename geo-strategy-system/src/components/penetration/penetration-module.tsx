@@ -1099,7 +1099,9 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
         className={`text-[10px] px-1.5 py-0.5 rounded border ${
           verified
             ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-            : "bg-amber-50 text-amber-700 border-amber-100"
+            : item.webSearchDeclined === true
+              ? "bg-slate-50 text-slate-600 border-slate-200"
+              : "bg-amber-50 text-amber-700 border-amber-100"
         }`}
         title={item.webFailureReason || item.webVerificationNote}
       >
@@ -1107,7 +1109,9 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
           ? executionOnly
             ? "联网已执行"
             : "联网已验证"
-          : "联网不可验证"} · 来源 {sourceCount}
+          : item.webSearchDeclined === true
+            ? "模型判断无需联网"
+            : "联网不可验证"} · 来源 {sourceCount}
       </span>
 
     </div>

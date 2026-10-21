@@ -40,6 +40,12 @@ export function getPenetrationSlotValidationError(item: PenetrationItem | undefi
   }
   if (item.promptPurity !== "raw_question_only") return "本次请求没有保持仅发送原始问题"
   if (item.requestAuditVerified !== true) return "没有取得真实出站请求的纯净度证明"
+  if (item.webSearchDeclined === true) {
+    // The model's own choice not to search, kept after repeated asks.
+    return (item.providerRequestIds || []).some(value => value.trim())
+      ? null
+      : "厂商没有返回可审计请求编号"
+  }
   if (item.webExecutionVerified !== true) return "没有确认厂商联网搜索实际执行"
   if (auditableSources(item).length === 0) return "没有返回可点击、可读取的有效信源网址"
   if (!(item.providerRequestIds || []).some(value => value.trim())) return "厂商没有返回可审计请求编号"
