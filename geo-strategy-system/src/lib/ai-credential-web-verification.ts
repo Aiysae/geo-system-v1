@@ -33,6 +33,14 @@ const STRICT_WEB_MODEL_BY_VENDOR: Partial<Record<AiCredentialVendor, ModelKey>> 
   zhipu: "zhipu",
 }
 
+const WEB_PROBE_QUESTION = "请联网查询今天的日期，并给出至少一个可访问的公开网页来源。"
+
+// GLM answers a date question from its own clock and never searches, which
+// failed a working account; news it cannot know triggers the search every time.
+const WEB_PROBE_QUESTION_BY_VENDOR: Partial<Record<AiCredentialVendor, string>> = {
+  zhipu: "最近有哪些值得关注的新能源汽车新闻？",
+}
+
 export async function verifyAiCredentialWeb(
   credentialId: string,
   options: {
@@ -89,7 +97,7 @@ export async function verifyAiCredentialWeb(
       }, async onUsage => {
         const answer = await ADAPTERS[modelKey].chat({
           system: "",
-          user: "请联网查询今天的日期，并给出至少一个可访问的公开网页来源。",
+          user: WEB_PROBE_QUESTION_BY_VENDOR[credential.vendor] ?? WEB_PROBE_QUESTION,
           temperature: 0,
           // Thinking models (Doubao Seed Pro) spend 300+ tokens reasoning even
           // here; 512 left the answer empty and marked a working model broken.
