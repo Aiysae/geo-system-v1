@@ -5,7 +5,9 @@ import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import {
   baiduAuditableSearch,
   chatWithAuditableExternalSearch,
+  deepseekAuditableSearch,
   moonshotAuditableSearch,
+  type AuditableWebSearch,
 } from "./auditable-external-search"
 
 // DeepSeek 适配器
@@ -17,6 +19,9 @@ import {
 // 2026-10-21 对照用户在 DeepSeek App 亲测的回答校准：App 会用多组关键词搜索、
 // 打开几个网页读全文。改为 Kimi 搜索、最多 4 次搜索（每次 10 条）、最多读 5 个
 // 网页后，与 App 提到的公司重合度最高，百度百科这类词条也少了。
+// 2026-10-23 DeepSeek 开放了自家搜索与网页读取接口（App 用的同一套），同一个
+// 账号和 Key 即可调用，严格联网改用它，不再借 Kimi / 百度账号。
+// DEEPSEEK_SEARCH_PROVIDER=borrowed 可退回借用 Kimi / 百度搜索。
 // 裁判/分析路径仍可默认带工具。
 // jsonMode 透传给底层，
 // 万一上游不接受 tools+response_format 同时启用，openai-compat 的 400 兜底会自动去掉
@@ -26,6 +31,11 @@ const LABEL = "DeepSeek"
 const MAX_SEARCHES = 4
 const SEARCH_RESULTS = 10
 const MAX_PAGE_READS = 5
+
+/** Whether strict detection searches with DeepSeek's own engine rather than a borrowed account. */
+export function deepSeekSearchesOwnEngine(): boolean {
+  return process.env.DEEPSEEK_SEARCH_PROVIDER?.trim().toLowerCase() !== "borrowed"
+}
 
 function isTokenHub(baseUrl: string): boolean {
   return /tokenhub\.tencentmaas\.com/i.test(baseUrl)
@@ -57,23 +67,28 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     args.mode === "consumer"
 
   if (strictPenetrationSearch) {
-    const searchVendor = args.searchRuntimeOverride?.vendor === "kimi" ? "kimi" : "ernie"
-    const searchConfig = await getChatRuntimeSetting(searchVendor, {
-      runtimeOverride: args.searchRuntimeOverride,
-    })
     if (!config.apiKey) throw new Error("DeepSeek 严格联网缺少官方 API Key。")
-    if (!searchConfig.apiKey) throw new Error("DeepSeek 严格联网缺少联网搜索 API Key。")
     if (!isOfficialDeepSeek(config.baseUrl)) {
       throw new Error("DeepSeek 严格联网必须使用 DeepSeek 官方 API 地址。")
     }
-    const searchTimeoutSec = args.timeoutSec ?? searchConfig.timeout
-    const search = searchVendor === "kimi"
-      ? moonshotAuditableSearch(searchConfig.apiKey, searchConfig.baseUrl, searchTimeoutSec, SEARCH_RESULTS)
-      : baiduAuditableSearch(searchConfig.apiKey, searchTimeoutSec, SEARCH_RESULTS)
-    const requestedModel = args.runtimeOverride?.model?.trim()
-      || process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim()
-      || config.model
-      || "deepseek-chat"
+    let search: AuditableWebSearch
+    if (deepSeekSearchesOwnEngine()) {
+      search = deepseekAuditableSearch(config.apiKey, args.timeoutSec ?? config.timeout, SEARCH_RESULTS, args.user)
+    } else {
+      const searchVendor = args.searchRuntimeOverride?.vendor === "kimi" ? "kimi" : "ernie"
+      const searchConfig = await getChatRuntimeSetting(searchVendor, {
+        runtimeOverride: args.searchRuntimeOverride,
+      })
+      if (!searchConfig.apiKey) throw new Error("DeepSeek 严格联网缺少联网搜索 API Key。")
+      const searchTimeoutSec = args.timeoutSec ?? searchConfig.timeout
+      search = searchVendor === "kimi"
+        ? moonshotAuditableSearch(searchConfig.apiKey, searchConfig.baseUrl, searchTimeoutSec, SEARCH_RESULTS)
+        : baiduAuditableSearch(searchConfig.apiKey, searchTimeoutSec, SEARCH_RESULTS)
+    }
+    // Detection runs one model on every account, whatever models the account
+    // lists: an account listing only V4 models answered in thinking mode,
+    // which rejects a forced search, so each call on it failed over.
+    const requestedModel = process.env.DEEPSEEK_WEB_SEARCH_MODEL?.trim() || "deepseek-chat"
     const model = shouldUseToolCompatibleModel(requestedModel, args, config.baseUrl)
       ? "deepseek-chat"
       : requestedModel

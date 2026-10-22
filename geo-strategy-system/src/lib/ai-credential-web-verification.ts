@@ -14,6 +14,8 @@ import {
   updateAiCredentialHealth,
 } from "@/lib/ai-credential-store"
 import { ADAPTERS } from "@/lib/llm"
+import { searchYuanbaoWeb } from "@/lib/llm/yuanbao-web-search"
+import { isSearchOnlyCredentialVendor } from "@/lib/ai-credential-presets"
 import { observeAiUsage } from "@/lib/ai-usage"
 import type { ModelKey } from "@/types"
 import type {
@@ -31,6 +33,7 @@ const STRICT_WEB_MODEL_BY_VENDOR: Partial<Record<AiCredentialVendor, ModelKey>> 
   hunyuan: "hunyuan",
   kimi: "kimi",
   zhipu: "zhipu",
+  yuanbao_search: "hunyuan",
 }
 
 const WEB_PROBE_QUESTION = "请联网查询今天的日期，并给出至少一个可访问的公开网页来源。"
@@ -95,6 +98,20 @@ export async function verifyAiCredentialWeb(
         credentialId: credential.id,
         usedFallback: false,
       }, async onUsage => {
+        // A search-only account is checked by searching.
+        if (isSearchOnlyCredentialVendor(credential.vendor)) {
+          const search = await searchYuanbaoWeb({
+            apiKey: credential.apiKey,
+            baseUrl: credential.baseUrl,
+            query: "最近有哪些值得关注的新能源汽车新闻",
+            timeoutSec: 30,
+            count: 10,
+          })
+          searchExecuted = true
+          for (const source of search.sources) sourceUrls.add(source.url)
+          requestIds.add(search.requestId)
+          return
+        }
         const answer = await ADAPTERS[modelKey].chat({
           system: "",
           user: WEB_PROBE_QUESTION_BY_VENDOR[credential.vendor] ?? WEB_PROBE_QUESTION,

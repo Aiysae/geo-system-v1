@@ -33,6 +33,7 @@ const STRICT_NATIVE_WEB_VENDORS = new Set([
   "hunyuan",
   "ernie",
   "zhipu",
+  "yuanbao_search",
 ])
 
 type SweepOptions = {

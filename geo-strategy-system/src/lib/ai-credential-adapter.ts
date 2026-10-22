@@ -20,6 +20,8 @@ import {
 import { ADAPTERS } from "@/lib/llm"
 import { BaiduWebSearchError } from "@/lib/llm/baidu-ai-search"
 import { MoonshotWebSearchError } from "@/lib/llm/moonshot-web-search"
+import { YuanbaoWebSearchError } from "@/lib/llm/yuanbao-web-search"
+import { deepSeekSearchesOwnEngine } from "@/lib/llm/deepseek"
 import { assertStrictPenetrationBlindArgs } from "@/lib/llm/blind-request-audit"
 import type { ChatArgs } from "@/lib/llm/openai-compat"
 import type { ModelKey } from "@/types"
@@ -60,14 +62,19 @@ function requiresNativeWebCredential(
     && args.officialWebOnly === true
 }
 
-function usesAuditableExternalSearch(
+async function usesAuditableExternalSearch(
   model: ModelKey,
   module: AiCredentialModule,
   args: Partial<ChatArgs>,
-): boolean {
-  // Kimi searches with its own official endpoint on the same account; only
-  // DeepSeek, whose API has no web search, borrows a separate search account.
-  return model === "deepseek" && isStrictWebCall(module, args)
+): Promise<boolean> {
+  if (!isStrictWebCall(module, args)) return false
+  // DeepSeek searches with its own engine, or a borrowed Kimi or Baidu
+  // account. Hunyuan searches through a Yuanbao search account once one is in
+  // the pool, and otherwise keeps TokenHub's built-in search. Kimi searches
+  // with its own endpoint on the same account.
+  if (model === "deepseek") return true
+  if (model === "hunyuan") return hasExternalSearchCandidate(model, module)
+  return false
 }
 
 function strictCredentialVendor(model: ModelKey): ModelKey {
@@ -124,9 +131,11 @@ async function resolveAdapterCredentialRoute(
   let targetModel = String(args.preferredModel || "").trim() || config.model
   let selectionModel: string | undefined = targetModel
 
+  // DeepSeek detection runs the same model on any account (see chatDeepSeek),
+  // so every account serves, whichever models it lists.
   if (strictWeb && model === "deepseek") {
     targetModel = "deepseek-chat"
-    selectionModel = targetModel
+    selectionModel = undefined
   }
   // Kimi accounts often allow only an older model than the global default;
   // any account's own model can run the search, as on the DeepSeek path.
@@ -224,17 +233,30 @@ function selectionRequest(
   }
 }
 
-// Search accounts DeepSeek can borrow, in order of preference: Kimi's official
-// search, whose results came closest to the DeepSeek App's, then Baidu
-// Qianfan search when no Kimi account is free.
-type ExternalSearchVendor = "ernie" | "kimi"
-const EXTERNAL_SEARCH_VENDORS: ExternalSearchVendor[] = ["kimi", "ernie"]
+// Search accounts a model searches through, in order of preference. DeepSeek
+// (only when set to borrow): Kimi's official search, then Baidu Qianfan
+// search when no Kimi account is free. Hunyuan: Yuanbao search, the App's own.
+type ExternalSearchVendor = "ernie" | "kimi" | "yuanbao_search"
+function externalSearchVendors(model: ModelKey): ExternalSearchVendor[] {
+  if (model === "hunyuan") return ["yuanbao_search"]
+  // DeepSeek's own engine runs on the answering account; no search account.
+  return deepSeekSearchesOwnEngine() ? [] : ["kimi", "ernie"]
+}
 
 function externalSearchSelectionRequest(
   module: AiCredentialModule,
   excludeCredentialIds?: string[],
   vendor: ExternalSearchVendor = "ernie",
 ): AiCredentialSelectionRequest {
+  if (vendor === "yuanbao_search") {
+    return {
+      vendor,
+      module,
+      requiredCapabilities: ["native_web", "auditable_sources"],
+      excludeCredentialIds,
+      rateUnits: 0,
+    }
+  }
   return vendor === "kimi"
     ? {
         // Same account and key as Kimi's own detection, so search failures
@@ -254,18 +276,32 @@ function externalSearchSelectionRequest(
       }
 }
 
-async function hasExternalSearchCandidate(module: AiCredentialModule): Promise<boolean> {
-  const ready = await Promise.all(EXTERNAL_SEARCH_VENDORS.map(vendor =>
+async function hasExternalSearchCandidate(model: ModelKey, module: AiCredentialModule): Promise<boolean> {
+  const vendors = externalSearchVendors(model)
+  if (vendors.length === 0) return true
+  const ready = await Promise.all(vendors.map(vendor =>
     hasAiCredentialCandidate(externalSearchSelectionRequest(module, undefined, vendor))))
   return ready.some(Boolean)
 }
 
-/** The first search vendor that still has an account, so capacity reflects what will run. */
-async function activeExternalSearchVendor(module: AiCredentialModule): Promise<ExternalSearchVendor> {
-  for (const vendor of EXTERNAL_SEARCH_VENDORS) {
+/**
+ * The first search vendor that still has an account, so capacity reflects
+ * what will run; none when the model searches on its own account.
+ */
+async function activeExternalSearchVendor(
+  model: ModelKey,
+  module: AiCredentialModule,
+): Promise<ExternalSearchVendor | undefined> {
+  const vendors = externalSearchVendors(model)
+  for (const vendor of vendors) {
     if (await hasAiCredentialCandidate(externalSearchSelectionRequest(module, undefined, vendor))) return vendor
   }
-  return EXTERNAL_SEARCH_VENDORS[0]
+  return vendors[0]
+}
+
+/** The pool a capacity report is shared under: a borrowed search account, or the model's own. */
+function capacityVendor(model: ModelKey, searchVendor: ExternalSearchVendor | undefined): ModelKey {
+  return searchVendor === "kimi" || searchVendor === "ernie" ? searchVendor : model
 }
 
 async function hasRouteCandidate(
@@ -295,10 +331,10 @@ export async function hasAdapterCredentialPoolCandidate(
   args: Partial<ChatArgs> = {},
 ): Promise<boolean> {
   const route = await resolveAdapterCredentialRoute(model, module, args)
-  if (usesAuditableExternalSearch(model, module, args)) {
+  if (await usesAuditableExternalSearch(model, module, args)) {
     const [generationReady, searchReady] = await Promise.all([
       hasAiCredentialCandidate(selectionRequest(route, module, undefined, null)),
-      hasExternalSearchCandidate(module),
+      hasExternalSearchCandidate(model, module),
     ])
     return generationReady && searchReady
   }
@@ -325,16 +361,16 @@ export async function getAdapterCredentialPoolCapacity(
   args: Partial<ChatArgs> = {},
 ): Promise<AdapterCredentialPoolCapacity> {
   const route = await resolveAdapterCredentialRoute(model, module, args)
-  if (usesAuditableExternalSearch(model, module, args)) {
-    const [generationPool, searchPool] = await Promise.all([
-      getAiCredentialPoolCapacity(selectionRequest(route, module, undefined, null)),
-      getAiCredentialPoolCapacity(externalSearchSelectionRequest(
-        module, undefined, await activeExternalSearchVendor(module),
-      )),
-    ])
+  if (await usesAuditableExternalSearch(model, module, args)) {
+    const searchVendor = await activeExternalSearchVendor(model, module)
+    const generationPool = await getAiCredentialPoolCapacity(selectionRequest(route, module, undefined, null))
+    // Searching on the answering account adds no second pool.
+    const searchPool = searchVendor
+      ? await getAiCredentialPoolCapacity(externalSearchSelectionRequest(module, undefined, searchVendor))
+      : generationPool
     return {
-      // The auditable search pool is the shared bottleneck with Ernie jobs.
-      vendor: await activeExternalSearchVendor(module),
+      // A borrowed search pool is the shared bottleneck with that vendor's jobs.
+      vendor: capacityVendor(model, searchVendor),
       candidateCount: Math.min(generationPool.candidateCount, searchPool.candidateCount),
       maxConcurrency: Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency),
       quotaGroupCount: Math.min(generationPool.quotaGroupCount, searchPool.quotaGroupCount),
@@ -375,20 +411,19 @@ export async function getAdapterCredentialPoolSnapshot(
   args: Partial<ChatArgs> = {},
 ): Promise<AdapterCredentialPoolSnapshot> {
   const route = await resolveAdapterCredentialRoute(model, module, args)
-  if (usesAuditableExternalSearch(model, module, args)) {
-    const [generationPool, searchPool] = await Promise.all([
-      getAiCredentialPoolSnapshot(selectionRequest(route, module, undefined, null)),
-      getAiCredentialPoolSnapshot(externalSearchSelectionRequest(
-        module, undefined, await activeExternalSearchVendor(module),
-      )),
-    ])
+  if (await usesAuditableExternalSearch(model, module, args)) {
+    const searchVendor = await activeExternalSearchVendor(model, module)
+    const generationPool = await getAiCredentialPoolSnapshot(selectionRequest(route, module, undefined, null))
+    const searchPool = searchVendor
+      ? await getAiCredentialPoolSnapshot(externalSearchSelectionRequest(module, undefined, searchVendor))
+      : generationPool
     const maxConcurrency = Math.min(generationPool.maxConcurrency, searchPool.maxConcurrency)
     const availableConcurrency = Math.min(
       generationPool.availableConcurrency,
       searchPool.availableConcurrency,
     )
     return {
-      vendor: await activeExternalSearchVendor(module),
+      vendor: capacityVendor(model, searchVendor),
       candidateCount: Math.min(generationPool.candidateCount, searchPool.candidateCount),
       maxConcurrency,
       quotaGroupCount: Math.min(generationPool.quotaGroupCount, searchPool.quotaGroupCount),
@@ -455,7 +490,7 @@ async function runAuditableExternalCredentialPoolChat(
     : undefined
   const [hasGenerationPool, hasSearchPool] = await Promise.all([
     hasAiCredentialCandidate(selectionRequest(route, module, undefined, null)),
-    hasExternalSearchCandidate(module),
+    hasExternalSearchCandidate(model, module),
   ])
   if (!hasGenerationPool || !hasSearchPool) {
     throw new Error(`${label} 严格联网账号池未配置完整或当前模型尚未通过验证`)
@@ -491,11 +526,13 @@ async function runAuditableExternalCredentialPoolChat(
     let searchLease: AiCredentialLease | null = null
     let generationLease: AiCredentialLease | null = null
     try {
-      // Search is the shared bottleneck for Kimi and DeepSeek strict audits.
-      // Acquire it first, then pair a generation lane with a short wait. This
+      // A borrowed search account is the shared bottleneck. Acquire it first, then pair a generation lane with a short wait. This
       // avoids occupying a scarce generation account while waiting on search.
-      let searchVendor: ExternalSearchVendor = EXTERNAL_SEARCH_VENDORS[0]
-      for (const vendor of EXTERNAL_SEARCH_VENDORS) {
+      // DeepSeek's own engine needs no search account: it searches on the
+      // generation account.
+      const searchVendors = externalSearchVendors(model)
+      let searchVendor: ExternalSearchVendor | undefined = searchVendors[0]
+      for (const vendor of searchVendors) {
         const request = externalSearchSelectionRequest(module, excludedSearchIds, vendor)
         // Only wait on a vendor that has an account at all; otherwise move on.
         if (!(await hasAiCredentialCandidate(request))) continue
@@ -508,7 +545,7 @@ async function runAuditableExternalCredentialPoolChat(
         })
         if (searchLease) break
       }
-      if (!searchLease) {
+      if (searchVendors.length > 0 && !searchLease) {
         if (!lastError || excludedSearchIds.length === 0) {
           lastError = new Error(`${label} 联网搜索账号池当前繁忙或暂无可用账号`)
         }
@@ -522,7 +559,7 @@ async function runAuditableExternalCredentialPoolChat(
           excludedGenerationIds,
           generationModel ?? null,
         ),
-        waitTimeoutMs: pairWaitTimeoutMs,
+        waitTimeoutMs: searchLease ? pairWaitTimeoutMs : waitTimeoutMs,
         leaseSeconds,
         signal: args.signal,
         ...quotaEstimate,
@@ -540,8 +577,8 @@ async function runAuditableExternalCredentialPoolChat(
         route.requiredCapabilities,
       )
       if (!selectedModel) throw new Error(`${label} 可用账号未配置模型`)
-      const searchModel = searchLease.credential.allowedModels[0]
-        || (searchVendor === "kimi" ? "kimi-k2.6" : "ernie-5.1")
+      const searchModel = searchLease?.credential.allowedModels[0]
+        || (searchVendor === "kimi" ? "kimi-k2.6" : searchVendor === "yuanbao_search" ? "SearchPro" : "ernie-5.1")
       const searchCapabilities: AiCredentialCapability[] = searchVendor === "kimi"
         ? ["chat"]
         : ["native_web", "auditable_sources"]
@@ -557,15 +594,17 @@ async function runAuditableExternalCredentialPoolChat(
             model: selectedModel,
             timeout: args.timeoutSec,
           },
-          searchRuntimeOverride: {
-            vendor: searchVendor,
-            baseUrl: searchLease.credential.baseUrl,
-            chatPath: searchLease.credential.chatPath,
-            apiKey: searchLease.credential.apiKey,
-            model: searchModel,
-            timeout: args.timeoutSec,
-            extra: searchVendor === "ernie" ? { enableSearch: true } : undefined,
-          },
+          searchRuntimeOverride: searchLease && searchVendor
+            ? {
+                vendor: searchVendor,
+                baseUrl: searchLease.credential.baseUrl,
+                chatPath: searchLease.credential.chatPath,
+                apiKey: searchLease.credential.apiKey,
+                model: searchModel,
+                timeout: args.timeoutSec,
+                extra: searchVendor === "ernie" ? { enableSearch: true } : undefined,
+              }
+            : undefined,
         })
         const latencyMs = Date.now() - startedAt
         await Promise.all([
@@ -574,7 +613,7 @@ async function runAuditableExternalCredentialPoolChat(
             model: selectedModel,
             requiredCapabilities: route.healthCapabilities,
           }),
-          recordAiCredentialSuccess(searchLease.credential, latencyMs, {
+          searchLease && recordAiCredentialSuccess(searchLease.credential, latencyMs, {
             module,
             model: searchModel,
             requiredCapabilities: searchCapabilities,
@@ -583,7 +622,11 @@ async function runAuditableExternalCredentialPoolChat(
         return result
       } catch (error) {
         lastError = error
-        if (error instanceof BaiduWebSearchError || error instanceof MoonshotWebSearchError) {
+        if (searchLease && (
+          error instanceof BaiduWebSearchError
+          || error instanceof MoonshotWebSearchError
+          || error instanceof YuanbaoWebSearchError
+        )) {
           excludedSearchIds.push(searchLease.credential.id)
           await recordAiCredentialFailure(searchLease.credential, error, {
             module,
@@ -634,7 +677,7 @@ export async function runAdapterCredentialPoolChat(
   args: ChatArgs,
 ): Promise<string> {
   if (module === "penetration") assertStrictPenetrationBlindArgs(args)
-  if (usesAuditableExternalSearch(model, module, args)) {
+  if (await usesAuditableExternalSearch(model, module, args)) {
     return runAuditableExternalCredentialPoolChat(model, module, args)
   }
   const route = await resolveAdapterCredentialRoute(model, module, args)

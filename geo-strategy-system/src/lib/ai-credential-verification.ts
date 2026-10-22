@@ -15,6 +15,8 @@ import {
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { openaiCompatChat } from "@/lib/llm/openai-compat"
 import { observeAiUsage } from "@/lib/ai-usage"
+import { isSearchOnlyCredentialVendor } from "@/lib/ai-credential-presets"
+import { verifyAiCredentialWeb } from "@/lib/ai-credential-web-verification"
 import type {
   AiCredentialCapability,
   AiCredentialModule,
@@ -66,6 +68,14 @@ export async function verifyAiCredentialChat(
   if (!credential.apiKey) throw new Error("该模型账号尚未配置 API Key")
   if (credential.allowedModels.length === 0) {
     throw new Error("请先为该账号填写至少一个可用模型")
+  }
+  // A search-only account has no chat to check; a real search proves it works.
+  if (isSearchOnlyCredentialVendor(credential.vendor)) {
+    return verifyAiCredentialWeb(credentialId, {
+      model: options.model,
+      module: "penetration",
+      isProbe: options.isProbe,
+    })
   }
 
   const requestedModel = String(options.model || "").trim()

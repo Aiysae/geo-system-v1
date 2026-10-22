@@ -1,5 +1,6 @@
 import { fastJudgeExtraBody, openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { chatWithLocalWebSearchTool } from "./tool-loop"
+import { chatWithAuditableExternalSearch, yuanbaoAuditableSearch } from "./auditable-external-search"
 import { extractSourcesFromUnknown } from "./source-extract"
 import { emitPenetrationRequestAudit } from "./blind-request-audit"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
@@ -308,8 +309,49 @@ async function chatTokenHubNativeSearch(
   }
 }
 
+// Answers the way the Yuanbao App does: hy3 searches Yuanbao search itself,
+// several times per question, and reads the pages' summaries. TokenHub's
+// built-in web_search ran one search of about 8 pages, so answers named about
+// half the companies the App names.
+const YUANBAO_MAX_SEARCHES = 4
+const YUANBAO_SEARCH_RESULTS = 20
+const YUANBAO_ANSWER_MAX_TOKENS = 2048
+
+async function chatHunyuanWithYuanbaoSearch(
+  args: ChatArgs,
+  config: AiProviderRuntimeSetting,
+): Promise<string> {
+  if (!config.apiKey) throw new Error(`${LABEL} TokenHub API Key 未配置。`)
+  const chatUrl = buildAiChatUrl(config)
+  if (!isTokenHub(chatUrl)) throw new Error(`${LABEL} 严格联网需要切换到腾讯 TokenHub · HY3。`)
+  const searchConfig = args.searchRuntimeOverride
+  if (!searchConfig?.apiKey) throw new Error(`${LABEL} 严格联网缺少元宝搜索 API Key。`)
+  const timeoutSec = args.timeoutSec ?? config.timeout
+  return chatWithAuditableExternalSearch({
+    // Detection keeps Hunyuan to 1200 tokens because TokenHub's search stream
+    // broke on longer answers; this path does not stream, and the App's
+    // answers run longer.
+    args: { ...args, maxTokens: Math.max(args.maxTokens ?? 0, YUANBAO_ANSWER_MAX_TOKENS) },
+    endpoint: chatUrl,
+    apiKey: config.apiKey,
+    model: config.model,
+    label: LABEL,
+    modelProvider: "tencent_tokenhub",
+    search: yuanbaoAuditableSearch(searchConfig.apiKey, searchConfig.baseUrl, timeoutSec, YUANBAO_SEARCH_RESULTS),
+    requestTimeoutSec: timeoutSec,
+    temperature: args.temperature,
+    // With thinking off, hy3 ignores the search tool and answers from memory;
+    // light thinking plans several searches at once, as the App does.
+    extraBody: { reasoning_effort: "low" },
+    maxSearches: YUANBAO_MAX_SEARCHES,
+  })
+}
+
 export async function chatHunyuan(args: ChatArgs): Promise<string> {
   const config = await getChatRuntimeSetting("hunyuan", args)
+  if (args.forceWebSearch && args.searchRuntimeOverride?.vendor === "yuanbao_search") {
+    return chatHunyuanWithYuanbaoSearch(args, config)
+  }
   if (args.forceWebSearch) {
     if (!isTokenHub(config.baseUrl)) {
       throw new Error(`${LABEL} 严格联网需要切换到腾讯 TokenHub · HY3。`)

@@ -11,6 +11,9 @@ process.env.LOCAL_KV_FILE = join(tempDir, "kv.json")
 process.env.AI_CONFIG_ENCRYPTION_KEY = "test-ai-adapter-encryption-key"
 // Kimi detection and the DeepSeek fallback search share one test account.
 process.env.KIMI_PENETRATION_DEFAULT_RPM = "20"
+// These cases cover DeepSeek borrowing Kimi or Baidu search, the fallback to
+// its own engine; test-penetration-app-search covers the default.
+process.env.DEEPSEEK_SEARCH_PROVIDER = "borrowed"
 process.env.ARK_API_KEY = "test-static-doubao-key"
 process.env.ARK_DOUBAO_ENDPOINT_ID = "doubao-seed-2-0-lite-260215"
 
@@ -530,6 +533,9 @@ try {
     3,
   )
 
+  // Every DeepSeek account now serves detection with one model (see
+  // test-deepseek-credential-failover); these cases follow one account.
+  await setAiCredentialEnabled(incompatibleDeepSeekCredential.id, false, "adapter-test")
   usedKeys.length = 0
   assert.equal(
     await hasAdapterCredentialPoolCandidate("deepseek", "penetration", strictArgs),

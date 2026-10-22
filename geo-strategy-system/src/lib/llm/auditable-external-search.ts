@@ -1,6 +1,8 @@
 import type { PenetrationSource } from "@/types"
 import { searchBaiduWeb } from "./baidu-ai-search"
 import { searchMoonshotWeb } from "./moonshot-web-search"
+import { fetchDeepSeekPage, searchDeepSeekWeb } from "./deepseek-web-search"
+import { searchYuanbaoWeb } from "./yuanbao-web-search"
 import { emitPenetrationRequestAudit } from "./blind-request-audit"
 import { extractArticleFromUrl } from "@/lib/article-extract"
 import { openaiCompatRaw, type ChatArgs } from "./openai-compat"
@@ -49,13 +51,17 @@ const PAGE_TEXT_LIMIT = 6_000
 export interface AuditableWebSearchResult {
   query: string
   sources: PenetrationSource[]
+  /** Longer per-page summaries, by URL, given to the model instead of the snippet. */
+  summaries?: Record<string, string>
   requestId: string
 }
 
 /** A search engine that returns every result's URL and an auditable request id. */
 export interface AuditableWebSearch {
-  provider: "baidu_search" | "moonshot_search"
+  provider: "baidu_search" | "moonshot_search" | "deepseek_search" | "yuanbao_search"
   run(query: string, signal?: AbortSignal): Promise<AuditableWebSearchResult>
+  /** The engine's own page reader, when it has one. */
+  readPage?(url: string, signal?: AbortSignal): Promise<{ title: string; markdown: string }>
 }
 
 export function baiduAuditableSearch(
@@ -78,6 +84,33 @@ export function moonshotAuditableSearch(
   return {
     provider: "moonshot_search",
     run: (query, signal) => searchMoonshotWeb({ apiKey, baseUrl, query, timeoutSec, signal, limit }),
+  }
+}
+
+/** DeepSeek's own engine, on the account that answers. */
+export function deepseekAuditableSearch(
+  apiKey: string,
+  timeoutSec: number,
+  limit: number,
+  question: string,
+): AuditableWebSearch {
+  return {
+    provider: "deepseek_search",
+    run: (query, signal) => searchDeepSeekWeb({ apiKey, query, question, timeoutSec, signal, count: limit }),
+    // Its reader, then ours for the sites it is turned away from.
+    readPage: (url, signal) => fetchDeepSeekPage(apiKey, url, signal).catch(() => extractArticleFromUrl(url)),
+  }
+}
+
+export function yuanbaoAuditableSearch(
+  apiKey: string,
+  baseUrl: string,
+  timeoutSec: number,
+  limit: number,
+): AuditableWebSearch {
+  return {
+    provider: "yuanbao_search",
+    run: (query, signal) => searchYuanbaoWeb({ apiKey, baseUrl, query, timeoutSec, signal, count: limit }),
   }
 }
 
@@ -230,6 +263,10 @@ export async function chatWithAuditableExternalSearch(
         role: "assistant",
         content: messageText(message.content),
         tool_calls: message.tool_calls,
+        // Thinking models expect their reasoning back alongside the calls.
+        ...(typeof message.reasoning_content === "string" && message.reasoning_content
+          ? { reasoning_content: message.reasoning_content }
+          : {}),
       })
       // Budgets are assigned in call order, then the calls run together, as
       // the App runs several searches at once.
@@ -269,7 +306,7 @@ export async function chatWithAuditableExternalSearch(
               results: search.sources.map(source => ({
                 title: source.title,
                 url: source.url,
-                snippet: source.snippet,
+                snippet: search.summaries?.[source.url] || source.snippet,
                 domain: source.domain,
               })),
             })
@@ -289,7 +326,7 @@ export async function chatWithAuditableExternalSearch(
             return { toolCall, name, content: JSON.stringify({ error: `本次回答最多打开 ${maxPageReads} 个网页，请直接作答。` }) }
           }
           pageBudget -= 1
-          const read = extractArticleFromUrl(url)
+          const read = (input.search.readPage?.(url, args.signal) ?? extractArticleFromUrl(url))
             .then(page => JSON.stringify({ url, title: page.title, text: page.markdown.slice(0, PAGE_TEXT_LIMIT) }))
             .catch(error => JSON.stringify({
               url,

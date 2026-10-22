@@ -401,7 +401,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "native_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式使用腾讯 TokenHub HY3 官方联网搜索，并读取 search_results。",
+      webVerificationNote: "严格模式由腾讯 TokenHub HY3 作答，通过元宝搜索（腾讯云）多次检索；未配置元宝搜索账号时使用 TokenHub 官方联网搜索，均返回可审计网址。",
     }
   }
 
@@ -409,7 +409,7 @@ async function getPenetrationAuditProfile(model: ModelKey): Promise<PenetrationA
     return {
       searchMode: "external_tool_web",
       promptPurity: "raw_question_only",
-      webVerificationNote: "严格模式由 DeepSeek 官方 V4 模型作答，并通过百度公开搜索（百度不可用时改用 Kimi 官方搜索）返回完整可审计网址。",
+      webVerificationNote: "严格模式由 DeepSeek 官方模型作答，并通过 DeepSeek 官方搜索与网页读取接口（App 同款）返回完整可审计网址。",
     }
   }
 

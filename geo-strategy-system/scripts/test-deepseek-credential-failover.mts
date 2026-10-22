@@ -9,6 +9,9 @@ delete process.env.DATABASE_URL
 process.env.KV_BACKEND = "file"
 process.env.LOCAL_KV_FILE = join(tempDir, "kv.json")
 process.env.AI_CONFIG_ENCRYPTION_KEY = "test-deepseek-model-failover-key"
+// Borrowed Baidu search; DeepSeek's own engine is in test-penetration-app-search.
+process.env.DEEPSEEK_SEARCH_PROVIDER = "borrowed"
+delete process.env.DEEPSEEK_WEB_SEARCH_MODEL
 
 const {
   saveAiCredential,
@@ -105,7 +108,9 @@ try {
         })
       }
       assert.equal(key, relayKey)
-      assert.equal(body.model, "deepseek-v4-pro")
+      // Detection runs one model on every account: the account's own V4
+      // model answers in thinking mode, which rejects a forced search.
+      assert.equal(body.model, "deepseek-chat")
       relayRound += 1
       if (relayRound === 1) {
         return new Response(JSON.stringify({
@@ -177,12 +182,12 @@ try {
   assert.equal(answer, "DeepSeek 2号账号联网回答")
   assert.deepEqual(generationRequests, [
     { key: officialKey, model: "deepseek-chat" },
-    { key: relayKey, model: "deepseek-v4-pro" },
-    { key: relayKey, model: "deepseek-v4-pro" },
+    { key: relayKey, model: "deepseek-chat" },
+    { key: relayKey, model: "deepseek-chat" },
   ])
   assert.equal(events.flatMap(event => event.sources).length, 1)
   assert.equal(events.some(event => event.searchExecuted), true)
-  console.log("DeepSeek credential-specific model failover passed.")
+  console.log("DeepSeek account failover with one detection model passed.")
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })

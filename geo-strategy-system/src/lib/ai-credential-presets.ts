@@ -128,7 +128,28 @@ export const AI_CREDENTIAL_VENDOR_PRESETS: AiCredentialVendorPreset[] = [
     declaredCapabilities: ["chat", "json", "long_text", "vision", "native_web", "auditable_sources"],
     defaultConcurrency: 2,
   },
+  {
+    // Search only. Hunyuan question detection searches through it, as the
+    // Yuanbao App does; the API Key comes from Tencent Cloud's Yuanbao search.
+    vendor: "yuanbao_search",
+    label: "元宝搜索（腾讯云）",
+    baseUrl: "https://api.wsa.cloud.tencent.com",
+    chatPath: "/SearchPro",
+    defaultModels: ["SearchPro"],
+    allowedModules: ["penetration"],
+    declaredCapabilities: ["native_web", "auditable_sources"],
+    // Each answer runs a few searches at under a second each; 20 per second
+    // is the plan's cap.
+    defaultConcurrency: 20,
+  },
 ]
+
+/** Accounts that only search, for another vendor's model to answer from. */
+export const SEARCH_ONLY_CREDENTIAL_VENDORS = new Set<AiCredentialVendor>(["yuanbao_search"])
+
+export function isSearchOnlyCredentialVendor(vendor: AiCredentialVendor): boolean {
+  return SEARCH_ONLY_CREDENTIAL_VENDORS.has(vendor)
+}
 
 export const AI_CREDENTIAL_PRESET_BY_VENDOR = new Map(
   AI_CREDENTIAL_VENDOR_PRESETS.map(preset => [preset.vendor, preset]),

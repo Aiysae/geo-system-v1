@@ -14,6 +14,8 @@ process.env.DASHSCOPE_ENABLE_SEARCH = "true"
 process.env.DEEPSEEK_WEB_SEARCH_MODEL = "deepseek-v4-flash"
 process.env.DEEPSEEK_API_KEY = "test-deepseek-key"
 process.env.DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+// DeepSeek borrowing Baidu search; its own engine is in test-penetration-app-search.
+process.env.DEEPSEEK_SEARCH_PROVIDER = "borrowed"
 process.env.MOONSHOT_API_KEY = "test-moonshot-key"
 process.env.MOONSHOT_MODEL = "kimi-k2.6"
 process.env.MOONSHOT_BASE_URL = "https://api.moonshot.cn"

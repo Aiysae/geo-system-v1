@@ -249,6 +249,8 @@ function retryDelayMs(headers: Headers, body: string, attempt: number): number {
 
 export interface RawChatCompletionMessage {
   role: string
+  /** A thinking model's reasoning (DeepSeek, Kimi, Hunyuan hy3). */
+  reasoning_content?: string
   content:
     | string
     | null

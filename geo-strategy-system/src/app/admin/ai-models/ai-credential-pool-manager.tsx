@@ -164,6 +164,8 @@ function CredentialForm({
       <label className="text-xs font-semibold text-slate-600">
         可用模型
         <input
+          // Remount on a vendor change, so the defaults follow the vendor.
+          key={`models-${vendor}`}
           name="allowedModels"
           required
           defaultValue={credential?.allowedModels.join(", ") || preset.defaultModels.join(", ")}
@@ -178,6 +180,7 @@ function CredentialForm({
           <label className="text-xs font-medium text-slate-500 xl:col-span-2">
             Base URL
             <input
+              key={`base-${vendor}`}
               name="baseUrl"
               defaultValue={credential?.baseUrl || preset.baseUrl}
               className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-[#1677FF]"
@@ -186,6 +189,7 @@ function CredentialForm({
           <label className="text-xs font-medium text-slate-500">
             Chat Path
             <input
+              key={`path-${vendor}`}
               name="chatPath"
               defaultValue={credential?.chatPath || preset.chatPath}
               className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-[#1677FF]"
@@ -203,6 +207,7 @@ function CredentialForm({
           <label className="text-xs font-medium text-slate-500">
             最大并发
             <input
+              key={`concurrency-${vendor}`}
               name="maxConcurrency"
               type="number"
               min={1}
@@ -212,6 +217,7 @@ function CredentialForm({
             />
           </label>
           <input
+            key={`group-${vendor}`}
             type="hidden"
             name="quotaGroupMaxConcurrency"
             value={credential?.quotaGroupMaxConcurrency || preset.defaultConcurrency}

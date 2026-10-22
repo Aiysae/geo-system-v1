@@ -7,6 +7,8 @@ export type AiCredentialVendor =
   | "ernie"
   | "minimax"
   | "zhipu"
+  /** Search only: Tencent's Yuanbao search, which Hunyuan detection searches through. */
+  | "yuanbao_search"
 
 export type AiCredentialCapability =
   | "chat"

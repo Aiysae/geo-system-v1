@@ -37,6 +37,7 @@ const VALID_VENDORS = new Set<AiCredentialVendor>([
   "ernie",
   "minimax",
   "zhipu",
+  "yuanbao_search",
 ])
 const VALID_MODULES = new Set<AiCredentialModule>([
   "article",
