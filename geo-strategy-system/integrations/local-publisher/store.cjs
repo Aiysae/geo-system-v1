@@ -70,6 +70,17 @@ class Store {
       PRAGMA user_version=1;`);
     if(!this.db.prepare('PRAGMA table_info(accounts)').all().some(column=>column.name==='group_name'))
       this.db.exec("ALTER TABLE accounts ADD COLUMN group_name TEXT NOT NULL DEFAULT ''");
+    for(const [table,columns] of Object.entries({
+      accounts:{session_version:'INTEGER NOT NULL DEFAULT 0',session_saved_at:'INTEGER',successful_check_at:'INTEGER',cooldown_until:'INTEGER NOT NULL DEFAULT 0',health_code:"TEXT NOT NULL DEFAULT ''"},
+      tasks:{interval_ms:'INTEGER NOT NULL DEFAULT 0',daily_limit:'INTEGER NOT NULL DEFAULT 0'},
+    })){
+      const existing=new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map(c=>c.name));
+      for(const [name,type] of Object.entries(columns))if(!existing.has(name))this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
+    this.db.exec(`CREATE TABLE IF NOT EXISTS submissions(
+      id INTEGER PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id),task_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,interval_ms INTEGER NOT NULL,daily_limit INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS submission_budget ON submissions(account_id,started_at);`);
     fs.chmodSync(path.join(directory, 'publishing.sqlite'), 0o600);
   }
   transaction(fn) {
@@ -108,23 +119,45 @@ class Store {
     this.db.prepare('UPDATE accounts SET group_name=? WHERE owner=? AND id=?').run(name,owner,accountId);
     return this.account(owner,accountId);
   }
-  saveSession(owner, accountId, session, identity) {
+  saveSession(owner, accountId, session, identity, expectedVersion) {
     const a=this.account(owner,accountId);
+    if(expectedVersion!==undefined&&a.session_version!==expectedVersion)fail('登录状态已更新，请重新打开账号窗口','STALE_SESSION');
     if(!identity.id)fail('平台未返回可确认的账号标识','AUTH');
     if(a.remote_id && a.remote_id!==String(identity.id))fail('登录的账号与原账号不一致，请切回原账号或新增账号','AUTH');
     const existing=this.db.prepare('SELECT id FROM accounts WHERE owner=? AND platform=? AND remote_id=? AND id<>?').get(owner,a.platform,String(identity.id),accountId);
     if(existing)fail('这个平台账号已经添加，请使用已有账号','CONFLICT');
     this.transaction(()=>{
-      this.db.prepare("UPDATE accounts SET session=?,remote_id=?,remote_name=?,state='ready',checked_at=?,error='' WHERE owner=? AND id=?")
-        .run(this.seal(session),String(identity.id),String(identity.name||a.label).slice(0,120),now(),owner,accountId);
+      this.db.prepare("UPDATE accounts SET session=?,remote_id=?,remote_name=?,state='ready',checked_at=?,successful_check_at=?,session_saved_at=?,session_version=session_version+1,health_code=CASE WHEN cooldown_until>unixepoch('subsec')*1000 THEN health_code ELSE '' END,error=CASE WHEN cooldown_until>unixepoch('subsec')*1000 THEN error ELSE '' END WHERE owner=? AND id=?")
+        .run(this.seal(session),String(identity.id),String(identity.name||a.label).slice(0,120),now(),now(),now(),owner,accountId);
       this.db.prepare("UPDATE tasks SET state='queued',next_run=MAX(next_run,?),message='登录已恢复，等待自动执行',updated_at=? WHERE owner=? AND account_id=? AND state='waiting_login'").run(now(),now(),owner,accountId);
       this.db.prepare("UPDATE tasks SET state='submitted',next_run=?,audit_attempts=0,message='登录恢复，自动核验已提交文章',updated_at=? WHERE owner=? AND account_id=? AND state='audit_pending' AND remote_id IS NOT NULL").run(now(),now(),owner,accountId);
       this.event(owner,null,'login','账号登录状态已保存');
     });
     return this.account(owner,accountId);
   }
-  invalidate(owner, accountId, message='账号登录已失效，请重新登录') {
-    this.db.prepare("UPDATE accounts SET state='needs_login',error=?,checked_at=? WHERE owner=? AND id=?").run(message,now(),owner,accountId);
+  refreshSession(owner,accountId,session,version,verified=false){
+    // Compare-and-swap: an old browser/worker must never overwrite reauthorization.
+    const result=this.db.prepare(`UPDATE accounts SET session=?,session_version=session_version+1,session_saved_at=?,
+      checked_at=CASE WHEN ? THEN ? ELSE checked_at END,successful_check_at=CASE WHEN ? THEN ? ELSE successful_check_at END,
+      health_code=CASE WHEN ? AND cooldown_until<=? THEN '' ELSE health_code END,
+      error=CASE WHEN ? AND cooldown_until<=? THEN '' ELSE error END
+      WHERE owner=? AND id=? AND session_version=? AND state='ready' AND session IS NOT NULL`)
+      .run(this.seal(session),now(),+verified,now(),+verified,now(),+verified,now(),+verified,now(),owner,accountId,version);
+    return result.changes===1;
+  }
+  invalidate(owner, accountId, message='账号登录已失效，请重新登录',code='AUTH') {
+    this.transaction(()=>{
+      this.db.prepare("UPDATE accounts SET state=?,health_code=?,error=?,checked_at=?,session_version=session_version+1 WHERE owner=? AND id=?")
+        .run(code==='AUTH'?'needs_login':'needs_verification',code,message,now(),owner,accountId);
+      this.db.prepare("UPDATE tasks SET state='waiting_login',message=?,updated_at=? WHERE owner=? AND account_id=? AND state IN ('queued','retry_wait')").run(message,now(),owner,accountId);
+      this.db.prepare("UPDATE tasks SET state='audit_pending',message=?,updated_at=? WHERE owner=? AND account_id=? AND state='submitted'").run(message,now(),owner,accountId);
+      this.event(owner,null,'account.paused',message);
+    });
+  }
+  deferAccount(owner,accountId,code,message,until){
+    this.db.prepare('UPDATE accounts SET cooldown_until=MAX(cooldown_until,?),health_code=?,error=?,checked_at=? WHERE owner=? AND id=?')
+      .run(until,code,message,now(),owner,accountId);
+    this.db.prepare("UPDATE tasks SET next_run=MAX(next_run,?),message=?,updated_at=? WHERE owner=? AND account_id=? AND state IN ('queued','retry_wait','submitted')").run(until,message,now(),owner,accountId);
   }
   removeAccount(owner, accountId) {
     this.account(owner,accountId);
@@ -134,7 +167,8 @@ class Store {
   logout(owner,accountId) {
     this.account(owner,accountId);
     if(this.db.prepare("SELECT 1 FROM tasks WHERE owner=? AND account_id=? AND state IN ('running','auditing')").get(owner,accountId))fail('该账号正在执行任务，请等待任务结束');
-    this.db.prepare("UPDATE accounts SET session=NULL,state='needs_login',error='' WHERE owner=? AND id=?").run(owner,accountId);
+    this.invalidate(owner,accountId,'账号已退出登录');
+    this.db.prepare("UPDATE accounts SET session=NULL,session_saved_at=NULL,successful_check_at=NULL,cooldown_until=0 WHERE owner=? AND id=?").run(owner,accountId);
   }
   saveArticle(owner, input) {
     const metadata=validateMetadata(input.metadata||{}),contentType=metadata.contentType;
@@ -298,12 +332,12 @@ class Store {
       const articles=articleIds.map(a=>this.article(owner,a));
       const batchId=id(), created=now();
       this.db.prepare('INSERT INTO batches VALUES(?,?,?,?,?,?)').run(batchId,owner,requestKey,fingerprint,created,scheduledAt);
-      const insert=this.db.prepare('INSERT INTO tasks(id,owner,batch_id,account_id,article_id,snapshot,mode,state,next_run,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
+      const insert=this.db.prepare('INSERT INTO tasks(id,owner,batch_id,account_id,article_id,snapshot,mode,state,next_run,created_at,updated_at,interval_ms,daily_limit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
       for(const a of accounts)for(const [index,article] of articles.entries()){
         const taskId=id(),snapshot=applyOverride(article,input.overrides?.[a.id]?.[article.id]);
         const dailyLimit=Number(input.dailyLimit)||0,interval=Number(input.intervalMinutes)||0;
         const runAt=scheduledAt+(dailyLimit?Math.floor(index/dailyLimit)*86400000:0)+(dailyLimit?index%dailyLimit:index)*interval*60000;
-        insert.run(taskId,owner,batchId,a.id,article.id,json(snapshot),input.mode,a.state==='ready'?'queued':'waiting_login',runAt,created,created);
+        insert.run(taskId,owner,batchId,a.id,article.id,json(snapshot),input.mode,a.state==='ready'?'queued':'waiting_login',runAt,created,created,interval*60000,dailyLimit);
         this.event(owner,taskId,'created',a.state==='ready'?'任务已入队':'等待账号登录；完成后自动继续');
       }
       return {id:batchId,reused:false,count:accounts.length*articles.length};
@@ -351,13 +385,44 @@ class Store {
       if(this.db.prepare("SELECT count(*) n FROM tasks WHERE state IN ('running','auditing') AND lease_until>?").get(now()).n>=5)return null;
       const candidates=this.db.prepare(`SELECT t.* FROM tasks t JOIN accounts a ON a.id=t.account_id
         LEFT JOIN settings s ON s.owner=t.owner WHERE t.state IN ('queued','retry_wait','submitted') AND t.next_run<=?
-        AND COALESCE(s.paused,0)=0 AND NOT EXISTS(SELECT 1 FROM tasks busy WHERE busy.account_id=t.account_id AND busy.state IN ('running','auditing') AND busy.lease_until>?)
-        ORDER BY t.next_run,t.created_at LIMIT 100`).all(now(),now());
-      const t=candidates.find(t=>!excludedAccounts.includes(t.account_id));if(!t)return null;
+        AND a.state='ready' AND a.cooldown_until<=? AND COALESCE(s.paused,0)=0 AND NOT EXISTS(SELECT 1 FROM tasks busy WHERE busy.account_id=t.account_id AND busy.state IN ('running','auditing') AND busy.lease_until>?)
+        ORDER BY t.next_run,t.created_at`).all(now(),now(),now());
+      const t=candidates.find(candidate=>{
+        if(excludedAccounts.includes(candidate.account_id))return false;
+        if(candidate.state==='submitted')return true;
+        const budget=this.submissionBudget(candidate);
+        if(budget.next<=now())return true;
+        this.db.prepare("UPDATE tasks SET next_run=?,message='同账号跨批次间隔 / 24 小时额度等待中' WHERE id=?").run(budget.next,candidate.id);return false;
+      });if(!t)return null;
       const audit=t.state==='submitted';
       this.db.prepare("UPDATE tasks SET state=?,phase=?,attempts=attempts+?,audit_attempts=audit_attempts+?,lease_owner=?,lease_until=?,updated_at=? WHERE id=?")
         .run(audit?'auditing':'running',audit?'audit':'preparing',audit?0:1,audit?1:0,workerId,now()+leaseMs,now(),t.id);
       return this.task(t.owner,t.id);
+    });
+  }
+  submissionBudget(t){
+    const a=this.account(t.owner,t.account_id);
+    const recent=this.db.prepare('SELECT * FROM submissions WHERE account_id=? AND started_at>? ORDER BY started_at DESC').all(a.id,now()-86400000);
+    const pending=this.db.prepare("SELECT interval_ms,daily_limit FROM tasks WHERE account_id=? AND state IN ('queued','retry_wait','waiting_login','running')").all(a.id);
+    const policies=[t,...pending,...recent];
+    const interval=Math.max(a.platform==='DEMO_CSDN'?0:60000,...policies.map(p=>p.interval_ms||0));
+    const caps=policies.map(p=>p.daily_limit).filter(n=>n>0),limit=caps.length?Math.min(...caps):0;
+    return {interval,limit,next:Math.max(a.cooldown_until,recent.length?recent[0].started_at+interval:0,limit&&recent.length>=limit?recent[limit-1].started_at+86400000:0)};
+  }
+  beginSubmission(t){
+    return this.transaction(()=>{
+      const current=this.task(t.owner,t.id),a=this.account(t.owner,t.account_id);
+      if(current.lease_owner!==t.lease_owner||current.state!=='running'||current.phase==='submitting')return false;
+      if(a.state!=='ready'){
+        this.updateClaim(t,{state:'waiting_login',message:'账号已暂停，等待登录或平台验证',lease_until:null,lease_owner:null});return false;
+      }
+      const budget=this.submissionBudget(t);
+      if(budget.next>now()){
+        this.updateClaim(t,{state:'retry_wait',next_run:budget.next,message:'等待账号跨批次间隔 / 24 小时额度',lease_until:null,lease_owner:null});return false;
+      }
+      if(!this.updateClaim(t,{phase:'submitting',message:'正在提交平台内容'}))return false;
+      this.db.prepare('INSERT INTO submissions(account_id,task_id,started_at,interval_ms,daily_limit) VALUES(?,?,?,?,?)').run(a.id,t.id,now(),budget.interval,budget.limit);
+      return true;
     });
   }
   updateClaim(t, patch) {
@@ -391,7 +456,7 @@ class Store {
     this.event(owner,taskId,action,action==='retry'?'用户要求重新提交':action==='cancel'?'用户取消等待任务':'用户补充平台编号以核验结果');
   }
   snapshot(owner) {
-    const accounts=this.db.prepare('SELECT id,platform,label,remote_id,remote_name,state,checked_at,created_at,error,group_name FROM accounts WHERE owner=? ORDER BY created_at DESC').all(owner);
+    const accounts=this.db.prepare('SELECT id,platform,label,remote_id,remote_name,state,checked_at,created_at,error,group_name,session_saved_at,successful_check_at,cooldown_until,health_code FROM accounts WHERE owner=? ORDER BY created_at DESC').all(owner).map(a=>({...a,cooling_down:a.cooldown_until>now()}));
     const articles=this.db.prepare('SELECT id,title,version,updated_at,metadata FROM articles WHERE owner=? ORDER BY updated_at DESC LIMIT 500').all(owner).map(a=>({...a,metadata:JSON.parse(a.metadata),contentType:JSON.parse(a.metadata).contentType||'article'}));
     const tasks=this.db.prepare(`SELECT t.id,t.batch_id,t.account_id,t.article_id,t.mode,t.state,t.phase,t.attempts,t.audit_attempts,t.next_run,t.remote_id,t.message,t.created_at,t.updated_at,
       a.label account_name,a.platform, json_extract(t.snapshot,'$.title') title, COALESCE(json_extract(t.snapshot,'$.metadata.contentType'),'article') content_type FROM tasks t JOIN accounts a ON a.id=t.account_id WHERE t.owner=? ORDER BY t.created_at DESC,t.id LIMIT 500`).all(owner);

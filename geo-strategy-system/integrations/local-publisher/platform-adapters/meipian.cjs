@@ -1,3 +1,4 @@
+const {captureSession}=require('../session.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const localBrowsers = path.join(process.cwd(), '.data/local-publishing-browsers');
@@ -93,7 +94,8 @@ async function verifySession({ session, browserFactory = launchBrowser }) {
       }
       return { loggedIn: true };
     });
-    return normalizeIdentity(view);
+    const result=normalizeIdentity(view);
+    return result.ok?{...result,session:await captureSession(context,session)}:result;
   } catch (error) {
     return { ok: false, code: 'PROFILE_UNAVAILABLE', message: `美篇账号核验暂时失败：${String(error.message || '页面未加载').slice(0, 90)}` };
   } finally {

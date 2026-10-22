@@ -14,6 +14,7 @@ class DemoPlatform{
       CREATE TABLE IF NOT EXISTS calls(id INTEGER PRIMARY KEY,username TEXT,path TEXT,task TEXT);`);
     if(!this.db.prepare('PRAGMA table_info(posts)').all().some(column=>column.name==='content_type'))
       this.db.exec("ALTER TABLE posts ADD COLUMN content_type TEXT NOT NULL DEFAULT 'article'");
+    if(!this.db.prepare('PRAGMA table_info(faults)').all().some(c=>c.name==='kind'))this.db.exec("ALTER TABLE faults ADD COLUMN kind TEXT NOT NULL DEFAULT ''");
   }
   async start(){
     this.server=http.createServer((req,res)=>void this.handle(req,res).catch(()=>{if(!res.destroyed){res.writeHead(500);res.end('fixture error');}}));
@@ -23,6 +24,7 @@ class DemoPlatform{
     if(kind==='expire')this.db.prepare('DELETE FROM sessions WHERE username=?').run(username);
     else if(kind==='quota')this.db.prepare('INSERT INTO faults(username,quota_until) VALUES(?,?) ON CONFLICT(username) DO UPDATE SET quota_until=excluded.quota_until').run(username,Date.now()+12000);
     else if(kind==='drop')this.db.prepare('INSERT INTO faults(username,drop_response) VALUES(?,1) ON CONFLICT(username) DO UPDATE SET drop_response=1').run(username);
+    else if(['challenge','rotate','offline'].includes(kind))this.db.prepare('INSERT INTO faults(username,kind) VALUES(?,?) ON CONFLICT(username) DO UPDATE SET kind=excluded.kind').run(username,kind);
     else if(kind==='restore')this.db.prepare('DELETE FROM faults WHERE username=?').run(username);
     else throw Error('演示故障类型无效');
   }
@@ -48,6 +50,14 @@ class DemoPlatform{
       if(!username)return json({code:401,msg:'登录已过期'},401);
       const fault=this.db.prepare('SELECT * FROM faults WHERE username=?').get(username);
       this.db.prepare('INSERT INTO calls(username,path,task) VALUES(?,?,?)').run(username,u.pathname,req.headers['x-shitu-task-id']||'');
+      if(fault?.kind==='challenge')return json({code:403,msg:'安全验证'},403);
+      if(fault?.kind==='offline'){req.socket.destroy();return;}
+      if(profile&&fault?.kind==='rotate'){
+        const next=randomBytes(24).toString('hex');this.db.prepare('DELETE FROM sessions WHERE token=?').run(token);this.db.prepare('INSERT INTO sessions VALUES(?,?)').run(next,username);
+        this.db.prepare("UPDATE faults SET kind='' WHERE username=?").run(username);
+        res.setHeader('Set-Cookie',`SESSION=${next}; Domain=.csdn.net; Path=/; Secure; HttpOnly; SameSite=Lax`);
+      }
+      if(fault?.quota_until>Date.now())res.setHeader('Retry-After',String(Math.ceil((fault.quota_until-Date.now())/1000)));
       if(fault?.quota_until>Date.now())return json({code:429,msg:'演示限流，请稍后重试'},429);
       if(profile)return json({code:200,data:{username,nickname:`演示 ${username}`,avatar:''}});
       if(u.pathname.includes('/risk/check'))return json({code:200});

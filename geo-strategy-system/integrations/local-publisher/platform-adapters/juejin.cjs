@@ -1,3 +1,4 @@
+const {captureSession}=require('../session.cjs');
 const fs=require('node:fs');
 const path=require('node:path');
 const {chromium}=require('playwright');
@@ -64,7 +65,7 @@ async function verifySession({session}={}){
     if(isLogin(page)||await page.getByText('登录掘金畅享更多权益',{exact:false}).count())return resultError('AUTH','掘金登录状态已失效');
     await page.waitForTimeout(1200);
     identity=identity||await pageIdentity(page);
-    return identity?{ok:true,identity}:resultError('AUTH','尚未从掘金页面确认账号身份，请重新登录后验证');
+    return identity?{ok:true,identity,session:await captureSession(page.context(),session)}:resultError('IDENTITY_UNVERIFIED','尚未从掘金页面确认账号身份，请检查平台页面');
   }catch(error){return resultError(error.code||'PLATFORM',`掘金账号检查失败：${error.message}`);}
   finally{await browser?.close();}
 }
@@ -157,7 +158,8 @@ async function saveDraft({session,article,resolvedAssets}={}){
     const filled=await fillArticle(page,article);if(!filled.ok)return filled;
     for(let i=0;i<15&&(!savedId||saveResponses<=beforeFillResponses);i++)await page.waitForTimeout(1000);
     if(!savedId)return resultError('NEEDS_REVIEW','编辑器未返回草稿编号，请在掘金草稿箱核对，避免重复提交');
-    return await readDraft(page,article.title,article.markdown,savedId);
+    const result=await readDraft(page,article.title,article.markdown,savedId);
+    return {...result,session:await captureSession(page.context(),session)};
   }catch(error){return resultError(error.code||'PLATFORM',`掘金草稿保存需核对：${error.message}`);}
   finally{await browser?.close();}
 }

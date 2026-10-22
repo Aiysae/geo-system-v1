@@ -1,15 +1,30 @@
 import "server-only"
 import { fork, type ChildProcess } from "node:child_process"
 import path from "node:path"
+import http from "node:http"
 import { randomUUID } from "node:crypto"
 
 type Pending = { resolve:(value:unknown)=>void; reject:(error:Error)=>void; timer:ReturnType<typeof setTimeout> }
+function socketRequest(socketPath:string,owner?:string,action?:string,input:Record<string,unknown>={}) {
+  return new Promise<unknown>((resolve,reject)=>{
+    const request=http.request({socketPath,path:owner?"/command":"/health",method:owner?"POST":"GET",headers:{"Content-Type":"application/json"}},response=>{
+      let body="";response.setEncoding("utf8")
+      response.on("data",chunk=>{body+=chunk;if(body.length>16*1024*1024)request.destroy(new Error("执行器响应过大"))})
+      response.on("error",reject)
+      response.on("end",()=>{try{const result=JSON.parse(body);if(result.ok)resolve(result.data);else reject(new Error(result.error||"执行器请求失败"))}catch{reject(new Error("执行器返回异常"))}})
+    })
+    request.setTimeout(owner?65000:3000,()=>request.destroy(new Error("执行器响应超时，请查看任务状态后再操作")))
+    request.on("error",()=>reject(new Error("独立分发执行器暂未连接，排队记录已保留")))
+    request.end(owner?JSON.stringify({owner,action,input}):undefined)
+  })
+}
 class PublishingService {
   child:ChildProcess|null=null
   ready:Promise<void>|null=null
   pending=new Map<string,Pending>()
   watchdog:ReturnType<typeof setInterval>|null=null
   async start() {
+    if(process.env.LOCAL_PUBLISHER_SOCKET){await socketRequest(process.env.LOCAL_PUBLISHER_SOCKET);return}
     if(this.ready)return this.ready
     const env:NodeJS.ProcessEnv={PATH:process.env.PATH,HOME:process.env.HOME,TMPDIR:process.env.TMPDIR,NODE_ENV:process.env.NODE_ENV,
       LOCAL_PUBLISHER_DATA_DIR:process.env.LOCAL_PUBLISHER_DATA_DIR||path.join(process.cwd(),".data/local-publishing"),
@@ -38,6 +53,7 @@ class PublishingService {
     return this.ready
   }
   async request(owner:string,action:string,input:Record<string,unknown>={}) {
+    if(process.env.LOCAL_PUBLISHER_SOCKET)return socketRequest(process.env.LOCAL_PUBLISHER_SOCKET,owner,action,input)
     await this.start()
     return new Promise<unknown>((resolve,reject)=>{
       const id=randomUUID(),timer=setTimeout(()=>{this.pending.delete(id);reject(new Error("操作仍在处理，请刷新状态；不要重复创建批次"))},60000)

@@ -1,5 +1,6 @@
 // Ctrip Content Center: image/text notes only. This adapter uses the site's own
 // editor and draft list; it does not call unpublished write APIs or publish.
+const {captureSession}=require('../session.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const localBrowsers = path.join(process.cwd(), '.data/local-publishing-browsers');
@@ -67,7 +68,8 @@ async function withPage(session, suppliedPage, work) {
         catch { return route.abort(); }
         return url.protocol === 'https:' && isCtripHost(url.hostname) ? route.continue() : route.abort();
       });
-      return await work(await context.newPage());
+      const result=await work(await context.newPage());
+      return {...result,session:await captureSession(context,session)};
     } finally { await context.close(); }
   } finally { await browser.close(); }
 }

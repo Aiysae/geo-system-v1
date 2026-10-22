@@ -14,3 +14,18 @@ test('copied SDK remains byte-identical; real SDK profile/publish/audit work wit
  assert.equal(demo.db.prepare("SELECT count(*) n FROM calls WHERE task='lost' AND path LIKE '%saveArticle'").get().n,2);
  demo.fault('test-user','expire');const expired=await runSdk({operation:'profile',platform:'CSDN',session},options);assert.equal(expired.code,'AUTH');
 });
+
+test('SDK persists rotated cookies and distinguishes 403, 429 Retry-After and expiry',async t=>{
+ const directory=fs.mkdtempSync(os.tmpdir()+'/geo-sdk-session-'),demo=await new DemoPlatform(directory).start();
+ t.after(async()=>{await demo.close();fs.rmSync(directory,{recursive:true,force:true});});
+ const login=await fetch(demo.url+'/demo/login',{method:'POST',body:JSON.stringify({username:'rotation-test',password:'demo1234'})});
+ const token=login.headers.get('set-cookie').match(/SESSION=([^;]+)/)[1];
+ const session={cookies:[{name:'SESSION',value:token,domain:'.csdn.net',path:'/',secure:true,httpOnly:true}],origins:[{origin:'https://editor.csdn.net',localStorage:[{name:'editor',value:'kept'}]}]};
+ const options={directory,fixtureUrl:demo.url,timeoutMs:45000};
+ const profile=session=>runSdk({operation:'profile',platform:'CSDN',session},options);
+ demo.fault('rotation-test','rotate');const rotated=await profile(session);assert.equal(rotated.ok,true);
+ assert.notEqual(rotated.session.cookies[0].value,token);assert.deepEqual(rotated.session.origins,session.origins);
+ assert.equal((await profile(session)).code,'AUTH');assert.equal((await profile(rotated.session)).ok,true);
+ demo.fault('rotation-test','challenge');assert.equal((await profile(rotated.session)).code,'CHALLENGE');
+ demo.fault('rotation-test','restore');demo.fault('rotation-test','quota');const quota=await profile(rotated.session);assert.equal(quota.code,'RATE_LIMIT');assert.ok(quota.retryAt>Date.now());
+});

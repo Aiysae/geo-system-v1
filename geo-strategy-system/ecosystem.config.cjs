@@ -39,6 +39,10 @@ function loadEnvFile(file) {
 }
 
 const fileEnv = loadEnvFile(envFile);
+const publisherDataDir = fileEnv.LOCAL_PUBLISHER_DATA_DIR || path.join(__dirname, ".data/local-publishing");
+const publisherSocket = fileEnv.GEO_LOCAL_PUBLISHING === "1"
+  ? fileEnv.LOCAL_PUBLISHER_SOCKET || path.join(publisherDataDir, "publisher.sock")
+  : undefined;
 const taskQueueBackend = fileEnv.TASK_QUEUE_BACKEND
   || (fileEnv.REDIS_URL ? "bullmq" : "local");
 
@@ -46,6 +50,23 @@ const taskQueueBackend = fileEnv.TASK_QUEUE_BACKEND
 /** PM2 进程配置 — 在 geo-strategy-system 目录内执行: pm2 start ecosystem.config.cjs */
 module.exports = {
   apps: [
+    ...(publisherSocket ? [{
+      name: "geo-publisher",
+      cwd: __dirname,
+      script: "integrations/local-publisher/daemon.cjs",
+      interpreter: fileEnv.LOCAL_PUBLISHER_NODE || process.execPath,
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      restart_delay: 3000,
+      kill_timeout: 180000,
+      env: {
+        NODE_ENV: "production",
+        LOCAL_PUBLISHER_DATA_DIR: publisherDataDir,
+        LOCAL_PUBLISHER_BROWSER: fileEnv.LOCAL_PUBLISHER_BROWSER,
+        LOCAL_PUBLISHER_SOCKET: publisherSocket,
+      },
+    }] : []),
     {
       name: "geo-system",
       cwd: __dirname,
@@ -59,6 +80,7 @@ module.exports = {
         ...fileEnv,
         NODE_ENV: "production",
         PORT: "3000",
+        LOCAL_PUBLISHER_SOCKET: publisherSocket,
         TASK_QUEUE_BACKEND: taskQueueBackend,
       },
     },

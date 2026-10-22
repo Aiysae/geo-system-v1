@@ -231,6 +231,7 @@ async function importRequest<T>(url: string, init?: RequestInit): Promise<T> {
 const statusNames: Record<string, string> = {
   ready: "已登录",
   needs_login: "待登录",
+  needs_verification: "待平台验证",
   queued: "等待执行",
   waiting_login: "等待重新登录",
   running: "执行中",
@@ -240,7 +241,7 @@ const statusNames: Record<string, string> = {
   audit_pending: "审核待核对",
   published: "已发布",
   draft: "草稿已保存",
-  blocked: "存在远端依赖",
+  blocked: "需检查平台适配",
   needs_review: "提交结果待核对",
   failed: "执行失败",
   rejected: "审核未通过",
@@ -258,6 +259,13 @@ type ProductionBatch = {
 }
 type ProductionArticlePreview = { id:string; title:string; markdown:string; mediaMarkdown?:string }
 const time = (v: number) => new Date(v).toLocaleString("zh-CN", { hour12: false })
+const accountHealth = (a:PublishingAccount) => a.state!=="ready" ? statusNames[a.state]||a.state : a.cooling_down ? (a.health_code==="RATE_LIMIT"?"请求限速等待中":"连接异常等待中") : "已登录"
+const accountTiming = (a:PublishingAccount) => <>
+  <div>{a.successful_check_at?`核验成功 ${time(a.successful_check_at)}`:"尚未核验成功"}</div>
+  <div>{a.session_saved_at?`状态保存 ${time(a.session_saved_at)}`:"尚未保存登录状态"}</div>
+  {a.cooling_down&&<div>下次尝试 {time(a.cooldown_until)}</div>}
+  {a.state==="needs_verification"&&<div>请打开账号窗口完成验证，再检查登录状态</div>}
+</>
 const datetimeLocal = (v:number) => new Date(v-new Date(v).getTimezoneOffset()*60000).toISOString().slice(0,16)
 const toggle = (values: string[], id: string) =>
   values.includes(id) ? values.filter((v) => v !== id) : [...values, id]
@@ -435,7 +443,14 @@ export default function PublishingConsole({
       inflight = true
       try {
         const result = await read<LoginSnapshot>("login.snapshot", loginId)
-        if (active) setFrame({ id: loginId, data: result })
+        if (active) {
+          if (result.closed) {
+            setLoginId("")
+            setFrame(null)
+            setInputText("")
+            setNotice(result.message)
+          } else setFrame({ id: loginId, data: result })
+        }
       } catch (e) {
         if (active) setError(e instanceof Error ? e.message : "登录画面读取失败")
       } finally {
@@ -935,11 +950,11 @@ export default function PublishingConsole({
           <div className={s.runtime}>
             <span
               className={s.runtimeStatus}
-              title="独立运行 · 由 GEO 管理"
+              title={state?.runtime.independent ? "独立服务 · 网页重启不中断队列" : "由 GEO 管理 · 队列持久保存"}
             >
               <Monitor size={15} />
               <i className={state?.runtime.running ? s.dot : s.offDot} />
-              <span>本机已连接</span>
+              <span>{state?.runtime.running ? "执行器已连接" : "执行器未连接"}</span>
             </span>
             {tab === "accounts" ? (
               <button onClick={() => selectTab("platforms")}>平台验证状态</button>
@@ -1012,8 +1027,9 @@ export default function PublishingConsole({
                 <h2>登录状态</h2>
                 {[
                   ["", "全部状态"],
-                  ["ready", "正常"],
+                  ["ready", "已登录"],
                   ["needs_login", "待登录 / 已失效"],
+                  ["needs_verification", "待平台验证"],
                 ].map(([key, name]) => (
                   <button
                     key={key}
@@ -1037,7 +1053,9 @@ export default function PublishingConsole({
                   <p>
                     每个账号独立登录
                     <br />
-                    登录状态加密保存在本机
+                    登录状态加密保存
+                    <br />
+                    异常时暂停该账号任务
                   </p>
                 </div>
               </aside>
@@ -1102,11 +1120,11 @@ export default function PublishingConsole({
                             onChange={() => setAccounts((v) => toggle(v, a.id))}
                           />
                         </div>
-                        <p className={a.state === "ready" ? s.good : s.danger}>
-                          {a.state === "ready" ? "● 正常" : "● 待登录 / 已失效"}
+                        <p className={a.state === "ready" ? (a.cooling_down?s.muted:s.good) : s.danger}>
+                          {`● ${accountHealth(a)}`}
                         </p>
                         <small>
-                          {a.checked_at ? `最近检查 ${time(a.checked_at)}` : "尚未连接平台"}
+                          {accountTiming(a)}
                         </small>
                         {accountActions(a)}
                       </article>
@@ -1148,7 +1166,7 @@ export default function PublishingConsole({
                           </th>
                           <th>账号信息</th>
                           <th>登录状态</th>
-                          <th>最近检查</th>
+                          <th>登录保存与检查</th>
                           <th>操作</th>
                         </tr>
                       </thead>
@@ -1165,12 +1183,12 @@ export default function PublishingConsole({
                             </td>
                             <td>{accountIdentity(a)}</td>
                             <td>
-                              <span className={a.state === "ready" ? s.good : s.danger}>
-                                {a.state === "ready" ? "正常" : statusNames[a.state] || a.state}
+                              <span className={a.state === "ready" ? (a.cooling_down?s.muted:s.good) : s.danger}>
+                                {accountHealth(a)}
                               </span>
                               {a.error && <small className={s.errorText}>{a.error}</small>}
                             </td>
-                            <td className={s.muted}>{a.checked_at ? time(a.checked_at) : "—"}</td>
+                            <td className={s.muted}>{accountTiming(a)}</td>
                             <td>{accountActions(a)}</td>
                           </tr>
                         ))}
@@ -1596,7 +1614,7 @@ export default function PublishingConsole({
                   >
                     <option value="">全部任务状态</option>
                     {Object.entries(statusNames)
-                      .filter(([key]) => !["ready", "needs_login"].includes(key))
+                      .filter(([key]) => !["ready", "needs_login", "needs_verification"].includes(key))
                       .map(([key, name]) => (
                         <option key={key} value={key}>
                           {name}
@@ -1929,8 +1947,9 @@ export default function PublishingConsole({
                     </label>
                   </div>
                   <div className={s.two}>
+                    <p className={s.muted}>同账号跨批次共用间隔和额度，重叠设置取较严格值。真实平台至少间隔 1 分钟；恢复后按间隔执行。提交结果不明时先核对，避免重复发送。</p>
                     <label>同账号任务间隔（分钟）<input type="number" min="0" max="1440" value={intervalMinutes} onChange={e=>setIntervalMinutes(Number(e.target.value)||0)}/></label>
-                    <label>每账号每日上限（0 表示不限）<input type="number" min="0" max="100" value={dailyLimit} onChange={e=>setDailyLimit(Number(e.target.value)||0)}/></label>
+                    <label>每账号滚动 24 小时上限（0 表示不限）<input type="number" min="0" max="100" value={dailyLimit} onChange={e=>setDailyLimit(Number(e.target.value)||0)}/></label>
                   </div>
                   {!!selectedArticles.length&&<p className={s.hint}>排期预览（每个账号）：{selectedArticles.map((_,index)=>{
                     const start=schedule?new Date(schedule).getTime():schedulePreviewNow
@@ -2155,8 +2174,8 @@ export default function PublishingConsole({
                         onChange={() => setAccounts((v) => toggle(v, a.id))}
                       />
                       {accountIdentity(a)}
-                      <span className={a.state === "ready" ? s.good : s.danger}>
-                        {a.state === "ready" ? "正常" : "待登录"}
+                      <span className={a.state === "ready" ? (a.cooling_down?s.muted:s.good) : s.danger}>
+                        {accountHealth(a)}
                       </span>
                     </label>
                   ))
@@ -2350,7 +2369,7 @@ export default function PublishingConsole({
                 <p className={s.hint}>
                   {screen.url} ·{" "}
                   {screen.ready
-                    ? "登录已保存，等待任务自动继续"
+                    ? "登录已保存，窗口将自动关闭，任务自动继续"
                     : "点击下方画面选择输入框，使用下方输入区填写；二维码可直接扫码"}
                 </p>
                 {/* Screenshots are private, short-lived browser frames, not remote assets. */}
