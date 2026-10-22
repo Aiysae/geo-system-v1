@@ -164,6 +164,10 @@ try {
     "HTTP 402：The free trial quota for the service has been exhausted and postpaid billing is not enabled",
   )), true)
   assert.match((await getPenetrationModelReadiness("hunyuan")).reason || "", /免费额度已用完/)
+  // Bailian's arrears arrive as HTTP 400 and must read as billing, not as a passing fault.
+  assert.equal(classifyAiCredentialFailure(new Error(
+    "通义千问 百炼联网接口调用失败 HTTP 400 Bad Request [Arrearage]：Access denied, please make sure your account is in good standing.",
+  )).failureClass, "billing")
   // The pre-run check names the stopped account and why, before anyone runs.
   const issues = await listAiCredentialAccountIssues(["hunyuan"])
   assert.equal(issues.length, 1)

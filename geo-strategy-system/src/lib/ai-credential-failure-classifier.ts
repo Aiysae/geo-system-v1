@@ -86,7 +86,8 @@ export function classifyAiCredentialFailure(
     })
   }
 
-  if (/HTTP\s*402|payment required|AccountOverdue|account_overdue|overdue.{0,24}(?:balance|account)|insufficient.{0,24}(?:balance|credit)|余额不足|欠费/i.test(message)) {
+  // Alibaba Bailian reports arrears as HTTP 400 "Arrearage ... account is in good standing".
+  if (/HTTP\s*402|payment required|AccountOverdue|account_overdue|Arrearage|account is in good standing|overdue.{0,24}(?:balance|account)|insufficient.{0,24}(?:balance|credit)|余额不足|欠费/i.test(message)) {
     return diagnosis({
       failureClass: "billing",
       scope: "credential",
