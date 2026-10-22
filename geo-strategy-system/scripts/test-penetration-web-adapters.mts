@@ -82,6 +82,14 @@ globalThis.fetch = async (input, init) => {
     })
   }
 
+  if (url.includes("dashscope.aliyuncs.com") && body.model === "qwen3.6-plus") {
+    // Bailian reports a rejected streamed request as an error frame.
+    return new Response(
+      'id:1\nevent:error\n:HTTP_STATUS/400\ndata:{"code":"InvalidParameter","message":"The value of the enable_thinking parameter is restricted to True.","request_id":"dash-error-1"}\n\n',
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    )
+  }
+
   if (url.includes("dashscope.aliyuncs.com") && String(body.model).startsWith("qwen3.7")) {
     // Agent search streams each round's results and the answer in pieces.
     const events = [
@@ -454,6 +462,18 @@ try {
     "every round's results count as sources",
   )
   assert.equal(agentEvents[0]?.providerRequestId, "dash-qwen-agent-1")
+  await assert.rejects(
+    chatDashScopeNativeSearch({
+      ...baseArgs,
+      apiKey: "test-dashscope-key",
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      model: "qwen3.6-plus",
+      timeoutSec: 60,
+      label: "通义千问",
+    }),
+    /InvalidParameter.*restricted to True/,
+    "a streamed error frame surfaces the provider's message, not a parse failure",
+  )
 
   const kimiEvents: SearchSourceEvent[] = []
   const kimiAudits: PenetrationRequestAudit[] = []

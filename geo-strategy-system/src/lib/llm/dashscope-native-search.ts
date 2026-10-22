@@ -221,8 +221,9 @@ export async function chatDashScopeNativeSearch(
     const text = await response.text()
     let data: DashScopeResponse
     try {
-      // Errors come back as one JSON body even on a streamed request.
-      data = streamed && response.ok && /^\s*(?:id:|event:|data:)/.test(text)
+      // A streamed request reports errors either as one JSON body or as an
+      // "event:error" frame, whatever the HTTP status.
+      data = streamed && /^\s*(?:id:|event:|data:|:)/.test(text)
         ? mergeDashScopeStream(text)
         : JSON.parse(text) as DashScopeResponse
     } catch (error) {

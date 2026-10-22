@@ -57,10 +57,20 @@ for (const model of disabledModels) {
   }
 }
 
+// Any model may judge, the tested one included, so a judge request is
+// answered here without counting as an answer.
+function judgeReply(args: ChatArgs): string {
+  const entries = JSON.parse(args.user.match(/\[[\s\S]*\]/)?.[0] || "[]") as Array<{ id: string }>
+  return JSON.stringify({
+    items: entries.map(entry => ({ id: entry.id, mentionedBrands: [], topRecommended: "" })),
+  })
+}
+
 ADAPTERS.doubao = {
   label: "豆包",
   configured: async () => true,
   chat: async args => {
+    if (args.mode === "judge") return judgeReply(args)
     consumerCalls.push(args)
     const callNumber = consumerCalls.length
     args.onRequestAudit?.(buildPenetrationRequestAudit(args, {

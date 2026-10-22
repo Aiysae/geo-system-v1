@@ -1374,11 +1374,11 @@ async function processDueWave(
     message: string
     completedAt: string
   }>>()
-  const rollingRefillSlotLimit = batches.reduce(
-    (sum, batch) => sum + batch.questions.length,
-    0,
-  ) * 2
+  // Sampling keeps refilling for the whole job: judging runs beside it in its
+  // own lanes, so new questions never wait for earlier answers to be read.
+  const rollingRefillSlotLimit = job.totalSlots
   let rollingRefillSlots = 0
+  let judgesRunning = 0
   const judgePipelineConcurrency = Math.max(
     1,
     Math.min(4, Math.floor(Number(process.env.PENETRATION_V3_JUDGE_HTTP_CONCURRENCY) || 2)),
@@ -1397,10 +1397,14 @@ async function processDueWave(
     if (data?.pipelineStage !== "sample" || !data.byModel) return
     const lane = judgeLaneCursor++ % judgeLaneTails.length
     const sampledByModel = data.byModel
+    judgesRunning += 1
     const task = judgeLaneTails[lane]
       .then(() => fetchBatchJudge(job, batch, sampledByModel))
       .then((judged): SettledPenetrationJudgeBatch => ({ batch, sampledByModel, data: judged }))
       .catch((error): SettledPenetrationJudgeBatch => ({ batch, sampledByModel, error }))
+      .finally(() => {
+        judgesRunning -= 1
+      })
     judgeLaneTails[lane] = task.then(() => undefined)
     pendingJudgeBatches.push(task)
   }
@@ -1443,196 +1447,214 @@ async function processDueWave(
     }
   }
 
-  while (pending.length > 0) {
-    const settled = await Promise.race(pending.map(item => item.promise))
-    const pendingIndex = pending.findIndex(item => item.index === settled.index)
-    if (pendingIndex >= 0) pending.splice(pendingIndex, 1)
-    if (isCancelledError(settled.error)) throw settled.error
-    await assertNotCancelled(job.id)
+  /** Starts batches for slots that are due and have capacity. */
+  async function refillDueSlots(): Promise<void> {
+    const remainingRefillSlots = rollingRefillSlotLimit - rollingRefillSlots
+    if (!PENETRATION_SCHEDULER_V3 || remainingRefillSlots <= 0) return
+    const candidates = await selectPenetrationDueWaveV3({
+      models: job.request.models,
+      questions: job.request.questions,
+      states,
+      nowMs: Date.now(),
+      rotationSeed: (job.totalAttempts || 0) + nextBatchIndex,
+      allowElasticCapacity: true,
+    })
+    const accepted: PenetrationBatch[] = []
+    const unusedReservations: PenetrationBatch[] = []
+    let slotsLeft = remainingRefillSlots
+    for (const candidate of candidates) {
+      const acceptedCount = Math.min(slotsLeft, candidate.questions.length)
+      const reservation = candidate.schedulerReservation
+      if (acceptedCount > 0) {
+        accepted.push({
+          ...candidate,
+          questions: candidate.questions.slice(0, acceptedCount),
+          schedulerReservation: reservation
+            ? {
+                token: reservation.token,
+                keys: reservation.keys.slice(0, acceptedCount),
+              }
+            : undefined,
+        })
+        slotsLeft -= acceptedCount
+      }
+      const unusedKeys = reservation?.keys.slice(acceptedCount) || []
+      if (unusedKeys.length > 0) {
+        unusedReservations.push({
+          ...candidate,
+          questions: [],
+          schedulerReservation: {
+            token: reservation!.token,
+            keys: unusedKeys,
+          },
+        })
+      }
+    }
+    await releasePenetrationWaveReservations(unusedReservations)
+    rollingRefillSlots += accepted.reduce(
+      (sum, batch) => sum + batch.questions.length,
+      0,
+    )
+    await enqueueRollingBatches(accepted)
+  }
 
-    const latest = await getStoredJob(job.id)
-    if (latest) job = latest
-    states = cloneSlotStates(job.slotStates || states)
-    const completedAt = nowIso()
-    const validIncoming: PenetrationByModel = {}
-    const batchError = settled.error instanceof Error
-      ? settled.error.message
-      : settled.error
-        ? "检测批次执行失败"
-        : ""
+  for (;;) {
+    while (pending.length > 0) {
+      const settled = await Promise.race(pending.map(item => item.promise))
+      const pendingIndex = pending.findIndex(item => item.index === settled.index)
+      if (pendingIndex >= 0) pending.splice(pendingIndex, 1)
+      if (isCancelledError(settled.error)) throw settled.error
+      await assertNotCancelled(job.id)
 
-    for (const model of settled.batch.models) {
-      for (let offset = 0; offset < settled.batch.questions.length; offset++) {
-        const questionIndex = settled.batch.sampleStart + offset
-        const key = slotKey(model, questionIndex)
-        const state = states[key]
-        if (!state || state.status !== "running") continue
+      const latest = await getStoredJob(job.id)
+      if (latest) job = latest
+      states = cloneSlotStates(job.slotStates || states)
+      const completedAt = nowIso()
+      const validIncoming: PenetrationByModel = {}
+      const batchError = settled.error instanceof Error
+        ? settled.error.message
+        : settled.error
+          ? "检测批次执行失败"
+          : ""
 
-        const item = returnedItemFor(job, settled.data, settled.batch, model, offset)
-        const attempts = state.attempts + 1
-        const itemError = penetrationSlotError(
-          item,
-          settled.data?.modelErrors?.[model],
-          batchError,
-        )
-        const validationError = itemError || getPenetrationSlotValidationError(item)
+      for (const model of settled.batch.models) {
+        for (let offset = 0; offset < settled.batch.questions.length; offset++) {
+          const questionIndex = settled.batch.sampleStart + offset
+          const key = slotKey(model, questionIndex)
+          const state = states[key]
+          if (!state || state.status !== "running") continue
 
-        if (!validationError && item) {
-          item.webVerified = item.webSearchDeclined !== true
-          state.status = "success"
+          const item = returnedItemFor(job, settled.data, settled.batch, model, offset)
+          const attempts = state.attempts + 1
+          const itemError = penetrationSlotError(
+            item,
+            settled.data?.modelErrors?.[model],
+            batchError,
+          )
+          const validationError = itemError || getPenetrationSlotValidationError(item)
+
+          if (!validationError && item) {
+            item.webVerified = item.webSearchDeclined !== true
+            state.status = "success"
+            state.attempts = attempts
+            state.capacityDeferrals = 0
+            state.lastError = undefined
+            state.nextRetryAt = undefined
+            state.updatedAt = completedAt
+            ;(validIncoming[model] ||= []).push(item)
+            successfulModelsInWave.add(model)
+            continue
+          }
+
+          const message = formatPenetrationProviderError(
+            model,
+            validationError || "模型联网回答未通过完整性校验",
+          )
+          if (isTransientPenetrationCapacityError(message)) {
+            const deferrals = (state.capacityDeferrals || 0) + 1
+            state.status = "retry_wait"
+            state.capacityDeferrals = deferrals
+            state.lastError = "当前独立账号并发已满，任务已保留并将在空闲后自动继续"
+            state.updatedAt = completedAt
+            state.nextRetryAt = nextPenetrationCapacityRetryAt(
+              deferrals,
+              Date.parse(completedAt),
+              `${job.id}:${key}:capacity:${deferrals}`,
+            )
+            continue
+          }
           state.attempts = attempts
           state.capacityDeferrals = 0
-          state.lastError = undefined
-          state.nextRetryAt = undefined
+          state.lastError = message
           state.updatedAt = completedAt
-          ;(validIncoming[model] ||= []).push(item)
-          successfulModelsInWave.add(model)
-          continue
-        }
+          if (isPermanentPenetrationProviderError(message)) {
+            state.status = "provider_blocked"
+            state.nextRetryAt = undefined
+            const failures = permanentFailures.get(model) || []
+            failures.push({ key, message, completedAt })
+            permanentFailures.set(model, failures)
+            continue
+          }
 
-        const message = formatPenetrationProviderError(
-          model,
-          validationError || "模型联网回答未通过完整性校验",
-        )
-        if (isTransientPenetrationCapacityError(message)) {
-          const deferrals = (state.capacityDeferrals || 0) + 1
-          state.status = "retry_wait"
-          state.capacityDeferrals = deferrals
-          state.lastError = "当前独立账号并发已满，任务已保留并将在空闲后自动继续"
-          state.updatedAt = completedAt
-          state.nextRetryAt = nextPenetrationCapacityRetryAt(
-            deferrals,
+          const retryAt = nextPenetrationRetryAtForError(
+            message,
+            attempts,
             Date.parse(completedAt),
-            `${job.id}:${key}:capacity:${deferrals}`,
+            `${job.id}:${key}:${attempts}`,
           )
-          continue
-        }
-        state.attempts = attempts
-        state.capacityDeferrals = 0
-        state.lastError = message
-        state.updatedAt = completedAt
-        if (isPermanentPenetrationProviderError(message)) {
-          state.status = "provider_blocked"
-          state.nextRetryAt = undefined
-          const failures = permanentFailures.get(model) || []
-          failures.push({ key, message, completedAt })
-          permanentFailures.set(model, failures)
-          continue
-        }
-
-        const retryAt = nextPenetrationRetryAtForError(
-          message,
-          attempts,
-          Date.parse(completedAt),
-          `${job.id}:${key}:${attempts}`,
-        )
-        if (retryAt) {
-          state.status = "retry_wait"
-          state.nextRetryAt = retryAt
-        } else {
-          state.status = "provider_blocked"
-          state.nextRetryAt = undefined
-          state.lastError = `连续 ${attempts} 次独立联网补采仍未得到完整回答：${message}`
+          if (retryAt) {
+            state.status = "retry_wait"
+            state.nextRetryAt = retryAt
+          } else {
+            state.status = "provider_blocked"
+            state.nextRetryAt = undefined
+            state.lastError = `连续 ${attempts} 次独立联网补采仍未得到完整回答：${message}`
+          }
         }
       }
-    }
 
-    const hasValidIncoming = Object.values(validIncoming)
-      .some(items => (items || []).length > 0)
-    const generatedAt = monotonicGeneratedAt(
-      job.result?.generatedAt,
-      settled.data?.generatedAt || completedAt,
-    )
-    const result = hasValidIncoming
-      ? buildPenetrationBatchResult({
-          operation: job.request.operation || "replace",
-          currentResult: job.result,
-          baseResult: job.baseResult,
-          incomingByModel: validIncoming,
-          ourBrand: job.request.ourBrand,
-          brandAliases: job.request.brandAliases,
-          competitors: job.request.competitors,
-          subjectType: job.request.subjectType || "brand",
-          generatedAt,
-          plannedQuestions: job.request.operation === "append"
-            ? undefined
-            : job.request.questions,
-          questionIntents: job.request.questionIntents,
-          plannedSlots: job.request.operation === "append"
-            ? (
-                job.baseResult?.aggregated.plannedSlots
-                ?? job.baseResult?.aggregated.totalSlots
-                ?? 0
-              ) + job.totalSlots
-            : job.totalSlots,
-          modelCount: job.request.operation === "append"
-            ? undefined
-            : job.request.models.length,
-        })
-      : job.result
-    const progress = summarizeSlotStates(job, states)
-
-    job = await patchJob(job.id, {
-      slotStates: states,
-      result,
-      skipped: mergeStrings(job.skipped, settled.data?.skipped || []),
-      ...progress,
-    }) || { ...job, slotStates: states, result, ...progress }
-    job = await persistPartialJobResult(job)
-    enqueueBatchJudge(settled.batch, settled.data)
-
-    const remainingRefillSlots = rollingRefillSlotLimit - rollingRefillSlots
-    if (
-      PENETRATION_SCHEDULER_V3
-      && pending.length > 0
-      && remainingRefillSlots > 0
-    ) {
-      const candidates = await selectPenetrationDueWaveV3({
-        models: job.request.models,
-        questions: job.request.questions,
-        states,
-        nowMs: Date.now(),
-        rotationSeed: (progress.totalAttempts || 0) + nextBatchIndex,
-        allowElasticCapacity: true,
-      })
-      const accepted: PenetrationBatch[] = []
-      const unusedReservations: PenetrationBatch[] = []
-      let slotsLeft = remainingRefillSlots
-      for (const candidate of candidates) {
-        const acceptedCount = Math.min(slotsLeft, candidate.questions.length)
-        const reservation = candidate.schedulerReservation
-        if (acceptedCount > 0) {
-          accepted.push({
-            ...candidate,
-            questions: candidate.questions.slice(0, acceptedCount),
-            schedulerReservation: reservation
-              ? {
-                  token: reservation.token,
-                  keys: reservation.keys.slice(0, acceptedCount),
-                }
-              : undefined,
-          })
-          slotsLeft -= acceptedCount
-        }
-        const unusedKeys = reservation?.keys.slice(acceptedCount) || []
-        if (unusedKeys.length > 0) {
-          unusedReservations.push({
-            ...candidate,
-            questions: [],
-            schedulerReservation: {
-              token: reservation!.token,
-              keys: unusedKeys,
-            },
-          })
-        }
-      }
-      await releasePenetrationWaveReservations(unusedReservations)
-      rollingRefillSlots += accepted.reduce(
-        (sum, batch) => sum + batch.questions.length,
-        0,
+      const hasValidIncoming = Object.values(validIncoming)
+        .some(items => (items || []).length > 0)
+      const generatedAt = monotonicGeneratedAt(
+        job.result?.generatedAt,
+        settled.data?.generatedAt || completedAt,
       )
-      await enqueueRollingBatches(accepted)
+      const result = hasValidIncoming
+        ? buildPenetrationBatchResult({
+            operation: job.request.operation || "replace",
+            currentResult: job.result,
+            baseResult: job.baseResult,
+            incomingByModel: validIncoming,
+            ourBrand: job.request.ourBrand,
+            brandAliases: job.request.brandAliases,
+            competitors: job.request.competitors,
+            subjectType: job.request.subjectType || "brand",
+            generatedAt,
+            plannedQuestions: job.request.operation === "append"
+              ? undefined
+              : job.request.questions,
+            questionIntents: job.request.questionIntents,
+            plannedSlots: job.request.operation === "append"
+              ? (
+                  job.baseResult?.aggregated.plannedSlots
+                  ?? job.baseResult?.aggregated.totalSlots
+                  ?? 0
+                ) + job.totalSlots
+              : job.totalSlots,
+            modelCount: job.request.operation === "append"
+              ? undefined
+              : job.request.models.length,
+          })
+        : job.result
+      const progress = summarizeSlotStates(job, states)
+
+      job = await patchJob(job.id, {
+        slotStates: states,
+        result,
+        skipped: mergeStrings(job.skipped, settled.data?.skipped || []),
+        ...progress,
+      }) || { ...job, slotStates: states, result, ...progress }
+      job = await persistPartialJobResult(job)
+      enqueueBatchJudge(settled.batch, settled.data)
+
+      await refillDueSlots()
     }
+
+    // Sampling has caught up. While judges are still reading, keep asking the
+    // questions that come due for a retry instead of waiting for the judges.
+    if (!PENETRATION_SCHEDULER_V3 || judgesRunning === 0) break
+    const latestJob = await getStoredJob(job.id)
+    if (latestJob) job = latestJob
+    states = cloneSlotStates(job.slotStates || states)
+    const waiting = Object.values(states).filter(state => isRecoverableSlot(state) && state.status !== "running")
+    if (waiting.length === 0) break
+    const nextDueMs = Math.min(...waiting.map(state => (
+      state.nextRetryAt ? Date.parse(state.nextRetryAt) : Date.now()
+    )))
+    if (nextDueMs - Date.now() > 60_000) break
+    await new Promise(resolve => setTimeout(resolve, Math.max(1_000, Math.min(5_000, nextDueMs - Date.now()))))
+    await assertNotCancelled(job.id)
+    await refillDueSlots()
   }
 
   const judgedBatches = await Promise.all(pendingJudgeBatches)

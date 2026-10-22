@@ -1,4 +1,4 @@
-import { emitTokenUsage, openaiCompatChat, type ChatArgs, type RawChatCompletion } from "./openai-compat"
+import { emitTokenUsage, fastJudgeExtraBody, openaiCompatChat, type ChatArgs, type RawChatCompletion } from "./openai-compat"
 import { getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import { extractSourcesFromUnknown } from "./source-extract"
@@ -198,6 +198,7 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
     model: endpoint,
     label: "豆包",
     ...args,
+    extraBody: fastJudgeExtraBody(args),
     timeoutSec: args.timeoutSec ?? config.timeout,
   })
 }

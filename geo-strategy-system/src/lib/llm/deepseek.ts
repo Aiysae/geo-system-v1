@@ -1,5 +1,5 @@
 import { chatWithLocalWebSearchTool } from "./tool-loop"
-import type { ChatArgs } from "./openai-compat"
+import { fastJudgeExtraBody, type ChatArgs } from "./openai-compat"
 import { buildAiChatUrl, getAiProviderRuntimeSetting } from "@/lib/ai-settings"
 import { getChatRuntimeSetting } from "@/lib/llm/runtime-config"
 import {
@@ -105,7 +105,7 @@ export async function chatDeepSeek(args: ChatArgs): Promise<string> {
     apiKey: config.apiKey,
     model,
     label: LABEL,
-    extraBody: isTokenHub(config.baseUrl) ? { thinking: { type: "disabled" } } : undefined,
+    extraBody: isTokenHub(config.baseUrl) ? { thinking: { type: "disabled" } } : fastJudgeExtraBody(args),
     forceSearchMode: args.forceWebSearch && isTokenHub(config.baseUrl) ? "presearch" : undefined,
     allowSpecifiedToolChoice: isTokenHub(config.baseUrl) ? false : undefined,
     ...args,

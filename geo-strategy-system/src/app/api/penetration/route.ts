@@ -56,11 +56,11 @@ import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import {
   buildJudgeEntryBatches,
   buildPenetrationExtractionSummary,
-  orderJudgeCandidates,
   validateJudgeBatchItems,
   type PenetrationJudgeBatchItem,
   type PenetrationJudgeEntry,
 } from "@/lib/penetration/entity-extraction"
+import { orderJudgesByHealth, recordJudgeOutcome } from "@/lib/penetration/judge-health"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -68,7 +68,6 @@ export const dynamic = "force-dynamic"
 export const revalidate = 0
 
 const BLIND_QUERY_MAX_TOKENS = 2048
-const JUDGE_BATCH_TIMEOUT_SEC = 60
 const JUDGE_BATCH_MAX_TOKENS = 6144
 const JUDGE_BATCH_SIZE = Math.max(
   1,
@@ -78,7 +77,8 @@ const JUDGE_BATCH_MAX_CHARACTERS = Math.max(
   2_000,
   Math.min(
     12_000,
-    Math.floor(Number(process.env.PENETRATION_V3_JUDGE_BATCH_MAX_CHARACTERS) || 6_000),
+    // Agent-search answers run to 2,000 characters; smaller batches finish in time.
+    Math.floor(Number(process.env.PENETRATION_V3_JUDGE_BATCH_MAX_CHARACTERS) || 4_500),
   ),
 )
 const JUDGE_PIPELINE_CONCURRENCY = Math.max(
@@ -762,6 +762,12 @@ function literalEvidence(answer: string, name: string, value: unknown): string |
   return answerMentionsBrand(answer, name) ? name : undefined
 }
 
+/** A minute for short batches, more for long answers: reading them takes longer. */
+function judgeTimeoutSec(entries: Array<{ answer: string }>): number {
+  const characters = entries.reduce((sum, entry) => sum + entry.answer.length, 0)
+  return Math.max(60, Math.min(150, 40 + Math.ceil(characters / 80)))
+}
+
 async function judgeAnswersBatchWithModel(
   judgeModel: ModelKey,
   args: {
@@ -787,7 +793,7 @@ async function judgeAnswersBatchWithModel(
         mode: "judge",
         jsonMode: true,
         maxTokens: JUDGE_BATCH_MAX_TOKENS,
-        timeoutSec: JUDGE_BATCH_TIMEOUT_SEC,
+        timeoutSec: judgeTimeoutSec(args.entries),
         allowWebSearch: false,
       }),
     )
@@ -932,7 +938,9 @@ async function judgeAnswersBatch(
 
   for (const judgeModel of judgeModels) {
     modelsTried.push(judgeModel)
+    const startedAt = Date.now()
     const judged = await judgeAnswersBatchWithModel(judgeModel, args)
+    void recordJudgeOutcome(judgeModel, !judged.error, Date.now() - startedAt)
     if (!judged.error) {
       return {
         items: judged.items.map(item => ({
@@ -1286,7 +1294,7 @@ async function enrichWithBatchJudge(
 // 裁判首先使用账号池里真实健康的通道，再考虑环境变量回退通道。
 // 同一任务保留多个跨厂商候选，任一账号欠费、限流或输出截断都可自动切换。
 // ============================================================================
-async function pickJudgeCandidates(activeModels: ModelKey[]): Promise<ModelKey[]> {
+async function pickJudgeCandidates(): Promise<ModelKey[]> {
   const order: ModelKey[] = ["qwen", "hunyuan", "doubao", "kimi", "ernie", "deepseek", "zhipu"]
   const readiness = await Promise.all(order.map(async model => ({
     model,
@@ -1297,9 +1305,12 @@ async function pickJudgeCandidates(activeModels: ModelKey[]): Promise<ModelKey[]
   const fallback = readiness
     .filter(item => !item.pooled && item.configured)
     .map(item => item.model)
+  // Ranked by how each judge has done lately. The tested model may judge its
+  // own answers: a judge only copies names, and each one is checked against
+  // the answer's text before it counts.
   return [
-    ...orderJudgeCandidates(pooled, activeModels),
-    ...orderJudgeCandidates(fallback, activeModels),
+    ...await orderJudgesByHealth(pooled),
+    ...await orderJudgesByHealth(fallback),
   ]
 }
 
@@ -1389,7 +1400,7 @@ async function judgeSampledBatch(args: {
     return NextResponse.json({ error: "裁判阶段没有收到可处理的联网回答" }, { status: 400 })
   }
 
-  const judgeModels = await pickJudgeCandidates(args.models)
+  const judgeModels = await pickJudgeCandidates()
   if (judgeModels.length === 0) {
     return NextResponse.json(
       { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },
@@ -1573,7 +1584,7 @@ async function handler(req: NextRequest) {
     const featureKey = "penetrationSlot"
     const slotCount = activeModels.length * questions.length
     const requiredCredits = estimateFeatureCredits(featureKey, slotCount)
-    const judgeModels = sampleOnly ? [] : await pickJudgeCandidates(activeModels)
+    const judgeModels = sampleOnly ? [] : await pickJudgeCandidates()
     if (!sampleOnly && judgeModels.length === 0) {
       return NextResponse.json(
         { error: "没有任何已配置的大模型可作为裁判，请先在后台管理页配置至少一个 API Key" },

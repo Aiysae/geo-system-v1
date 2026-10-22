@@ -1,4 +1,4 @@
-import { openaiCompatChat, type ChatArgs } from "./openai-compat"
+import { fastJudgeExtraBody, openaiCompatChat, type ChatArgs } from "./openai-compat"
 import { chatWithLocalWebSearchTool } from "./tool-loop"
 import { extractSourcesFromUnknown } from "./source-extract"
 import { emitPenetrationRequestAudit } from "./blind-request-audit"
@@ -324,6 +324,7 @@ export async function chatHunyuan(args: ChatArgs): Promise<string> {
       model: config.model,
       label: LABEL,
       allowSpecifiedToolChoice: false,
+      extraBody: fastJudgeExtraBody(args),
       ...args,
       timeoutSec: args.timeoutSec ?? config.timeout,
     })

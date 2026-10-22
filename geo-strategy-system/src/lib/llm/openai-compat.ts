@@ -37,6 +37,15 @@ export interface SearchSourceEvent {
   declinedAnswer?: string
 }
 
+/**
+ * Judges only copy names out of an answer. Thinking spent their output budget
+ * (empty replies) and took four times as long, so judge calls turn it off on
+ * the providers that think by default (Hunyuan hy3, DeepSeek V4, Doubao Seed).
+ */
+export function fastJudgeExtraBody(args: Pick<ChatArgs, "mode">): Record<string, unknown> | undefined {
+  return args.mode === "judge" ? { thinking: { type: "disabled" } } : undefined
+}
+
 export interface ChatRuntimeOverride {
   vendor: AiCredentialVendor
   baseUrl: string
