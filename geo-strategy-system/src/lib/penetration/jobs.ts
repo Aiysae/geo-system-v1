@@ -19,7 +19,11 @@ import {
 import { createInternalApiHeaders } from "@/lib/internal-api"
 import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { MODEL_LABELS } from "@/lib/model-labels"
-import { buildPenetrationBatchResult } from "@/lib/penetration/result-merge"
+import {
+  buildPenetrationBatchResult,
+  replacePenetrationModelAnswers,
+} from "@/lib/penetration/result-merge"
+import { buildPenetrationModelStats } from "@/lib/penetration/model-diagnostics"
 import {
   getPenetrationSlotValidationError,
   isCompletePenetrationItem,
@@ -55,6 +59,8 @@ import type {
   PenetrationJobRecord,
   PenetrationItem,
   PenetrationModelProgress,
+  PenetrationModelRerunMode,
+  PenetrationModelRerunSnapshot,
   PenetrationQuestionIntentHint,
   PenetrationResult,
   PersonSubjectProfile,
@@ -66,6 +72,8 @@ export interface PenetrationJobRequest {
   clientName?: string
   runId: string
   operation: PenetrationJobOperation
+  /** Single-model re-run: replace that model's answers now, or show a comparison first. */
+  rerunMode?: PenetrationModelRerunMode
   subjectType: AnalysisSubjectType
   personProfile?: PersonSubjectProfile
   ourBrand: string
@@ -104,6 +112,10 @@ type StoredPenetrationJob = PenetrationJobRecord & {
   slotStates?: Record<string, StoredPenetrationSlotState>
   partialPersistedSlots?: number
   partialPersistedAt?: string
+  /** The report a single-model re-run wrote, so it can be undone. */
+  rerunApplied?: PenetrationResult
+  /** The report it replaced. */
+  rerunPrevious?: PenetrationResult
 }
 
 type PenetrationSlotRuntimeStatus =
@@ -218,6 +230,18 @@ function toPublicJob(job: StoredPenetrationJob): PenetrationJobRecord {
   delete publicJob.slotStates
   delete publicJob.partialPersistedSlots
   delete publicJob.partialPersistedAt
+  delete publicJob.rerunApplied
+  delete publicJob.rerunPrevious
+  if (isModelRerun(job)) {
+    // Only a report the re-run actually wrote is handed to the page.
+    publicJob.result = job.modelRerun?.decision === "applied" ? job.rerunApplied : undefined
+    if (job.modelRerun) {
+      publicJob.modelRerun = {
+        ...job.modelRerun,
+        undoable: job.modelRerun.decision === "applied" && Boolean(job.rerunPrevious),
+      }
+    }
+  }
   const queueIndex = queuedJobs.indexOf(job.id)
   if (queueIndex >= 0) {
     publicJob.queuePosition = queueIndex + 1
@@ -540,6 +564,8 @@ function successfulSlotCount(byModel: PenetrationByModel | undefined): number {
 
 function successfulNewSlotCount(job: StoredPenetrationJob | null | undefined): number {
   if (!job) return 0
+  // A re-run's result holds only its own answers; the report it replaces does not count.
+  if (isModelRerun(job)) return successfulSlotCount(job.result?.byModel)
   return Math.max(
     0,
     successfulSlotCount(job.result?.byModel) - successfulSlotCount(job.baseResult?.byModel),
@@ -584,10 +610,184 @@ async function settleJobCreditsQuietly(id: string, usedSlots: number): Promise<v
   }
 }
 
+// ---------------------------------------------------------------------------
+// Single-model re-run: one model's answers are collected again, then either
+// replace that model's answers in the report or wait for the user to compare.
+// The report is never written mid-run, and every write keeps what it replaced.
+// ---------------------------------------------------------------------------
+
+function isModelRerun(job: Pick<StoredPenetrationJob, "request">): boolean {
+  return job.request.operation === "model_rerun"
+}
+
+function rerunModelKey(job: StoredPenetrationJob): ModelKey {
+  return job.request.models[0]
+}
+
+/** The report with this re-run's answers in place of the model's earlier ones. */
+function mergeModelRerun(
+  job: StoredPenetrationJob,
+  base: PenetrationResult,
+): PenetrationResult | undefined {
+  const model = rerunModelKey(job)
+  const incoming = (job.result?.byModel?.[model] || []).filter(isCompletePenetrationItem)
+  if (incoming.length === 0) return undefined
+  const now = nowIso()
+  return replacePenetrationModelAnswers({
+    base,
+    model,
+    incoming,
+    rerun: {
+      model,
+      jobId: job.id,
+      rerunAt: now,
+      questionCount: job.modelRerun?.questionCount || 0,
+      samplesPerQuestion: job.modelRerun?.samplesPerQuestion || 1,
+    },
+    ourBrand: job.request.ourBrand,
+    brandAliases: job.request.brandAliases,
+    competitors: job.request.competitors,
+    subjectType: job.request.subjectType || "brand",
+    generatedAt: now,
+  })
+}
+
+/** The earlier report recomputed under today's rules, so before and after compare like for like. */
+function refreshedBaseline(job: StoredPenetrationJob, base: PenetrationResult): PenetrationResult {
+  return {
+    ...buildPenetrationBatchResult({
+      operation: "replace",
+      incomingByModel: base.byModel,
+      ourBrand: job.request.ourBrand,
+      brandAliases: job.request.brandAliases,
+      competitors: job.request.competitors,
+      subjectType: job.request.subjectType || "brand",
+      generatedAt: base.generatedAt,
+      questionIntents: base.questionIntents,
+      plannedSlots: base.aggregated.plannedSlots ?? base.aggregated.totalSlots,
+      modelCount: base.aggregated.perModelRate.length,
+    }),
+    modelReruns: base.modelReruns,
+  }
+}
+
+function rerunSnapshot(
+  result: PenetrationResult | undefined,
+  model: ModelKey,
+): PenetrationModelRerunSnapshot | undefined {
+  if (!result) return undefined
+  return {
+    overallRate: result.aggregated.penetrationRate,
+    ourRanking: result.aggregated.ourRanking,
+    model: buildPenetrationModelStats(result).find(stats => stats.model === model),
+  }
+}
+
+/** Records the before/after comparison once the re-run has finished sampling. */
+async function finalizeModelRerun(job: StoredPenetrationJob): Promise<StoredPenetrationJob> {
+  if (!isModelRerun(job) || !job.modelRerun || job.modelRerun.decision !== "running") return job
+  const model = rerunModelKey(job)
+  const candidate = job.baseResult ? mergeModelRerun(job, job.baseResult) : undefined
+  const modelRerun = {
+    ...job.modelRerun,
+    decision: candidate ? "pending" as const : "discarded" as const,
+    before: job.baseResult ? rerunSnapshot(refreshedBaseline(job, job.baseResult), model) : undefined,
+    after: rerunSnapshot(candidate, model),
+  }
+  return await patchJob(job.id, { modelRerun }) || { ...job, modelRerun }
+}
+
+/**
+ * Writes the re-run into the report: against the report as it stands now, so
+ * edits made meanwhile survive, keeping the version it replaces for undo.
+ */
+async function applyModelRerunToWorkspace(
+  job: StoredPenetrationJob,
+  options: { clearJobMarker: boolean },
+): Promise<{ applied?: PenetrationResult; error?: string }> {
+  let applied: PenetrationResult | undefined
+  let previous: PenetrationResult | undefined
+  let blocked = ""
+  const saved = await mutateWorkspaceClientLatest({
+    userId: job.workspaceOwnerUserId || job.ownerUserId,
+    clientId: job.clientId,
+    mutate: current => {
+      if (current.penetrationJobId && current.penetrationJobId !== job.id) {
+        blocked = "当前客户有检测任务正在运行，请等它结束后再采用重测结果"
+        return null
+      }
+      previous = current.penetration || job.baseResult
+      applied = previous ? mergeModelRerun(job, previous) : undefined
+      if (!applied) {
+        blocked = "重测没有得到可用的回答"
+        return null
+      }
+      return {
+        patch: { penetration: applied, penetrationRerunJobId: job.id },
+        ...(options.clearJobMarker && current.penetrationJobId === job.id
+          ? { unsetFields: ["penetrationJobId"] as const }
+          : {}),
+      }
+    },
+  })
+  if (!saved || !applied) return { error: blocked || "客户资料不存在或已被删除" }
+  await patchJob(job.id, {
+    rerunApplied: applied,
+    rerunPrevious: previous,
+    modelRerun: job.modelRerun && {
+      ...job.modelRerun,
+      decision: "applied",
+      decidedAt: nowIso(),
+    },
+  })
+  return { applied }
+}
+
+/** A stopped or failed re-run leaves the report as it was. */
+async function discardModelRerun(job: StoredPenetrationJob): Promise<void> {
+  if (job.modelRerun && job.modelRerun.decision === "running") {
+    await patchJob(job.id, { modelRerun: { ...job.modelRerun, decision: "discarded" } })
+  }
+  await mutateWorkspaceClientLatest({
+    userId: job.workspaceOwnerUserId || job.ownerUserId,
+    clientId: job.clientId,
+    mutate: client => client.penetrationJobId === job.id
+      ? { patch: {}, unsetFields: ["penetrationJobId"] as const }
+      : null,
+  })
+}
+
+async function persistModelRerunToWorkspace(
+  job: StoredPenetrationJob,
+  finalize: boolean,
+): Promise<boolean> {
+  // A partial re-run never reaches the report.
+  if (!finalize) return false
+  const current = await finalizeModelRerun(job)
+  if (current.modelRerun?.decision === "pending" && current.modelRerun.mode === "overwrite") {
+    const { applied } = await applyModelRerunToWorkspace(current, { clearJobMarker: true })
+    if (applied) return true
+  }
+  // Comparison first, or nothing usable: the report stays as it was.
+  const saved = await mutateWorkspaceClientLatest({
+    userId: job.workspaceOwnerUserId || job.ownerUserId,
+    clientId: job.clientId,
+    mutate: client => {
+      if (client.penetrationJobId && client.penetrationJobId !== job.id) return null
+      return {
+        patch: current.modelRerun?.decision === "pending" ? { penetrationRerunJobId: job.id } : {},
+        ...(client.penetrationJobId === job.id ? { unsetFields: ["penetrationJobId"] as const } : {}),
+      }
+    },
+  })
+  return Boolean(saved)
+}
+
 async function persistJobResultToWorkspace(
   job: StoredPenetrationJob,
   options: { finalize?: boolean } = {},
 ): Promise<boolean> {
+  if (isModelRerun(job)) return persistModelRerunToWorkspace(job, options.finalize !== false)
   if (!job.result) return false
   const finalize = options.finalize !== false
   try {
@@ -616,6 +816,7 @@ async function persistJobResultToWorkspace(
 }
 
 function shouldPersistPartialJobResult(job: StoredPenetrationJob): boolean {
+  if (isModelRerun(job)) return false
   if (!job.result || job.completedSlots <= (job.partialPersistedSlots || 0)) return false
   if (!job.partialPersistedAt) return true
   const completedDelta = job.completedSlots - (job.partialPersistedSlots || 0)
@@ -692,7 +893,12 @@ async function persistTerminalHistory(args: {
         automationTrigger: args.job.request.automationTrigger,
       },
       status: args.status,
-      result: args.job.result,
+      // A re-run is recorded as the whole report it produced.
+      result: isModelRerun(args.job)
+        ? (await getStoredJob(args.job.id))?.rerunApplied
+          || (args.job.baseResult && mergeModelRerun(args.job, args.job.baseResult))
+          || args.job.baseResult
+        : args.job.result,
       error: args.error,
       completedSlots: args.job.completedSlots,
       totalSlots: args.job.totalSlots,
@@ -1917,7 +2123,9 @@ async function runJobSlice(jobId: string): Promise<void> {
     shouldRequeue = true
   } catch (error) {
     const current = await getStoredJob(jobId)
-    if (current?.result) {
+    if (current && isModelRerun(current)) {
+      await discardModelRerun(current)
+    } else if (current?.result) {
       await persistJobResultToWorkspace(current)
     }
     const usedSlots = successfulNewSlotCount(current)
@@ -2024,7 +2232,20 @@ export async function createPenetrationJob(args: {
     reservedCredits: args.reservation.amount,
     creditReservation: args.reservation,
     batchBaseUrls: buildBatchBaseUrls(),
-    baseResult: args.request.operation === "append" ? args.baseResult : undefined,
+    baseResult: args.request.operation === "append" || args.request.operation === "model_rerun"
+      ? args.baseResult
+      : undefined,
+    ...(args.request.operation === "model_rerun"
+      ? {
+          modelRerun: {
+            model: args.request.models[0],
+            mode: args.request.rerunMode || "compare",
+            decision: "running" as const,
+            questionCount: new Set(args.request.questions).size,
+            samplesPerQuestion: args.request.samplesPerQuestion || 1,
+          },
+        }
+      : {}),
   }
   stored.slotStates = initialSlotStates(stored)
   Object.assign(stored, summarizeSlotStates(stored, stored.slotStates))
@@ -2122,6 +2343,89 @@ export async function runPenetrationJobFromWorker(
   }
 }
 
+export type PenetrationModelRerunAction = "apply" | "discard" | "undo"
+
+export class PenetrationModelRerunDecisionError extends Error {
+  constructor(message: string, readonly status = 409) {
+    super(message)
+  }
+}
+
+/**
+ * The user's choice after a single-model re-run: apply the comparison, discard
+ * it, or undo a re-run already written into the report.
+ */
+export async function decidePenetrationModelRerun(
+  id: string,
+  requesterUserId: string,
+  action: PenetrationModelRerunAction,
+): Promise<{ job: PenetrationJobRecord; penetration?: PenetrationResult }> {
+  const job = await getStoredJob(id)
+  if (
+    !job
+    || (job.ownerUserId !== requesterUserId && job.workspaceOwnerUserId !== requesterUserId)
+  ) throw new PenetrationModelRerunDecisionError("重测任务不存在或已过期（保留 7 天）", 404)
+  if (!isModelRerun(job) || !job.modelRerun) {
+    throw new PenetrationModelRerunDecisionError("这不是单模型重新检测任务", 400)
+  }
+  const state = job.modelRerun
+  const userId = job.workspaceOwnerUserId || job.ownerUserId
+
+  if (action === "apply") {
+    if (state.decision !== "pending") throw new PenetrationModelRerunDecisionError("这次重测已经处理过了")
+    const { applied, error } = await applyModelRerunToWorkspace(job, { clearJobMarker: false })
+    if (!applied) throw new PenetrationModelRerunDecisionError(error || "重测结果写入失败")
+    return { job: toPublicJob(await getStoredJob(id) || job), penetration: applied }
+  }
+
+  if (action === "discard") {
+    if (state.decision !== "pending") throw new PenetrationModelRerunDecisionError("这次重测已经处理过了")
+    const saved = await patchJob(id, { modelRerun: { ...state, decision: "discarded", decidedAt: nowIso() } }) || job
+    await mutateWorkspaceClientLatest({
+      userId,
+      clientId: job.clientId,
+      mutate: client => client.penetrationRerunJobId === id
+        ? { patch: {}, unsetFields: ["penetrationRerunJobId"] as const }
+        : null,
+    })
+    return { job: toPublicJob(saved) }
+  }
+
+  if (state.decision !== "applied" || !job.rerunPrevious || !job.rerunApplied) {
+    throw new PenetrationModelRerunDecisionError("这次重测没有可撤销的覆盖")
+  }
+  const previous = job.rerunPrevious
+  const appliedAt = job.rerunApplied.generatedAt
+  let refused = ""
+  const restored = await mutateWorkspaceClientLatest({
+    userId,
+    clientId: job.clientId,
+    mutate: client => {
+      if (client.penetrationJobId) {
+        refused = "当前客户有检测任务正在运行，请等它结束后再撤销"
+        return null
+      }
+      // Undo only what this re-run wrote, never a newer report.
+      if (client.penetration?.generatedAt !== appliedAt) {
+        refused = "覆盖之后报告又更新过，不能直接撤销；原结果仍保存在检测历史中"
+        return null
+      }
+      return {
+        patch: { penetration: previous },
+        ...(client.penetrationRerunJobId === id
+          ? { unsetFields: ["penetrationRerunJobId"] as const }
+          : {}),
+      }
+    },
+  })
+  if (!restored || refused) throw new PenetrationModelRerunDecisionError(refused || "客户资料不存在或已被删除")
+  const saved = await patchJob(id, {
+    modelRerun: { ...state, decision: "undone", decidedAt: nowIso() },
+    rerunPrevious: undefined,
+  }) || job
+  return { job: toPublicJob(saved), penetration: previous }
+}
+
 export async function cancelPenetrationJob(
   id: string,
   requesterUserId: string,
@@ -2165,6 +2469,7 @@ export async function cancelPenetrationJob(
   activeAbortControllers.get(id)?.abort()
   activeAbortControllers.delete(id)
   clearResumeTimer(id)
+  if (isModelRerun(cancelled)) await discardModelRerun(cancelled)
   await clearPendingJob(id)
   if (queuedJobIds.delete(id)) {
     const index = queuedJobs.indexOf(id)

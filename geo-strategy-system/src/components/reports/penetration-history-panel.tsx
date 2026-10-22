@@ -80,6 +80,13 @@ const STATUS_META: Record<PenetrationHistoryStatus, {
   },
 }
 
+
+function operationLabel(operation: PenetrationHistoryListItem["operation"]): string {
+  if (operation === "append") return "单题重测"
+  if (operation === "model_rerun") return "单模型重测"
+  return "完整检测"
+}
+
 function formatDate(value?: string): string {
   if (!value) return "-"
   const date = new Date(value)
@@ -563,7 +570,7 @@ function HistoryRow({
               <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
                 <span>{record.summary.industry || "未填写行业"}</span>
                 <span>·</span>
-                <span>{record.operation === "append" ? "单题重测" : "完整检测"}</span>
+                <span>{operationLabel(record.operation)}</span>
                 {record.source === "workspace_backfill" ? <><span>·</span><span>历史数据补录</span></> : null}
               </div>
             </button>
@@ -663,7 +670,7 @@ export function PenetrationHistoryDetail({
         <summary className="cursor-pointer py-2 text-sm font-medium text-slate-600">检测记录详情 · 时间、采样与信源</summary>
         <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0">
           <SnapshotMeta label="完成时间" value={formatDate(record.completedAt || record.createdAt)} />
-          <SnapshotMeta label="检测类型" value={record.operation === "append" ? "单题重测" : "完整检测"} />
+          <SnapshotMeta label="检测类型" value={operationLabel(record.operation)} />
           <SnapshotMeta label="有效采样" value={`${record.summary.completedSlots}/${record.summary.totalSlots}`} />
           <SnapshotMeta label="联网信源" value={`${record.summary.sourceCount} 次引用 · ${record.summary.uniqueSourceCount ?? record.summary.sourceCount} 个网址`} />
         </div>

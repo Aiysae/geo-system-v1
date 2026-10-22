@@ -1,4 +1,8 @@
-import { hasAdapterCredentialPoolCandidate } from "@/lib/ai-credential-adapter"
+import {
+  getAdapterCredentialPoolCapacity,
+  hasAdapterCredentialPoolCandidate,
+} from "@/lib/ai-credential-adapter"
+import { listAiCredentialAccountIssues } from "@/lib/ai-credential-account-issues"
 import { listAiCredentialRouteHealth } from "@/lib/ai-credential-route-health"
 import { listAiCredentialsPublic } from "@/lib/ai-credential-store"
 import { MODEL_LABELS } from "@/lib/model-labels"
@@ -13,6 +17,71 @@ export interface PenetrationModelReadiness {
   model: ModelKey
   ready: boolean
   reason?: string
+}
+
+/** What a run can expect from a model: speed, and accounts that stopped. */
+export interface PenetrationModelReadinessDetail extends PenetrationModelReadiness {
+  /** Answers this model collects at once within one run. */
+  concurrency: number
+  accounts: { usable: number; total: number }
+  warnings: string[]
+  /** Typical time for one answer, measured on live runs in 2026-10. */
+  secondsPerAnswer: number
+}
+
+const SECONDS_PER_ANSWER: Record<ModelKey, number> = {
+  doubao: 13,
+  deepseek: 16,
+  qwen: 25,
+  kimi: 20,
+  ernie: 15,
+  hunyuan: 15,
+  zhipu: 20,
+}
+
+const STRICT_ARGS = {
+  system: "",
+  user: "",
+  mode: "consumer" as const,
+  forceWebSearch: true,
+  rawQuestionOnly: true,
+  requireWebEvidence: true,
+  officialWebOnly: true,
+}
+
+/** The pre-run check: readiness plus capacity and accounts an admin must fix. */
+export async function getPenetrationModelReadinessDetail(
+  model: ModelKey,
+): Promise<PenetrationModelReadinessDetail> {
+  const [readiness, capacity, issues, credentials] = await Promise.all([
+    getPenetrationModelReadiness(model),
+    getAdapterCredentialPoolCapacity(model, "penetration", STRICT_ARGS).catch(() => null),
+    listAiCredentialAccountIssues([model]).catch(() => []),
+    listAiCredentialsPublic().catch(() => []),
+  ])
+  const total = credentials.filter(credential => credential.enabled && credential.vendor === model).length
+  // Same cap the detection route applies to one model within a run.
+  const configured = Math.floor(Number(process.env[`PENETRATION_V3_${model.toUpperCase()}_CONCURRENCY`]))
+  const pool = capacity?.maxConcurrency || 0
+  const concurrency = readiness.ready
+    ? Math.max(1, Math.min(12, pool || 1, configured > 0 ? configured : pool || 1))
+    : 0
+  const warnings: string[] = []
+  if (issues.length > 0) {
+    const reasons = Array.from(new Set(issues.map(issue => issue.reason))).join("、")
+    warnings.push(
+      readiness.ready
+        ? `${issues.length} 个账号${reasons}，检测会自动绕开，速度会慢一些`
+        : `${issues.length} 个账号${reasons}`,
+    )
+  }
+  return {
+    ...readiness,
+    concurrency,
+    accounts: { usable: Math.max(0, total - issues.length), total },
+    warnings,
+    secondsPerAnswer: SECONDS_PER_ANSWER[model],
+  }
 }
 
 // Vendors whose question detection runs on their own official web search and

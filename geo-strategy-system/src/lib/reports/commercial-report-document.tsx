@@ -26,6 +26,7 @@ import type {
   IndustryShareItem,
   ModelKey,
   PenetrationItem,
+  PenetrationModelRerunRecord,
   PenetrationSource,
   ResearchDimension,
   ResearchEvidenceReference,
@@ -1931,6 +1932,13 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
           ))}
         </View>
         <Text style={styles.tableNote}>说明：同一疑问句由多个模型分别回答，因此模型表中的回答数与“检测问题数”不是同一口径。</Text>
+        {penetration.modelReruns?.length ? (
+          <Text style={styles.tableNote}>
+            单独重测：{latestModelReruns(penetration.modelReruns).map(record => (
+              `${MODEL_LABELS[record.model]} 于 ${new Date(record.rerunAt).toLocaleDateString("zh-CN")} 重新检测（${record.questionCount} 个问题 × ${record.samplesPerQuestion} 次），其数据以重测结果为准`
+            )).join("；")}。
+          </Text>
+        ) : null}
         {models.some(item => item.model === "deepseek") ? (
           <Text style={styles.tableNote}>DeepSeek 官方接口没有联网搜索，本报告用百度搜索为它提供来源，百度收录较多的品牌在 DeepSeek 一栏可能高于 DeepSeek App 的实际表现。</Text>
         ) : null}
@@ -1958,6 +1966,16 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
       ) : null}
     </Page>
   )
+}
+
+/** The latest re-run of each model; an earlier one was superseded. */
+function latestModelReruns(records: PenetrationModelRerunRecord[]): PenetrationModelRerunRecord[] {
+  const latest = new Map<ModelKey, PenetrationModelRerunRecord>()
+  for (const record of records) {
+    const current = latest.get(record.model)
+    if (!current || record.rerunAt > current.rerunAt) latest.set(record.model, record)
+  }
+  return [...latest.values()]
 }
 
 /** Leading brands' rates per model: one brand can differ several times between models. */

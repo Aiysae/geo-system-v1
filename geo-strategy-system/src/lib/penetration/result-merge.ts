@@ -7,6 +7,7 @@ import type {
   PenetrationByModel,
   PenetrationItem,
   PenetrationJobOperation,
+  PenetrationModelRerunRecord,
   PenetrationQuestionIntentHint,
   PenetrationResult,
 } from "@/types"
@@ -78,5 +79,70 @@ export function buildPenetrationBatchResult(args: {
     extraction: buildPenetrationExtractionSummary(byModel),
     questionIntents,
     generatedAt: args.generatedAt,
+  }
+}
+
+function questionKey(question: string): string {
+  return question.normalize("NFKC").trim().replace(/\s+/gu, " ")
+}
+
+/**
+ * Replaces one model's answers with those of a re-run and recomputes the
+ * report. A question the re-run answered fewer times than before keeps its
+ * earlier answers for the gap, so a partly failed re-run leaves no holes;
+ * questions the re-run did not cover keep their answers untouched.
+ */
+export function replacePenetrationModelAnswers(args: {
+  base: PenetrationResult
+  model: ModelKey
+  incoming: PenetrationItem[]
+  rerun: Omit<PenetrationModelRerunRecord, "answerCount">
+  ourBrand: string
+  brandAliases: string[]
+  competitors: string[]
+  subjectType?: AnalysisSubjectType
+  generatedAt: string
+}): PenetrationResult {
+  const fresh = args.incoming.filter(item => item.answer?.trim())
+  const freshByQuestion = new Map<string, PenetrationItem[]>()
+  for (const item of fresh) {
+    const key = questionKey(item.question)
+    freshByQuestion.set(key, [...(freshByQuestion.get(key) || []), item])
+  }
+
+  const earlierByQuestion = new Map<string, PenetrationItem[]>()
+  for (const item of args.base.byModel[args.model] || []) {
+    const key = questionKey(item.question)
+    earlierByQuestion.set(key, [...(earlierByQuestion.get(key) || []), item])
+  }
+
+  const replaced: PenetrationItem[] = []
+  for (const [key, earlier] of earlierByQuestion) {
+    const answers = freshByQuestion.get(key) || []
+    replaced.push(...answers, ...earlier.slice(answers.length))
+    freshByQuestion.delete(key)
+  }
+  for (const answers of freshByQuestion.values()) replaced.push(...answers)
+
+  const byModel: PenetrationByModel = { ...args.base.byModel, [args.model]: replaced }
+  const rebuilt = buildPenetrationBatchResult({
+    operation: "replace",
+    incomingByModel: byModel,
+    ourBrand: args.ourBrand,
+    brandAliases: args.brandAliases,
+    competitors: args.competitors,
+    subjectType: args.subjectType,
+    generatedAt: args.generatedAt,
+    questionIntents: args.base.questionIntents,
+    plannedSlots: args.base.aggregated.plannedSlots ?? args.base.aggregated.totalSlots,
+    modelCount: args.base.aggregated.perModelRate.length || Object.keys(byModel).length,
+  })
+  const record: PenetrationModelRerunRecord = { ...args.rerun, answerCount: fresh.length }
+  return {
+    ...rebuilt,
+    modelReruns: [
+      ...(args.base.modelReruns || []).filter(existing => existing.jobId !== record.jobId),
+      record,
+    ],
   }
 }

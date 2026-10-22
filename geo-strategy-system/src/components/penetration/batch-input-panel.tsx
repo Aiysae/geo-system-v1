@@ -24,6 +24,7 @@ import {
 import { MODEL_LABELS } from "@/lib/model-labels"
 import ModelAvatar from "@/components/model-avatar"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
+import PreRunCheck, { type PreRunModelStatus } from "./pre-run-check"
 import { useResumableBackgroundJob } from "@/hooks/use-resumable-background-job"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import {
@@ -65,7 +66,7 @@ import {
 const ALL_MODELS: ModelKey[] = ["doubao", "deepseek", "qwen", "kimi", "ernie", "hunyuan", "zhipu"]
 
 type InputMode = "manual" | "ai"
-type ModelReadiness = Partial<Record<ModelKey, { ready: boolean; reason?: string }>>
+type ModelReadiness = Partial<Record<ModelKey, PreRunModelStatus>>
 type ReadinessStatus = "loading" | "ready" | "error"
 
 interface Props {
@@ -243,9 +244,7 @@ export default function BatchInputPanel({
     })
       .then(async response => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.json() as Promise<{
-          readiness?: Array<{ model: ModelKey; ready: boolean; reason?: string }>
-        }>
+        return response.json() as Promise<{ readiness?: PreRunModelStatus[] }>
       })
       .then(data => {
         const next: ModelReadiness = {}
@@ -1138,6 +1137,13 @@ export default function BatchInputPanel({
           <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           当前账号可查看已公开的检测报告，但不能发起新的检测。
         </div>
+      ) : null}
+
+      {canExecute && readinessStatus === "ready" ? (
+        <PreRunCheck
+          models={eligibleSelectedModels.map(model => modelReadiness[model]!).filter(Boolean)}
+          answersPerModel={questionCount * samplesPerQuestion}
+        />
       ) : null}
 
       <div className="flex flex-col gap-3 border-t border-slate-200/70 pt-4 lg:flex-row lg:items-center lg:justify-between">

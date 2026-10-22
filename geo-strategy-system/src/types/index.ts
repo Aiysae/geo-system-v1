@@ -1151,16 +1151,69 @@ export interface PenetrationAggregated {
   topCompetitors: string[]
 }
 
+/** One model's answers re-run after the report was produced. */
+export interface PenetrationModelRerunRecord {
+  model: ModelKey
+  jobId: string
+  rerunAt: string
+  questionCount: number
+  samplesPerQuestion: number
+  /** Answers the re-run returned; the rest kept the earlier answer. */
+  answerCount: number
+}
+
 export interface PenetrationResult {
   byModel: PenetrationByModel
   aggregated: PenetrationAggregated
   extraction?: PenetrationEntityExtractionSummary
   questionIntents?: PenetrationQuestionIntentHint[]
   generatedAt: string
+  modelReruns?: PenetrationModelRerunRecord[]
 }
 
 export type PenetrationJobStatus = "queued" | "running" | "succeeded" | "blocked" | "failed" | "cancelled"
-export type PenetrationJobOperation = "replace" | "append"
+export type PenetrationJobOperation = "replace" | "append" | "model_rerun"
+export type PenetrationModelRerunMode = "overwrite" | "compare"
+export type PenetrationModelRerunDecision = "running" | "pending" | "applied" | "discarded" | "undone"
+
+/** Per-model figures that show whether one model's data can be trusted. */
+export interface PenetrationModelStats {
+  model: ModelKey
+  answers: number
+  ourMentions: number
+  ourRate: number
+  /** Recognised answers that named no company at all. */
+  noBrandAnswers: number
+  recognisedAnswers: number
+  extractionFailed: number
+  searchDeclined: number
+  avgSources: number
+  medianAnswerLength: number
+  topDomains: Array<{ domain: string; count: number }>
+  sourceCount: number
+  /** The run's leading brands, as this model mentioned them. */
+  topBrands: Array<{ brand: string; mentions: number; rate: number }>
+}
+
+/** Before and after one model's re-run, small enough to send on every poll. */
+export interface PenetrationModelRerunSnapshot {
+  overallRate: number
+  ourRanking: number | null
+  model?: PenetrationModelStats
+}
+
+export interface PenetrationModelRerunState {
+  model: ModelKey
+  mode: PenetrationModelRerunMode
+  decision: PenetrationModelRerunDecision
+  questionCount: number
+  samplesPerQuestion: number
+  before?: PenetrationModelRerunSnapshot
+  after?: PenetrationModelRerunSnapshot
+  decidedAt?: string
+  /** Undo stays possible while the job is kept (seven days). */
+  undoable?: boolean
+}
 export type PenetrationJobPhase = "preflight" | "sampling" | "retrying" | "finalizing"
 export type PenetrationQueueReason = "capacity" | "user_limit" | "retry_wait" | "queued"
 
@@ -1217,6 +1270,7 @@ export interface PenetrationJobRecord {
   historyRecordId?: string
   historySavedAt?: string
   historySavePending?: boolean
+  modelRerun?: PenetrationModelRerunState
 }
 
 export type PenetrationHistoryStatus = "succeeded" | "partial" | "cancelled" | "failed"
@@ -1703,6 +1757,8 @@ export interface Client {
   updatedAt: string
   penetration?: PenetrationResult
   penetrationJobId?: string
+  /** Latest single-model re-run: its comparison awaits a decision, or it can be undone. */
+  penetrationRerunJobId?: string
   research?: ResearchResult
   competitorCompare?: CompetitorCompareResult
   researchSourceMode?: ResearchSourceMode

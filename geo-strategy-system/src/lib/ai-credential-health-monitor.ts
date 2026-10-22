@@ -1,6 +1,7 @@
 import "server-only"
 
 import { randomUUID } from "crypto"
+import { sendDailyAccountIssueDigest } from "@/lib/ai-credential-account-issues"
 import { kv } from "@/lib/kv"
 import {
   buildAiCredentialRouteIdentity,
@@ -384,6 +385,13 @@ export function startAiCredentialHealthMonitor(): void {
       })
       .finally(() => {
         monitorRunning = false
+        // After the sweep, so the digest reports the accounts as just checked.
+        void sendDailyAccountIssueDigest().catch(error => {
+          console.warn(
+            "[ai-credential-health-monitor] account digest failed",
+            error instanceof Error ? error.message : String(error),
+          )
+        })
       })
   }
   const initialTimer = setTimeout(run, 10_000)

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
+  PenetrationModelRerunDecisionError,
   cancelPenetrationJob,
+  decidePenetrationModelRerun,
   getPenetrationJob,
+  type PenetrationModelRerunAction,
 } from "@/lib/penetration/jobs"
 import { resolveOperationAccess } from "@/lib/team-access"
 import { requireUserId } from "@/lib/with-credits"
@@ -53,8 +56,10 @@ export async function GET(
   return NextResponse.json(authorized.job)
 }
 
+const RERUN_ACTIONS = new Set<PenetrationModelRerunAction>(["apply", "discard", "undo"])
+
 export async function PATCH(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ jobId: string }> },
 ) {
   const userGuard = await requireUserId()
@@ -62,6 +67,25 @@ export async function PATCH(
   const { jobId } = await context.params
   const authorized = await authorize({ jobId, userId: userGuard.userId, action: "execute" })
   if (authorized.response) return authorized.response
+
+  // A body naming a re-run decision acts on it; an empty body stops the job.
+  const body = await req.json().catch(() => ({})) as { action?: unknown }
+  const action = typeof body.action === "string" ? body.action : ""
+  if (RERUN_ACTIONS.has(action as PenetrationModelRerunAction)) {
+    try {
+      return NextResponse.json(await decidePenetrationModelRerun(
+        jobId,
+        userGuard.userId,
+        action as PenetrationModelRerunAction,
+      ))
+    } catch (error) {
+      if (error instanceof PenetrationModelRerunDecisionError) {
+        return NextResponse.json({ error: error.message }, { status: error.status })
+      }
+      throw error
+    }
+  }
+
   const job = await cancelPenetrationJob(jobId, userGuard.userId)
   if (!job) {
     return NextResponse.json({ error: "疑问句检测任务不存在或已过期" }, { status: 404 })

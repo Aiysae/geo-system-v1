@@ -723,4 +723,5 @@ export const CLIENT_ACCOUNT_ALLOWED_PATCH_FIELDS = new Set([
   "selectedModels",
   "penetration",
   "penetrationJobId",
+  "penetrationRerunJobId",
 ])

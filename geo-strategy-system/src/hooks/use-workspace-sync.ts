@@ -76,6 +76,7 @@ const CLIENT_ACCOUNT_PATCH_FIELDS = new Set<keyof Client>([
   "selectedModels",
   "penetration",
   "penetrationJobId",
+  "penetrationRerunJobId",
 ])
 
 function requestedClientId(): string {
@@ -96,6 +97,7 @@ function shouldSaveWorkspacePatchImmediately(patch: Partial<Client>): boolean {
   if (
     Object.prototype.hasOwnProperty.call(patch, "backgroundJobs")
     || Object.prototype.hasOwnProperty.call(patch, "penetrationJobId")
+    || Object.prototype.hasOwnProperty.call(patch, "penetrationRerunJobId")
     || Object.prototype.hasOwnProperty.call(patch, "difficultyJobId")
   ) return true
   const keyword = patch.keywordStrategy

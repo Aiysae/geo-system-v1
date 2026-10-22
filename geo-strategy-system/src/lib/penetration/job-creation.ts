@@ -60,6 +60,8 @@ export type PenetrationJobSubmissionInput = {
   teamId?: string
   requestId: string
   operation?: PenetrationJobOperation
+  /** Single-model re-run: "overwrite" replaces the answers, "compare" waits for a decision. */
+  rerunMode?: unknown
   questions?: unknown
   questionIntents?: unknown
   models?: unknown
@@ -275,7 +277,14 @@ export async function submitPenetrationJob(
       replaceableWorkspaceJobId = currentClient.penetrationJobId
     }
 
-    const operation: PenetrationJobOperation = input.operation === "append" ? "append" : "replace"
+    const operation: PenetrationJobOperation = input.operation === "append"
+      ? "append"
+      : input.operation === "model_rerun"
+        ? "model_rerun"
+        : "replace"
+    if (operation === "model_rerun" && !currentClient.penetration) {
+      throw new PenetrationJobSubmissionError("还没有检测结果，无法单独重新检测某个模型")
+    }
     const useSaved = Boolean(input.useSavedInputs)
     const questions = useSaved ? stringList(currentClient.questions) : stringList(input.questions)
     const requestedModels = useSaved
@@ -297,6 +306,9 @@ export async function submitPenetrationJob(
         400,
         "PENETRATION_NO_SAVED_MODELS",
       )
+    }
+    if (operation === "model_rerun" && requestedModels.length !== 1) {
+      throw new PenetrationJobSubmissionError("单模型重新检测一次只能选择一个模型")
     }
 
     const identityLocked = useSaved
@@ -365,6 +377,14 @@ export async function submitPenetrationJob(
         { skipped },
       )
     }
+    if (operation === "model_rerun" && activeModels.length === 0) {
+      throw new PenetrationJobSubmissionError(
+        `${skipped.join("、")}，暂时无法重新检测`,
+        400,
+        "PENETRATION_NO_READY_MODELS",
+        { skipped },
+      )
+    }
     if (activeModels.length === 0) {
       throw new PenetrationJobSubmissionError(
         `所选模型均未通过严格联网预检：${skipped.join("、")}`,
@@ -395,6 +415,9 @@ export async function submitPenetrationJob(
       clientName: currentClient.name,
       runId: requestId,
       operation,
+      ...(operation === "model_rerun"
+        ? { rerunMode: input.rerunMode === "overwrite" ? "overwrite" as const : "compare" as const }
+        : {}),
       subjectType,
       personProfile: subjectType === "person" ? personProfile : undefined,
       ourBrand,
@@ -471,7 +494,9 @@ export async function submitPenetrationJob(
       teamId: access.teamId,
       reservation,
       skipped,
-      baseResult: operation === "append" ? currentClient.penetration : undefined,
+      baseResult: operation === "append" || operation === "model_rerun"
+        ? currentClient.penetration
+        : undefined,
     })
     reservation = null
     return {

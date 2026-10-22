@@ -64,7 +64,8 @@ export function metricOption(record: PenetrationHistoryListItem): ClientFeedback
   return {
     historyRecordId: record.id,
     status: record.status === "partial" ? "partial" : "succeeded",
-    operation: record.operation,
+    // A single-model re-run saves the whole report, so it reads as a full run.
+    operation: record.operation === "append" ? "append" : "replace",
     subjectName: record.summary.ourBrand,
     penetrationRate: record.summary.penetrationRate,
     balancedPenetrationRate: record.summary.balancedPenetrationRate ?? null,

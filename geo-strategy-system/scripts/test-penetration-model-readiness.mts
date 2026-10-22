@@ -21,7 +21,11 @@ const {
 } = await import("../src/lib/ai-credential-route-health")
 const { classifyAiCredentialFailure } = await import("../src/lib/ai-credential-failure-classifier")
 const { runAiCredentialHealthSweep } = await import("../src/lib/ai-credential-health-monitor")
-const { getPenetrationModelReadiness } = await import("../src/lib/penetration/model-readiness")
+const {
+  getPenetrationModelReadiness,
+  getPenetrationModelReadinessDetail,
+} = await import("../src/lib/penetration/model-readiness")
+const { listAiCredentialAccountIssues } = await import("../src/lib/ai-credential-account-issues")
 const { isPermanentPenetrationProviderError } = await import("../src/lib/penetration/provider-errors")
 const { describeBlockedSlotsByModel } = await import("../src/lib/penetration/jobs")
 
@@ -160,6 +164,15 @@ try {
     "HTTP 402：The free trial quota for the service has been exhausted and postpaid billing is not enabled",
   )), true)
   assert.match((await getPenetrationModelReadiness("hunyuan")).reason || "", /免费额度已用完/)
+  // The pre-run check names the stopped account and why, before anyone runs.
+  const issues = await listAiCredentialAccountIssues(["hunyuan"])
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0]?.reason, "欠费或额度用完")
+  const detail = await getPenetrationModelReadinessDetail("hunyuan")
+  assert.deepEqual(detail.accounts, { usable: 0, total: 1 })
+  assert.equal(detail.concurrency, 0)
+  assert.match(detail.warnings.join(""), /1 个账号欠费或额度用完/)
+  assert.equal(detail.secondsPerAnswer, 15)
 
   // A second, working account that is only cooling after a burst must be
   // reported as recovering. Blaming the other account's billing made the job

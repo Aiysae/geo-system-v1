@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
       teamId: body.teamId,
       requestId,
       operation: body.operation,
+      rerunMode: body.rerunMode,
       questions: body.questions,
       questionIntents: body.questionIntents,
       models: body.models,

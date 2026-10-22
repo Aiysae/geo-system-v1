@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,8 @@ import ModelRateTrend from "./model-rate-trend"
 import PenetrationSampleQualityPanel from "./sample-quality-panel"
 import PenetrationAutomationPanel from "./automation-panel"
 import BrandModelMatrix from "./brand-model-matrix"
+import ModelHealthPanel, { type ModelRerunRequest } from "./model-health-panel"
+import ModelRerunReview from "./model-rerun-review"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
@@ -62,7 +64,8 @@ type PenetrationRunParams = {
   questionIntents: PenetrationQuestionIntentHint[]
   userLocation?: PenetrationUserLocation
   samplesPerQuestion?: number
-  operation?: "replace" | "append"
+  operation?: "replace" | "append" | "model_rerun"
+  rerunMode?: ModelRerunRequest["mode"]
   retestSampleId?: string
   slotSelection?: Array<{
     model: ModelKey
@@ -147,6 +150,29 @@ export default function PenetrationModule({
           if (job.result && job.result.generatedAt !== publishedResultAtRef.current) {
             publishedResultAtRef.current = job.result.generatedAt
             onChangeClient({ penetration: job.result })
+          }
+
+          // A single-model re-run either replaced the answers or awaits a decision;
+          // the review panel takes it from here.
+          if (job.operation === "model_rerun" && ["succeeded", "blocked", "failed", "cancelled"].includes(job.status)) {
+            const decision = job.modelRerun?.decision
+            const label = job.modelRerun ? MODEL_LABELS[job.modelRerun.model] : "模型"
+            onChangeClient({
+              ...(job.result ? { penetration: job.result } : {}),
+              ...(decision === "pending" || decision === "applied" ? { penetrationRerunJobId: job.id } : {}),
+              penetrationJobId: undefined,
+            })
+            setLoading(false)
+            setProgressLabel("")
+            setRetryableSlots([])
+            if (decision === "applied") {
+              setCompletionNotice(`${label} 重新检测完成，已替换原结果，7 天内可以撤销。`)
+            } else if (decision === "pending") {
+              setCompletionNotice(`${label} 重新检测完成，请在上方对比后决定是否采用。`)
+            } else {
+              setError(job.error || `${label} 重新检测没有得到可用的回答，原结果保持不变。`)
+            }
+            return
           }
 
           if (job.status === "succeeded") {
@@ -260,7 +286,13 @@ export default function PenetrationModule({
     setModelErrors({})
     setModelProgress({})
     setRetryableSlots([])
-    setProgressLabel(params.operation === "append" ? "正在重新检测本题..." : "正在开始检测...")
+    setProgressLabel(
+      params.operation === "append"
+        ? "正在重新检测本题..."
+        : params.operation === "model_rerun"
+          ? `正在重新检测${MODEL_LABELS[params.models[0]]}...`
+          : "正在开始检测...",
+    )
     try {
       const requestId = createBackgroundRequestId("penetration")
       const job = await createIdempotentApiJob<PenetrationJobRecord & { error?: string }>({
@@ -280,6 +312,7 @@ export default function PenetrationModule({
           models: params.models,
           slotSelection: params.slotSelection,
           operation: params.operation || "replace",
+          rerunMode: params.rerunMode,
           userLocation: params.userLocation ?? client.penetrationUserLocation,
           // Re-testing one answer adds one sample; other runs repeat as set.
           samplesPerQuestion: params.retestSampleId
@@ -325,6 +358,29 @@ export default function PenetrationModule({
       retestSampleId: sampleKey,
     })
   }
+
+  function handleModelRerun(request: ModelRerunRequest) {
+    if (loading || !canExecute) return
+    void handleRun({
+      questions: request.questions,
+      models: [request.model],
+      brandAliases: client.brandAliases ?? [],
+      competitors: client.competitors,
+      questionIntents: (client.penetration?.questionIntents || [])
+        .filter(hint => request.questions.includes(hint.question)),
+      operation: "model_rerun",
+      rerunMode: request.mode,
+      samplesPerQuestion: request.samplesPerQuestion,
+    })
+  }
+
+  const clearRerunReview = useCallback(() => {
+    onChangeClient({ penetrationRerunJobId: undefined })
+  }, [onChangeClient])
+  const applyRerunPenetration = useCallback((penetration: PenetrationResult) => {
+    publishedResultAtRef.current = penetration.generatedAt
+    onChangeClient({ penetration })
+  }, [onChangeClient])
 
   function handleRetryIncomplete() {
     if (loading || retryableSlots.length === 0 || !canExecute) return
@@ -450,6 +506,15 @@ export default function PenetrationModule({
         ) : null}
       </CardHeader>
       <CardContent className="space-y-5">
+        {client.penetrationRerunJobId && !client.penetrationJobId ? (
+          <ModelRerunReview
+            key={client.penetrationRerunJobId}
+            jobId={client.penetrationRerunJobId}
+            canExecute={canExecute}
+            onPenetration={applyRerunPenetration}
+            onClear={clearRerunReview}
+          />
+        ) : null}
         {pen ? <PenetrationResultSummary result={pen} /> : null}
         <details key={client.id} id={detectionConfigId} ref={detectionConfigRef} open={!pen || loading || Boolean(error) || retryableSlots.length > 0} className="no-print min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:p-5">
           <summary className="cursor-pointer text-sm font-semibold text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1677FF]">检测配置与任务状态</summary>
@@ -575,6 +640,15 @@ export default function PenetrationModule({
                 </div>
 
                 <PenetrationSampleQualityPanel aggregated={pen.aggregated} />
+
+                <ModelHealthPanel
+                  result={pen}
+                  subjectType={subjectType}
+                  canRerun={canExecute}
+                  busy={loading}
+                  defaultSamples={client.penetrationSamplesPerQuestion ?? 1}
+                  onRerun={handleModelRerun}
+                />
 
                 <div className="grid min-w-0 gap-4 xl:grid-cols-2">
                   <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
