@@ -3,7 +3,11 @@ import "server-only"
 import { NextRequest } from "next/server"
 import { POST as runPenetrationPipeline } from "@/app/api/penetration/route"
 import { createInternalApiHeaders } from "@/lib/internal-api"
-import { buildPenetrationBatchResult } from "@/lib/penetration/result-merge"
+import {
+  buildPenetrationBatchResult,
+  failedExtractionAnswers,
+  mergeReextractedAnswers,
+} from "@/lib/penetration/result-merge"
 import type {
   AnalysisSubjectType,
   ModelKey,
@@ -27,15 +31,24 @@ export async function reanalyzePenetrationEntities(args: {
   competitors: string[]
   subjectType?: AnalysisSubjectType
   personProfile?: PersonSubjectProfile
+  /**
+   * "failed" re-reads only answers whose brands were never read; "all" reads
+   * every answer again. By default only the unread ones, when there are any.
+   */
+  scope?: "failed" | "all"
 }): Promise<{
   result: PenetrationResult
   judgeModels: ModelKey[]
   judgeErrors: Partial<Record<ModelKey, string>>
+  /** Answers sent to the judge this time. */
+  reread: number
 }> {
+  const unread = failedExtractionAnswers(args.result.byModel)
+  const scope = args.scope ?? (Object.keys(unread).length > 0 ? "failed" : "all")
   const sampledByModel: PenetrationByModel = {}
   const models: ModelKey[] = []
 
-  for (const [model, items] of Object.entries(args.result.byModel) as Array<[
+  for (const [model, items] of Object.entries(scope === "failed" ? unread : args.result.byModel) as Array<[
     ModelKey,
     PenetrationByModel[ModelKey],
   ]>) {
@@ -83,6 +96,24 @@ export async function reanalyzePenetrationEntities(args: {
     throw new Error(payload.error || "品牌实体重新识别失败")
   }
 
+  const reread = Object.values(sampledByModel).reduce((sum, items) => sum + (items || []).length, 0)
+  if (scope === "failed") {
+    return {
+      result: mergeReextractedAnswers({
+        base: args.result,
+        incoming: payload.byModel,
+        ourBrand: args.ourBrand,
+        brandAliases: args.brandAliases,
+        competitors: args.competitors,
+        subjectType: args.subjectType || "brand",
+        generatedAt: payload.generatedAt || new Date().toISOString(),
+      }),
+      judgeModels: payload.judgeModels || [],
+      judgeErrors: payload.judgeErrors || {},
+      reread,
+    }
+  }
+
   const result = buildPenetrationBatchResult({
     operation: "replace",
     incomingByModel: payload.byModel,
@@ -102,5 +133,6 @@ export async function reanalyzePenetrationEntities(args: {
     result,
     judgeModels: payload.judgeModels || [],
     judgeErrors: payload.judgeErrors || {},
+    reread,
   }
 }

@@ -21,6 +21,8 @@ import { sanitizeAiUpstreamMessage } from "@/lib/ai-secrets"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import {
   buildPenetrationBatchResult,
+  failedExtractionAnswers,
+  mergeReextractedAnswers,
   replacePenetrationModelAnswers,
 } from "@/lib/penetration/result-merge"
 import { buildPenetrationModelStats } from "@/lib/penetration/model-diagnostics"
@@ -607,6 +609,52 @@ async function settleJobCreditsQuietly(id: string, usedSlots: number): Promise<v
     await settleJobCredits(id, usedSlots)
   } catch (error) {
     console.error("[penetration-jobs] credit settlement failed", id, usedSlots, error)
+  }
+}
+
+/**
+ * Before a run closes, answers whose brands no judge could read get one more
+ * pass. Judges ranked by health go first, so it usually lands on another
+ * judge; an answer still unread keeps its earlier state.
+ */
+async function retryFailedExtractions(job: StoredPenetrationJob): Promise<StoredPenetrationJob> {
+  if (!job.result) return job
+  const unread = failedExtractionAnswers(job.result.byModel)
+  const models = Object.keys(unread) as ModelKey[]
+  if (models.length === 0) return job
+  const sampledByModel: PenetrationByModel = {}
+  for (const model of models) {
+    sampledByModel[model] = (unread[model] || []).map(item => ({
+      ...item,
+      extraction: { status: "pending" as const, attempts: 0, version: 2 as const },
+    }))
+  }
+  const questions = Array.from(new Set(
+    Object.values(sampledByModel).flatMap(items => (items || []).map(item => item.question)),
+  ))
+  try {
+    await assertNotCancelled(job.id)
+    const judged = await fetchBatchJudge(job, { questions, models, sampleStart: 0 }, sampledByModel)
+    const latest = await getStoredJob(job.id) || job
+    if (!latest.result || !judged.byModel) return latest
+    const result = mergeReextractedAnswers({
+      base: latest.result,
+      incoming: judged.byModel,
+      ourBrand: job.request.ourBrand,
+      brandAliases: job.request.brandAliases,
+      competitors: job.request.competitors,
+      subjectType: job.request.subjectType || "brand",
+      generatedAt: monotonicGeneratedAt(latest.result.generatedAt, nowIso()),
+    })
+    return await patchJob(job.id, { result }) || { ...latest, result }
+  } catch (error) {
+    if (isCancelledError(error)) throw error
+    console.warn(
+      "[penetration-jobs] unread answers kept after the closing judge pass",
+      job.id,
+      error instanceof Error ? error.message : String(error),
+    )
+    return job
   }
 }
 
@@ -2043,6 +2091,7 @@ async function runJobSlice(jobId: string): Promise<void> {
 
     if (progress.completedSlots === job.totalSlots) {
       job = await patchJob(job.id, { phase: "finalizing", ...progress }) || job
+      job = await retryFailedExtractions(job)
       await persistJobResultToWorkspace(job)
       const usedSlots = successfulNewSlotCount(job)
       await settleJobCreditsQuietly(job.id, usedSlots)
@@ -2070,6 +2119,7 @@ async function runJobSlice(jobId: string): Promise<void> {
     const recoverableSlots = Object.values(states).filter(isRecoverableSlot)
     if (recoverableSlots.length === 0) {
       job = await patchJob(job.id, progress) || job
+      job = await retryFailedExtractions(job)
       await persistJobResultToWorkspace(job)
       const usedSlots = successfulNewSlotCount(job)
       await settleJobCreditsQuietly(job.id, usedSlots)

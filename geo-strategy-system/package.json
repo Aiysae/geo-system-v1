@@ -147,6 +147,7 @@
     "test:penetration-brand-share": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-brand-share.mts",
     "test:penetration-model-rerun": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-model-rerun.mts",
     "test:penetration-judge-decoupling": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-judge-decoupling.mts",
+    "test:penetration-extraction-retry": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-extraction-retry.mts",
     "test:article-vendor-fallback": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-vendor-fallback.mts",
     "test:penetration-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-history.mts",
     "test:penetration-extraction": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-entity-extraction.mts",

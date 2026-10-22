@@ -146,3 +146,56 @@ export function replacePenetrationModelAnswers(args: {
     ],
   }
 }
+
+/** Answers whose brands were never read, waiting for another judge. */
+export function failedExtractionAnswers(byModel: PenetrationByModel): PenetrationByModel {
+  const failed: PenetrationByModel = {}
+  for (const [model, items] of Object.entries(byModel) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
+    const unread = (items || []).filter(item => (
+      item.answer?.trim() && item.extraction && item.extraction.status !== "succeeded"
+    ))
+    if (unread.length > 0) failed[model] = unread
+  }
+  return failed
+}
+
+/**
+ * Puts re-read answers back in place and recomputes the report. Only answers
+ * the judge now read replace their earlier copy, so a second failure leaves
+ * the report as it was.
+ */
+export function mergeReextractedAnswers(args: {
+  base: PenetrationResult
+  incoming: PenetrationByModel
+  ourBrand: string
+  brandAliases: string[]
+  competitors: string[]
+  subjectType?: AnalysisSubjectType
+  generatedAt: string
+}): PenetrationResult {
+  const read = new Map<string, PenetrationItem>()
+  for (const items of Object.values(args.incoming)) {
+    for (const item of items || []) {
+      if (item.sampleId && item.extraction?.status === "succeeded") read.set(item.sampleId, item)
+    }
+  }
+  const byModel: PenetrationByModel = {}
+  for (const [model, items] of Object.entries(args.base.byModel) as Array<[ModelKey, PenetrationItem[] | undefined]>) {
+    byModel[model] = (items || []).map(item => (item.sampleId && read.get(item.sampleId)) || item)
+  }
+  return {
+    ...buildPenetrationBatchResult({
+      operation: "replace",
+      incomingByModel: byModel,
+      ourBrand: args.ourBrand,
+      brandAliases: args.brandAliases,
+      competitors: args.competitors,
+      subjectType: args.subjectType,
+      generatedAt: args.generatedAt,
+      questionIntents: args.base.questionIntents,
+      plannedSlots: args.base.aggregated.plannedSlots ?? args.base.aggregated.totalSlots,
+      modelCount: args.base.aggregated.perModelRate.length || Object.keys(byModel).length,
+    }),
+    modelReruns: args.base.modelReruns,
+  }
+}
