@@ -82,6 +82,31 @@ globalThis.fetch = async (input, init) => {
     })
   }
 
+  if (url.includes("dashscope.aliyuncs.com") && String(body.model).startsWith("qwen3.7")) {
+    // Agent search streams each round's results and the answer in pieces.
+    const events = [
+      {
+        request_id: "dash-qwen-agent-1",
+        output: {
+          choices: [{ finish_reason: "null", message: { role: "assistant", content: "通义千问" } }],
+          search_info: { search_results: [{ index: 1, title: "第一轮信源", snippet: "第一轮检索到的公开文章。", url: "https://example.com/news/qwen-agent-round-1" }] },
+        },
+      },
+      {
+        request_id: "dash-qwen-agent-1",
+        output: {
+          choices: [{ finish_reason: "stop", message: { role: "assistant", content: "agent 联网回答" } }],
+          search_info: { search_results: [{ index: 2, title: "第二轮信源", snippet: "第二轮检索到的公开文章。", url: "https://example.com/news/qwen-agent-round-2" }] },
+        },
+        usage: { plugins: { search: { count: 2 } } },
+      },
+    ]
+    return new Response(events.map(event => `id:1\nevent:result\ndata:${JSON.stringify(event)}\n\n`).join(""), {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    })
+  }
+
   if (url.includes("dashscope.aliyuncs.com")) {
     return jsonResponse({
       request_id: "dash-qwen-request-1",
@@ -307,6 +332,7 @@ globalThis.fetch = async (input, init) => {
 
 const { chatDeepSeek } = await import("../src/lib/llm/deepseek")
 const { chatQwen } = await import("../src/lib/llm/qwen")
+const { chatDashScopeNativeSearch, dashScopeSearchStrategy } = await import("../src/lib/llm/dashscope-native-search")
 const { chatKimi } = await import("../src/lib/llm/kimi")
 const { chatErnie } = await import("../src/lib/llm/ernie")
 const { chatDoubao } = await import("../src/lib/llm/doubao")
@@ -393,6 +419,41 @@ try {
   assert.equal(qwenEvents[0]?.mode, "native_web")
   assert.equal(qwenAudits[0]?.verified, true)
   assert.equal(qwenAudits[0]?.searchMode, "native_web")
+  assert.equal(
+    (qwenRequest.body.parameters as { search_options: { search_strategy: string } }).search_options.search_strategy,
+    "max",
+    "models without agent search keep the max strategy",
+  )
+
+  // Qwen 3.5 to 3.7 search like the App: agent rounds over a stream.
+  assert.equal(dashScopeSearchStrategy("qwen3.7-max-preview"), "agent")
+  assert.equal(dashScopeSearchStrategy("qwen-plus"), "max")
+  const agentEvents: SearchSourceEvent[] = []
+  const agentAnswer = await chatDashScopeNativeSearch({
+    ...baseArgs,
+    apiKey: "test-dashscope-key",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen3.7-max-preview",
+    timeoutSec: 60,
+    label: "通义千问",
+    onSearchSources: event => agentEvents.push(event),
+  })
+  assert.equal(agentAnswer, "通义千问agent 联网回答")
+  const agentRequest = requests.find(request => request.body.model === "qwen3.7-max-preview")
+  const agentParameters = agentRequest?.body.parameters as {
+    incremental_output?: boolean
+    enable_thinking?: boolean
+    search_options: { search_strategy: string }
+  }
+  assert.equal(agentParameters.search_options.search_strategy, "agent")
+  assert.equal(agentParameters.incremental_output, true)
+  assert.equal(agentParameters.enable_thinking, true)
+  assert.deepEqual(
+    agentEvents.flatMap(event => event.sources).map(source => source.url),
+    ["https://example.com/news/qwen-agent-round-1", "https://example.com/news/qwen-agent-round-2"],
+    "every round's results count as sources",
+  )
+  assert.equal(agentEvents[0]?.providerRequestId, "dash-qwen-agent-1")
 
   const kimiEvents: SearchSourceEvent[] = []
   const kimiAudits: PenetrationRequestAudit[] = []

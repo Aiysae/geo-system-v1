@@ -98,7 +98,8 @@ interface PenetrationAuditProfile {
 function blindQueryTimeoutSec(model: ModelKey): number {
   const envValue = Number(process.env[`PENETRATION_${model.toUpperCase()}_TIMEOUT_SEC`])
   if (Number.isFinite(envValue) && envValue >= 30) return Math.min(300, Math.round(envValue))
-  if (model === "ernie" || model === "kimi") return 180
+  // Qwen's agent search runs several rounds before answering.
+  if (model === "ernie" || model === "kimi" || model === "qwen") return 180
   if (model === "hunyuan") return 240
   if (model === "doubao") return 150
   return 120

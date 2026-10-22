@@ -93,6 +93,55 @@ function sourceFromResult(
   }
 }
 
+/**
+ * Search strategy per model. Agent search runs several rounds of searching,
+ * as the Qwen App does; on 2026-10-21 it halved the gap to answers sampled
+ * from the App (24 to 12 points, sources 9 to 24) at the same search price.
+ * Bailian offers it on Qwen 3.5 to 3.7 only, and only over a stream.
+ */
+export function dashScopeSearchStrategy(model: string): "agent" | "max" {
+  return /^qwen3\.[5-7](?:-|$)/i.test(model.trim()) ? "agent" : "max"
+}
+
+/** Folds a DashScope SSE stream into the shape of one non-streamed response. */
+export function mergeDashScopeStream(text: string): DashScopeResponse {
+  let answer = ""
+  let finishReason: string | undefined
+  let requestId: string | undefined
+  let usage: DashScopeResponse["usage"]
+  let failure: { code?: string; message?: string } | undefined
+  // Agent search reports each round's results; keep every distinct page.
+  const results = new Map<string, Record<string, unknown>>()
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue
+    let event: DashScopeResponse
+    try {
+      event = JSON.parse(line.slice(5)) as DashScopeResponse
+    } catch {
+      continue
+    }
+    if (event.code && !event.output) failure = { code: event.code, message: event.message }
+    requestId ||= event.request_id
+    const choice = event.output?.choices?.[0]
+    answer += extractText(choice?.message?.content)
+    if (choice?.finish_reason && choice.finish_reason !== "null") finishReason = choice.finish_reason
+    for (const result of event.output?.search_info?.search_results || []) {
+      const key = String(result.url || result.link || JSON.stringify(result))
+      results.set(key, result)
+    }
+    if (event.usage) usage = event.usage
+  }
+  return {
+    ...(failure ? { code: failure.code, message: failure.message } : {}),
+    request_id: requestId,
+    output: {
+      choices: [{ finish_reason: finishReason, message: { role: "assistant", content: answer } }],
+      search_info: { search_results: [...results.values()] },
+    },
+    usage,
+  }
+}
+
 function extractSources(data: DashScopeResponse, query: string): PenetrationSource[] {
   const direct = (data.output?.search_info?.search_results || [])
     .map(result => sourceFromResult(result, query))
@@ -124,15 +173,19 @@ export async function chatDashScopeNativeSearch(
   }
   messages.push({ role: "user", content: args.user })
   const searchMode = args.searchMode ?? "native_web"
+  const strategy = dashScopeSearchStrategy(args.model)
+  const streamed = strategy === "agent"
   const parameters = {
     result_format: "message",
     // Unset means the provider default, which is what app users get.
     ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
-    max_tokens: args.maxTokens ?? 1200,
+    // Agent rounds and thinking need room beyond a short answer's budget.
+    max_tokens: streamed ? Math.max(args.maxTokens ?? 1200, 4096) : args.maxTokens ?? 1200,
+    ...(streamed ? { incremental_output: true, enable_thinking: true } : {}),
     enable_search: true,
     search_options: {
       forced_search: true,
-      search_strategy: "max",
+      search_strategy: strategy,
       enable_source: true,
       enable_citation: true,
       citation_format: "[<number>]",
@@ -161,15 +214,22 @@ export async function chatDashScopeNativeSearch(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${args.apiKey}`,
+        ...(streamed ? { "X-DashScope-SSE": "enable" } : {}),
       },
       body: JSON.stringify(payload),
     })
     const text = await response.text()
     let data: DashScopeResponse
     try {
-      data = JSON.parse(text) as DashScopeResponse
+      // Errors come back as one JSON body even on a streamed request.
+      data = streamed && response.ok && /^\s*(?:id:|event:|data:)/.test(text)
+        ? mergeDashScopeStream(text)
+        : JSON.parse(text) as DashScopeResponse
     } catch (error) {
       throw new Error(`${args.label} 百炼联网返回体解析失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (response.ok && data.code && !data.output?.choices?.[0]?.message?.content) {
+      throw new Error(`${args.label} 百炼联网接口调用失败：${data.code} ${data.message || ""}`.trim())
     }
 
     if (!response.ok) {
