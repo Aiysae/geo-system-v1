@@ -309,3 +309,18 @@ function validIso(value: unknown): string | null {
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null
 }
+
+/**
+ * Whether a page's detection result is older than the one already saved. A
+ * page still holding an older report must not replace a newer one, even when
+ * it chooses to overwrite the cloud after a conflict.
+ */
+export function isOlderDetectionResult(
+  incomingGeneratedAt: string | undefined,
+  currentGeneratedAt: string | undefined,
+): boolean {
+  if (!incomingGeneratedAt || !currentGeneratedAt) return false
+  const incoming = Date.parse(incomingGeneratedAt)
+  const current = Date.parse(currentGeneratedAt)
+  return Number.isFinite(incoming) && Number.isFinite(current) && incoming < current
+}

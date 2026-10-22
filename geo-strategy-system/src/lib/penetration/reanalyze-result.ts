@@ -42,6 +42,9 @@ export async function reanalyzePenetrationEntities(args: {
   judgeErrors: Partial<Record<ModelKey, string>>
   /** Answers sent to the judge this time. */
   reread: number
+  scope: "failed" | "all"
+  /** The answers as the judge returned them, to merge onto a newer report. */
+  rereadByModel: PenetrationByModel
 }> {
   const unread = failedExtractionAnswers(args.result.byModel)
   const scope = args.scope ?? (Object.keys(unread).length > 0 ? "failed" : "all")
@@ -111,6 +114,8 @@ export async function reanalyzePenetrationEntities(args: {
       judgeModels: payload.judgeModels || [],
       judgeErrors: payload.judgeErrors || {},
       reread,
+      scope,
+      rereadByModel: payload.byModel,
     }
   }
 
@@ -134,5 +139,7 @@ export async function reanalyzePenetrationEntities(args: {
     judgeModels: payload.judgeModels || [],
     judgeErrors: payload.judgeErrors || {},
     reread,
+    scope,
+    rereadByModel: payload.byModel,
   }
 }

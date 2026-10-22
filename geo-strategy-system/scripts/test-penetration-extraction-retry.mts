@@ -175,6 +175,13 @@ try {
   assert.deepEqual(merged.byModel.qwen?.map(entry => entry.mentionedBrands[0]), ["新读到", "读到的品牌", "读到的品牌"])
   assert.deepEqual(failedExtractionAnswers(merged.byModel), {})
 
+  // A page holding an older report cannot save it over a newer one.
+  const { isOlderDetectionResult } = await import("../src/lib/workspace-sync")
+  assert.equal(isOlderDetectionResult("2026-10-22T13:00:00.000Z", "2026-10-22T13:22:07.511Z"), true)
+  assert.equal(isOlderDetectionResult("2026-10-22T13:22:07.511Z", "2026-10-22T13:22:07.511Z"), false, "the same report saves again")
+  assert.equal(isOlderDetectionResult("2026-10-22T14:00:00.000Z", "2026-10-22T13:22:07.511Z"), false)
+  assert.equal(isOlderDetectionResult("2026-10-22T13:00:00.000Z", undefined), false, "nothing saved yet")
+
   console.log("Penetration unread answers get a closing judge pass, and only they are re-read.")
 } finally {
   globalThis.fetch = originalFetch

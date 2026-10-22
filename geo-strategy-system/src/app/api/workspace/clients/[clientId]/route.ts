@@ -17,6 +17,7 @@ import {
 import {
   filterClientPatch,
   filterUnsetFields,
+  isOlderDetectionResult,
   normalizeWorkspaceSections,
   normalizeWorkspaceVersions,
   sectionsForClientPatch,
@@ -24,6 +25,7 @@ import {
   type WorkspaceSection,
   WorkspaceValidationError,
 } from "@/lib/workspace-sync"
+import type { Client } from "@/types"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -119,6 +121,20 @@ export async function GET(
   }
 }
 
+async function dropsStaleDetectionResult(
+  ownerUserId: string,
+  clientId: string,
+  patch: Partial<Client>,
+): Promise<boolean> {
+  const incoming = patch.penetration?.generatedAt
+  if (!incoming) return false
+  const current = (await listWorkspaceClients(ownerUserId))
+    .find(record => record.client.id === clientId)?.client.penetration?.generatedAt
+  if (!isOlderDetectionResult(incoming, current)) return false
+  delete patch.penetration
+  return true
+}
+
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ clientId: string }> },
@@ -205,6 +221,11 @@ export async function PATCH(
       }
     }
 
+    // A page still holding an older detection result must not replace a newer
+    // one, even after choosing to overwrite the cloud in a conflict: the old
+    // copy undid a re-run the user had applied. The page gets the newer one back.
+    const staleResult = await dropsStaleDetectionResult(ownerUserId, clientId, patch)
+
     const synced = await patchWorkspaceClient({
       userId: ownerUserId,
       clientId,
@@ -219,6 +240,7 @@ export async function PATCH(
     const changedSections = normalizeWorkspaceSections([
       "core",
       ...sectionsForClientPatch(patch, unsetFields),
+      ...(staleResult ? ["penetration" as const] : []),
     ])
     const sections = splitClientData(synced.client)
     return noStore(NextResponse.json({
