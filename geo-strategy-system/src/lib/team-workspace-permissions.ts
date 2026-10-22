@@ -44,6 +44,7 @@ const FIELD_REQUIREMENTS: Partial<Record<keyof Client, WorkspacePermissionRequir
   penetration: { module: "penetration", action: "edit" },
   penetrationJobId: { module: "penetration", action: "execute" },
   penetrationRerunJobId: { module: "penetration", action: "execute" },
+  penetrationRerunJobIds: { module: "penetration", action: "execute" },
   research: { module: "research", action: "edit" },
   competitorCompare: { module: "research", action: "edit" },
   researchSourceMode: { module: "research", action: "edit" },

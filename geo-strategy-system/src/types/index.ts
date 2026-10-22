@@ -1759,6 +1759,11 @@ export interface Client {
   penetrationJobId?: string
   /** Latest single-model re-run: its comparison awaits a decision, or it can be undone. */
   penetrationRerunJobId?: string
+  /**
+   * Single-model re-runs the page follows, several models side by side:
+   * running, awaiting a decision, or undoable. Written only by the server.
+   */
+  penetrationRerunJobIds?: string[]
   research?: ResearchResult
   competitorCompare?: CompetitorCompareResult
   researchSourceMode?: ResearchSourceMode

@@ -45,7 +45,7 @@ import {
 } from "@/lib/penetration/wave-scheduler"
 import { estimateFeatureCredits } from "@/lib/pricing"
 import { settleReservedCredits, type CreditReservation } from "@/lib/with-credits"
-import { mutateWorkspaceClientLatest } from "@/lib/workspace-store"
+import { listWorkspaceClients, mutateWorkspaceClientLatest } from "@/lib/workspace-store"
 import {
   buildPenetrationHistoryRecord,
   savePenetrationHistoryRecord,
@@ -54,6 +54,7 @@ import { buildPenetrationSystemOutputRecord } from "@/lib/system-output/builders
 import { saveSystemOutputRecord } from "@/lib/system-output/store"
 import type {
   AnalysisSubjectType,
+  Client,
   ModelKey,
   PenetrationByModel,
   PenetrationHistoryStatus,
@@ -668,6 +669,47 @@ function isModelRerun(job: Pick<StoredPenetrationJob, "request">): boolean {
   return job.request.operation === "model_rerun"
 }
 
+const RERUN_MARKER_LIMIT = 10
+
+/**
+ * The client's re-run markers with this job kept (running, awaiting a
+ * decision, undoable) or dropped. Re-runs of different models run side by
+ * side, so each lives in a list; jobs started before that carried the single
+ * job markers, which move into the list or go.
+ */
+/**
+ * The client's whole-run marker when it belongs to a re-run (one started
+ * before re-runs ran side by side), which does not hold up other re-runs.
+ */
+async function rerunHeldWholeRunMarker(job: StoredPenetrationJob): Promise<string | undefined> {
+  const client = (await listWorkspaceClients(job.workspaceOwnerUserId || job.ownerUserId))
+    .find(item => item.client.id === job.clientId)?.client
+  const markerId = client?.penetrationJobId
+  if (!markerId || markerId === job.id) return undefined
+  const marker = await getStoredJob(markerId)
+  const wholeRunActive = marker
+    && !isModelRerun(marker)
+    && (marker.status === "queued" || marker.status === "running")
+  return wholeRunActive ? undefined : markerId
+}
+
+export function rerunMarkerMutation(
+  client: Client,
+  jobId: string,
+  keep: boolean,
+): { patch: Partial<Client>; unsetFields: (keyof Client)[] } {
+  const others = (client.penetrationRerunJobIds || []).filter(id => id !== jobId)
+  const ids = (keep ? [...others, jobId] : others).slice(-RERUN_MARKER_LIMIT)
+  const unsetFields: (keyof Client)[] = []
+  if (client.penetrationJobId === jobId) unsetFields.push("penetrationJobId")
+  if (client.penetrationRerunJobId === jobId) unsetFields.push("penetrationRerunJobId")
+  if (ids.length === 0) {
+    if (client.penetrationRerunJobIds) unsetFields.push("penetrationRerunJobIds")
+    return { patch: {}, unsetFields }
+  }
+  return { patch: { penetrationRerunJobIds: ids }, unsetFields }
+}
+
 function rerunModelKey(job: StoredPenetrationJob): ModelKey {
   return job.request.models[0]
 }
@@ -751,16 +793,22 @@ async function finalizeModelRerun(job: StoredPenetrationJob): Promise<StoredPene
  */
 async function applyModelRerunToWorkspace(
   job: StoredPenetrationJob,
-  options: { clearJobMarker: boolean },
 ): Promise<{ applied?: PenetrationResult; error?: string }> {
   let applied: PenetrationResult | undefined
   let previous: PenetrationResult | undefined
   let blocked = ""
+  const harmlessMarker = await rerunHeldWholeRunMarker(job)
   const saved = await mutateWorkspaceClientLatest({
     userId: job.workspaceOwnerUserId || job.ownerUserId,
     clientId: job.clientId,
     mutate: current => {
-      if (current.penetrationJobId && current.penetrationJobId !== job.id) {
+      // A whole detection run would write over it; re-runs of other models
+      // merge in turn.
+      if (
+        current.penetrationJobId
+        && current.penetrationJobId !== job.id
+        && current.penetrationJobId !== harmlessMarker
+      ) {
         blocked = "当前客户有检测任务正在运行，请等它结束后再采用重测结果"
         return null
       }
@@ -770,12 +818,8 @@ async function applyModelRerunToWorkspace(
         blocked = "重测没有得到可用的回答"
         return null
       }
-      return {
-        patch: { penetration: applied, penetrationRerunJobId: job.id },
-        ...(options.clearJobMarker && current.penetrationJobId === job.id
-          ? { unsetFields: ["penetrationJobId"] as const }
-          : {}),
-      }
+      const markers = rerunMarkerMutation(current, job.id, true)
+      return { patch: { ...markers.patch, penetration: applied }, unsetFields: markers.unsetFields }
     },
   })
   if (!saved || !applied) return { error: blocked || "客户资料不存在或已被删除" }
@@ -799,9 +843,7 @@ async function discardModelRerun(job: StoredPenetrationJob): Promise<void> {
   await mutateWorkspaceClientLatest({
     userId: job.workspaceOwnerUserId || job.ownerUserId,
     clientId: job.clientId,
-    mutate: client => client.penetrationJobId === job.id
-      ? { patch: {}, unsetFields: ["penetrationJobId"] as const }
-      : null,
+    mutate: client => rerunMarkerMutation(client, job.id, false),
   })
 }
 
@@ -813,20 +855,14 @@ async function persistModelRerunToWorkspace(
   if (!finalize) return false
   const current = await finalizeModelRerun(job)
   if (current.modelRerun?.decision === "pending" && current.modelRerun.mode === "overwrite") {
-    const { applied } = await applyModelRerunToWorkspace(current, { clearJobMarker: true })
+    const { applied } = await applyModelRerunToWorkspace(current)
     if (applied) return true
   }
   // Comparison first, or nothing usable: the report stays as it was.
   const saved = await mutateWorkspaceClientLatest({
     userId: job.workspaceOwnerUserId || job.ownerUserId,
     clientId: job.clientId,
-    mutate: client => {
-      if (client.penetrationJobId && client.penetrationJobId !== job.id) return null
-      return {
-        patch: current.modelRerun?.decision === "pending" ? { penetrationRerunJobId: job.id } : {},
-        ...(client.penetrationJobId === job.id ? { unsetFields: ["penetrationJobId"] as const } : {}),
-      }
-    },
+    mutate: client => rerunMarkerMutation(client, job.id, current.modelRerun?.decision === "pending"),
   })
   return Boolean(saved)
 }
@@ -2445,7 +2481,7 @@ export async function decidePenetrationModelRerun(
 
   if (action === "apply") {
     if (state.decision !== "pending") throw new PenetrationModelRerunDecisionError("这次重测已经处理过了")
-    const { applied, error } = await applyModelRerunToWorkspace(job, { clearJobMarker: false })
+    const { applied, error } = await applyModelRerunToWorkspace(job)
     if (!applied) throw new PenetrationModelRerunDecisionError(error || "重测结果写入失败")
     return { job: toPublicJob(await getStoredJob(id) || job), penetration: applied }
   }
@@ -2456,9 +2492,7 @@ export async function decidePenetrationModelRerun(
     await mutateWorkspaceClientLatest({
       userId,
       clientId: job.clientId,
-      mutate: client => client.penetrationRerunJobId === id
-        ? { patch: {}, unsetFields: ["penetrationRerunJobId"] as const }
-        : null,
+      mutate: client => rerunMarkerMutation(client, id, false),
     })
     return { job: toPublicJob(saved) }
   }
@@ -2469,11 +2503,12 @@ export async function decidePenetrationModelRerun(
   const previous = job.rerunPrevious
   const appliedAt = job.rerunApplied.generatedAt
   let refused = ""
+  const harmlessMarker = await rerunHeldWholeRunMarker(job)
   const restored = await mutateWorkspaceClientLatest({
     userId,
     clientId: job.clientId,
     mutate: client => {
-      if (client.penetrationJobId) {
+      if (client.penetrationJobId && client.penetrationJobId !== harmlessMarker) {
         refused = "当前客户有检测任务正在运行，请等它结束后再撤销"
         return null
       }
@@ -2482,12 +2517,8 @@ export async function decidePenetrationModelRerun(
         refused = "覆盖之后报告又更新过，不能直接撤销；原结果仍保存在检测历史中"
         return null
       }
-      return {
-        patch: { penetration: previous },
-        ...(client.penetrationRerunJobId === id
-          ? { unsetFields: ["penetrationRerunJobId"] as const }
-          : {}),
-      }
+      const markers = rerunMarkerMutation(client, id, false)
+      return { patch: { ...markers.patch, penetration: previous }, unsetFields: markers.unsetFields }
     },
   })
   if (!restored || refused) throw new PenetrationModelRerunDecisionError(refused || "客户资料不存在或已被删除")

@@ -89,7 +89,7 @@ const SECTION_FIELDS = {
   knowledgeBase: ["knowledgeBase"],
   keywordStrategy: ["keywordStrategy"],
   articleGeneration: ["articleGeneration"],
-  jobs: ["penetrationJobId", "penetrationRerunJobId", "difficultyJobId", "backgroundJobs", "backgroundResultJobs"],
+  jobs: ["penetrationJobId", "penetrationRerunJobId", "penetrationRerunJobIds", "difficultyJobId", "backgroundJobs", "backgroundResultJobs"],
 } as const satisfies Record<WorkspaceSection, readonly (keyof Client)[]>
 
 const LOCAL_WORKSPACE_FIELDS = new Set<keyof Client>([

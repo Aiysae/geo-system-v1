@@ -7,6 +7,7 @@ import { jobIdFromRequest, normalizeJobRequestId } from "@/lib/job-request-idemp
 import {
   createPenetrationJob,
   getPenetrationJob,
+  rerunMarkerMutation,
   type PenetrationJobRequest,
 } from "@/lib/penetration/jobs"
 import { getPenetrationModelReadiness } from "@/lib/penetration/model-readiness"
@@ -197,7 +198,8 @@ async function clearWorkspaceJobMarker(input: {
       userId: input.ownerUserId,
       clientId: input.clientId,
       mutate: current => current.penetrationJobId === input.jobId
-        ? { patch: {}, unsetFields: ["penetrationJobId"] }
+        || current.penetrationRerunJobIds?.includes(input.jobId)
+        ? rerunMarkerMutation(current, input.jobId, false)
         : null,
     })
   } catch (error) {
@@ -260,28 +262,34 @@ export async function submitPenetrationJob(
       throw new PenetrationJobSubmissionError("当前客户不存在或已被删除，请刷新页面后重试", 404)
     }
 
-    let replaceableWorkspaceJobId: string | undefined
-    if (currentClient.penetrationJobId && currentClient.penetrationJobId !== jobId) {
-      const currentJob = await getPenetrationJob(
-        currentClient.penetrationJobId,
-        access.dataOwnerUserId,
-      )
-      if (currentJob && activeJob(currentJob.status)) {
-        throw new PenetrationJobSubmissionError(
-          "当前客户已有检测任务在运行，可在任务中心查看进度",
-          409,
-          "PENETRATION_CLIENT_BUSY",
-          { jobId: currentJob.id },
-        )
-      }
-      replaceableWorkspaceJobId = currentClient.penetrationJobId
-    }
-
     const operation: PenetrationJobOperation = input.operation === "append"
       ? "append"
       : input.operation === "model_rerun"
         ? "model_rerun"
         : "replace"
+
+    // Re-runs of different models run side by side; anything else runs alone.
+    const runningJobs = (await Promise.all(
+      Array.from(new Set([currentClient.penetrationJobId, ...(currentClient.penetrationRerunJobIds || [])]))
+        .filter((id): id is string => Boolean(id) && id !== jobId)
+        .map(id => getPenetrationJob(id, access.dataOwnerUserId)),
+    )).filter((job): job is PenetrationJobRecord => Boolean(job && activeJob(job.status)))
+    const runningWholeJob = runningJobs.find(job => job.operation !== "model_rerun")
+    if (runningWholeJob || (operation !== "model_rerun" && runningJobs.length > 0)) {
+      throw new PenetrationJobSubmissionError(
+        runningWholeJob
+          ? "当前客户已有检测任务在运行，可在任务中心查看进度"
+          : "有模型正在单独重新检测，请等它结束后再开始检测",
+        409,
+        "PENETRATION_CLIENT_BUSY",
+        { jobId: (runningWholeJob || runningJobs[0]).id },
+      )
+    }
+    // A finished job's marker may be taken over.
+    const replaceableWorkspaceJobId = currentClient.penetrationJobId
+      && currentClient.penetrationJobId !== jobId
+      ? currentClient.penetrationJobId
+      : undefined
     if (operation === "model_rerun" && !currentClient.penetration) {
       throw new PenetrationJobSubmissionError("还没有检测结果，无法单独重新检测某个模型")
     }
@@ -309,6 +317,17 @@ export async function submitPenetrationJob(
     }
     if (operation === "model_rerun" && requestedModels.length !== 1) {
       throw new PenetrationJobSubmissionError("单模型重新检测一次只能选择一个模型")
+    }
+    const sameModelRerun = operation === "model_rerun"
+      ? runningJobs.find(job => job.modelRerun?.model === requestedModels[0])
+      : undefined
+    if (sameModelRerun) {
+      throw new PenetrationJobSubmissionError(
+        `${ADAPTERS[requestedModels[0]].label} 正在重新检测，请等它结束`,
+        409,
+        "PENETRATION_CLIENT_BUSY",
+        { jobId: sameModelRerun.id },
+      )
     }
 
     const identityLocked = useSaved
@@ -469,15 +488,20 @@ export async function submitPenetrationJob(
     const marked = await mutateWorkspaceClientLatest({
       userId: access.dataOwnerUserId,
       clientId,
-      mutate: current => (
-        current.penetrationJobId
+      mutate: current => {
+        // Re-runs are followed in their own list, beside a finished job's marker.
+        if (operation === "model_rerun") return rerunMarkerMutation(current, jobId, true)
+        return current.penetrationJobId
           && current.penetrationJobId !== jobId
           && current.penetrationJobId !== replaceableWorkspaceJobId
           ? null
           : { patch: { penetrationJobId: jobId } }
-      ),
+      },
     })
-    if (!marked || marked.client.penetrationJobId !== jobId) {
+    const markedJob = operation === "model_rerun"
+      ? marked?.client.penetrationRerunJobIds?.includes(jobId)
+      : marked?.client.penetrationJobId === jobId
+    if (!marked || !markedJob) {
       throw new PenetrationJobSubmissionError(
         "当前客户已有检测任务在运行，可在任务中心查看进度",
         409,

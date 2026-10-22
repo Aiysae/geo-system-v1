@@ -166,7 +166,7 @@ const reservation = {
   ledgerContext: { featureKey: "penetrationSlot" as const, source: "test", description: "test" },
 }
 
-function rerunRequest(id: string, mode: "compare" | "overwrite") {
+function rerunRequest(id: string, mode: "compare" | "overwrite", model: ModelKey = "kimi") {
   return {
     id,
     request: {
@@ -180,8 +180,8 @@ function rerunRequest(id: string, mode: "compare" | "overwrite") {
       website: "https://example.com",
       questions,
       competitors: [],
-      selectedModels: ["kimi" as ModelKey],
-      models: ["kimi" as ModelKey],
+      selectedModels: [model],
+      models: [model],
       samplesPerQuestion: 1,
     },
     ownerUserId: owner,
@@ -218,7 +218,7 @@ try {
   assert.equal(compared.modelRerun?.before?.model?.topBrands[0]?.brand, "旧品牌")
   let saved = await workspacePenetration()
   assert.equal(saved?.penetration?.generatedAt, base.generatedAt)
-  assert.equal(saved?.penetrationRerunJobId, "pjob_rerun_compare")
+  assert.deepEqual(saved?.penetrationRerunJobIds, ["pjob_rerun_compare"])
 
   const applied = await decidePenetrationModelRerun("pjob_rerun_compare", owner, "apply")
   assert.deepEqual(applied.penetration?.byModel.kimi?.map(entry => entry.mentionedBrands[0]), ["新品牌", "新品牌"])
@@ -233,7 +233,7 @@ try {
   assert.equal(undone.penetration?.generatedAt, base.generatedAt)
   saved = await workspacePenetration()
   assert.equal(saved?.penetration?.byModel.kimi?.[0]?.mentionedBrands[0], "旧品牌")
-  assert.equal(saved?.penetrationRerunJobId, undefined)
+  assert.equal(saved?.penetrationRerunJobIds, undefined)
 
   // Overwrite writes the moment the re-run ends, and only for that model.
   await createPenetrationJob({ ...rerunRequest("pjob_rerun_overwrite", "overwrite"), baseResult: base })
@@ -244,6 +244,33 @@ try {
   assert.equal(saved?.penetration?.byModel.kimi?.[0]?.mentionedBrands[0], "新品牌")
   assert.deepEqual(saved?.penetration?.byModel.doubao, base.byModel.doubao)
   assert.equal(saved?.penetration?.modelReruns?.at(-1)?.jobId, "pjob_rerun_overwrite")
+
+  // Re-runs of two models side by side: each awaits its own decision, and
+  // applying both keeps both, whichever is applied first.
+  await Promise.all([
+    createPenetrationJob({ ...rerunRequest("pjob_rerun_side_kimi", "compare", "kimi"), baseResult: saved!.penetration }),
+    createPenetrationJob({ ...rerunRequest("pjob_rerun_side_doubao", "compare", "doubao"), baseResult: saved!.penetration }),
+  ])
+  await Promise.all([waitForTerminal("pjob_rerun_side_kimi"), waitForTerminal("pjob_rerun_side_doubao")])
+  // Finalizing writes the markers just after the status turns terminal.
+  for (let i = 0; i < 40 && (await workspacePenetration())?.penetrationRerunJobIds?.length !== 3; i++) {
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  saved = await workspacePenetration()
+  assert.deepEqual(
+    [...(saved?.penetrationRerunJobIds || [])].sort(),
+    ["pjob_rerun_overwrite", "pjob_rerun_side_doubao", "pjob_rerun_side_kimi"],
+    "both comparisons are followed, beside the undoable overwrite",
+  )
+  await decidePenetrationModelRerun("pjob_rerun_side_doubao", owner, "apply")
+  const both = await decidePenetrationModelRerun("pjob_rerun_side_kimi", owner, "apply")
+  assert.equal(both.penetration?.byModel.doubao?.[0]?.mentionedBrands[0], "新品牌", "the first applied re-run survives the second")
+  assert.deepEqual(both.penetration?.modelReruns?.slice(-2).map(record => record.model), ["doubao", "kimi"])
+  // The earlier one cannot be undone over the later one.
+  await assert.rejects(decidePenetrationModelRerun("pjob_rerun_side_doubao", owner, "undo"), /报告又更新过/)
+  await decidePenetrationModelRerun("pjob_rerun_side_kimi", owner, "undo")
+  saved = await workspacePenetration()
+  assert.ok(!saved?.penetrationRerunJobIds?.includes("pjob_rerun_side_kimi"), "an undone re-run leaves the list")
 
   console.log("Penetration single-model re-run, comparison, undo and anomaly contracts passed.")
 } finally {

@@ -96,6 +96,11 @@ export default function PenetrationModule({
   const [reanalyzingBrands, setReanalyzingBrands] = useState(false)
   const [retestingSampleId, setRetestingSampleId] = useState<string | null>(null)
   const [retryableSlots, setRetryableSlots] = useState<PenetrationRetryableSlot[]>([])
+  // Single-model re-runs, several side by side. The server keeps the list on
+  // the client; these cover the moments before the page hears of it.
+  const [startedReruns, setStartedReruns] = useState<string[]>([])
+  const [hiddenReruns, setHiddenReruns] = useState<string[]>([])
+  const [rerunningModels, setRerunningModels] = useState<Partial<Record<string, ModelKey>>>({})
   const publishedResultAtRef = useRef(client.penetration?.generatedAt || "")
   const detectionConfigId = useId()
   const detectionConfigRef = useRef<HTMLDetailsElement>(null)
@@ -140,6 +145,14 @@ export default function PenetrationModule({
           if (stopped) return
 
           failedPolls = 0
+          // A re-run started before re-runs ran side by side holds this
+          // marker; its own panel follows it, and the page stays free.
+          if (job.operation === "model_rerun" && (job.status === "queued" || job.status === "running")) {
+            setLoading(false)
+            setProgressLabel("")
+            setStartedReruns(current => current.includes(job.id) ? current : [...current, job.id])
+            return
+          }
           setError(null)
           setLoading(job.status === "queued" || job.status === "running")
           setSkipped(job.skipped || [])
@@ -159,9 +172,11 @@ export default function PenetrationModule({
             const label = job.modelRerun ? MODEL_LABELS[job.modelRerun.model] : "模型"
             onChangeClient({
               ...(job.result ? { penetration: job.result } : {}),
-              ...(decision === "pending" || decision === "applied" ? { penetrationRerunJobId: job.id } : {}),
               penetrationJobId: undefined,
             })
+            if (decision === "pending" || decision === "applied") {
+              setStartedReruns(current => current.includes(job.id) ? current : [...current, job.id])
+            }
             setLoading(false)
             setProgressLabel("")
             setRetryableSlots([])
@@ -289,9 +304,7 @@ export default function PenetrationModule({
     setProgressLabel(
       params.operation === "append"
         ? "正在重新检测本题..."
-        : params.operation === "model_rerun"
-          ? `正在重新检测${MODEL_LABELS[params.models[0]]}...`
-          : "正在开始检测...",
+        : "正在开始检测...",
     )
     try {
       const requestId = createBackgroundRequestId("penetration")
@@ -359,24 +372,77 @@ export default function PenetrationModule({
     })
   }
 
-  function handleModelRerun(request: ModelRerunRequest) {
-    if (loading || !canExecute) return
-    void handleRun({
-      questions: request.questions,
-      models: [request.model],
-      brandAliases: client.brandAliases ?? [],
-      competitors: client.competitors,
-      questionIntents: (client.penetration?.questionIntents || [])
-        .filter(hint => request.questions.includes(hint.question)),
-      operation: "model_rerun",
-      rerunMode: request.mode,
-      samplesPerQuestion: request.samplesPerQuestion,
-    })
+  // A re-run runs beside the others and leaves the page free; it has its own
+  // progress and comparison panel.
+  async function handleModelRerun(request: ModelRerunRequest) {
+    if (loading || !canExecute || Object.values(rerunningModels).includes(request.model)) return
+    setError(null)
+    setRerunningModels(current => ({ ...current, [`starting:${request.model}`]: request.model }))
+    try {
+      const job = await createIdempotentApiJob<PenetrationJobRecord & { error?: string }>({
+        endpoint: "/api/penetration/jobs",
+        requestId: createBackgroundRequestId("penetration"),
+        label: "单模型重新检测任务创建",
+        payload: {
+          clientId: client.id,
+          subjectType,
+          personProfile: client.personProfile,
+          ourBrand: client.ourBrand,
+          brandAliases: client.brandAliases ?? [],
+          industry: client.industry,
+          questions: request.questions,
+          questionIntents: (client.penetration?.questionIntents || [])
+            .filter(hint => request.questions.includes(hint.question)),
+          competitors: client.competitors,
+          models: [request.model],
+          operation: "model_rerun",
+          rerunMode: request.mode,
+          userLocation: client.penetrationUserLocation,
+          samplesPerQuestion: request.samplesPerQuestion,
+        },
+      })
+      if (!job.id) throw new Error("重新检测未能开始，请稍后重试。")
+      setStartedReruns(current => current.includes(job.id) ? current : [...current, job.id])
+      setRerunningModels(current => ({ ...current, [job.id]: request.model }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "重新检测未能开始，请稍后重试。")
+    } finally {
+      setRerunningModels(current => {
+        const next = { ...current }
+        delete next[`starting:${request.model}`]
+        return next
+      })
+    }
   }
 
-  const clearRerunReview = useCallback(() => {
-    onChangeClient({ penetrationRerunJobId: undefined })
-  }, [onChangeClient])
+  const rerunJobIds = useMemo(() => Array.from(new Set([
+    ...(client.penetrationRerunJobId ? [client.penetrationRerunJobId] : []),
+    ...(client.penetrationRerunJobIds || []),
+    ...startedReruns,
+  ])).filter(id => !hiddenReruns.includes(id)), [
+    client.penetrationRerunJobId,
+    client.penetrationRerunJobIds,
+    startedReruns,
+    hiddenReruns,
+  ])
+  const clearRerunReview = useCallback((jobId: string) => {
+    setHiddenReruns(current => current.includes(jobId) ? current : [...current, jobId])
+    setRerunningModels(current => {
+      const next = { ...current }
+      delete next[jobId]
+      return next
+    })
+  }, [])
+  const trackRerun = useCallback((jobId: string, model: ModelKey, running: boolean) => {
+    setRerunningModels(current => {
+      if (running === (current[jobId] === model)) return current
+      const next = { ...current }
+      if (running) next[jobId] = model
+      else delete next[jobId]
+      return next
+    })
+  }, [])
+  const busyRerunModels = useMemo(() => new Set(Object.values(rerunningModels).filter((model): model is ModelKey => Boolean(model))), [rerunningModels])
   const applyRerunPenetration = useCallback((penetration: PenetrationResult) => {
     publishedResultAtRef.current = penetration.generatedAt
     onChangeClient({ penetration })
@@ -506,15 +572,16 @@ export default function PenetrationModule({
         ) : null}
       </CardHeader>
       <CardContent className="space-y-5">
-        {client.penetrationRerunJobId && !client.penetrationJobId ? (
+        {rerunJobIds.map(jobId => (
           <ModelRerunReview
-            key={client.penetrationRerunJobId}
-            jobId={client.penetrationRerunJobId}
+            key={jobId}
+            jobId={jobId}
             canExecute={canExecute}
             onPenetration={applyRerunPenetration}
             onClear={clearRerunReview}
+            onStatus={trackRerun}
           />
-        ) : null}
+        ))}
         {pen ? <PenetrationResultSummary result={pen} /> : null}
         <details key={client.id} id={detectionConfigId} ref={detectionConfigRef} open={!pen || loading || Boolean(error) || retryableSlots.length > 0} className="no-print min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:p-5">
           <summary className="cursor-pointer text-sm font-semibold text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1677FF]">检测配置与任务状态</summary>
@@ -646,8 +713,9 @@ export default function PenetrationModule({
                   subjectType={subjectType}
                   canRerun={canExecute}
                   busy={loading}
+                  rerunningModels={busyRerunModels}
                   defaultSamples={client.penetrationSamplesPerQuestion ?? 1}
-                  onRerun={handleModelRerun}
+                  onRerun={request => void handleModelRerun(request)}
                 />
 
                 <div className="grid min-w-0 gap-4 xl:grid-cols-2">

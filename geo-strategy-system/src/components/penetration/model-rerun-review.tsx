@@ -1,11 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { ArrowRight, Check, RotateCcw, Undo2, X } from "lucide-react"
+import { ArrowRight, Check, Loader2, RotateCcw, Square, Undo2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import type {
+  ModelKey,
   PenetrationJobRecord,
   PenetrationModelRerunSnapshot,
   PenetrationModelStats,
@@ -16,7 +17,16 @@ interface Props {
   jobId: string
   canExecute: boolean
   onPenetration: (penetration: PenetrationResult) => void
-  onClear: () => void
+  onClear: (jobId: string) => void
+  /** Which model this re-run covers, and whether it is still running. */
+  onStatus?: (jobId: string, model: ModelKey, running: boolean) => void
+}
+
+const POLL_MS = 3_000
+
+function isRunning(job: PenetrationJobRecord): boolean {
+  // The comparison is written just after sampling ends.
+  return job.status === "queued" || job.status === "running" || job.modelRerun?.decision === "running"
 }
 
 type DecisionResponse = { job?: PenetrationJobRecord; penetration?: PenetrationResult; error?: string }
@@ -115,31 +125,61 @@ function ComparisonTable({ before, after }: {
  * After a single-model re-run: the comparison awaiting a decision, or, once
  * written into the report, a way to undo it.
  */
-export default function ModelRerunReview({ jobId, canExecute, onPenetration, onClear }: Props) {
+export default function ModelRerunReview({ jobId, canExecute, onPenetration, onClear, onStatus }: Props) {
   const [job, setJob] = useState<PenetrationJobRecord | null>(null)
-  const [pending, setPending] = useState<"apply" | "discard" | "undo" | null>(null)
+  const [pending, setPending] = useState<"apply" | "discard" | "undo" | "stop" | null>(null)
   const [error, setError] = useState("")
 
+  // Follows the re-run while it samples, then shows what came of it.
   useEffect(() => {
     const controller = new AbortController()
-    void apiFetch(`/api/penetration/jobs/${jobId}`, { cache: "no-store", signal: controller.signal })
-      .then(async response => {
+    let timer: number | undefined
+    let sawRunning = false
+    const load = async () => {
+      try {
+        const response = await apiFetch(`/api/penetration/jobs/${jobId}`, { cache: "no-store", signal: controller.signal })
         const data = await readApiJson<PenetrationJobRecord & { error?: string }>(response, "重测任务查询")
         if (response.status === 404) {
-          onClear()
+          onClear(jobId)
           return
         }
         if (!response.ok) throw new Error(data.error || "重测任务查询失败")
         setJob(data)
+        setError("")
+        const running = isRunning(data)
+        if (data.modelRerun) onStatus?.(jobId, data.modelRerun.model, running)
         const decision = data.modelRerun?.decision
-        if (decision === "discarded" || decision === "undone") onClear()
-      })
-      .catch(caught => {
+        if (decision === "discarded" || decision === "undone") {
+          onClear(jobId)
+          return
+        }
+        // Written into the report the moment it ended (the overwrite mode).
+        // Only then: an older applied re-run's report predates later ones.
+        if (sawRunning && !running && decision === "applied" && data.result) onPenetration(data.result)
+        sawRunning ||= running
+        if (running) timer = window.setTimeout(load, POLL_MS)
+      } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") return
         setError(caught instanceof Error ? caught.message : "重测任务查询失败")
-      })
-    return () => controller.abort()
-  }, [jobId, onClear])
+        timer = window.setTimeout(load, POLL_MS * 2)
+      }
+    }
+    void load()
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [jobId, onClear, onPenetration, onStatus])
+
+  const stop = useCallback(async () => {
+    if (!window.confirm("确认停止这次重新检测吗？原结果保持不变。")) return
+    setPending("stop")
+    try {
+      await apiFetch(`/api/penetration/jobs/${jobId}`, { method: "PATCH", cache: "no-store" })
+    } finally {
+      setPending(null)
+    }
+  }, [jobId])
 
   const decide = useCallback(async (action: "apply" | "discard" | "undo") => {
     if (action === "undo" && !window.confirm("确认撤销这次重测，恢复成覆盖前的检测结果吗？")) return
@@ -155,7 +195,7 @@ export default function ModelRerunReview({ jobId, canExecute, onPenetration, onC
       if (!response.ok) throw new Error(data.error || "操作失败，请稍后重试")
       if (data.job) setJob(data.job)
       if (data.penetration) onPenetration(data.penetration)
-      if (action !== "apply") onClear()
+      if (action !== "apply") onClear(jobId)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试")
     } finally {
@@ -164,8 +204,35 @@ export default function ModelRerunReview({ jobId, canExecute, onPenetration, onC
   }, [jobId, onClear, onPenetration])
 
   const state = job?.modelRerun
-  if (!state || job.status === "queued" || job.status === "running") return null
+  if (!state) return null
   const label = MODEL_LABELS[state.model]
+
+  if (isRunning(job)) {
+    const percent = job.totalSlots > 0 ? Math.round((job.completedSlots / job.totalSlots) * 100) : 0
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#91CAFF] bg-[#F5FAFF] px-3 py-2 text-xs text-[#003EB3]">
+        <span className="inline-flex items-center gap-1.5 font-medium">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {label} 正在重新检测 {job.completedSlots}/{job.totalSlots}（{percent}%）
+          <span className="font-normal text-slate-500">
+            {state.mode === "compare" ? "· 完成后先对比，你确认后才替换" : "· 完成后直接替换原结果"}
+          </span>
+        </span>
+        {canExecute && job.status !== "queued" ? (
+          <button
+            type="button"
+            disabled={pending !== null}
+            onClick={() => void stop()}
+            className="inline-flex items-center gap-1 text-slate-500 hover:text-rose-600 disabled:opacity-50"
+          >
+            <Square className="h-3 w-3" />
+            {pending === "stop" ? "正在停止…" : "停止"}
+          </button>
+        ) : null}
+        {error ? <p className="w-full text-rose-600">{error}</p> : null}
+      </div>
+    )
+  }
 
   if (state.decision === "pending") {
     return (

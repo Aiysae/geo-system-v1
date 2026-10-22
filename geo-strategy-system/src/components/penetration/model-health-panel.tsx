@@ -27,7 +27,10 @@ interface Props {
   result: PenetrationResult
   subjectType: AnalysisSubjectType
   canRerun: boolean
+  /** A whole detection run is going; no re-run starts meanwhile. */
   busy: boolean
+  /** Models with a re-run going; the others can start theirs. */
+  rerunningModels?: ReadonlySet<ModelKey>
   defaultSamples: number
   onRerun: (request: ModelRerunRequest) => void
 }
@@ -52,6 +55,7 @@ export default function ModelHealthPanel({
   subjectType,
   canRerun,
   busy,
+  rerunningModels,
   defaultSamples,
   onRerun,
 }: Props) {
@@ -81,7 +85,7 @@ export default function ModelHealthPanel({
         </div>
       </div>
       <p className="mb-3 text-[11px] leading-5 text-slate-500">
-        数据看起来不正常的模型，可以单独重新检测；重测完先对比，确认后再替换原结果。
+        数据看起来不正常的模型，可以单独重新检测，几个模型可以同时重测；重测完先对比，确认后再替换原结果。
       </p>
       <div className="min-w-0 overflow-x-auto">
         <table className="w-full min-w-[620px] text-xs">
@@ -99,6 +103,7 @@ export default function ModelHealthPanel({
             {stats.map(item => {
               const issues = anomalies.filter(anomaly => anomaly.model === item.model)
               const rerunAt = lastRerun.get(item.model)
+              const rerunning = rerunningModels?.has(item.model) === true
               return (
                 <tr key={item.model} className="border-t border-slate-100 align-top">
                   <td className="py-2 pr-3">
@@ -144,7 +149,8 @@ export default function ModelHealthPanel({
                     {canRerun ? (
                       <button
                         type="button"
-                        disabled={busy}
+                        disabled={busy || rerunning}
+                        title={rerunning ? "这个模型正在重新检测" : undefined}
                         onClick={() => setRerunModel(item.model)}
                         className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ring-1 transition disabled:cursor-not-allowed disabled:opacity-50 ${
                           issues.length
@@ -152,8 +158,8 @@ export default function ModelHealthPanel({
                             : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
                         }`}
                       >
-                        <RotateCcw className="h-3 w-3" />
-                        重新检测
+                        <RotateCcw className={`h-3 w-3 ${rerunning ? "animate-spin" : ""}`} />
+                        {rerunning ? "重测中" : "重新检测"}
                       </button>
                     ) : null}
                   </td>
