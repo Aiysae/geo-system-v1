@@ -251,11 +251,9 @@ export async function chatWithAuditableExternalSearch(
       })
     }
 
-    if (
-      choice.finish_reason === "tool_calls"
-      && Array.isArray(message.tool_calls)
-      && message.tool_calls.length > 0
-    ) {
+    // hy3 can mark a turn that calls tools as finished ("stop"); the calls
+    // are what count.
+    if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
       if (forceFinalAnswer) {
         throw new Error(`${input.label} 已取得联网证据但仍未返回最终回答。`)
       }

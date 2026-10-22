@@ -24,16 +24,16 @@ function json(body: unknown, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json", ...headers } })
 }
 
-function chatTurn(messages: Array<{ role: string }>, id: string, answer: string) {
+function chatTurn(messages: Array<{ role: string }>, id: string, answer: string, toolTurnFinish = "tool_calls") {
   // First turn searches; once a tool result is in, answer.
   if (!messages.some(message => message.role === "tool")) {
     return json({
       id: `${id}-tool`,
       choices: [{
-        finish_reason: "tool_calls",
+        finish_reason: toolTurnFinish,
         message: {
           role: "assistant",
-          content: "",
+          content: toolTurnFinish === "stop" ? "我先搜索一下。" : "",
           tool_calls: [{ id: `${id}-call`, type: "function", function: { name: "search_web", arguments: JSON.stringify({ query: "监理公司 排名" }) } }],
         },
       }],
@@ -75,7 +75,8 @@ globalThis.fetch = async (input, init) => {
     })
   }
   if (url === "https://tokenhub.tencentmaas.com/v1/chat/completions") {
-    return chatTurn(body.messages as Array<{ role: string }>, "hunyuan", "元宝用元宝搜索的回答")
+    // hy3 marks a turn that calls tools as finished.
+    return chatTurn(body.messages as Array<{ role: string }>, "hunyuan", "元宝用元宝搜索的回答", "stop")
   }
   throw new Error(`unexpected request ${url}`)
 }

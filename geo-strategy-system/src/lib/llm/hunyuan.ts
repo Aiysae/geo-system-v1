@@ -315,7 +315,8 @@ async function chatTokenHubNativeSearch(
 // half the companies the App names.
 const YUANBAO_MAX_SEARCHES = 4
 const YUANBAO_SEARCH_RESULTS = 20
-const YUANBAO_ANSWER_MAX_TOKENS = 2048
+// Thinking counts against the limit; at 2048 one answer in seven was cut off.
+const YUANBAO_ANSWER_MAX_TOKENS = 4096
 
 async function chatHunyuanWithYuanbaoSearch(
   args: ChatArgs,
