@@ -17,9 +17,11 @@ import {
   ListOrdered,
   LockKeyhole,
   Radar,
+  Send,
   UserRound,
   X,
 } from "lucide-react"
+import { PUBLISHING_TABS, type PublishingTabKey } from "@/components/publishing/publishing-tabs"
 import { getClientSubjectType } from "@/lib/analysis-subject"
 import { hasTeamPermission } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
@@ -99,6 +101,17 @@ const DASHBOARD_WORKFLOWS: ReadonlyArray<{
   },
 ] as const
 
+const PUBLISHING_ACCENT = "from-[#1677FF] to-[#13C2C2]"
+
+function PublishingGroupLabel({ selected }: { selected: boolean }) {
+  return (
+    <>
+      <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", selected ? "bg-white/16 text-white" : "bg-white/7 text-cyan-100/70 group-hover:bg-white/12 group-hover:text-white")}><Send className="h-4 w-4" /></span>
+      <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">内容分发</span><span className={cn("mt-0.5 block truncate text-[9px]", selected ? "text-white/68" : "text-white/38")}>账号绑定与批量发布</span></span>
+    </>
+  )
+}
+
 export function isDashboardModuleKey(value: string | null): value is DashboardModuleKey {
   return DASHBOARD_MODULES.some(module => module.key === value)
 }
@@ -112,8 +125,10 @@ export default function WorkspaceSidebar({
   onClose,
   monthlyCredits = 0,
   monthlyAllowance = 0,
+  publishing,
 }: {
-  active: DashboardModuleKey
+  /** null on pages outside the module dashboard, such as the publishing console. */
+  active: DashboardModuleKey | null
   onChange: (module: DashboardModuleKey) => void
   client: Client | null
   access: WorkspaceAccountAccess
@@ -121,6 +136,8 @@ export default function WorkspaceSidebar({
   onClose?: () => void
   monthlyCredits?: number
   monthlyAllowance?: number
+  /** Set on the publishing console: 内容分发 is selected and lists its sections. */
+  publishing?: { tab: PublishingTabKey; onTabChange: (tab: PublishingTabKey) => void }
 }) {
   const [section, setSection] = useState("")
   useEffect(() => {
@@ -191,16 +208,16 @@ export default function WorkspaceSidebar({
         {onClose ? <button type="button" onClick={onClose} className="rounded-md p-1.5 text-white/70 transition hover:bg-white/10 hover:text-white md:hidden" aria-label="关闭功能导航"><X className="h-4 w-4" /></button> : null}
       </div>
 
-      <div className="shrink-0 px-3 pb-3 pt-4">
+      {publishing ? <div className="h-4 shrink-0" /> : <div className="shrink-0 px-3 pb-3 pt-4">
         <div className="mb-2 px-1 text-[10px] font-semibold text-cyan-100/55">当前客户</div>
         <Link href={access.mode === "team" ? "/account?tab=teams" : "/account?tab=clients"} className="group flex items-center gap-2.5 rounded-lg border border-white/12 bg-white/8 px-3 py-3 transition hover:bg-white/12">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1677FF] to-[#00C8FF] text-white shadow-sm"><SubjectIcon className="h-4 w-4" /></span>
           <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-white">{client?.name || access.clientName || "选择客户"}</span><span className="mt-0.5 block truncate text-[10px] text-cyan-50/55">{access.mode === "team" ? access.teamName || "团队共享客户" : client?.industry || (restricted ? "客户专属授权" : "进入我的主页切换")}</span></span>
           <ChevronRight className="h-4 w-4 shrink-0 text-white/35 transition group-hover:translate-x-0.5 group-hover:text-white/70" />
         </Link>
-      </div>
+      </div>}
 
-      {client && (canViewModule("feedback") || canViewModule("penetration")) ? <nav aria-label="客户工作台" className="shrink-0 space-y-1 px-3 pb-4">
+      {client && !publishing && (canViewModule("feedback") || canViewModule("penetration")) ? <nav aria-label="客户工作台" className="shrink-0 space-y-1 px-3 pb-4">
         <h2 className="px-2 py-2 text-xs font-semibold text-cyan-100/70">客户工作台</h2>
         {([
           { module: "feedback", hash: "#client-overview", label: "项目概览", icon: BarChart3 },
@@ -241,18 +258,17 @@ export default function WorkspaceSidebar({
         })}
       </nav> : null}
       <div className="shrink-0 px-4 pb-2 text-[10px] font-semibold text-cyan-100/55">优化工作</div>
-      <Link href="/publishing" className="mx-3 mb-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm font-medium text-blue-700"><FileText className="size-4"/>账号与文章分发</Link>
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4" aria-label="工作台业务工作流">
         {visibleWorkflows.map(workflow => {
           const Icon = workflow.icon
-          const selected = workflow.modules.some(module => module.key === active)
+          const selected = !publishing && workflow.modules.some(module => module.key === active)
           const defaultModule = workflow.modules[0].key
           const readOnly = workflow.modules.every(module => !canOperateModule(module.key))
           return (
             <div key={workflow.key} className="space-y-1">
               <button
                 type="button"
-                onClick={() => { onChange(selected ? active : defaultModule); onClose?.() }}
+                onClick={() => { onChange(selected && active ? active : defaultModule); onClose?.() }}
                 className={cn("group flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition", selected ? `bg-gradient-to-r ${workflow.accent} text-white shadow-sm` : "text-white/68 hover:bg-white/9 hover:text-white")}
                 aria-current={selected ? "page" : undefined}
               >
@@ -288,6 +304,46 @@ export default function WorkspaceSidebar({
             </div>
           )
         })}
+        <div className="space-y-1">
+          {publishing ? (
+            <button
+              type="button"
+              onClick={() => { publishing.onTabChange(publishing.tab); onClose?.() }}
+              className={cn("group flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left text-white shadow-sm transition bg-gradient-to-r", PUBLISHING_ACCENT)}
+              aria-current="page"
+            >
+              <PublishingGroupLabel selected />
+            </button>
+          ) : (
+            <Link href="/publishing" className="group flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left text-white/68 transition hover:bg-white/9 hover:text-white">
+              <PublishingGroupLabel selected={false} />
+            </Link>
+          )}
+          {publishing ? (
+            <div className="ml-5 space-y-0.5 border-l border-cyan-100/15 pl-3" aria-label="分发功能">
+              {PUBLISHING_TABS.map(tab => {
+                const childSelected = publishing.tab === tab.key
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => { publishing.onTabChange(tab.key); onClose?.() }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[10px] font-semibold transition",
+                      childSelected
+                        ? "bg-white/12 text-white"
+                        : "text-white/52 hover:bg-white/8 hover:text-white/85",
+                    )}
+                    aria-current={childSelected ? "page" : undefined}
+                  >
+                    <span className={cn("h-1.5 w-1.5 rounded-full", childSelected ? "bg-cyan-200" : "bg-white/25")} />
+                    <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
       </nav>
 
       <div className="shrink-0 border-t border-white/10 px-3 py-3">

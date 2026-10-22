@@ -1,11 +1,11 @@
 /* eslint-disable @next/next/no-img-element -- private live browser frames are data URLs */
 "use client"
 
-import Link from "next/link"
 import Image from "next/image"
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useRouter } from "next/navigation"
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import {
-  ArrowLeft,
   ArrowRight,
   Bold,
   Check,
@@ -22,7 +22,6 @@ import {
   List,
   Monitor,
   MoreHorizontal,
-  PanelLeftClose,
   Plus,
   Quote,
   Search,
@@ -43,6 +42,13 @@ import type {
   PublishingSnapshot,
   PublishingTask,
 } from "@/lib/local-publishing/types"
+import WorkspaceSidebar from "@/components/sidebar/workspace-sidebar"
+import { WorkspaceFrame } from "@/components/workspace-frame"
+import { WorkspaceHeader } from "@/components/workspace-header"
+import { useCredits } from "@/components/credits/credits-provider"
+import type { WorkspaceSession } from "@/components/auth/authenticated-app-shell"
+import type { WorkspaceAccountAccess } from "@/types"
+import { isPublishingTabKey, type PublishingTabKey } from "./publishing-tabs"
 import s from "./publishing-console.module.css"
 import platformLogos from "./platform-logos.json"
 
@@ -122,8 +128,7 @@ function Dialog({
     }
   }, [])
   return (
-    <div
-      className={s.overlay}
+    <Overlay
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -149,7 +154,25 @@ function Dialog({
         )}
         {children}
       </section>
-    </div>
+    </Overlay>
+  )
+}
+// Rendered on document.body: inside the scrolling main column the backdrop
+// would sit under the workspace sidebar.
+function Overlay({
+  children,
+  onMouseDown,
+}: {
+  children: ReactNode
+  onMouseDown?: (event: MouseEvent<HTMLDivElement>) => void
+}) {
+  return createPortal(
+    <div className={s.page}>
+      <div className={s.overlay} onMouseDown={onMouseDown}>
+        {children}
+      </div>
+    </div>,
+    document.body,
   )
 }
 function Pagination({
@@ -239,7 +262,24 @@ const datetimeLocal = (v:number) => new Date(v-new Date(v).getTimezoneOffset()*6
 const toggle = (values: string[], id: string) =>
   values.includes(id) ? values.filter((v) => v !== id) : [...values, id]
 
-export default function PublishingConsole({ userName }: { userName: string }) {
+const tabTitles: Record<PublishingTabKey, string> = {
+  tasks: "发布任务",
+  accounts: "账号管理",
+  articles: "内容库",
+  assets: "多媒体素材库",
+  platforms: "平台状态",
+}
+
+export default function PublishingConsole({
+  access,
+  notifiers,
+}: {
+  access: WorkspaceAccountAccess
+  notifiers: WorkspaceSession["notifiers"]
+}) {
+  const router = useRouter()
+  const { monthlyBalance, monthlyAllowance } = useCredits()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [composing, setComposing] = useState(false),
     [editing, setEditing] = useState(false),
     [preview, setPreview] = useState(false)
@@ -263,7 +303,11 @@ export default function PublishingConsole({ userName }: { userName: string }) {
     [error, setError] = useState(""),
     [notice, setNotice] = useState("")
   const [busy, setBusy] = useState(false),
-    [tab, setTab] = useState("accounts")
+    [tab, setTab] = useState<PublishingTabKey>(() => {
+      if (typeof window === "undefined") return "accounts"
+      const requested = new URLSearchParams(window.location.search).get("tab")
+      return isPublishingTabKey(requested) ? requested : "accounts"
+    })
   const [platform, setPlatform] = useState("DEMO_CSDN"),
     [label, setLabel] = useState("")
   const [accounts, setAccounts] = useState<string[]>([]),
@@ -728,6 +772,17 @@ export default function PublishingConsole({ userName }: { userName: string }) {
     setMode("draft");setPreflight(null);setTab("tasks");setComposing(true)
   }
   const isComposer = tab === "tasks" && composing
+  const selectTab = (next: PublishingTabKey) => {
+    setTab(next)
+    if (next === "tasks") setComposing(false)
+    if (next === "articles") setEditing(false)
+  }
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get("tab") === tab) return
+    url.searchParams.set("tab", tab)
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  }, [tab])
   function newArticle() {
     if (busy) return
     setNotice("")
@@ -823,115 +878,72 @@ export default function PublishingConsole({ userName }: { userName: string }) {
     </div>
   )
   return (
-    <main className={`${s.page} ${isComposer ? s.composerShell : ""}`}>
-      <aside className={s.sidebar}>
-        <Link href="/workspace" className={s.brand} title="返回 GEO 工作台">
-          <Image src="/brand/shitu-lockup.jpg" alt="势途 Logo" width={36} height={42} sizes="36px" loading="eager" />
-          <div>
-            势途 GEO<small>内容分发工作台</small>
-          </div>
-        </Link>
-        <div className={s.team}>
-          <span className={s.avatar}>{userName.slice(0, 1).toUpperCase()}</span>
-          <div>
-            <b>我的工作空间</b>
-            <small>{userName}</small>
-          </div>
-        </div>
-        <nav aria-label="分发功能">
-          <button
-            className={tab === "tasks" ? s.navActive : ""}
-            onClick={() => {
-              setTab("tasks")
-              setComposing(false)
-            }}
-          >
-            <Send size={18} />
-            <span>发布</span>
-          </button>
-          <button
-            className={tab === "accounts" ? s.navActive : ""}
-            onClick={() => setTab("accounts")}
-          >
-            <Users size={18} />
-            <span>账号</span>
-          </button>
-          <button
-            className={tab === "articles" ? s.navActive : ""}
-            onClick={() => {
-              setTab("articles")
-              setEditing(false)
-            }}
-          >
-            <FileText size={18} />
-            <span>内容库</span>
-          </button>
-          <button className={tab === "assets" ? s.navActive : ""} onClick={() => setTab("assets")}>
-            <LayoutGrid size={18} />
-            <span>多媒体素材</span>
-          </button>
-          <button
-            className={tab === "platforms" ? s.navActive : ""}
-            onClick={() => setTab("platforms")}
-          >
-            <ShieldCheck size={18} />
-            <span>平台状态</span>
-          </button>
-        </nav>
-        <div className={s.sidebarFoot}>
-          <Link href="/workspace">
-            <ArrowLeft size={15} />
-            <span>返回 GEO 工作台</span>
-          </Link>
-          <p>
-            <span className={state?.runtime.running ? s.dot : s.offDot} />
-            <span>{state?.runtime.running ? "分发执行器已连接" : "连接执行器…"}</span>
-          </p>
-          <small>独立运行 · 由 GEO 管理</small>
-        </div>
-      </aside>
-      <div className={s.workspace}>
-        <header className={s.topbar}>
-          <div className={s.topTabs}>
-            <PanelLeftClose size={17} className={s.headerIcon} />
-            {tab === "accounts" ? (
-              <>
-                <h1>账号管理</h1>
-                <button onClick={() => setTab("platforms")}>平台验证状态</button>
-              </>
-            ) : tab === "articles" ? (
-              <>
-                <button className={!editing ? s.topActive : ""} onClick={() => setEditing(false)}>
+    <WorkspaceFrame
+      sidebarOpen={sidebarOpen}
+      onCloseSidebar={() => setSidebarOpen(false)}
+      sidebar={
+        <WorkspaceSidebar
+          active={null}
+          onChange={module => router.push(`/workspace?module=${module}`)}
+          client={null}
+          access={access}
+          monthlyCredits={monthlyBalance}
+          monthlyAllowance={monthlyAllowance}
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          publishing={{ tab, onTabChange: selectTab }}
+        />
+      }
+      header={
+        <WorkspaceHeader
+          title="内容分发"
+          subtitle="账号绑定 · 批量发布 · 发布记录"
+          helpHref="/help"
+          onOpenSidebar={() => setSidebarOpen(true)}
+          access={access}
+          taskNotifier={notifiers.task}
+          userNotifier={notifiers.user}
+          adminNotifier={notifiers.admin}
+        />
+      }
+    >
+      <div className={`${s.page} ${isComposer ? s.composerShell : ""} geo-page-wrap py-3 md:py-4`}>
+        <header className={s.pageHead}>
+          <div className={s.pageTitle}>
+            <small>内容分发 · 我的工作空间</small>
+            <h1>{tabTitles[tab]}</h1>
+            {tab === "articles" ? (
+              <div className={s.viewTabs} role="group" aria-label="内容库视图">
+                <button aria-pressed={!editing} onClick={() => setEditing(false)}>
                   内容库 <span>{state?.articles.length || 0}</span>
                 </button>
-                <button className={editing ? s.topActive : ""} onClick={() => setEditing(true)}>
+                <button aria-pressed={editing} onClick={() => setEditing(true)}>
                   {editId ? "编辑内容" : "新建内容"}
                 </button>
-              </>
-            ) : tab === "assets" ? (
-              <h1>多媒体素材库</h1>
+              </div>
             ) : tab === "tasks" ? (
-              <>
-                <button
-                  className={!composing ? s.topActive : ""}
-                  onClick={() => setComposing(false)}
-                >
+              <div className={s.viewTabs} role="group" aria-label="发布视图">
+                <button aria-pressed={!composing} onClick={() => setComposing(false)}>
                   发布记录
                 </button>
-                <button className={composing ? s.topActive : ""} onClick={() => setComposing(true)}>
+                <button aria-pressed={composing} onClick={() => setComposing(true)}>
                   批量分发
                 </button>
-              </>
-            ) : (
-              <h1>平台状态</h1>
-            )}
+              </div>
+            ) : null}
           </div>
-          <div className={s.topUtilities}>
-            <span>
-              <Monitor size={16} />
+          <div className={s.runtime}>
+            <span
+              className={s.runtimeStatus}
+              title="独立运行 · 由 GEO 管理"
+            >
+              <Monitor size={15} />
               <i className={state?.runtime.running ? s.dot : s.offDot} />
               <span>本机已连接</span>
             </span>
+            {tab === "accounts" ? (
+              <button onClick={() => selectTab("platforms")}>平台验证状态</button>
+            ) : null}
             <button
               title={state?.paused ? "恢复自动执行" : "暂停后新任务会等待恢复"}
               disabled={busy || !state}
@@ -2066,7 +2078,6 @@ export default function PublishingConsole({ userName }: { userName: string }) {
           <ShieldCheck size={13} />
           登录状态加密保存 · 账号、文章与任务由 GEO 独立管理
         </footer>
-      </div>
       {authOpen && (
         <Dialog title="添加账号" wide errorMessage={error} onClose={() => setAuthOpen(false)}>
           <div className={s.authTabs}>
@@ -2302,7 +2313,7 @@ export default function PublishingConsole({ userName }: { userName: string }) {
         </Dialog>
       )}
       {loginId && (
-        <div className={s.overlay}>
+        <Overlay>
           <section
             role="dialog"
             aria-modal="true"
@@ -2443,10 +2454,10 @@ export default function PublishingConsole({ userName }: { userName: string }) {
               </>
             )}
           </section>
-        </div>
+        </Overlay>
       )}
       {review && (
-        <div className={s.overlay}>
+        <Overlay>
           <section
             className={s.reviewDialog}
             role="dialog"
@@ -2502,8 +2513,9 @@ export default function PublishingConsole({ userName }: { userName: string }) {
             )}
             <button onClick={() => setReview(null)}>关闭</button>
           </section>
-        </div>
+        </Overlay>
       )}
-    </main>
+      </div>
+    </WorkspaceFrame>
   )
 }

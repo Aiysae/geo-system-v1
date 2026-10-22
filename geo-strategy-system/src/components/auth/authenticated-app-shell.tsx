@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { LockKeyhole } from "lucide-react"
 import AppShell from "@/components/app-shell"
@@ -17,10 +17,50 @@ import type { WorkspaceNavigationTarget } from "@/lib/workspace-navigation"
 
 type AuthState = "checking" | "authenticated" | "error"
 
+export type WorkspaceSession = {
+  user: PublicUser
+  access: WorkspaceAccountAccess
+  notifiers: {
+    task: ReactNode
+    user: ReactNode
+    admin: ReactNode
+  }
+}
+
 export function AuthenticatedAppShell({
   initialNavigation,
 }: {
   initialNavigation?: WorkspaceNavigationTarget
+}) {
+  return (
+    <WorkspaceSessionGate initialNavigation={initialNavigation}>
+      {({ user, access, notifiers }) => (
+        <AppShell
+          userId={user.id}
+          access={access}
+          initialNavigation={initialNavigation}
+          taskNotifier={notifiers.task}
+          userNotifier={notifiers.user}
+          adminNotifier={notifiers.admin}
+        />
+      )}
+    </WorkspaceSessionGate>
+  )
+}
+
+// Confirms the session and account access shared by every workspace page,
+// then renders the page with the notifiers its header shows.
+export function WorkspaceSessionGate({
+  initialNavigation,
+  redirectPath = "/workspace",
+  launchOnboarding = true,
+  children,
+}: {
+  initialNavigation?: WorkspaceNavigationTarget
+  redirectPath?: string
+  /** Send first-time users to the tutorial, as /workspace does. */
+  launchOnboarding?: boolean
+  children: (session: WorkspaceSession) => ReactNode
 }) {
   const [state, setState] = useState<AuthState>("checking")
   const [message, setMessage] = useState("")
@@ -79,7 +119,8 @@ export function AuthenticatedAppShell({
           const accountIsSuspended = resolvedAccess.mode === "client"
             && resolvedAccess.status === "suspended"
           if (
-            body.onboarding?.autoLaunch
+            launchOnboarding
+            && body.onboarding?.autoLaunch
             && !body.user.mustChangePassword
             && !accountIsSuspended
           ) {
@@ -94,7 +135,7 @@ export function AuthenticatedAppShell({
           return
         }
         if (res.status === 401) {
-          window.location.replace("/sign-in?redirect_url=/workspace")
+          window.location.replace(`/sign-in?redirect_url=${encodeURIComponent(redirectPath)}`)
           return
         }
         setMessage(toUserFacingError("", {
@@ -117,7 +158,7 @@ export function AuthenticatedAppShell({
     return () => {
       cancelled = true
     }
-  }, [initialNavigation, refresh])
+  }, [initialNavigation, launchOnboarding, redirectPath, refresh])
 
   if (state === "authenticated" && user && access) {
     if (user.mustChangePassword) {
@@ -165,18 +206,15 @@ export function AuthenticatedAppShell({
         </div>
       )
     }
-    return (
-      <AppShell
-        userId={user.id}
-        access={access}
-        initialNavigation={initialNavigation}
-        taskNotifier={<GlobalTaskCenter userId={user.id} />}
-        userNotifier={<UserNotificationCenter variant="workspace" />}
-        adminNotifier={isAdmin
-          ? <AdminRechargeNotifier variant="workspace" />
-          : null}
-      />
-    )
+    return children({
+      user,
+      access,
+      notifiers: {
+        task: <GlobalTaskCenter userId={user.id} />,
+        user: <UserNotificationCenter variant="workspace" />,
+        admin: isAdmin ? <AdminRechargeNotifier variant="workspace" /> : null,
+      },
+    })
   }
 
   return (
