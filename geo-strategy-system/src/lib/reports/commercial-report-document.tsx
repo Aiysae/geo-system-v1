@@ -1939,9 +1939,6 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
             )).join("；")}。
           </Text>
         ) : null}
-        {models.some(item => item.model === "deepseek") ? (
-          <Text style={styles.tableNote}>DeepSeek 官方接口没有联网搜索，本报告用百度搜索为它提供来源，百度收录较多的品牌在 DeepSeek 一栏可能高于 DeepSeek App 的实际表现。</Text>
-        ) : null}
       </View>
       {isPersonReport(input) && institutions.length > 0 ? (
         <View style={styles.section}>
