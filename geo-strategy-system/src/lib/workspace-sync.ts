@@ -75,6 +75,7 @@ const SECTION_FIELDS = {
     "questionGenerationSettings",
     "questionIntentHints",
     "competitors",
+    "excludedSubjects",
     "selectedModels",
     "penetrationUserLocation",
     "penetrationSamplesPerQuestion",
@@ -270,6 +271,9 @@ export function normalizeClientPayload(value: unknown): Client {
       questions,
     ),
     competitors: stringArray(input.competitors, 1_000, 500),
+    ...(Array.isArray(input.excludedSubjects)
+      ? { excludedSubjects: stringArray(input.excludedSubjects, 500, 120) }
+      : {}),
     knowledgeBase: normalizeClientKnowledgeBase(input.knowledgeBase, {
       subjectType: normalizeAnalysisSubjectType(input.subjectType),
       subjectName: String(input.ourBrand || input.name || "").slice(0, 300),

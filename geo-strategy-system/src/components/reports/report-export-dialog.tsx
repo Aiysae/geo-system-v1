@@ -27,6 +27,7 @@ import {
 } from "lucide-react"
 import { BillingLink } from "@/components/billing/billing-link"
 import { CreditCostBadge } from "@/components/credits/credit-cost-badge"
+import { useGlobalExcludedSubjects } from "@/hooks/use-global-excluded-subjects"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId } from "@/lib/background-job-client"
 import { DEFAULT_REPORT_BRANDING, resolveReportBranding } from "@/lib/report-branding"
@@ -211,6 +212,7 @@ function compactItem(item: PenetrationItem, detail: CommercialReportDetail): Pen
 function compactPenetration(
   client: Client,
   detail: CommercialReportDetail,
+  excludedSubjects: string[],
 ): PenetrationResult | undefined {
   const penetration = client.penetration
   if (!penetration) return undefined
@@ -227,6 +229,7 @@ function compactPenetration(
       {
         plannedSlots: penetration.aggregated.plannedSlots,
         modelCount: penetration.aggregated.perModelRate.length,
+        excludedSubjects,
       },
     ),
     byModel: Object.fromEntries(
@@ -275,6 +278,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
   const [stopping, setStopping] = useState(false)
   const [job, setJob] = useState<CommercialReportJobRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const globalExcluded = useGlobalExcludedSubjects()
   const [branding, setBranding] = useState<ReportBrandingSettings>({ ...DEFAULT_REPORT_BRANDING })
   const [brandingAccess, setBrandingAccess] = useState<ReportBrandingAccess>({
     membership: { tier: "free", active: false, paidCents: 0, qualifyingOrderCount: 0, clientAccountLimit: 0 },
@@ -382,7 +386,7 @@ export default function ReportExportDialog({ client, teamId, preset, onClose }: 
         industry: client.industry,
         website: client.website,
       },
-      penetration: includePenetration ? compactPenetration(client, detail) : undefined,
+      penetration: includePenetration ? compactPenetration(client, detail, [...globalExcluded, ...(client.excludedSubjects ?? [])]) : undefined,
       research: includeResearch ? client.research : undefined,
       competitorCompare: includeResearch ? client.competitorCompare : undefined,
       diagnosis: includeDiagnosis ? client.diagnosis : undefined,

@@ -14,6 +14,8 @@ import {
 import { listAiProviderPublicSettings, migrateLegacyAiProviderSecrets } from "@/lib/ai-settings"
 import { AiCredentialPoolManager } from "./ai-credential-pool-manager"
 import { AiModelCenter } from "./ai-model-center"
+import { GlobalExcludedSubjects } from "./global-excluded-subjects"
+import { getGlobalExcludedSubjects } from "@/lib/penetration/excluded-subjects"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -34,11 +36,12 @@ export default async function AdminAiModelsPage() {
   }
 
   await migrateLegacyAiProviderSecrets(user.id)
-  const [connections, legacySettings, credentials, routeHealth] = await Promise.all([
+  const [connections, legacySettings, credentials, routeHealth, excludedSubjects] = await Promise.all([
     listAiGatewayProvidersPublic(),
     listAiProviderPublicSettings(),
     listAiCredentialsPublic(),
     listAiCredentialRouteHealth(),
+    getGlobalExcludedSubjects(),
   ])
 
   return (
@@ -54,6 +57,7 @@ export default async function AdminAiModelsPage() {
           credentials={credentials}
           routeHealth={routeHealth}
         />
+        <GlobalExcludedSubjects initial={excludedSubjects} />
         <AiModelCenter
           officialPresets={AI_OFFICIAL_PRESETS}
           relayPresets={AI_RELAY_PRESETS}

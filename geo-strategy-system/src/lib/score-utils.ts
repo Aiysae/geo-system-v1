@@ -39,6 +39,11 @@ type PenetrationAggregateOptions = {
   questionIntents?: PenetrationQuestionIntentHint[]
   plannedSlots?: number
   modelCount?: number
+  /**
+   * Names that are not competitors (a government platform, say): left out of
+   * every ranking and listed apart. Our own brand is never left out.
+   */
+  excludedSubjects?: string[]
 }
 
 function questionKey(value: string): string {
@@ -186,6 +191,14 @@ export function aggregatePenetration(
     .sort((a, b) => b.length - a.length)
   const exactQuestionRates = new Map<string, RateAccumulator>()
   const questionEntries = new Map<string, QuestionAccumulator>()
+  // Matched through the resolver, so every variant of an excluded name goes too.
+  const excludedKeys = new Set(
+    (options.excludedSubjects || [])
+      .map(name => resolver.canonicalize(name))
+      .filter((brand): brand is NonNullable<typeof brand> => Boolean(brand && !brand.isTarget))
+      .map(brand => brand.key),
+  )
+  const excludedCount = new Map<string, { displayName: string; count: number }>()
   const intentRates = new Map<string, RateAccumulator>()
   const intentCategories = new Map<string, PenetrationQuestionCategory>()
 
@@ -227,13 +240,22 @@ export function aggregatePenetration(
       const extractionUsable = isPenetrationExtractionUsable(it)
       // Our own brand already has its literal check in hitOur; the recall only
       // fills in competitors.
-      const canonicalBrands = extractionUsable
+      const recognisedBrands = extractionUsable
         ? resolver.canonicalizeList([
             ...it.mentionedBrands,
             ...literalBrandMentions(it.answer, literalNames)
               .filter(name => resolver.canonicalize(name)?.isTarget !== true),
           ])
         : []
+      const canonicalBrands = excludedKeys.size
+        ? recognisedBrands.filter(brand => {
+            if (!excludedKeys.has(brand.key)) return true
+            const entry = excludedCount.get(brand.key) ?? { displayName: brand.display, count: 0 }
+            entry.count += 1
+            excludedCount.set(brand.key, entry)
+            return false
+          })
+        : recognisedBrands
       if (extractionUsable) {
         shareSlots++
         recognisedSlotsByModel[model as ModelKey] = (recognisedSlotsByModel[model as ModelKey] ?? 0) + 1
@@ -388,6 +410,15 @@ export function aggregatePenetration(
       }
     }
   }
+  const excludedShare = Array.from(excludedCount.values())
+    .map(value => ({
+      brand: value.displayName,
+      count: value.count,
+      ratio: 0,
+      penetrationRate: shareSlots ? value.count / shareSlots : 0,
+    }))
+    .sort((left, right) => right.count - left.count)
+
   const institutionMentions = Array.from(institutionCount.values())
     .reduce((sum, value) => sum + value.count, 0)
   const institutionShare = Array.from(institutionCount.values())
@@ -417,6 +448,7 @@ export function aggregatePenetration(
     missedQuestions,
     topCompetitors,
     questionStats,
+    ...(options.excludedSubjects?.length ? { excludedShare } : {}),
   }
 }
 

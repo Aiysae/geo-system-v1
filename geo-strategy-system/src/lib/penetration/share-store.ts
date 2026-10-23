@@ -4,6 +4,8 @@ import { randomBytes } from "node:crypto"
 import { kv } from "@/lib/kv"
 import { aggregatePenetration } from "@/lib/score-utils"
 import { getClientSubjectType } from "@/lib/analysis-subject"
+import { listWorkspaceClients } from "@/lib/workspace-store"
+import { excludedSubjectsFor } from "@/lib/penetration/excluded-subjects"
 import type {
   AnalysisSubjectType,
   Client,
@@ -132,6 +134,10 @@ export async function viewPenetrationShare(token: string): Promise<PenetrationSh
   const snapshot = await getPenetrationShare(token)
   if (!snapshot) return null
   const report = snapshot.penetration
+  // Names marked "not a competitor" since the link was made are left out too.
+  const client = (await listWorkspaceClients(snapshot.ownerUserId).catch(() => []))
+    .find(item => item.client.id === snapshot.clientId)?.client
+  const excludedSubjects = await excludedSubjectsFor(client)
   return {
     ...snapshot,
     penetration: {
@@ -145,6 +151,7 @@ export async function viewPenetrationShare(token: string): Promise<PenetrationSh
         {
           plannedSlots: report.aggregated.plannedSlots,
           modelCount: Object.keys(report.byModel).length,
+          excludedSubjects,
         },
       ),
     },

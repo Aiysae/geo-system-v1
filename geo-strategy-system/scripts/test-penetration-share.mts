@@ -45,7 +45,7 @@ function item(index: number, brand: string): PenetrationItem {
 try {
   const penetration = buildPenetrationBatchResult({
     operation: "replace",
-    incomingByModel: { kimi: [item(1, "甲公司"), item(2, "乙公司")] },
+    incomingByModel: { kimi: [item(1, "华岳工程咨询有限公司"), item(2, "恒信项目管理有限公司")] },
     ourBrand: "测试品牌",
     brandAliases: [],
     competitors: [],
@@ -78,7 +78,7 @@ try {
   assert.equal(shared.searchSources![0].snippet, "", "snippets the page never shows are left out")
   assert.equal(shared.searchSources![0].url, "https://example.com/1")
   assert.equal(shared.providerRequestIds, undefined)
-  assert.equal(shared.answer, "推荐甲公司和测试品牌。", "the raw answers are kept")
+  assert.equal(shared.answer, "推荐华岳工程咨询有限公司和测试品牌。", "the raw answers are kept")
 
   // A link made before a new view gains it: the figures are worked out again
   // when the page is shown, from the answers as shared.
@@ -90,6 +90,15 @@ try {
   })
   const viewed = await viewPenetrationShare(share.token)
   assert.deepEqual(viewed?.penetration.aggregated.questionStats?.map(stat => stat.question), ["问题1", "问题2"])
+
+  // A name the admin marks "not a competitor" later leaves the link's rankings.
+  const { setGlobalExcludedSubjects } = await import("../src/lib/penetration/excluded-subjects")
+  const competitor = viewed!.penetration.aggregated.industryShare.find(item => item.brand !== "测试品牌")!.brand
+  await setGlobalExcludedSubjects([competitor])
+  const excluded = await viewPenetrationShare(share.token)
+  assert.ok(!excluded?.penetration.aggregated.industryShare.some(item => item.brand === competitor))
+  assert.equal(excluded?.penetration.aggregated.excludedShare?.[0]?.brand, competitor)
+  await setGlobalExcludedSubjects([])
 
   // Later runs leave the shared copy alone.
   client.penetration = { ...penetration, generatedAt: "2026-10-24T00:00:00.000Z", byModel: {} }

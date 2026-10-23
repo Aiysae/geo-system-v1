@@ -2,6 +2,7 @@ import { randomUUID } from "crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { normalizeAnalysisSubjectType } from "@/lib/analysis-subject"
 import { kv } from "@/lib/kv"
+import { excludedSubjectsFor } from "@/lib/penetration/excluded-subjects"
 import { isPenetrationHistoryAccessError } from "@/lib/penetration/history-access"
 import { reanalyzePenetrationEntities } from "@/lib/penetration/reanalyze-result"
 import { mergeReextractedAnswers } from "@/lib/penetration/result-merge"
@@ -54,11 +55,13 @@ export async function POST(request: NextRequest) {
     }
     try {
       const startedFrom = client.penetration.generatedAt
+      const excludedSubjects = await excludedSubjectsFor(client)
       const reanalyzed = await reanalyzePenetrationEntities({
         result: client.penetration,
         ourBrand: client.ourBrand,
         brandAliases: client.brandAliases || [],
         competitors: client.competitors || [],
+        excludedSubjects,
         subjectType: normalizeAnalysisSubjectType(client.subjectType),
         personProfile: client.personProfile,
       })
@@ -88,6 +91,7 @@ export async function POST(request: NextRequest) {
               ourBrand: current.ourBrand,
               brandAliases: current.brandAliases || [],
               competitors: current.competitors || [],
+              excludedSubjects,
               subjectType: normalizeAnalysisSubjectType(current.subjectType),
               generatedAt: new Date().toISOString(),
             })

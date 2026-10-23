@@ -86,6 +86,8 @@ export interface PenetrationJobRequest {
   questions: string[]
   questionIntents?: PenetrationQuestionIntentHint[]
   competitors: string[]
+  /** Names left out of the rankings as not competitors, as of when the job was made. */
+  excludedSubjects?: string[]
   /** Where the simulated asker is; sent to providers that localize answers. */
   userLocation?: PenetrationUserLocation
   /** How many independent answers each question gets; questions are already repeated. */
@@ -644,6 +646,7 @@ async function retryFailedExtractions(job: StoredPenetrationJob): Promise<Stored
       ourBrand: job.request.ourBrand,
       brandAliases: job.request.brandAliases,
       competitors: job.request.competitors,
+      excludedSubjects: job.request.excludedSubjects,
       subjectType: job.request.subjectType || "brand",
       generatedAt: monotonicGeneratedAt(latest.result.generatedAt, nowIso()),
     })
@@ -737,6 +740,7 @@ function mergeModelRerun(
     ourBrand: job.request.ourBrand,
     brandAliases: job.request.brandAliases,
     competitors: job.request.competitors,
+    excludedSubjects: job.request.excludedSubjects,
     subjectType: job.request.subjectType || "brand",
     generatedAt: now,
   })
@@ -751,6 +755,7 @@ function refreshedBaseline(job: StoredPenetrationJob, base: PenetrationResult): 
       ourBrand: job.request.ourBrand,
       brandAliases: job.request.brandAliases,
       competitors: job.request.competitors,
+      excludedSubjects: job.request.excludedSubjects,
       subjectType: job.request.subjectType || "brand",
       generatedAt: base.generatedAt,
       questionIntents: base.questionIntents,
@@ -1362,6 +1367,7 @@ async function processDueBatch(
         ourBrand: job.request.ourBrand,
         brandAliases: job.request.brandAliases,
         competitors: job.request.competitors,
+        excludedSubjects: job.request.excludedSubjects,
         subjectType: job.request.subjectType || "brand",
         generatedAt,
         plannedQuestions: job.request.operation === "append"
@@ -1692,6 +1698,7 @@ async function processDueWave(
             ourBrand: job.request.ourBrand,
             brandAliases: job.request.brandAliases,
             competitors: job.request.competitors,
+            excludedSubjects: job.request.excludedSubjects,
             subjectType: job.request.subjectType || "brand",
             generatedAt,
             plannedQuestions: job.request.operation === "append"
@@ -1793,6 +1800,7 @@ async function processDueWave(
         ourBrand: job.request.ourBrand,
         brandAliases: job.request.brandAliases,
         competitors: job.request.competitors,
+        excludedSubjects: job.request.excludedSubjects,
         subjectType: job.request.subjectType || "brand",
         generatedAt: monotonicGeneratedAt(job.result?.generatedAt, nowIso()),
         plannedQuestions: job.request.operation === "append"
@@ -1832,6 +1840,7 @@ async function processDueWave(
       ourBrand: job.request.ourBrand,
       brandAliases: job.request.brandAliases,
       competitors: job.request.competitors,
+      excludedSubjects: job.request.excludedSubjects,
       subjectType: job.request.subjectType || "brand",
       generatedAt: monotonicGeneratedAt(
         job.result?.generatedAt,

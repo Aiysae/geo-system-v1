@@ -1151,6 +1151,8 @@ export interface PenetrationAggregated {
   topCompetitors: string[]
   /** One entry per question, in the order the questions were asked. */
   questionStats?: PenetrationQuestionStat[]
+  /** Names left out of the rankings as not competitors, with how often they came up. */
+  excludedShare?: IndustryShareItem[]
 }
 
 /** A brand's standing among the answers to one question. */
@@ -1793,6 +1795,8 @@ export interface Client {
   penetrationJobId?: string
   /** Latest single-model re-run: its comparison awaits a decision, or it can be undone. */
   penetrationRerunJobId?: string
+  /** Names that are not competitors here (a government platform, say), left out of the rankings. */
+  excludedSubjects?: string[]
   /**
    * Single-model re-runs the page follows, several models side by side:
    * running, awaiting a decision, or undoable. Written only by the server.

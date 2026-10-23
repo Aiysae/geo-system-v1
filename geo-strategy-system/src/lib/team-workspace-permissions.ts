@@ -41,6 +41,7 @@ const FIELD_REQUIREMENTS: Partial<Record<keyof Client, WorkspacePermissionRequir
   questionGenerationSettings: { module: "penetration", action: "edit" },
   questionIntentHints: { module: "penetration", action: "edit" },
   selectedModels: { module: "penetration", action: "edit" },
+  excludedSubjects: { module: "penetration", action: "edit" },
   penetration: { module: "penetration", action: "edit" },
   penetrationJobId: { module: "penetration", action: "execute" },
   penetrationRerunJobId: { module: "penetration", action: "execute" },

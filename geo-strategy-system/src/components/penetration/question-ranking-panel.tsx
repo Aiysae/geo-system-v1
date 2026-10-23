@@ -11,6 +11,8 @@ interface Props {
   subjectType: AnalysisSubjectType
   /** Shows this question's raw answers; omitted where there are none to show. */
   onViewAnswers?: (question: string) => void
+  /** Leaves a name out of every ranking as not a competitor; omitted on read-only views. */
+  onExcludeSubject?: (name: string) => void
 }
 
 type SortKey = "asked" | "rate" | "rank"
@@ -73,10 +75,12 @@ function QuestionDetail({
   stat,
   subjectType,
   onViewAnswers,
+  onExcludeSubject,
 }: {
   stat: PenetrationQuestionStat
   subjectType: AnalysisSubjectType
   onViewAnswers?: (question: string) => void
+  onExcludeSubject?: (name: string) => void
 }) {
   const ours = stat.brands.find(brand => brand.isTarget)
   const models = stat.perModel.map(item => item.model)
@@ -121,6 +125,7 @@ function QuestionDetail({
               <th className="px-2 py-1.5 text-right font-medium">本题提及率</th>
               <th className="px-2 py-1.5 text-right font-medium">提及次数</th>
               <th className="px-2 py-1.5 font-medium">各模型提及</th>
+              {onExcludeSubject ? <th className="px-2 py-1.5" /> : null}
             </tr>
           </thead>
           <tbody>
@@ -141,6 +146,20 @@ function QuestionDetail({
                       .join(" · ") || "—"
                     : "—"}
                 </td>
+                {onExcludeSubject ? (
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right">
+                    {brand.isTarget ? null : (
+                      <button
+                        type="button"
+                        onClick={() => onExcludeSubject(brand.brand)}
+                        title="政府平台、行业机构等不是竞品的名称，从所有排行中去掉"
+                        className="text-[10px] font-normal text-slate-400 hover:text-rose-600"
+                      >
+                        不算竞品
+                      </button>
+                    )}
+                  </td>
+                ) : null}
               </tr>
             ))}
             {!ours ? (
@@ -150,6 +169,7 @@ function QuestionDetail({
                 <td className="px-2 py-1.5 text-right tabular-nums">0%</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">0</td>
                 <td className="px-2 py-1.5 text-[10px]">这一题没有模型提到我方</td>
+                {onExcludeSubject ? <td /> : null}
               </tr>
             ) : null}
           </tbody>
@@ -167,7 +187,7 @@ function QuestionDetail({
  * click the full ranking for that question. The overall rate pools every
  * question, so a strong one can hide those where we never come up.
  */
-export default function QuestionRankingPanel({ stats, subjectType, onViewAnswers }: Props) {
+export default function QuestionRankingPanel({ stats, subjectType, onViewAnswers, onExcludeSubject }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("rate")
   const [ascending, setAscending] = useState(true)
   const [openQuestion, setOpenQuestion] = useState<string | null>(null)
@@ -266,7 +286,7 @@ export default function QuestionRankingPanel({ stats, subjectType, onViewAnswers
                   {open ? (
                     <tr>
                       <td colSpan={6} className="pb-2">
-                        <QuestionDetail stat={stat} subjectType={subjectType} onViewAnswers={onViewAnswers} />
+                        <QuestionDetail stat={stat} subjectType={subjectType} onViewAnswers={onViewAnswers} onExcludeSubject={onExcludeSubject} />
                       </td>
                     </tr>
                   ) : null}

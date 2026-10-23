@@ -18,6 +18,8 @@ import ModelHealthPanel, { type ModelRerunRequest } from "./model-health-panel"
 import ModelRerunReview from "./model-rerun-review"
 import ShareLinkPanel from "./share-link-panel"
 import QuestionRankingPanel from "./question-ranking-panel"
+import ExcludedSubjectsPanel from "./excluded-subjects-panel"
+import { useGlobalExcludedSubjects } from "@/hooks/use-global-excluded-subjects"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
@@ -522,6 +524,34 @@ export default function PenetrationModule({
     }
   }
 
+  // Names that are not competitors: the admin's list and this client's own.
+  const globalExcluded = useGlobalExcludedSubjects()
+  const clientExcluded = useMemo(() => client.excludedSubjects ?? [], [client.excludedSubjects])
+  const excludedSubjects = useMemo(() => [...globalExcluded, ...clientExcluded], [globalExcluded, clientExcluded])
+  const [exclusionPending, setExclusionPending] = useState<string | null>(null)
+  const [exclusionError, setExclusionError] = useState("")
+
+  // The server saves the list and the rankings worked out with it; the page
+  // then echoes the list, which changes nothing there.
+  const changeExclusion = useCallback(async (name: string, restore: boolean) => {
+    setExclusionPending(name)
+    setExclusionError("")
+    try {
+      const response = await apiFetch("/api/penetration/excluded-subjects/client", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientId: client.id, teamId, ...(restore ? { remove: name } : { add: name }) }),
+      })
+      const data = await readApiJson<{ excludedSubjects?: string[]; error?: string }>(response, "排除名单保存")
+      if (!response.ok) throw new Error(data.error || "排除名单保存失败")
+      onChangeClient({ excludedSubjects: data.excludedSubjects?.length ? data.excludedSubjects : undefined })
+    } catch (caught) {
+      setExclusionError(caught instanceof Error ? caught.message : "排除名单保存失败")
+    } finally {
+      setExclusionPending(null)
+    }
+  }, [client.id, teamId, onChangeClient])
+
   // 旧报告也在展示时按最新规则重算，避免历史 hitOur=false 把简称命中显示成 0%。
   const pen = useMemo(() => {
     if (!client.penetration) return undefined
@@ -536,10 +566,12 @@ export default function PenetrationModule({
         {
           plannedSlots: client.penetration.aggregated.plannedSlots,
           modelCount: Object.keys(client.penetration.byModel).length,
+          excludedSubjects,
         },
       ),
     }
   }, [
+    excludedSubjects,
     client.penetration,
     client.ourBrand,
     client.brandAliases,
@@ -664,6 +696,14 @@ export default function PenetrationModule({
                   loading,
                   reanalyzingBrands,
                   onReanalyzeBrands: handleReanalyzeBrands,
+                  exclusions: {
+                    clientExcluded,
+                    globalExcluded,
+                    pending: exclusionPending,
+                    error: exclusionError,
+                    onExclude: name => void changeExclusion(name, false),
+                    onRestore: name => void changeExclusion(name, true),
+                  },
                   rerunningModels: busyRerunModels,
                   defaultSamples: client.penetrationSamplesPerQuestion ?? 1,
                   onRerun: request => void handleModelRerun(request),
@@ -712,6 +752,14 @@ export interface PenetrationResultsActions {
   onRerun: (request: ModelRerunRequest) => void
   onRetest: (model: ModelKey, item: PenetrationItem, sampleKey: string) => void
   retestingSampleId: string | null
+  exclusions: {
+    clientExcluded: string[]
+    globalExcluded: string[]
+    pending: string | null
+    error: string
+    onExclude: (name: string) => void
+    onRestore: (name: string) => void
+  }
 }
 
 /**
@@ -794,7 +842,12 @@ export function PenetrationResultsBody({
       </div>
 
       {pen.aggregated.questionStats?.length ? (
-        <QuestionRankingPanel stats={pen.aggregated.questionStats} subjectType={subjectType} onViewAnswers={viewAnswers} />
+        <QuestionRankingPanel
+          stats={pen.aggregated.questionStats}
+          subjectType={subjectType}
+          onViewAnswers={viewAnswers}
+          onExcludeSubject={actions?.exclusions.onExclude}
+        />
       ) : null}
 
       <PenetrationSampleQualityPanel aggregated={pen.aggregated} />
@@ -877,6 +930,19 @@ export function PenetrationResultsBody({
           </p>
           <BrandModelMatrix items={pen.aggregated.industryShare} ourBrand={ourBrand} />
         </div>
+      ) : null}
+
+      {actions && subjectType !== "person" ? (
+        <ExcludedSubjectsPanel
+          ranking={pen.aggregated.industryShare.filter(item => !isSameSubject(item.brand, ourBrand, subjectType))}
+          excludedShare={pen.aggregated.excludedShare ?? []}
+          clientExcluded={actions.exclusions.clientExcluded}
+          globalExcluded={actions.exclusions.globalExcluded}
+          pending={actions.exclusions.pending}
+          error={actions.exclusions.error}
+          onExclude={actions.exclusions.onExclude}
+          onRestore={actions.exclusions.onRestore}
+        />
       ) : null}
 
       <BrandAndKeywordPanels

@@ -2,6 +2,7 @@ import "server-only"
 
 import { createHash, randomUUID } from "crypto"
 import { ADAPTERS } from "@/lib/llm"
+import { excludedSubjectsFor } from "@/lib/penetration/excluded-subjects"
 import { kv } from "@/lib/kv"
 import { jobIdFromRequest, normalizeJobRequestId } from "@/lib/job-request-idempotency"
 import {
@@ -448,6 +449,7 @@ export async function submitPenetrationJob(
       userLocation,
       samplesPerQuestion,
       competitors,
+      excludedSubjects: await excludedSubjectsFor(currentClient),
       selectedModels: requestedModels,
       models: activeModels,
       slotSelection,

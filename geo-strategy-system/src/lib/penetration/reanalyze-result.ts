@@ -29,6 +29,8 @@ export async function reanalyzePenetrationEntities(args: {
   ourBrand: string
   brandAliases: string[]
   competitors: string[]
+  /** Names left out of the rankings as not competitors. */
+  excludedSubjects?: string[]
   subjectType?: AnalysisSubjectType
   personProfile?: PersonSubjectProfile
   /**
@@ -108,6 +110,7 @@ export async function reanalyzePenetrationEntities(args: {
         ourBrand: args.ourBrand,
         brandAliases: args.brandAliases,
         competitors: args.competitors,
+        excludedSubjects: args.excludedSubjects,
         subjectType: args.subjectType || "brand",
         generatedAt: payload.generatedAt || new Date().toISOString(),
       }),
@@ -125,6 +128,7 @@ export async function reanalyzePenetrationEntities(args: {
     ourBrand: args.ourBrand,
     brandAliases: args.brandAliases,
     competitors: args.competitors,
+    excludedSubjects: args.excludedSubjects,
     subjectType: args.subjectType || "brand",
     generatedAt: payload.generatedAt || new Date().toISOString(),
     plannedQuestions: questions,

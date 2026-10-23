@@ -68,4 +68,25 @@ assert.ok(crowded.brands.some(brand => brand.isTarget), "ours is kept wherever i
 assert.equal(result.industryShare[0].count, 3)
 assert.equal(result.ourRanking, 1)
 
-console.log("Penetration per-question rates, rankings and shared ranks passed.")
+// A name that is not a competitor (a government platform) leaves every
+// ranking, with its variants, and is listed apart; our own brand never is.
+{
+  const platform = "全国建筑市场监管公共服务平台（四库一平台）"
+  const answers = {
+    kimi: [
+      answer("kimi", strong, [platform, "华岳工程咨询有限公司"], true),
+      answer("kimi", missed, ["全国建筑市场监管公共服务平台", "中达建设监理有限公司"], false),
+    ],
+  }
+  const before = aggregatePenetration(answers, "测试品牌")
+  assert.equal(before.industryShare[0].brand.startsWith("全国建筑市场监管公共服务平台"), true)
+  const after = aggregatePenetration(answers, "测试品牌", [], [], "brand", { excludedSubjects: [platform, "测试品牌"] })
+  assert.ok(!after.industryShare.some(item => item.brand.startsWith("全国建筑市场")), "gone from the overall ranking")
+  assert.ok(!after.questionStats!.some(stat => stat.brands.some(brand => brand.brand.startsWith("全国建筑市场"))), "and from every question")
+  assert.equal(after.excludedShare?.[0]?.count, 2, "listed apart, both spellings counted")
+  assert.equal(after.ourMentions, before.ourMentions, "our own brand cannot be excluded")
+  assert.ok(after.industryShare.some(item => item.brand === "测试品牌"))
+  assert.equal(after.questionStats![0].ourRanking, 1, "we move up in the question it led")
+}
+
+console.log("Penetration per-question rates, rankings, shared ranks and exclusions passed.")

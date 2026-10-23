@@ -49,6 +49,8 @@ export function buildPenetrationBatchResult(args: {
   questionIntents?: PenetrationQuestionIntentHint[]
   plannedSlots?: number
   modelCount?: number
+  /** Names left out of the rankings as not competitors. */
+  excludedSubjects?: string[]
 }): PenetrationResult {
   const existingByModel = args.currentResult?.byModel
     || (args.operation === "append" ? args.baseResult?.byModel : undefined)
@@ -74,6 +76,7 @@ export function buildPenetrationBatchResult(args: {
         questionIntents,
         plannedSlots: args.plannedSlots,
         modelCount: args.modelCount,
+        excludedSubjects: args.excludedSubjects,
       },
     ),
     extraction: buildPenetrationExtractionSummary(byModel),
@@ -102,6 +105,7 @@ export function replacePenetrationModelAnswers(args: {
   competitors: string[]
   subjectType?: AnalysisSubjectType
   generatedAt: string
+  excludedSubjects?: string[]
 }): PenetrationResult {
   const fresh = args.incoming.filter(item => item.answer?.trim())
   const freshByQuestion = new Map<string, PenetrationItem[]>()
@@ -133,6 +137,7 @@ export function replacePenetrationModelAnswers(args: {
     competitors: args.competitors,
     subjectType: args.subjectType,
     generatedAt: args.generatedAt,
+    excludedSubjects: args.excludedSubjects,
     questionIntents: args.base.questionIntents,
     plannedSlots: args.base.aggregated.plannedSlots ?? args.base.aggregated.totalSlots,
     modelCount: args.base.aggregated.perModelRate.length || Object.keys(byModel).length,
@@ -172,6 +177,7 @@ export function mergeReextractedAnswers(args: {
   competitors: string[]
   subjectType?: AnalysisSubjectType
   generatedAt: string
+  excludedSubjects?: string[]
 }): PenetrationResult {
   const read = new Map<string, PenetrationItem>()
   for (const items of Object.values(args.incoming)) {
@@ -192,6 +198,7 @@ export function mergeReextractedAnswers(args: {
       competitors: args.competitors,
       subjectType: args.subjectType,
       generatedAt: args.generatedAt,
+      excludedSubjects: args.excludedSubjects,
       questionIntents: args.base.questionIntents,
       plannedSlots: args.base.aggregated.plannedSlots ?? args.base.aggregated.totalSlots,
       modelCount: args.base.aggregated.perModelRate.length || Object.keys(byModel).length,
