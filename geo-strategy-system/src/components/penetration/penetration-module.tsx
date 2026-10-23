@@ -17,6 +17,7 @@ import BrandModelMatrix from "./brand-model-matrix"
 import ModelHealthPanel, { type ModelRerunRequest } from "./model-health-panel"
 import ModelRerunReview from "./model-rerun-review"
 import ShareLinkPanel from "./share-link-panel"
+import QuestionRankingPanel from "./question-ranking-panel"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
@@ -734,6 +735,13 @@ export function PenetrationResultsBody({
 }) {
   const topIndustryShare = pen.aggregated.industryShare.slice(0, 10)
   const loading = actions?.loading ?? false
+  // A question picked in the per-question panel narrows the raw answers to it.
+  const [answerQuestion, setAnswerQuestion] = useState<string | null>(null)
+  const answersRef = useRef<HTMLDivElement>(null)
+  const viewAnswers = useCallback((question: string) => {
+    setAnswerQuestion(question)
+    window.requestAnimationFrame(() => answersRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }))
+  }, [])
   return (
     <>
       {pen.extraction?.status !== "complete" ? (
@@ -784,6 +792,10 @@ export function PenetrationResultsBody({
           />
         </div>
       </div>
+
+      {pen.aggregated.questionStats?.length ? (
+        <QuestionRankingPanel stats={pen.aggregated.questionStats} subjectType={subjectType} onViewAnswers={viewAnswers} />
+      ) : null}
 
       <PenetrationSampleQualityPanel aggregated={pen.aggregated} />
 
@@ -893,7 +905,10 @@ export function PenetrationResultsBody({
         </div>
       )}
 
+      <div ref={answersRef} className="scroll-mt-4">
       <RawAnswersPanel
+        focusQuestion={answerQuestion}
+        onClearFocus={() => setAnswerQuestion(null)}
         byModel={pen.byModel}
         ourBrand={ourBrand}
         brandAliases={brandAliases}
@@ -902,6 +917,7 @@ export function PenetrationResultsBody({
         retestDisabled={loading || !actions?.canExecute}
         subjectType={subjectType}
       />
+      </div>
 
       <div className="text-[11px] text-slate-400 text-right">
         生成于 {new Date(pen.generatedAt).toLocaleString("zh-CN")}
@@ -945,6 +961,8 @@ function formatPenetrationJobProgress(job: PenetrationJobRecord): string {
 }
 
 function RawAnswersPanel({
+  focusQuestion,
+  onClearFocus,
   byModel,
   ourBrand,
   brandAliases,
@@ -956,6 +974,9 @@ function RawAnswersPanel({
   byModel: PenetrationResult["byModel"]
   ourBrand: string
   brandAliases: string[]
+  /** Shows only this question's answers, opened. */
+  focusQuestion?: string | null
+  onClearFocus?: () => void
   /** Omitted on a read-only view, which hides the per-answer re-test. */
   onRetest?: (model: ModelKey, item: PenetrationItem, sampleKey: string) => void
   retestingSampleId: string | null
@@ -963,7 +984,9 @@ function RawAnswersPanel({
   subjectType: AnalysisSubjectType
 }) {
   const models = (Object.keys(byModel) as ModelKey[]).filter(m => byModel[m]?.length)
-  const [open, setOpen] = useState(false)
+  const [openState, setOpen] = useState(false)
+  const focus = focusQuestion?.trim() || ""
+  const open = openState || Boolean(focus)
   const [activeModel, setActive] = useState<ModelKey | null>(models[0] ?? null)
   const currentModel = activeModel && models.includes(activeModel) ? activeModel : models[0] ?? null
   const targetSubjectNames = [ourBrand, ...brandAliases].map(name => name.trim()).filter(Boolean)
@@ -1017,7 +1040,10 @@ function RawAnswersPanel({
   return (
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (open) onClearFocus?.()
+          setOpen(!open)
+        }}
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50/70 transition group"
       >
         <div className="flex items-center gap-2.5">
@@ -1038,6 +1064,14 @@ function RawAnswersPanel({
 
       {open && (
         <div className="border-t border-slate-100">
+          {focus ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 bg-blue-50/60 px-4 py-2 text-xs text-[#003EB3]">
+              <span className="min-w-0">只看这一题：<b>{focus}</b></span>
+              <button type="button" onClick={() => onClearFocus?.()} className="shrink-0 text-[#1677FF] hover:underline">
+                显示全部问题
+              </button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-1.5 px-4 py-3 bg-slate-50/40 border-b border-slate-100">
             {models.map(m => (
               <button
@@ -1051,7 +1085,9 @@ function RawAnswersPanel({
               >
                 <span className="inline-flex items-center gap-1.5">
                   <ModelAvatar model={m} size="xs" />
-                  {MODEL_LABELS[m]} · {byModel[m]?.length ?? 0} 条
+                  {MODEL_LABELS[m]} · {focus
+                    ? (byModel[m] || []).filter(item => item.question.trim() === focus).length
+                    : byModel[m]?.length ?? 0} 条
                 </span>
               </button>
             ))}
@@ -1114,6 +1150,7 @@ function RawAnswersPanel({
           </div>
           <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
             {items.map((it, i) => {
+              if (focus && it.question.trim() !== focus) return null
               const meta = sampleMeta[i]
               const hit =
                 typeof it.hitOur === "boolean"

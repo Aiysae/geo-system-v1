@@ -15,6 +15,7 @@ import {
   View,
 } from "@react-pdf/renderer"
 import type {
+  PenetrationQuestionStat,
   CommercialReportInput,
   CompetitorComparison,
   DifficultyContentCostEstimate,
@@ -38,6 +39,7 @@ import type {
   KeywordItem,
   QuestionItem,
 } from "@/types/geo-strategy"
+import { sharedRank } from "@/lib/score-utils"
 import {
   isContentVolumeCostEstimate,
   isContentVolumeV3CostEstimate,
@@ -1822,6 +1824,7 @@ function SummaryPage({ input, answers, sources }: { input: CommercialReportInput
 function PenetrationPage({ input, answers }: { input: CommercialReportInput; answers: FlattenedAnswer[] }) {
   const penetration = input.penetration!
   const brands = penetration.aggregated.industryShare.slice(0, 10)
+  const counts = penetration.aggregated.industryShare.map(item => item.count)
   const terms = reportVocabulary(input)
   const maxBrandRate = Math.max(0.01, ...brands.map(item => item.penetrationRate))
   const rankColors = [COLORS.amber, COLORS.silver, COLORS.bronze]
@@ -1853,7 +1856,7 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
         {brands.map((item, index) => (
           <HorizontalBar
             key={item.brand}
-            label={`${index + 1}. ${item.brand}`}
+            label={`${sharedRank(counts, item.count)}. ${item.brand}`}
             value={item.penetrationRate / maxBrandRate}
             display={`${percent(item.penetrationRate)} · ${item.count} 次`}
             color={rankColors[index] || COLORS.slate}
@@ -1874,9 +1877,60 @@ function PenetrationPage({ input, answers }: { input: CommercialReportInput; ans
   )
 }
 
+/** Each question on its own, so a strong one cannot hide those where we never come up. */
+function QuestionRankingSection({ stats, subject }: { stats: PenetrationQuestionStat[]; subject: string }) {
+  if (stats.length === 0) return null
+  const covered = stats.filter(stat => stat.ourMentions > 0).length
+  const row = (stat: PenetrationQuestionStat, last: boolean) => (
+    <View key={stat.question} style={[styles.tableRow, last ? styles.tableLastRow : {}]} wrap={false}>
+      <TableCell width="28%">{stat.question}</TableCell>
+      <TableCell width="10%" strong>{percent(stat.ourRate)}</TableCell>
+      <TableCell width="14%">
+        {stat.ourRanking === null
+          ? "未上榜"
+          : `第 ${stat.ourRanking} 名${stat.brands.filter(brand => brand.rank === stat.ourRanking).length > 1 ? "（并列）" : ""}`}
+      </TableCell>
+      <TableCell width="10%">{stat.perModel.filter(item => item.mentions > 0).length}/{stat.perModel.length}</TableCell>
+      <TableCell width="38%">
+        {stat.brands.slice(0, 5).map(brand => `${brand.rank}. ${brand.brand}${brand.isTarget ? "（我方）" : ""} ${percent(brand.penetrationRate)}`).join("；")}
+      </TableCell>
+    </View>
+  )
+  const lead = stats.slice(0, 2)
+  const rest = stats.slice(2)
+  return (
+    <View style={styles.section}>
+      {/* The title, header and first rows move together, never stranded at the foot of a page. */}
+      <View wrap={false}>
+        <Text style={styles.sectionTitle}>单题渗透率与排名</Text>
+        <Text style={styles.tableNote}>
+          {stats.length} 个问题中，{covered} 个有模型提到我方，{stats.length - covered} 个为 0。整体渗透率由所有问题合并计算，请逐题核对；提及次数相同的{subject}并列同一名次。
+        </Text>
+        <View style={[styles.table, { marginTop: 6 }]}>
+          <View style={[styles.tableRow, styles.tableHeader]}>
+            <TableCell width="28%" header>问题</TableCell>
+            <TableCell width="10%" header>我方提及率</TableCell>
+            <TableCell width="14%" header>我方排名</TableCell>
+            <TableCell width="10%" header>提到我方的模型</TableCell>
+            <TableCell width="38%" header>本题前 5 名</TableCell>
+          </View>
+          {lead.map((stat, index) => row(stat, rest.length === 0 && index === lead.length - 1))}
+        </View>
+      </View>
+      {rest.length ? (
+        <View style={styles.table}>
+          {rest.map((stat, index) => row(stat, index === rest.length - 1))}
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
 function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
   const penetration = input.penetration!
   const brands = penetration.aggregated.industryShare.slice(0, 10)
+  // Tied counts share a rank, as on the detection page.
+  const counts = penetration.aggregated.industryShare.map(item => item.count)
   const institutions = (penetration.aggregated.institutionShare || []).slice(0, 8)
   const terms = reportVocabulary(input)
   const models = penetration.aggregated.perModelRate
@@ -1903,7 +1957,7 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
           {brands.map((item, index) => (
             <View key={item.brand} style={[styles.tableRow, index === brands.length - 1 ? styles.tableLastRow : {}]} wrap={false}>
               <View style={[styles.tableCell, { width: "10%", alignItems: "center" }]}>
-                <Text style={[styles.rankBadge, { backgroundColor: rankColors[index] || COLORS.slate }]}>{index + 1}</Text>
+                <Text style={[styles.rankBadge, { backgroundColor: rankColors[index] || COLORS.slate }]}>{sharedRank(counts, item.count)}</Text>
               </View>
               <TableCell width="44%" strong>{item.brand}</TableCell>
               <TableCell width="20%">{item.count} 次</TableCell>
@@ -1913,6 +1967,7 @@ function PenetrationTablesPage({ input }: { input: CommercialReportInput }) {
         </View>
       </View>
       <BrandModelMatrixSection brands={brands} />
+      <QuestionRankingSection stats={penetration.aggregated.questionStats || []} subject={terms.subject} />
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>各模型{terms.target}命中率</Text>
         <View style={styles.table}>

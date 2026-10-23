@@ -1149,6 +1149,40 @@ export interface PenetrationAggregated {
   perModelRate: PerModelRate[]
   missedQuestions: string[]
   topCompetitors: string[]
+  /** One entry per question, in the order the questions were asked. */
+  questionStats?: PenetrationQuestionStat[]
+}
+
+/** A brand's standing among the answers to one question. */
+export interface PenetrationQuestionBrand {
+  brand: string
+  /** Answers to this question that mention it. */
+  count: number
+  /** count over this question's answers (ours) or its recognised answers (others). */
+  penetrationRate: number
+  /** Brands with the same count share a rank: 1, 2, 2, 4. */
+  rank: number
+  isTarget?: boolean
+  /** Answers per model that mention it; kept for the leading brands only. */
+  perModel?: Partial<Record<ModelKey, number>>
+}
+
+/** One question on its own: how often we come up, where we rank, who leads. */
+export interface PenetrationQuestionStat {
+  question: string
+  /** Answers with text. */
+  answers: number
+  /** Answers whose brands were recognised; the competitors' denominator. */
+  recognised: number
+  ourMentions: number
+  ourRate: number
+  ourRanking: number | null
+  /** Distinct brands named in this question's answers. */
+  brandCount: number
+  /** Our mentions per model. */
+  perModel: Array<{ model: ModelKey; mentions: number; total: number }>
+  /** The leading brands, ours included wherever it ranks. */
+  brands: PenetrationQuestionBrand[]
 }
 
 /** One model's answers re-run after the report was produced. */

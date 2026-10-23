@@ -4,8 +4,10 @@ import type {
   ModelKey,
   PenetrationAggregated,
   PenetrationByModel,
+  PenetrationQuestionBrand,
   PenetrationQuestionCategory,
   PenetrationQuestionIntentHint,
+  PenetrationQuestionStat,
   PerModelRate,
 } from "@/types"
 import {
@@ -54,6 +56,69 @@ function meanRate(values: Iterable<RateAccumulator>): number {
 
 // Leading brands carry a per-model breakdown; the long tail does not need one.
 const PER_MODEL_SHARE_LIMIT = 10
+// Brands kept per question: the leaders a page lists, plus ours wherever it ranks.
+const QUESTION_BRAND_LIMIT = 20
+
+/** Brands with the same count share a rank (1, 2, 2, 4); the next count skips. */
+export function sharedRank(counts: number[], count: number): number {
+  return counts.filter(value => value > count).length + 1
+}
+
+type QuestionAccumulator = {
+  question: string
+  answers: number
+  recognised: number
+  ourMentions: number
+  perModel: Map<ModelKey, { mentions: number; total: number }>
+  brands: Map<string, { displayName: string; count: number; perModel: Partial<Record<ModelKey, number>> }>
+}
+
+function questionStat(entry: QuestionAccumulator, targetName: string): PenetrationQuestionStat {
+  // Our count is the answers that mention us, the figure behind our rate, so
+  // the rank and the rate never disagree.
+  const ranked: Array<{ name: string; count: number; isTarget: boolean; perModel: Partial<Record<ModelKey, number>> }> = [
+    ...Array.from(entry.brands.values()).map(brand => ({
+      name: brand.displayName,
+      count: brand.count,
+      isTarget: false,
+      perModel: brand.perModel,
+    })),
+    ...(entry.ourMentions > 0
+      ? [{
+          name: targetName,
+          count: entry.ourMentions,
+          isTarget: true,
+          perModel: Object.fromEntries(Array.from(entry.perModel).map(([model, value]) => [model, value.mentions])),
+        }]
+      : []),
+  ].sort((a, b) => b.count - a.count || Number(b.isTarget) - Number(a.isTarget))
+  const counts = ranked.map(item => item.count)
+  const brands = ranked
+    .map((item, index): PenetrationQuestionBrand & { index: number } => ({
+      brand: item.name,
+      count: item.count,
+      penetrationRate: item.isTarget
+        ? (entry.answers ? item.count / entry.answers : 0)
+        : (entry.recognised ? item.count / entry.recognised : 0),
+      rank: sharedRank(counts, item.count),
+      ...(item.isTarget ? { isTarget: true } : {}),
+      ...(index < PER_MODEL_SHARE_LIMIT || item.isTarget ? { perModel: item.perModel } : {}),
+      index,
+    }))
+    .filter(item => item.index < QUESTION_BRAND_LIMIT || item.isTarget)
+    .map(({ index: _index, ...item }) => item)
+  return {
+    question: entry.question,
+    answers: entry.answers,
+    recognised: entry.recognised,
+    ourMentions: entry.ourMentions,
+    ourRate: entry.answers ? entry.ourMentions / entry.answers : 0,
+    ourRanking: entry.ourMentions > 0 ? sharedRank(counts, entry.ourMentions) : null,
+    brandCount: ranked.length,
+    perModel: Array.from(entry.perModel).map(([model, value]) => ({ model, ...value })),
+    brands,
+  }
+}
 
 /**
  * Names the judge recognised somewhere in the run that appear verbatim in this
@@ -120,6 +185,7 @@ export function aggregatePenetration(
     .map(([name]) => name)
     .sort((a, b) => b.length - a.length)
   const exactQuestionRates = new Map<string, RateAccumulator>()
+  const questionEntries = new Map<string, QuestionAccumulator>()
   const intentRates = new Map<string, RateAccumulator>()
   const intentCategories = new Map<string, PenetrationQuestionCategory>()
 
@@ -180,6 +246,33 @@ export function aggregatePenetration(
         || buildPenetrationQuestionSamples([it.question])[0]
       const exactKey = questionKey(it.question)
       recordRate(exactQuestionRates, exactKey, hitOurInThisSlot)
+      const questionEntry = questionEntries.get(exactKey) ?? {
+        question: it.question.trim(),
+        answers: 0,
+        recognised: 0,
+        ourMentions: 0,
+        perModel: new Map(),
+        brands: new Map(),
+      }
+      questionEntries.set(exactKey, questionEntry)
+      questionEntry.answers++
+      if (extractionUsable) questionEntry.recognised++
+      const questionModel = questionEntry.perModel.get(model as ModelKey) ?? { mentions: 0, total: 0 }
+      questionModel.total++
+      if (hitOurInThisSlot) {
+        questionModel.mentions++
+        questionEntry.ourMentions++
+      }
+      questionEntry.perModel.set(model as ModelKey, questionModel)
+      for (const brand of canonicalBrands) {
+        // Ours is counted from the answers that mention us, above.
+        if (brand.isTarget) continue
+        const entry = questionEntry.brands.get(brand.key)
+          ?? { displayName: brand.display, count: 0, perModel: {} }
+        entry.count += 1
+        entry.perModel[model as ModelKey] = (entry.perModel[model as ModelKey] ?? 0) + 1
+        questionEntry.brands.set(brand.key, entry)
+      }
       if (sample) {
         recordRate(intentRates, sample.intentId, hitOurInThisSlot)
         intentCategories.set(sample.intentId, sample.category)
@@ -227,7 +320,16 @@ export function aggregatePenetration(
     }))
 
   const rankingIdx = industryShare.findIndex(s => resolver.canonicalize(s.brand)?.isTarget)
-  const ourRanking = rankingIdx >= 0 ? rankingIdx + 1 : null
+  // A tie shares the rank: level with two brands at third, we are third, not fifth.
+  const ourRanking = rankingIdx >= 0
+    ? sharedRank(industryShare.map(item => item.count), industryShare[rankingIdx].count)
+    : null
+  const targetName = rankingIdx >= 0 ? industryShare[rankingIdx].brand : ourBrand.trim()
+  // In the order asked, so the panel lists questions as the user wrote them.
+  const askedOrder = new Map(representativeQuestions(byModel).map((question, index) => [questionKey(question), index]))
+  const questionStats = Array.from(questionEntries)
+    .sort(([left], [right]) => (askedOrder.get(left) ?? Infinity) - (askedOrder.get(right) ?? Infinity))
+    .map(([, entry]) => questionStat(entry, targetName))
 
   const missedQuestions = Array.from(allQuestions).filter(q => !mentionedByAnyModel.has(q))
 
@@ -314,6 +416,7 @@ export function aggregatePenetration(
     perModelRate,
     missedQuestions,
     topCompetitors,
+    questionStats,
   }
 }
 

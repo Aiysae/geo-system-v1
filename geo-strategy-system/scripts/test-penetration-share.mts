@@ -74,8 +74,8 @@ try {
   assert.equal(snapshot?.ourBrand, "测试品牌")
   assert.equal(snapshot?.penetration.aggregated.ourMentions, 2, "figures are recomputed for the page")
   const shared = snapshot!.penetration.byModel.kimi![0]
-  assert.equal(shared.searchSources[0].snippet, "", "snippets the page never shows are left out")
-  assert.equal(shared.searchSources[0].url, "https://example.com/1")
+  assert.equal(shared.searchSources![0].snippet, "", "snippets the page never shows are left out")
+  assert.equal(shared.searchSources![0].url, "https://example.com/1")
   assert.equal(shared.providerRequestIds, undefined)
   assert.equal(shared.answer, "推荐甲公司和测试品牌。", "the raw answers are kept")
 
