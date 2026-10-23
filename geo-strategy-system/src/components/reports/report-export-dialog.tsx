@@ -187,14 +187,17 @@ function compactItem(item: PenetrationItem, detail: CommercialReportDetail): Pen
   const full = detail === "full"
   const sources = full ? (item.searchSources || []) : (item.searchSources || []).slice(0, 200)
   const queries = full ? (item.searchQueries || []) : (item.searchQueries || []).slice(0, 100)
+  // The PDF shows no source snippets and no request audits; they were most
+  // of a report sent here, and a seven-model report outgrew the 10MB body.
+  const { requestAudits: _requestAudits, providerRequestIds: _providerRequestIds, ...rest } = item
   return {
-    ...item,
+    ...rest,
     question: full ? String(item.question || "") : String(item.question || "").slice(0, 2_000),
     answer: full ? String(item.answer || "") : "",
     mentionedBrands: full ? [...(item.mentionedBrands || [])] : (item.mentionedBrands || []).slice(0, 100),
     searchSources: sources.map(source => ({
       title: full ? String(source.title || "") : String(source.title || "").slice(0, 500),
-      snippet: full ? String(source.snippet || "") : String(source.snippet || "").slice(0, 1_000),
+      snippet: "",
       url: full ? String(source.url || "") : String(source.url || "").slice(0, 4_000),
       domain: full ? String(source.domain || "") : String(source.domain || "").slice(0, 500),
       query: full ? String(source.query || "") : String(source.query || "").slice(0, 1_000),

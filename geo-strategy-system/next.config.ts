@@ -9,7 +9,13 @@ const nextConfig: NextConfig = {
     // ECS deployments run `tsc --noEmit` on the runner before this build.
     ignoreBuildErrors: skipBuildTypecheck,
   },
-  experimental: lowMemoryBuild ? { cpus: 1 } : {},
+  experimental: {
+    ...(lowMemoryBuild ? { cpus: 1 } : {}),
+    // The proxy buffers request bodies up to this size; past it a route sees
+    // a cut-off body. A seven-model detection report is over 10MB, the
+    // default. nginx allows 32MB.
+    proxyClientMaxBodySize: "32mb",
+  },
   turbopack: {
     root: process.cwd(),
   },
