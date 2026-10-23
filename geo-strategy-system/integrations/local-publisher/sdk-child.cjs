@@ -108,7 +108,8 @@ process.once('message',async message=>{
     if(input.operation==='audit'){
       const r=await sdk.Cloud.checkAuditStatus(input.platform,{cookie,platformAccountId:input.accountId},input.taskId,input.remoteId,contentType==='wechat'?'article':contentType,nonce);
       if(blocked||authError||challenge||rateLimited||networkError){done({ok:false,...classified()});return;}
-      if(r&&typeof r.auditStatus==='number'){done({ok:true,auditStatus:r.auditStatus});return;}
+      // openUrl is the public article link the SDK reports once a platform shows the article as published.
+      if(r&&typeof r.auditStatus==='number'){done({ok:true,auditStatus:r.auditStatus,openUrl:typeof r.openUrl==='string'?r.openUrl:undefined});return;}
       done({ok:false,code:'AUDIT_PENDING',message:'平台审核结果尚未明确'});return;
     }
     if(input.operation!=='publish')throw Error('UNSUPPORTED_OPERATION');

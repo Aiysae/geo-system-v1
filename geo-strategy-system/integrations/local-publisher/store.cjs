@@ -10,6 +10,12 @@ const json = value => JSON.stringify(value);
 const digest = value => createHash('sha256').update(json(value)).digest('hex');
 const {metadata:validateMetadata,typeOf,applyOverride,platformCapability,plainHtml}=require('./vendor/content-rules.cjs');
 const terminal = new Set(['published', 'draft', 'failed', 'cancelled', 'rejected']);
+// Outcomes the GEO server reports after writing a published task into the client's execution feedback.
+const feedbackStates = new Set(['matched', 'unplanned', 'over_quota', 'needs_review', 'denied']);
+function httpUrl(value) {
+  try { const u = new URL(String(value || '').trim()); return ['http:', 'https:'].includes(u.protocol) && u.href.length <= 1000 ? u.href : ''; }
+  catch { return ''; }
+}
 function fail(message, code = 'INVALID') { const e = new Error(message); e.code = code; throw e; }
 function text(value, max, name) {
   if (typeof value !== 'string' || !value.trim() || value.length > max) fail(`${name}为空或过长`);
@@ -72,7 +78,9 @@ class Store {
       this.db.exec("ALTER TABLE accounts ADD COLUMN group_name TEXT NOT NULL DEFAULT ''");
     for(const [table,columns] of Object.entries({
       accounts:{session_version:'INTEGER NOT NULL DEFAULT 0',session_saved_at:'INTEGER',successful_check_at:'INTEGER',cooldown_until:'INTEGER NOT NULL DEFAULT 0',health_code:"TEXT NOT NULL DEFAULT ''"},
-      tasks:{interval_ms:'INTEGER NOT NULL DEFAULT 0',daily_limit:'INTEGER NOT NULL DEFAULT 0'},
+      tasks:{interval_ms:'INTEGER NOT NULL DEFAULT 0',daily_limit:'INTEGER NOT NULL DEFAULT 0',
+        client_id:'TEXT',team_id:'TEXT',published_at:'INTEGER',
+        feedback_state:'TEXT',feedback_message:"TEXT NOT NULL DEFAULT ''",feedback_attempts:'INTEGER NOT NULL DEFAULT 0',feedback_next_at:'INTEGER NOT NULL DEFAULT 0'},
     })){
       const existing=new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map(c=>c.name));
       for(const [name,type] of Object.entries(columns))if(!existing.has(name))this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
@@ -322,7 +330,8 @@ class Store {
     const requestKey=text(input.requestKey,100,'请求编号');
     const accountIds=[...new Set(input.accountIds||[])],articleIds=[...new Set(input.articleIds||input.contentIds||[])];
     const scheduledAt=input.scheduledAt?Number(input.scheduledAt):now();
-    const fingerprint=digest({accountIds:[...accountIds].sort(),articleIds:[...articleIds].sort(),mode:input.mode,scheduledAt:input.scheduledAt||null,intervalMinutes:input.intervalMinutes||0,dailyLimit:input.dailyLimit||0,overrides:input.overrides||null});
+    const clientId=feedbackRef(input.clientId,'客户编号'),teamId=clientId?feedbackRef(input.teamId,'团队编号'):null;
+    const fingerprint=digest({accountIds:[...accountIds].sort(),articleIds:[...articleIds].sort(),mode:input.mode,scheduledAt:input.scheduledAt||null,intervalMinutes:input.intervalMinutes||0,dailyLimit:input.dailyLimit||0,overrides:input.overrides||null,clientId,teamId});
     return this.transaction(()=>{
       const existing=this.db.prepare('SELECT * FROM batches WHERE owner=? AND request_key=?').get(owner,requestKey);
       if(existing){if(existing.fingerprint!==fingerprint)fail('同一请求编号对应不同内容','CONFLICT');return {id:existing.id,reused:true};}
@@ -332,12 +341,12 @@ class Store {
       const articles=articleIds.map(a=>this.article(owner,a));
       const batchId=id(), created=now();
       this.db.prepare('INSERT INTO batches VALUES(?,?,?,?,?,?)').run(batchId,owner,requestKey,fingerprint,created,scheduledAt);
-      const insert=this.db.prepare('INSERT INTO tasks(id,owner,batch_id,account_id,article_id,snapshot,mode,state,next_run,created_at,updated_at,interval_ms,daily_limit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+      const insert=this.db.prepare('INSERT INTO tasks(id,owner,batch_id,account_id,article_id,snapshot,mode,state,next_run,created_at,updated_at,interval_ms,daily_limit,client_id,team_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
       for(const a of accounts)for(const [index,article] of articles.entries()){
         const taskId=id(),snapshot=applyOverride(article,input.overrides?.[a.id]?.[article.id]);
         const dailyLimit=Number(input.dailyLimit)||0,interval=Number(input.intervalMinutes)||0;
         const runAt=scheduledAt+(dailyLimit?Math.floor(index/dailyLimit)*86400000:0)+(dailyLimit?index%dailyLimit:index)*interval*60000;
-        insert.run(taskId,owner,batchId,a.id,article.id,json(snapshot),input.mode,a.state==='ready'?'queued':'waiting_login',runAt,created,created,interval*60000,dailyLimit);
+        insert.run(taskId,owner,batchId,a.id,article.id,json(snapshot),input.mode,a.state==='ready'?'queued':'waiting_login',runAt,created,created,interval*60000,dailyLimit,clientId,teamId);
         this.event(owner,taskId,'created',a.state==='ready'?'任务已入队':'等待账号登录；完成后自动继续');
       }
       return {id:batchId,reused:false,count:accounts.length*articles.length};
@@ -426,7 +435,7 @@ class Store {
     });
   }
   updateClaim(t, patch) {
-    const keys=Object.keys(patch),allowed=new Set(['state','phase','next_run','lease_until','lease_owner','remote_id','remote_url','message']);
+    const keys=Object.keys(patch),allowed=new Set(['state','phase','next_run','lease_until','lease_owner','remote_id','remote_url','published_at','message']);
     if(keys.some(k=>!allowed.has(k)))throw Error('Unexpected task field');
     const values=keys.map(k=>patch[k]);
     const result=this.db.prepare(`UPDATE tasks SET ${keys.map(k=>`${k}=?`).join(',')},updated_at=? WHERE id=? AND owner=? AND lease_owner=?`).run(...values,now(),t.id,t.owner,t.lease_owner);
@@ -455,10 +464,43 @@ class Store {
     }else fail('操作无效');
     this.event(owner,taskId,action,action==='retry'?'用户要求重新提交':action==='cancel'?'用户取消等待任务':'用户补充平台编号以核验结果');
   }
+  // A link typed in by the user for a published task whose platform returned none.
+  setTaskUrl(owner,taskId,url){
+    const t=this.task(owner,taskId),href=httpUrl(url);
+    if(t.state!=='published')fail('只有已发布的任务可以补充文章链接');
+    if(!href)fail('请填写以 http 或 https 开头的文章链接');
+    this.db.prepare("UPDATE tasks SET remote_url=?,feedback_state=NULL,feedback_message='',feedback_attempts=0,feedback_next_at=0,updated_at=? WHERE owner=? AND id=?").run(href,now(),owner,taskId);
+    this.event(owner,taskId,'link','用户补充文章链接');
+    return {ok:true};
+  }
+  // Published tasks with a link and a client, not yet written into execution feedback.
+  // Read by the GEO server's sync loop for every owner; it is not routed from the browser.
+  feedbackPending(limit=20){
+    return this.db.prepare(`SELECT t.id,t.owner,t.client_id,t.team_id,t.remote_url,t.published_at,t.updated_at,t.feedback_attempts,
+      a.platform,a.label account_name,json_extract(t.snapshot,'$.title') title,COALESCE(json_extract(t.snapshot,'$.metadata.contentType'),'article') content_type
+      FROM tasks t JOIN accounts a ON a.id=t.account_id
+      WHERE t.state='published' AND t.client_id IS NOT NULL AND t.remote_url IS NOT NULL
+        AND (t.feedback_state IS NULL OR (t.feedback_state='retry' AND t.feedback_next_at<=?))
+      ORDER BY t.updated_at LIMIT ?`).all(now(),Math.max(1,Math.min(100,Number(limit)||20)));
+  }
+  // Records what the GEO server did with a published task; errors back off and retry, other outcomes are final.
+  markFeedback(owner,taskId,state,message=''){
+    const t=this.task(owner,taskId);
+    if(state==='error'){
+      const attempts=t.feedback_attempts+1;
+      this.db.prepare("UPDATE tasks SET feedback_state='retry',feedback_message=?,feedback_attempts=?,feedback_next_at=? WHERE owner=? AND id=?")
+        .run(String(message||'执行反馈暂时无法写入，稍后重试').slice(0,300),attempts,now()+Math.min(3600000,30000*2**Math.min(attempts,7)),owner,taskId);
+      return {ok:true};
+    }
+    if(!feedbackStates.has(state))fail('回写结果无效');
+    this.db.prepare("UPDATE tasks SET feedback_state=?,feedback_message=?,feedback_next_at=0 WHERE owner=? AND id=?").run(state,String(message||'').slice(0,300),owner,taskId);
+    return {ok:true};
+  }
   snapshot(owner) {
     const accounts=this.db.prepare('SELECT id,platform,label,remote_id,remote_name,state,checked_at,created_at,error,group_name,session_saved_at,successful_check_at,cooldown_until,health_code FROM accounts WHERE owner=? ORDER BY created_at DESC').all(owner).map(a=>({...a,cooling_down:a.cooldown_until>now()}));
     const articles=this.db.prepare('SELECT id,title,version,updated_at,metadata FROM articles WHERE owner=? ORDER BY updated_at DESC LIMIT 500').all(owner).map(a=>({...a,metadata:JSON.parse(a.metadata),contentType:JSON.parse(a.metadata).contentType||'article'}));
     const tasks=this.db.prepare(`SELECT t.id,t.batch_id,t.account_id,t.article_id,t.mode,t.state,t.phase,t.attempts,t.audit_attempts,t.next_run,t.remote_id,t.message,t.created_at,t.updated_at,
+      t.remote_url,t.client_id,t.team_id,t.published_at,t.feedback_state,t.feedback_message,
       a.label account_name,a.platform, json_extract(t.snapshot,'$.title') title, COALESCE(json_extract(t.snapshot,'$.metadata.contentType'),'article') content_type FROM tasks t JOIN accounts a ON a.id=t.account_id WHERE t.owner=? ORDER BY t.created_at DESC,t.id LIMIT 500`).all(owner);
     const events=this.db.prepare('SELECT sequence,task_id,kind,message,created_at FROM events WHERE owner=? ORDER BY sequence DESC LIMIT 100').all(owner);
     const drafts=this.db.prepare('SELECT id,name,payload,updated_at FROM batch_drafts WHERE owner=? ORDER BY updated_at DESC LIMIT 100').all(owner).map(d=>({...d,payload:JSON.parse(d.payload)}));
@@ -466,4 +508,9 @@ class Store {
   }
   close(){this.db.close();}
 }
-module.exports={Store,fail,text,terminal};
+function feedbackRef(value,name){
+  const v=String(value||'').trim();if(!v)return null;
+  if(v.length>200||!/^[\w:.-]+$/.test(v))fail(`${name}格式错误`);
+  return v;
+}
+module.exports={Store,fail,text,terminal,httpUrl};

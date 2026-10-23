@@ -228,6 +228,18 @@ async function importRequest<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok) throw new Error(data.error || "文章导入失败")
   return data as T
 }
+const clientKey = (client: { id: string; teamId?: string }) => `${client.id}|${client.teamId || ""}`
+// Where a task stands on its way into the client's execution feedback.
+function feedbackView(t: PublishingTask): { label: string; tone: "good" | "danger" | "muted"; needsLink?: boolean } {
+  if (!t.client_id) return { label: "未计入客户", tone: "muted" }
+  if (t.mode === "draft") return { label: "草稿不计入", tone: "muted" }
+  if (t.state !== "published") return { label: "发布后自动计入", tone: "muted" }
+  if (!t.remote_url) return { label: "待补文章链接", tone: "danger", needsLink: true }
+  if (!t.feedback_state) return { label: "正在写入执行反馈", tone: "muted" }
+  if (t.feedback_state === "retry") return { label: t.feedback_message || "稍后自动重试", tone: "muted" }
+  if (t.feedback_state === "denied") return { label: t.feedback_message || "无权写入该客户的执行反馈", tone: "danger" }
+  return { label: t.feedback_message || "已记入执行反馈", tone: t.feedback_state === "matched" ? "good" : "muted" }
+}
 const statusNames: Record<string, string> = {
   ready: "已登录",
   needs_login: "待登录",
@@ -366,6 +378,11 @@ export default function PublishingConsole({
   const [demoPosts, setDemoPosts] = useState<Array<{ id: number; title: string; status: string }>>(
     [],
   )
+  const [feedbackClients,setFeedbackClients]=useState<ProductionClient[]>([])
+  const [feedbackClient,setFeedbackClient]=useState("")
+  const [feedbackClientTouched,setFeedbackClientTouched]=useState(false)
+  const [linkTask,setLinkTask]=useState<PublishingTask|null>(null)
+  const [linkUrl,setLinkUrl]=useState("")
   const [review, setReview] = useState<PublishingTask | null>(null),
     [remoteId, setRemoteId] = useState(""),
     [confirmed, setConfirmed] = useState(false)
@@ -719,6 +736,7 @@ export default function PublishingConsole({
       scheduledAt: schedule ? new Date(schedule).getTime() : undefined,
       intervalMinutes,dailyLimit,
       overrides,
+      ...feedbackTarget(),
     }
     const fingerprint = JSON.stringify({
       ...input,
@@ -771,6 +789,17 @@ export default function PublishingConsole({
     )
   const selectedAccounts = state?.accounts.filter((a) => accounts.includes(a.id)) || []
   const selectedArticles = state?.articles.filter((a) => articles.includes(a.id)) || []
+  // Default to the client the selected articles were produced for, until the user picks one.
+  const sourceClientIds = [...new Set(selectedArticles.map(a => a.metadata?.source?.clientId || ""))]
+  const suggestedClient = sourceClientIds.length === 1 && sourceClientIds[0]
+    ? feedbackClients.find(client => client.id === sourceClientIds[0])
+    : undefined
+  const effectiveFeedbackClient = feedbackClientTouched ? feedbackClient : suggestedClient ? clientKey(suggestedClient) : ""
+  function feedbackTarget() {
+    const client = feedbackClients.find(item => clientKey(item) === effectiveFeedbackClient)
+    return client ? { clientId: client.id, teamId: client.teamId } : {}
+  }
+  const clientName = (id?: string | null) => feedbackClients.find(client => client.id === id)?.name
   function setVariant(accountId:string,contentId:string,change:ContentOverride){
     setOverrides(previous=>({...previous,[accountId]:{...(previous[accountId]||{}),[contentId]:{
       ...(previous[accountId]?.[contentId]||{}),...change,
@@ -787,6 +816,14 @@ export default function PublishingConsole({
     setMode("draft");setPreflight(null);setTab("tasks");setComposing(true)
   }
   const isComposer = tab === "tasks" && composing
+  // Clients the user can reach, for counting a batch toward one and naming it in the records.
+  useEffect(() => {
+    let active = true
+    importRequest<{ clients: ProductionClient[] }>(`${endpoint}/import`)
+      .then(result => { if (active) setFeedbackClients(result.clients) })
+      .catch(() => {})
+    return () => { active = false }
+  }, [])
   const selectTab = (next: PublishingTabKey) => {
     setTab(next)
     if (next === "tasks") setComposing(false)
@@ -1646,6 +1683,7 @@ export default function PublishingConsole({
                       <th>文章 / 账号</th>
                       <th>执行方式</th>
                       <th>状态</th>
+                      <th>执行反馈</th>
                       <th>进度说明</th>
                       <th>更新时间</th>
                       <th>操作</th>
@@ -1683,6 +1721,22 @@ export default function PublishingConsole({
                           <small>
                             尝试 {t.attempts} 次{t.remote_id ? ` · 编号 ${t.remote_id}` : ""}
                           </small>
+                        </td>
+                        <td className={s.taskMessage}>
+                          {(() => {
+                            const view = feedbackView(t)
+                            return (
+                              <>
+                                <span className={view.tone === "good" ? s.good : view.tone === "danger" ? s.danger : s.muted}>{view.label}</span>
+                                {t.client_id && clientName(t.client_id) && <small>{clientName(t.client_id)}</small>}
+                                {view.needsLink && (
+                                  <button className={s.textButton} onClick={() => { setLinkTask(t); setLinkUrl("") }}>
+                                    补充链接
+                                  </button>
+                                )}
+                              </>
+                            )
+                          })()}
                         </td>
                         <td className={s.taskMessage}>
                           {t.message}
@@ -1945,6 +1999,24 @@ export default function PublishingConsole({
                         onChange={(e) => setSchedule(e.target.value)}
                       />
                     </label>
+                  </div>
+                  <div className={s.two}>
+                    <label>
+                      计入客户（执行反馈）
+                      <select
+                        aria-label="计入客户"
+                        value={effectiveFeedbackClient}
+                        onChange={(e) => { setFeedbackClient(e.target.value); setFeedbackClientTouched(true) }}
+                      >
+                        <option value="">不计入执行反馈</option>
+                        {feedbackClients.map(client => (
+                          <option key={clientKey(client)} value={clientKey(client)}>
+                            {client.name}{client.teamId ? " · 团队共享" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className={s.muted}>正式发布并经平台确认后，文章链接会自动记入该客户的执行反馈，并完成发布计划里当天对应平台的任务。草稿不计入。</p>
                   </div>
                   <div className={s.two}>
                     <p className={s.muted}>同账号跨批次共用间隔和额度，重叠设置取较严格值。真实平台至少间隔 1 分钟；恢复后按间隔执行。提交结果不明时先核对，避免重复发送。</p>
@@ -2328,6 +2400,38 @@ export default function PublishingConsole({
                 {importBusy?"处理中…":`确认导入 ${productionIds.length} 篇`}
               </button>
             </div>
+          </div>
+        </Dialog>
+      )}
+      {linkTask && (
+        <Dialog title="补充文章链接" errorMessage={error} onClose={() => setLinkTask(null)}>
+          <p className={s.hint}>
+            平台确认已发布，但没有返回文章地址。填写公开文章链接后，会自动记入执行反馈。
+          </p>
+          <label>
+            文章链接
+            <input
+              type="url"
+              value={linkUrl}
+              placeholder="https://"
+              onChange={(e) => setLinkUrl(e.target.value)}
+            />
+          </label>
+          <div className={s.dialogFoot}>
+            <span>{linkTask.title}</span>
+            <button
+              className={s.primary}
+              disabled={busy || !linkUrl.trim()}
+              onClick={() =>
+                void perform(async () => {
+                  await send("task.url", { id: linkTask.id, url: linkUrl.trim() })
+                  setLinkTask(null)
+                  setNotice("文章链接已保存，稍后自动记入执行反馈")
+                })
+              }
+            >
+              保存链接
+            </button>
           </div>
         </Dialog>
       )}

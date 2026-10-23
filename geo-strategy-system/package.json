@@ -104,6 +104,7 @@
     "test:publishing-plan": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-plan.mts",
     "test:publishing-recommendation": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-recommendation.mts",
     "test:publishing-evidence": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-evidence-reconciliation.mts",
+    "test:publishing-feedback-sync": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-publishing-feedback-sync.mts",
     "test:publishing-file-import": "tsx scripts/test-publishing-file-import.mts",
     "test:content-production": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-content-production.mts",
     "preview:action-reminders": "NODE_OPTIONS=--conditions=react-server tsx scripts/preview-action-reminders.mts",

@@ -2,7 +2,7 @@ process.umask(0o077);
 const path=require('node:path');
 const fs=require('node:fs');
 const {randomUUID}=require('node:crypto');
-const {Store,fail}=require('./store.cjs');
+const {Store,fail,httpUrl}=require('./store.cjs');
 const {AccountBrowser}=require('./browser.cjs');
 const {runSdk}=require('./sdk-runner.cjs');
 const {DemoPlatform}=require('./demo.cjs');
@@ -88,7 +88,8 @@ async function execute(task){
       const result=await runSdk({operation:'audit',platform,session:account.session,accountId:account.id,taskId:task.id,remoteId:task.remote_id,contentType:typeOf(task.snapshot)},{...options,timeoutMs:45000});
       rememberSession(task,account,result,result.ok);
       if(!result.ok&&accountFault(task,account,result))return;
-      if(result.ok&&[0,3,4].includes(result.auditStatus)){store.finish(task,result.auditStatus===4?'draft':'published',result.auditStatus===4?'平台已确认草稿':'平台已确认发布或审核通过');}
+      if(result.ok&&result.auditStatus===4)store.finish(task,'draft','平台已确认草稿');
+      else if(result.ok&&[0,3].includes(result.auditStatus))store.finish(task,'published','平台已确认发布或审核通过',{published_at:Date.now(),...(httpUrl(result.openUrl)?{remote_url:httpUrl(result.openUrl)}:{})});
       else if(result.ok&&[2,14].includes(result.auditStatus))store.finish(task,'rejected','平台审核未通过，请修改内容后处理');
       else if(task.audit_attempts>=10||result.code==='DEPENDENCY')store.finish(task,'audit_pending',result.message||'已提交，审核状态待核对');
       else store.finish(task,'submitted','文章已提交，等待平台审核',{next_run:Date.now()+(account.platform==='DEMO_CSDN'?1000:60000)});
@@ -167,6 +168,10 @@ async function command(owner,action,input){
     case 'batch.draft.save':return store.saveBatchDraft(owner,input);
     case 'batch.draft.delete':return store.deleteBatchDraft(owner,input.id);
     case 'batch.create':{const b=store.createBatch(owner,input);void tick();return b;}
+    case 'task.url':return store.setTaskUrl(owner,input.id,input.url);
+    // The two feedback actions are called by the GEO server's sync loop only; the browser route does not allow them.
+    case 'feedback.pending':return store.feedbackPending(input.limit).map(t=>({...t,platform_name:capabilities.find(p=>p.id===t.platform)?.name||t.platform}));
+    case 'feedback.mark':return store.markFeedback(owner,input.id,input.state,input.message);
     case 'queue.pause':store.pause(owner,input.paused===true);void tick();return {ok:true};
     case 'task.action':{
       const task=store.task(owner,input.id),account=store.account(owner,task.account_id);

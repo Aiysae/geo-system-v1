@@ -67,4 +67,9 @@ export function publishingService(){
   if(!localPublishingEnabled())throw new Error("当前环境未启用本机独立分发")
   return state.__shituPublishingService ||= new PublishingService()
 }
-export async function startLocalPublishing(){if(localPublishingEnabled())await publishingService().start()}
+export async function startLocalPublishing(){
+  if(!localPublishingEnabled())return
+  await publishingService().start()
+  // Imported lazily: the sync module depends on this one.
+  ;(await import("./feedback-sync")).startPublishingFeedbackSync()
+}
