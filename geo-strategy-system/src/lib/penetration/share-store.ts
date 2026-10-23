@@ -123,6 +123,34 @@ export async function getPenetrationShare(token: string): Promise<PenetrationSha
   return kv.get<PenetrationShareSnapshot>(snapshotKey(token))
 }
 
+/**
+ * The shared report for viewing. The answers stay as they were when the link
+ * was made; the figures are worked out again under today's rules, so a link
+ * made before a new view (such as the per-question ranking) shows it too.
+ */
+export async function viewPenetrationShare(token: string): Promise<PenetrationShareSnapshot | null> {
+  const snapshot = await getPenetrationShare(token)
+  if (!snapshot) return null
+  const report = snapshot.penetration
+  return {
+    ...snapshot,
+    penetration: {
+      ...report,
+      aggregated: aggregatePenetration(
+        report.byModel,
+        snapshot.ourBrand,
+        snapshot.brandAliases,
+        snapshot.competitors,
+        snapshot.subjectType,
+        {
+          plannedSlots: report.aggregated.plannedSlots,
+          modelCount: Object.keys(report.byModel).length,
+        },
+      ),
+    },
+  }
+}
+
 /** The client's links that still work, newest first. */
 export async function listPenetrationShares(
   ownerUserId: string,

@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import PublicReportActions from "@/components/client-feedback/public-report-actions"
 import SharedPenetrationView from "@/components/penetration/shared-penetration-view"
-import { getPenetrationShare } from "@/lib/penetration/share-store"
+import { viewPenetrationShare } from "@/lib/penetration/share-store"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -19,7 +19,7 @@ export default async function SharedPenetrationPage({
   params: Promise<{ token: string }>
 }) {
   const { token } = await params
-  const share = await getPenetrationShare(token)
+  const share = await viewPenetrationShare(token)
   if (!share) notFound()
 
   return (

@@ -16,6 +16,7 @@ const {
   createPenetrationShare,
   getPenetrationShare,
   listPenetrationShares,
+  viewPenetrationShare,
   revokePenetrationShare,
 } = await import("../src/lib/penetration/share-store")
 
@@ -78,6 +79,17 @@ try {
   assert.equal(shared.searchSources![0].url, "https://example.com/1")
   assert.equal(shared.providerRequestIds, undefined)
   assert.equal(shared.answer, "推荐甲公司和测试品牌。", "the raw answers are kept")
+
+  // A link made before a new view gains it: the figures are worked out again
+  // when the page is shown, from the answers as shared.
+  const { kv } = await import("../src/lib/kv")
+  const stored = await getPenetrationShare(share.token)
+  await kv.set(`geo:penetration-share:${share.token}`, {
+    ...stored,
+    penetration: { ...stored!.penetration, aggregated: { ...stored!.penetration.aggregated, questionStats: undefined } },
+  })
+  const viewed = await viewPenetrationShare(share.token)
+  assert.deepEqual(viewed?.penetration.aggregated.questionStats?.map(stat => stat.question), ["问题1", "问题2"])
 
   // Later runs leave the shared copy alone.
   client.penetration = { ...penetration, generatedAt: "2026-10-24T00:00:00.000Z", byModel: {} }
