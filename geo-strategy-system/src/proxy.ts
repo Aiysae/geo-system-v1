@@ -7,6 +7,7 @@ const PUBLIC_PATHS = [
   "/forgot-password",
   "/reset-password",
   "/feedback/share",
+  "/penetration/share",
   "/terms",
   "/privacy",
   "/recharge-rules",

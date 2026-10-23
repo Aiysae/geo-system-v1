@@ -16,6 +16,7 @@ import PenetrationAutomationPanel from "./automation-panel"
 import BrandModelMatrix from "./brand-model-matrix"
 import ModelHealthPanel, { type ModelRerunRequest } from "./model-health-panel"
 import ModelRerunReview from "./model-rerun-review"
+import ShareLinkPanel from "./share-link-panel"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
@@ -544,8 +545,6 @@ export default function PenetrationModule({
     client.competitors,
     subjectType,
   ])
-  const topIndustryShare = pen?.aggregated.industryShare.slice(0, 10) ?? []
-
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
@@ -650,173 +649,27 @@ export default function PenetrationModule({
               </div>
             ) : (
               <>
-                {pen.extraction?.status !== "complete" ? (
-                  <div className="no-print flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="text-xs font-semibold text-amber-950">
-                        {pen.extraction
-                          ? `品牌榜已完成 ${pen.extraction.succeeded}/${pen.extraction.total} 条回答整理`
-                          : "这份报告尚未记录品牌榜完整性"}
-                      </div>
-                      <div className="mt-1 text-[11px] leading-5 text-amber-800">
-                        {pen.extraction?.status === "pending"
-                          ? "原始联网回答已经保留，品牌与同行名单仍在整理；未完成项暂不进入排行榜。"
-                          : "未完整识别的回答暂不进入排行榜，避免把客户品牌单独展示成失真的完整结果。"}
-                      </div>
-                    </div>
-                    {!loading ? (
-                      <button
-                        type="button"
-                        onClick={handleReanalyzeBrands}
-                        disabled={reanalyzingBrands || !canExecute}
-                        className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-amber-600 px-3 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <RefreshCw className={`h-3.5 w-3.5 ${reanalyzingBrands ? "animate-spin" : ""}`} />
-                        {reanalyzingBrands ? "正在重新整理" : "重新整理品牌榜"}
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                  <div className="geo-data-panel min-w-0 rounded-lg p-4">
-                    <div className="geo-section-kicker mb-1">
-                      {subjectType === "person" ? "个人 IP 被提及率" : "品牌被提及率"}
-                    </div>
-                    <PenetrationDonut
-                      rate={pen.aggregated.penetrationRate}
-                      mentions={pen.aggregated.ourMentions}
-                      totalSlots={pen.aggregated.totalSlots}
-                    />
-                  </div>
-                  <div className="geo-data-panel min-w-0 rounded-lg p-4">
-                    <BrandRankingCard
-                      ranking={pen.aggregated.ourRanking}
-                      totalBrands={pen.aggregated.industryShare.length}
-                      perModelRate={pen.aggregated.perModelRate}
-                      topCompetitors={pen.aggregated.topCompetitors}
-                      subjectType={subjectType}
-                    />
-                  </div>
-                </div>
-
-                <PenetrationSampleQualityPanel aggregated={pen.aggregated} />
-
-                <ModelHealthPanel
-                  result={pen}
-                  subjectType={subjectType}
-                  canRerun={canExecute}
-                  busy={loading}
-                  rerunningModels={busyRerunModels}
-                  defaultSamples={client.penetrationSamplesPerQuestion ?? 1}
-                  onRerun={request => void handleModelRerun(request)}
-                />
-
-                <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-                  <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
-                    <div className="geo-section-kicker mb-3 shrink-0">
-                      {subjectType === "person" ? "同行人物可见度" : "全品牌渗透率"} Top {topIndustryShare.length}
-                    </div>
-                    <div className="min-h-0 flex-1">
-                      <IndustryShareChart
-                        compact
-                        items={topIndustryShare}
-                        ourBrand={client.ourBrand}
-                        totalSlots={pen.aggregated.totalSlots}
-                        subjectType={subjectType}
-                      />
-                    </div>
-                  </div>
-
-                  {pen.aggregated.perModelRate.length > 0 && (
-                    <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
-                      <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
-                        <div className="geo-section-kicker">
-                          各模型被提及率对比
-                        </div>
-                        <div className="inline-flex shrink-0 items-center gap-1.5 text-[10px] text-amber-600">
-                          <span className="inline-block w-3 border-t-2 border-dashed border-amber-400"></span>
-                          整体均值
-                        </div>
-                      </div>
-                      <div className="min-h-0 flex-1">
-                        <ModelRateTrend
-                          compact
-                          perModelRate={pen.aggregated.perModelRate}
-                          overallRate={pen.aggregated.penetrationRate}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {subjectType === "person" && (pen.aggregated.institutionShare?.length || 0) > 0 ? (
-                    <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
-                      <div className="geo-section-kicker mb-3 shrink-0">
-                        关联机构提及 Top {Math.min(10, pen.aggregated.institutionShare?.length || 0)}
-                      </div>
-                      <div className="min-h-0 flex-1">
-                        <IndustryShareChart
-                          compact
-                          items={(pen.aggregated.institutionShare || []).slice(0, 10)}
-                          ourBrand=""
-                          totalSlots={pen.aggregated.totalSlots}
-                          subjectType="person"
-                          entityLabel="关联机构"
-                          highlightTarget={false}
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-
-                {subjectType !== "person" && pen.aggregated.industryShare.some(item => item.perModel) ? (
-                  <div className="geo-data-panel min-w-0 rounded-lg p-4">
-                    <div className="mb-1 geo-section-kicker">头部品牌分模型渗透率</div>
-                    <p className="mb-3 text-[11px] leading-5 text-slate-500">
-                      同一品牌在不同模型上的提及率可能相差数倍，与外部检测工具对比时请按模型逐一对照。
-                    </p>
-                    <BrandModelMatrix items={pen.aggregated.industryShare} ourBrand={client.ourBrand} />
-                  </div>
-                ) : null}
-
-                <BrandAndKeywordPanels
-                  penetration={pen}
-                  ourBrand={client.ourBrand}
-                  brandAliases={client.brandAliases ?? []}
-                  competitors={client.competitors}
-                  subjectType={getClientSubjectType(client)}
-                />
-
-                {pen.aggregated.missedQuestions.length > 0 && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
-                    <div className="mb-2 text-[11px] uppercase tracking-wider text-amber-700">
-                      未被任一模型提及的疑问句（{pen.aggregated.missedQuestions.length}）
-                    </div>
-                    <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
-                      {pen.aggregated.missedQuestions.slice(0, 6).map((q, i) => (
-                        <li key={i}>{q}</li>
-                      ))}
-                      {pen.aggregated.missedQuestions.length > 6 && (
-                        <li className="list-none text-amber-600">
-                          ...还有 {pen.aggregated.missedQuestions.length - 6} 条
-                        </li>
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                <RawAnswersPanel
-                  byModel={pen.byModel}
-                  ourBrand={client.ourBrand}
-                  brandAliases={client.brandAliases ?? []}
-                  onRetest={handleRetest}
-                  retestingSampleId={retestingSampleId}
-                  retestDisabled={loading || !canExecute}
-                  subjectType={subjectType}
-                />
-
-                <div className="text-[11px] text-slate-400 text-right">
-                  生成于 {new Date(pen.generatedAt).toLocaleString("zh-CN")}
-                </div>
+              {canExecute ? (
+                <ShareLinkPanel clientId={client.id} teamId={teamId} reportGeneratedAt={pen.generatedAt} />
+              ) : null}
+              <PenetrationResultsBody
+                pen={pen}
+                ourBrand={client.ourBrand}
+                brandAliases={client.brandAliases ?? []}
+                competitors={client.competitors}
+                subjectType={subjectType}
+                actions={{
+                  canExecute,
+                  loading,
+                  reanalyzingBrands,
+                  onReanalyzeBrands: handleReanalyzeBrands,
+                  rerunningModels: busyRerunModels,
+                  defaultSamples: client.penetrationSamplesPerQuestion ?? 1,
+                  onRerun: request => void handleModelRerun(request),
+                  onRetest: handleRetest,
+                  retestingSampleId,
+                }}
+              />
               </>
             )}
         </div>
@@ -845,6 +698,215 @@ export default function PenetrationModule({
         document.body,
       ) : null}
     </Card>
+  )
+}
+
+export interface PenetrationResultsActions {
+  canExecute: boolean
+  loading: boolean
+  reanalyzingBrands: boolean
+  onReanalyzeBrands: () => void
+  rerunningModels: ReadonlySet<ModelKey>
+  defaultSamples: number
+  onRerun: (request: ModelRerunRequest) => void
+  onRetest: (model: ModelKey, item: PenetrationItem, sampleKey: string) => void
+  retestingSampleId: string | null
+}
+
+/**
+ * The detection results: rates, rankings, per-model data and every raw
+ * answer. Without actions it is read-only, as on a shared link.
+ */
+export function PenetrationResultsBody({
+  pen,
+  ourBrand,
+  brandAliases,
+  competitors,
+  subjectType,
+  actions,
+}: {
+  pen: PenetrationResult
+  ourBrand: string
+  brandAliases: string[]
+  competitors: string[]
+  subjectType: AnalysisSubjectType
+  actions?: PenetrationResultsActions
+}) {
+  const topIndustryShare = pen.aggregated.industryShare.slice(0, 10)
+  const loading = actions?.loading ?? false
+  return (
+    <>
+      {pen.extraction?.status !== "complete" ? (
+        <div className="no-print flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-xs font-semibold text-amber-950">
+              {pen.extraction
+                ? `品牌榜已完成 ${pen.extraction.succeeded}/${pen.extraction.total} 条回答整理`
+                : "这份报告尚未记录品牌榜完整性"}
+            </div>
+            <div className="mt-1 text-[11px] leading-5 text-amber-800">
+              {pen.extraction?.status === "pending"
+                ? "原始联网回答已经保留，品牌与同行名单仍在整理；未完成项暂不进入排行榜。"
+                : "未完整识别的回答暂不进入排行榜，避免把客户品牌单独展示成失真的完整结果。"}
+            </div>
+          </div>
+          {actions && !loading ? (
+            <button
+              type="button"
+              onClick={actions.onReanalyzeBrands}
+              disabled={actions.reanalyzingBrands || !actions.canExecute}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-amber-600 px-3 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${actions.reanalyzingBrands ? "animate-spin" : ""}`} />
+              {actions.reanalyzingBrands ? "正在重新整理" : "重新整理品牌榜"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+        <div className="geo-data-panel min-w-0 rounded-lg p-4">
+          <div className="geo-section-kicker mb-1">
+            {subjectType === "person" ? "个人 IP 被提及率" : "品牌被提及率"}
+          </div>
+          <PenetrationDonut
+            rate={pen.aggregated.penetrationRate}
+            mentions={pen.aggregated.ourMentions}
+            totalSlots={pen.aggregated.totalSlots}
+          />
+        </div>
+        <div className="geo-data-panel min-w-0 rounded-lg p-4">
+          <BrandRankingCard
+            ranking={pen.aggregated.ourRanking}
+            totalBrands={pen.aggregated.industryShare.length}
+            perModelRate={pen.aggregated.perModelRate}
+            topCompetitors={pen.aggregated.topCompetitors}
+            subjectType={subjectType}
+          />
+        </div>
+      </div>
+
+      <PenetrationSampleQualityPanel aggregated={pen.aggregated} />
+
+      {/* The data check and re-runs are for whoever runs the detection. */}
+      {actions ? (
+        <ModelHealthPanel
+          result={pen}
+          subjectType={subjectType}
+          canRerun={actions.canExecute}
+          busy={loading}
+          rerunningModels={actions.rerunningModels}
+          defaultSamples={actions.defaultSamples}
+          onRerun={actions.onRerun}
+        />
+      ) : null}
+
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+        <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
+          <div className="geo-section-kicker mb-3 shrink-0">
+            {subjectType === "person" ? "同行人物可见度" : "全品牌渗透率"} Top {topIndustryShare.length}
+          </div>
+          <div className="min-h-0 flex-1">
+            <IndustryShareChart
+              compact
+              items={topIndustryShare}
+              ourBrand={ourBrand}
+              totalSlots={pen.aggregated.totalSlots}
+              subjectType={subjectType}
+            />
+          </div>
+        </div>
+
+        {pen.aggregated.perModelRate.length > 0 && (
+          <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
+            <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
+              <div className="geo-section-kicker">
+                各模型被提及率对比
+              </div>
+              <div className="inline-flex shrink-0 items-center gap-1.5 text-[10px] text-amber-600">
+                <span className="inline-block w-3 border-t-2 border-dashed border-amber-400"></span>
+                整体均值
+              </div>
+            </div>
+            <div className="min-h-0 flex-1">
+              <ModelRateTrend
+                compact
+                perModelRate={pen.aggregated.perModelRate}
+                overallRate={pen.aggregated.penetrationRate}
+              />
+            </div>
+          </div>
+        )}
+
+        {subjectType === "person" && (pen.aggregated.institutionShare?.length || 0) > 0 ? (
+          <div className="geo-data-panel flex min-h-[340px] min-w-0 flex-col overflow-hidden rounded-lg p-4">
+            <div className="geo-section-kicker mb-3 shrink-0">
+              关联机构提及 Top {Math.min(10, pen.aggregated.institutionShare?.length || 0)}
+            </div>
+            <div className="min-h-0 flex-1">
+              <IndustryShareChart
+                compact
+                items={(pen.aggregated.institutionShare || []).slice(0, 10)}
+                ourBrand=""
+                totalSlots={pen.aggregated.totalSlots}
+                subjectType="person"
+                entityLabel="关联机构"
+                highlightTarget={false}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {subjectType !== "person" && pen.aggregated.industryShare.some(item => item.perModel) ? (
+        <div className="geo-data-panel min-w-0 rounded-lg p-4">
+          <div className="mb-1 geo-section-kicker">头部品牌分模型渗透率</div>
+          <p className="mb-3 text-[11px] leading-5 text-slate-500">
+            同一品牌在不同模型上的提及率可能相差数倍，与外部检测工具对比时请按模型逐一对照。
+          </p>
+          <BrandModelMatrix items={pen.aggregated.industryShare} ourBrand={ourBrand} />
+        </div>
+      ) : null}
+
+      <BrandAndKeywordPanels
+        penetration={pen}
+        ourBrand={ourBrand}
+        brandAliases={brandAliases}
+        competitors={competitors}
+        subjectType={subjectType}
+      />
+
+      {pen.aggregated.missedQuestions.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
+          <div className="mb-2 text-[11px] uppercase tracking-wider text-amber-700">
+            未被任一模型提及的疑问句（{pen.aggregated.missedQuestions.length}）
+          </div>
+          <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
+            {pen.aggregated.missedQuestions.slice(0, 6).map((q, i) => (
+              <li key={i}>{q}</li>
+            ))}
+            {pen.aggregated.missedQuestions.length > 6 && (
+              <li className="list-none text-amber-600">
+                ...还有 {pen.aggregated.missedQuestions.length - 6} 条
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      <RawAnswersPanel
+        byModel={pen.byModel}
+        ourBrand={ourBrand}
+        brandAliases={brandAliases}
+        onRetest={actions?.onRetest}
+        retestingSampleId={actions?.retestingSampleId ?? null}
+        retestDisabled={loading || !actions?.canExecute}
+        subjectType={subjectType}
+      />
+
+      <div className="text-[11px] text-slate-400 text-right">
+        生成于 {new Date(pen.generatedAt).toLocaleString("zh-CN")}
+      </div>
+    </>
   )
 }
 
@@ -894,7 +956,8 @@ function RawAnswersPanel({
   byModel: PenetrationResult["byModel"]
   ourBrand: string
   brandAliases: string[]
-  onRetest: (model: ModelKey, item: PenetrationItem, sampleKey: string) => void
+  /** Omitted on a read-only view, which hides the per-answer re-test. */
+  onRetest?: (model: ModelKey, item: PenetrationItem, sampleKey: string) => void
   retestingSampleId: string | null
   retestDisabled: boolean
   subjectType: AnalysisSubjectType
@@ -1084,7 +1147,7 @@ function RawAnswersPanel({
                             未命中
                           </span>
                         )}
-                        <button
+                        {onRetest ? <button
                           type="button"
                           onClick={() => onRetest(currentModel, it, meta.key)}
                           disabled={retestDisabled}
@@ -1093,7 +1156,7 @@ function RawAnswersPanel({
                         >
                           <RefreshCw className={`h-3 w-3 ${retestingSampleId === meta.key ? "animate-spin" : ""}`} />
                           重新检测
-                        </button>
+                        </button> : null}
                       </div>
                     </div>
                   </div>
