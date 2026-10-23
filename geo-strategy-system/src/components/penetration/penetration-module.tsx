@@ -1016,10 +1016,12 @@ function RawAnswersPanel({
   }
 
   const items = byModel[currentModel] ?? []
-  const modelDomainStats = getModelDomainStats(items)
+  // While one question is picked, the source overview covers its answers only.
+  const shownItems = focus ? items.filter(item => item.question.trim() === focus) : items
+  const modelDomainStats = getModelDomainStats(shownItems)
   const topSource = modelDomainStats[0] ?? null
   const sourceTotal = modelDomainStats.reduce((sum, item) => sum + item.count, 0)
-  const auditStats = getModelAuditStats(items)
+  const auditStats = getModelAuditStats(shownItems)
   const questionTotals = new Map<string, number>()
   for (const item of items) {
     const key = item.question.trim()
@@ -1101,7 +1103,7 @@ function RawAnswersPanel({
                 <div>
                   <div className="text-xs font-semibold text-slate-800">来源网站概览</div>
                   <div className="text-[11px] text-slate-500 leading-relaxed">
-                    汇总 {MODEL_LABELS[currentModel]} 本次回答引用的公开网页；未返回网址的回答会单独标记。
+                    汇总 {MODEL_LABELS[currentModel]} {focus ? "这一题" : "本次"}回答引用的公开网页；未返回网址的回答会单独标记。
                   </div>
                 </div>
               </div>
@@ -1113,8 +1115,8 @@ function RawAnswersPanel({
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <AuditStatCard label="回答方式" value={auditStats.modeSummary} />
-              <AuditStatCard label="纯净出站已核验" value={`${auditStats.rawQuestionOnly}/${items.length}`} />
-              <AuditStatCard label="可核验联网回答" value={`${auditStats.webVerified}/${items.length}`} />
+              <AuditStatCard label="纯净出站已核验" value={`${auditStats.rawQuestionOnly}/${shownItems.length}`} />
+              <AuditStatCard label="可核验联网回答" value={`${auditStats.webVerified}/${shownItems.length}`} />
             </div>
             {modelDomainStats.length > 0 ? (
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
