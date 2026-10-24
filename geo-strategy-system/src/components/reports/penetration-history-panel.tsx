@@ -29,6 +29,7 @@ import ModelRateTrend from "@/components/penetration/model-rate-trend"
 import PenetrationResultSummary from "@/components/penetration/result-summary"
 import PenetrationDonut from "@/components/penetration/penetration-donut"
 import PenetrationSampleQualityPanel from "@/components/penetration/sample-quality-panel"
+import QuestionRankingPanel from "@/components/penetration/question-ranking-panel"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { toUserFacingError } from "@/lib/user-facing-errors"
 import { MODEL_LABELS } from "@/lib/model-labels"
@@ -639,6 +640,13 @@ export function PenetrationHistoryDetail({
   const subjectType = normalizeAnalysisSubjectType(record.request.subjectType)
   const status = STATUS_META[record.status]
   const StatusIcon = status.icon
+  // A question picked in the per-question panel narrows the raw answers to it.
+  const [answerQuestion, setAnswerQuestion] = useState<string | null>(null)
+  const answersRef = useRef<HTMLDivElement>(null)
+  const viewAnswers = useCallback((question: string) => {
+    setAnswerQuestion(question)
+    window.requestAnimationFrame(() => answersRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }))
+  }, [])
 
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-4 px-3 py-4 sm:px-6 sm:py-6">
@@ -708,6 +716,14 @@ export function PenetrationHistoryDetail({
               />
             </section>
           </div>
+
+          {result.aggregated.questionStats?.length ? (
+            <QuestionRankingPanel
+              stats={result.aggregated.questionStats}
+              subjectType={subjectType}
+              onViewAnswers={showRawAnswers ? viewAnswers : undefined}
+            />
+          ) : null}
 
           <PenetrationSampleQualityPanel aggregated={result.aggregated} />
 
@@ -784,12 +800,16 @@ export function PenetrationHistoryDetail({
           ) : null}
 
           {showRawAnswers ? (
-            <HistoryRawAnswers
-              historyId={record.id}
-              models={record.request.activeModels?.length
-                ? record.request.activeModels
-                : record.request.models}
-            />
+            <div ref={answersRef} className="scroll-mt-4">
+              <HistoryRawAnswers
+                historyId={record.id}
+                models={record.request.activeModels?.length
+                  ? record.request.activeModels
+                  : record.request.models}
+                focusQuestion={answerQuestion}
+                onClearFocus={() => setAnswerQuestion(null)}
+              />
+            </div>
           ) : (
             <section className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-4 text-xs leading-5 text-sky-800">
               当前客户账号可查看本次检测的数据概览；原始回答与全部信源未开放。
@@ -894,15 +914,22 @@ function SnapshotField({ label, value }: { label: string; value: string }) {
 function HistoryRawAnswers({
   historyId,
   models,
+  focusQuestion,
+  onClearFocus,
 }: {
   historyId: string
   models: ModelKey[]
+  /** Shows only this question's answers, opened. */
+  focusQuestion?: string | null
+  onClearFocus?: () => void
 }) {
   const availableModels = useMemo(
     () => Array.from(new Set(models)),
     [models],
   )
-  const [open, setOpen] = useState(false)
+  const [openState, setOpen] = useState(false)
+  const focus = focusQuestion?.trim() || ""
+  const open = openState || Boolean(focus)
   const [activeModel, setActiveModel] = useState<ModelKey | null>(availableModels[0] || null)
   const [byModel, setByModel] = useState<PenetrationByModel>({})
   const [loadingModel, setLoadingModel] = useState<ModelKey | null>(null)
@@ -910,7 +937,8 @@ function HistoryRawAnswers({
   const currentModel = activeModel && availableModels.includes(activeModel)
     ? activeModel
     : availableModels[0]
-  const items = currentModel ? byModel[currentModel] || [] : []
+  const allItems = currentModel ? byModel[currentModel] || [] : []
+  const items = focus ? allItems.filter(item => item.question.trim() === focus) : allItems
   const modelLoaded = Boolean(
     currentModel && Object.prototype.hasOwnProperty.call(byModel, currentModel),
   )
@@ -961,6 +989,7 @@ function HistoryRawAnswers({
         type="button"
         onClick={() => {
           const nextOpen = !open
+          if (!nextOpen) onClearFocus?.()
           setOpen(nextOpen)
           if (nextOpen && !modelLoaded) {
             setLoadingModel(currentModel)
@@ -989,6 +1018,14 @@ function HistoryRawAnswers({
 
       {open ? (
         <>
+          {focus ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-blue-100 bg-blue-50/60 px-4 py-2 text-xs text-[#003EB3] sm:px-5">
+              <span className="min-w-0">只看这一题：<b>{focus}</b></span>
+              <button type="button" onClick={() => onClearFocus?.()} className="shrink-0 text-[#1677FF] hover:underline">
+                显示全部问题
+              </button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-1.5 border-y border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
             {availableModels.map(model => (
               <button
@@ -1010,7 +1047,9 @@ function HistoryRawAnswers({
                 <ModelAvatar model={model} size="xs" />
                 {MODEL_LABELS[model]}
                 {Object.prototype.hasOwnProperty.call(byModel, model)
-                  ? ` · ${byModel[model]?.length || 0}`
+                  ? ` · ${focus
+                    ? (byModel[model] || []).filter(item => item.question.trim() === focus).length
+                    : byModel[model]?.length || 0}`
                   : ""}
               </button>
             ))}

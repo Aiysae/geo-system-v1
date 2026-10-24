@@ -10,6 +10,10 @@ import type {
 const testDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "geo-penetration-history-"))
 process.env.PENETRATION_HISTORY_STORE = "file"
 process.env.PENETRATION_HISTORY_FILE = path.join(testDirectory, "history.json")
+process.env.KV_BACKEND = "file"
+process.env.LOCAL_KV_FILE = path.join(testDirectory, "kv.json")
+process.env.WORKSPACE_STORE = "file"
+process.env.WORKSPACE_FILE = path.join(testDirectory, "workspace.json")
 
 const {
   buildPenetrationHistoryRecord,
@@ -189,7 +193,23 @@ try {
   assert.equal(await getPenetrationHistoryRecord(owner, record.id), null)
   assert.equal(await deletePenetrationHistoryRecord(owner, record.id), false)
 
-  console.log("penetration history: idempotency, isolation, filters, pagination and deletion passed")
+  // A record saved before the per-question ranking gains it when read, worked
+  // out from its saved answers, with today's "not a competitor" names.
+  {
+    const { historyRecordWithCurrentFigures } = await import("../src/lib/penetration/history-view")
+    const { setGlobalExcludedSubjects } = await import("../src/lib/penetration/excluded-subjects")
+    assert.equal(record.result?.aggregated.questionStats, undefined)
+    await setGlobalExcludedSubjects(["测试竞品"])
+    const refreshed = await historyRecordWithCurrentFigures(record, record.result!.byModel, owner)
+    const stats = refreshed.result!.aggregated.questionStats!
+    assert.deepEqual(stats.map(stat => stat.question), [request.questions[0], request.questions[1]])
+    assert.equal(stats[0].ourRate, 1)
+    assert.ok(!refreshed.result!.aggregated.industryShare.some(item => item.brand === "测试竞品"), "today's exclusions apply")
+    assert.equal(refreshed.result!.byModel, record.result!.byModel, "the answers stay as saved")
+    await setGlobalExcludedSubjects([])
+  }
+
+  console.log("penetration history: idempotency, isolation, filters, pagination, deletion and current figures passed")
 } finally {
   await fs.rm(testDirectory, { recursive: true, force: true })
 }

@@ -14,6 +14,7 @@ import {
 } from "@/lib/penetration/history-access"
 import { requireUserId } from "@/lib/with-credits"
 import { reanalyzePenetrationEntities } from "@/lib/penetration/reanalyze-result"
+import { historyRecordWithCurrentFigures } from "@/lib/penetration/history-view"
 import type { ModelKey } from "@/types"
 
 export const runtime = "nodejs"
@@ -84,12 +85,23 @@ export async function GET(
         headers: { "Cache-Control": "private, no-store, max-age=0" },
       })
     }
-    const record = view === "overview" || !viewerPolicy.canViewRawAnswers
-      ? overview
-      : await getPenetrationHistoryRecord(authorized.scope.ownerUserId, historyId)
-    if (!record) {
+    // The figures are worked out again from the saved answers, so an older
+    // record shows today's views (the per-question ranking) and exclusions.
+    // The overview still leaves the answers out of what it sends.
+    const full = await getPenetrationHistoryRecord(authorized.scope.ownerUserId, historyId)
+    if (!full) {
       return NextResponse.json({ error: "检测历史不存在或已被删除" }, { status: 404 })
     }
+    const refreshed = await historyRecordWithCurrentFigures(
+      full,
+      full.result?.byModel || {},
+      authorized.scope.ownerUserId,
+    )
+    const record = view === "overview" || !viewerPolicy.canViewRawAnswers
+      ? { ...overview, result: overview.result && refreshed.result
+          ? { ...overview.result, aggregated: refreshed.result.aggregated }
+          : overview.result }
+      : refreshed
     return NextResponse.json(record, {
       headers: { "Cache-Control": "private, no-store, max-age=0" },
     })
