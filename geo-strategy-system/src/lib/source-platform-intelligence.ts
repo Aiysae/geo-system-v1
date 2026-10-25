@@ -279,8 +279,35 @@ export function compactSourcePlatformSnapshot(
   }
 }
 
+/**
+ * How many platforms of each kind a strategy works from. Detection over many
+ * questions can cite well over a thousand sites (hundreds of local government
+ * sites alone): sent in full they overflow the model's input, and planned in
+ * full the media plans stop being readable. The most-adopted ones are kept.
+ */
+const STRATEGY_PLATFORM_LIMITS: Record<SourcePlatformCategory, number> = {
+  self_media: 30,
+  industry_vertical: 30,
+  authority_media: 20,
+  government_association: 15,
+  brand_official: 3,
+  other: 30,
+}
+
+export function strategySourcePlatforms(snapshot?: SourcePlatformSnapshot): SourcePlatformEvidence[] {
+  const taken = new Map<SourcePlatformCategory, number>()
+  return [...(snapshot?.platforms || [])]
+    .sort((a, b) => b.adoption_rate - a.adoption_rate)
+    .filter(platform => {
+      const count = taken.get(platform.category) || 0
+      if (count >= (STRATEGY_PLATFORM_LIMITS[platform.category] ?? 30)) return false
+      taken.set(platform.category, count + 1)
+      return true
+    })
+}
+
 export function sourcePlatformPromptContext(snapshot?: SourcePlatformSnapshot): Array<Record<string, unknown>> {
-  return (snapshot?.platforms || []).map(platform => ({
+  return strategySourcePlatforms(snapshot).map(platform => ({
     platform_key: platform.platform_key,
     platform: platform.platform,
     category: platform.category,
@@ -374,8 +401,9 @@ export function linkStrategyToSourcePlatforms(
 ): GeoStrategyPlan {
   if (!snapshot?.platforms.length) return plan
 
-  const contentDetected = snapshot.platforms.filter(platform => CONTENT_CATEGORIES.has(platform.category))
-  const authorityDetected = snapshot.platforms.filter(platform => AUTHORITY_CATEGORIES.has(platform.category))
+  const planned = strategySourcePlatforms(snapshot)
+  const contentDetected = planned.filter(platform => CONTENT_CATEGORIES.has(platform.category))
+  const authorityDetected = planned.filter(platform => AUTHORITY_CATEGORIES.has(platform.category))
   const rawMedia = Array.isArray(plan.media_plan) ? plan.media_plan : []
   const rawAuthority = Array.isArray(plan.authority_media_plan) ? plan.authority_media_plan : []
 

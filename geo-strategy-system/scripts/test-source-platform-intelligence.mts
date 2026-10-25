@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url)
 const {
   buildSourcePlatformSnapshot,
   linkStrategyToSourcePlatforms,
+  sourcePlatformPromptContext,
 } = require("../src/lib/source-platform-intelligence.ts") as typeof SourcePlatformModule
 
 function source(url: string, title: string): PenetrationSource {
@@ -169,5 +170,30 @@ assert.ok(linked.authority_media_plan?.some(item => item.platform_key === "peopl
 assert.ok(linked.authority_media_plan?.some(item => item.platform_key?.startsWith("government:")))
 assert.equal(linked.authority_media_plan?.some(item => item.platform_key === "people" && item.platform_type === "authority_media"), true)
 assert.equal(linked.source_platform_snapshot?.successful_answer_count, 4)
+
+// Detection over many questions can cite hundreds of local government sites:
+// the strategy keeps only the most-adopted ones, in the prompt and the plan.
+const crowded = {
+  ...snapshot,
+  platforms: [
+    ...snapshot.platforms,
+    ...Array.from({ length: 400 }, (_, index) => ({
+      ...government!,
+      platform_key: `government:city${index}.gov.cn`,
+      domains: [`city${index}.gov.cn`],
+      adoption_rate: index === 0 ? 99 : 0.4,
+    })),
+  ],
+}
+const crowdedPrompt = sourcePlatformPromptContext(crowded)
+assert.equal(crowdedPrompt.filter(item => item.category === "government_association").length, 15)
+assert.equal(crowdedPrompt[0].platform_key, "government:city0.gov.cn", "采信率最高的平台排在最前")
+for (const platformKey of ["sohu", "csdn", "tubatu", "people"]) {
+  assert.ok(crowdedPrompt.some(item => item.platform_key === platformKey), `${platformKey} 不应被政府网站挤掉`)
+}
+const crowdedLinked = linkStrategyToSourcePlatforms(generatedPlan, crowded)
+const crowdedGovernment = crowdedLinked.authority_media_plan?.filter(item => item.platform_type === "government_association") || []
+assert.ok(crowdedGovernment.length >= 1 && crowdedGovernment.length <= 15)
+assert.ok(crowdedLinked.authority_media_plan?.some(item => item.platform_key === "people"))
 
 console.log("source platform intelligence regression tests passed")

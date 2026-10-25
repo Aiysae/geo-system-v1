@@ -119,8 +119,9 @@ function buildUserPrompt(
       "【疑问句检测信源平台情报】",
       `成功联网回答数：${sourcePlatformSnapshot?.successful_answer_count || 0}`,
       `有效引用事件数：${sourcePlatformSnapshot?.total_citation_events || 0}`,
+      `命中平台共 ${sourcePlatformSnapshot?.platforms.length || 0} 个，以下按类别列出采信率最高的 ${sourcePlatforms.length} 个。`,
       "采信率表示：引用该平台的独立联网回答数 ÷ 全部成功联网回答数。同一网址被不同模型或不同独立回答引用时必须分别保留权重。",
-      JSON.stringify(sourcePlatforms, null, 2),
+      JSON.stringify(sourcePlatforms),
     )
   }
 
