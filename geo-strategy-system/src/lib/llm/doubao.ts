@@ -177,14 +177,32 @@ export async function chatDoubao(args: ChatArgs): Promise<string> {
 
   if (bot) {
     // Bot 模式仅用于非盲测调研/分析；渗透率盲测 forceWebSearch 会在上方提前返回。
-    return openaiCompatChat({
-      url: BOT_URL,
-      apiKey: key,
-      model: bot,
-      label: "豆包",
-      ...args,
-      timeoutSec: args.timeoutSec ?? config.timeout,
-    })
+    try {
+      return await openaiCompatChat({
+        url: BOT_URL,
+        apiKey: key,
+        model: bot,
+        label: "豆包",
+        ...args,
+        timeoutSec: args.timeoutSec ?? config.timeout,
+      })
+    } catch (error) {
+      // A Bot's message limit is far below the model's own: a long strategy
+      // prompt (profile, research, source platforms, a 16k-token answer) was
+      // refused there. The configured model then answers it directly.
+      const tooLong = /exceed max message tokens|max message tokens|context length|maximum context/i
+        .test(error instanceof Error ? error.message : String(error))
+      if (!tooLong || !isRawArkModel(endpoint)) throw error
+      return openaiCompatChat({
+        url: ENDPOINT_URL,
+        apiKey: key,
+        model: endpoint,
+        label: "豆包",
+        ...args,
+        extraBody: fastJudgeExtraBody(args),
+        timeoutSec: args.timeoutSec ?? config.timeout,
+      })
+    }
   }
 
   if (!isRawArkModel(endpoint)) {

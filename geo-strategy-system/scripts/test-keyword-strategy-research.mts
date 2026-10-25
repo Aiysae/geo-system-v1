@@ -20,8 +20,22 @@ const asked: string[] = []
 let emptyAnswersLeft = 0
 
 const originalFetch = globalThis.fetch
+const chatCalls: string[] = []
 globalThis.fetch = async (input, init) => {
   const url = String(input)
+  if (url.endsWith("/api/v3/bots/chat/completions") || url.endsWith("/api/v3/chat/completions")) {
+    const body = JSON.parse(String(init?.body || "{}")) as { model: string }
+    chatCalls.push(body.model)
+    if (body.model.startsWith("bot-")) {
+      return new Response(JSON.stringify({
+        error: { code: "InvalidParameter", message: "Total tokens of multi-modal content and text exceed max message tokens." },
+      }), { status: 400, headers: { "Content-Type": "application/json" } })
+    }
+    return new Response(JSON.stringify({
+      id: "chat-1",
+      choices: [{ finish_reason: "stop", message: { role: "assistant", content: "{\"project_name\":\"明康\"}" } }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })
+  }
   if (!url.endsWith("/api/v3/responses")) throw new Error(`unexpected request ${url}`)
   const body = JSON.parse(String(init?.body || "{}")) as { model: string }
   asked.push(body.model)
@@ -103,7 +117,22 @@ try {
   assert.deepEqual(asked, [PRO, PRO])
   assert.equal(retried.sources.length, 1)
 
-  console.log("Keyword strategy web research: flagship model and one retry on an empty answer passed.")
+  // The strategy itself goes to the Doubao Bot, whose message limit is far
+  // below the model's; a prompt too long for it goes to the model directly.
+  await saveAiProviderSetting("doubao", {
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    chatPath: "/chat/completions",
+    apiKey: "test-global-doubao-key",
+    model: TURBO,
+    timeout: 300,
+    extra: { botId: "bot-20260513124426-test" },
+  }, "research-test")
+  const { chatDoubao } = await import("../src/lib/llm/doubao")
+  const strategy = await chatDoubao({ system: "只输出 JSON", user: "很长的策略资料", jsonMode: true, allowWebSearch: false, maxTokens: 16384 })
+  assert.equal(strategy, "{\"project_name\":\"明康\"}")
+  assert.deepEqual(chatCalls, ["bot-20260513124426-test", TURBO])
+
+  console.log("Keyword strategy: flagship research model, a retry on an empty answer, and the model past a Bot's length limit passed.")
 } finally {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })
