@@ -35,6 +35,8 @@ export interface SearchSourceEvent {
    * keep it once retries show the choice is stable.
    */
   declinedAnswer?: string
+  /** The model that searched, where the provider path reports it. */
+  model?: string
 }
 
 /**

@@ -125,7 +125,11 @@ async function resolveAdapterCredentialRoute(
 ): Promise<AdapterCredentialRoute> {
   const strictWeb = isStrictWebCall(module, args)
   const nativeWeb = strictWeb || requiresNativeWebCredential(model, args)
-  const strictNativeWeb = strictWeb && model !== "kimi" && model !== "deepseek"
+  // The strategy report's web research picks its model as question detection
+  // does, a web-verified flagship first: the turbo model in the global setting
+  // answered it empty without searching five times in six.
+  const webResearch = module === "keywordStrategy" && requiresNativeWebCredential(model, args)
+  const strictNativeWeb = (strictWeb || webResearch) && model !== "kimi" && model !== "deepseek"
   const vendor = strictWeb ? strictCredentialVendor(model) : model
   const config = await getAiProviderRuntimeSetting(vendor)
   let targetModel = String(args.preferredModel || "").trim() || config.model

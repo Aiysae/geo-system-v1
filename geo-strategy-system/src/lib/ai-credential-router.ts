@@ -64,7 +64,10 @@ function satisfiesRequest(
   ) return false
   if (request.excludeCredentialIds?.includes(credential.id)) return false
   const verified = new Set(credential.verifiedCapabilities)
-  const strictWebRequest = request.module === "penetration"
+  // Question detection and the strategy report's web research both need an
+  // account whose web search was verified; such an account serves them even
+  // when the module is not ticked.
+  const strictWebRequest = (request.module === "penetration" || request.module === "keywordStrategy")
     && request.requiredCapabilities?.includes("native_web")
     && request.requiredCapabilities?.includes("auditable_sources")
   const verifiedStrictWebModel = strictWebRequest

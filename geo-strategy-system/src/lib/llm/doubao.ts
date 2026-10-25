@@ -143,6 +143,7 @@ async function chatDoubaoResponses(args: ChatArgs, apiKey: string, model: string
       searchExecuted: searchExecuted || sources.length > 0,
       providerRequestId: data.id,
       failureReason: sources.length > 0 ? undefined : "豆包 Responses 联网没有返回可读取的网页信源。",
+      model,
     })
 
     if (!answer.trim()) throw new Error("豆包 Responses 联网返回空内容。")

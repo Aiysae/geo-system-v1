@@ -151,6 +151,7 @@
     "test:penetration-app-search": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-app-search.mts",
     "test:penetration-share": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-share.mts",
     "test:penetration-question-stats": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-question-stats.mts",
+    "test:keyword-strategy-research": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-keyword-strategy-research.mts",
     "test:penetration-extraction-retry": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-extraction-retry.mts",
     "test:article-vendor-fallback": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-article-vendor-fallback.mts",
     "test:penetration-history": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-penetration-history.mts",

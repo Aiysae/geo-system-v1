@@ -40,7 +40,7 @@ export async function researchKeywordStrategyContext(input: {
   })
   let searchEvent: SearchSourceEvent | undefined
 
-  const raw = await runAdapterCredentialPoolChat("doubao", "keywordStrategy", {
+  const ask = () => runAdapterCredentialPoolChat("doubao", "keywordStrategy", {
     system: prompt.system,
     user: prompt.user,
     temperature: 0.15,
@@ -56,9 +56,21 @@ export async function researchKeywordStrategyContext(input: {
       searchEvent = event
     },
   })
+  // Doubao now and then answers at once with empty text and no search; that
+  // takes seconds, so asking again costs little.
+  let raw: string
+  try {
+    raw = await ask()
+  } catch (error) {
+    if (!/返回空内容/.test(error instanceof Error ? error.message : String(error))) throw error
+    searchEvent = undefined
+    raw = await ask()
+  }
 
   const audit = buildResearchAudit({
-    model: config.model,
+    // The model that searched: the pool picks a web-verified one, not
+    // necessarily the global setting's.
+    model: searchEvent?.model || config.model,
     settings: input.settings,
     query: prompt.user,
     raw,
