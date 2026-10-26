@@ -45,4 +45,11 @@ assert.equal(
   "research",
 )
 
+// The publishing plan opens on its own, without the keyword module.
+assert.equal(parseWorkspaceNavigation("/workspace?clientId=c1&module=plan").module, "plan")
+assert.equal(
+  resolveInitialWorkspaceModule("plan", () => true, "penetration"),
+  "plan",
+)
+
 console.log("workspace navigation tests passed")

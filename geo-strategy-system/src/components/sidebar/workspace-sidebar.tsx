@@ -5,6 +5,7 @@ import Image from "next/image"
 import Link from "next/link"
 import {
   BarChart3,
+  CalendarDays,
   ChartNoAxesCombined,
   Brain,
   Building2,
@@ -23,7 +24,7 @@ import {
 } from "lucide-react"
 import { PUBLISHING_TABS, type PublishingTabKey } from "@/components/publishing/publishing-tabs"
 import { getClientSubjectType } from "@/lib/analysis-subject"
-import { hasTeamPermission } from "@/lib/team-permissions"
+import { hasTeamPermission, type TeamPermissionAction, type TeamPermissionKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
 import type { Client, WorkspaceAccountAccess } from "@/types"
 
@@ -33,6 +34,7 @@ export type DashboardModuleKey =
   | "diagnosis"
   | "difficulty"
   | "keyword"
+  | "plan"
   | "article"
   | "feedback"
 
@@ -48,6 +50,7 @@ export const DASHBOARD_MODULES: ReadonlyArray<{
   { key: "diagnosis", label: "AI 诊断", desc: "网站 GEO 诊断", icon: LayoutGrid, accent: "from-[#2F54EB] to-[#597EF7]" },
   { key: "difficulty", label: "难度测评", desc: "难度、周期与成本", icon: Gauge, accent: "from-[#0958D9] to-[#1677FF]" },
   { key: "keyword", label: "关键词策略", desc: "问题与发文策略", icon: ListOrdered, accent: "from-[#4096FF] to-[#00C8FF]" },
+  { key: "plan", label: "发布规划", desc: "发布数量与执行任务", icon: CalendarDays, accent: "from-[#1677FF] to-[#13C2C2]" },
   { key: "article", label: "文章生成", desc: "多模板内容创作", icon: FileText, accent: "from-[#6C5CE7] to-[#2F54EB]" },
   { key: "feedback", label: "执行反馈", desc: "日历、周报与月报", icon: CalendarRange, accent: "from-[#00AEEA] to-[#13C2C2]" },
 ] as const
@@ -89,7 +92,10 @@ const DASHBOARD_WORKFLOWS: ReadonlyArray<{
     desc: "问题、信源与发布计划",
     icon: ListOrdered,
     accent: "from-[#4096FF] to-[#00C8FF]",
-    modules: [{ key: "keyword", label: "策略规划" }],
+    modules: [
+      { key: "keyword", label: "关键词与策略报告" },
+      { key: "plan", label: "发布规划" },
+    ],
   },
   {
     key: "article",
@@ -110,6 +116,22 @@ function PublishingGroupLabel({ selected }: { selected: boolean }) {
       <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">内容分发</span><span className={cn("mt-0.5 block truncate text-[9px]", selected ? "text-white/68" : "text-white/38")}>账号绑定与批量发布</span></span>
     </>
   )
+}
+
+/**
+ * The publishing plan has no permission of its own: like its API, it opens to
+ * anyone who may use keyword strategy or execution feedback.
+ */
+export function hasDashboardModulePermission(
+  permissions: readonly TeamPermissionKey[],
+  module: DashboardModuleKey,
+  action: TeamPermissionAction,
+): boolean {
+  if (module === "plan") {
+    return hasTeamPermission(permissions, "keyword", action)
+      || hasTeamPermission(permissions, "feedback", action)
+  }
+  return hasTeamPermission(permissions, module, action)
 }
 
 export function isDashboardModuleKey(value: string | null): value is DashboardModuleKey {
@@ -176,10 +198,10 @@ export default function WorkspaceSidebar({
   const canViewModule = (module: DashboardModuleKey) => {
     if (access.mode === "standard") return true
     if (access.mode === "team") {
-      return hasTeamPermission(access.permissionKeys || [], module, "view")
+      return hasDashboardModulePermission(access.permissionKeys || [], module, "view")
     }
-    if (module === "penetration" || module === "feedback") {
-      return hasTeamPermission(access.permissionKeys || [], module, "view")
+    if (module === "penetration" || module === "feedback" || module === "plan") {
+      return hasDashboardModulePermission(access.permissionKeys || [], module, "view")
     }
     return true
   }
@@ -187,9 +209,9 @@ export default function WorkspaceSidebar({
     ? module === "penetration" && access.canRunPenetration
     : access.mode !== "team"
       || (!access.teamReadOnly && (
-        hasTeamPermission(access.permissionKeys || [], module, "execute")
-        || hasTeamPermission(access.permissionKeys || [], module, "edit")
-        || hasTeamPermission(access.permissionKeys || [], module, "manage")
+        hasDashboardModulePermission(access.permissionKeys || [], module, "execute")
+        || hasDashboardModulePermission(access.permissionKeys || [], module, "edit")
+        || hasDashboardModulePermission(access.permissionKeys || [], module, "manage")
       ))
   const visibleWorkflows = DASHBOARD_WORKFLOWS
     .map(workflow => ({

@@ -110,7 +110,7 @@ const modules = [
 const workflows = [
   { id: "insight", title: "情报洞察", purpose: "先看清 AI 可见度、行业事实和竞争格局。" },
   { id: "assessment", title: "诊断评估", purpose: "判断网站基础、执行难度、周期与预算。" },
-  { id: "strategy", title: "策略规划", purpose: "把资料和证据转成疑问句、优势和发布规划。" },
+  { id: "strategy", title: "策略规划", purpose: "把资料和证据转成策略报告、疑问句和发布规划；三者可以分别单独使用，不必按顺序做完。" },
   { id: "content", title: "内容生产", purpose: "按任务、平台和方法论生成或改写内容。" },
   { id: "feedback", title: "执行复盘", purpose: "记录动作、对比效果并向客户持续反馈。" },
 ] as const

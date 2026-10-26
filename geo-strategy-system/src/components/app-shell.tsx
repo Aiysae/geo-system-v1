@@ -7,6 +7,7 @@ import dynamic from "next/dynamic"
 import Link from "next/link"
 import WorkspaceSidebar, {
   DASHBOARD_MODULES,
+  hasDashboardModulePermission,
   isDashboardModuleKey,
   type DashboardModuleKey,
 } from "@/components/sidebar/workspace-sidebar"
@@ -67,6 +68,10 @@ const ArticleGenerationModule = dynamic(
   () => import("@/components/article/article-generation-module"),
   { loading: ModuleLoading },
 )
+const PublishingPlanModule = dynamic(
+  () => import("@/components/publishing-plan/publishing-plan-module"),
+  { loading: ModuleLoading },
+)
 const ClientFeedbackModule = dynamic(
   () => import("@/components/client-feedback/client-feedback-module"),
   { loading: ModuleLoading },
@@ -101,6 +106,7 @@ function sectionsForDashboardModule(module: DashboardModuleKey): WorkspaceSectio
       return ["core", "knowledgeBase", "keywordStrategy", "jobs"]
     case "article":
       return ["core", "knowledgeBase", "keywordStrategy", "articleGeneration", "jobs"]
+    case "plan":
     case "feedback":
       return ["core"]
   }
@@ -125,10 +131,10 @@ export default function Home({
   const canViewModule = useCallback((module: DashboardModuleKey) => {
     if (access.mode === "standard") return true
     if (access.mode === "team") {
-      return hasTeamPermission(access.permissionKeys || [], module, "view")
+      return hasDashboardModulePermission(access.permissionKeys || [], module, "view")
     }
-    if (module === "penetration" || module === "feedback") {
-      return hasTeamPermission(access.permissionKeys || [], module, "view")
+    if (module === "penetration" || module === "feedback" || module === "plan") {
+      return hasDashboardModulePermission(access.permissionKeys || [], module, "view")
     }
     return true
   }, [access.mode, access.permissionKeys])
@@ -563,9 +569,9 @@ function Dashboard({
     || (
       !access.teamReadOnly
       && (
-        hasTeamPermission(access.permissionKeys || [], activeModule, "execute")
-        || hasTeamPermission(access.permissionKeys || [], activeModule, "edit")
-        || hasTeamPermission(access.permissionKeys || [], activeModule, "manage")
+        hasDashboardModulePermission(access.permissionKeys || [], activeModule, "execute")
+        || hasDashboardModulePermission(access.permissionKeys || [], activeModule, "edit")
+        || hasDashboardModulePermission(access.permissionKeys || [], activeModule, "manage")
       )
     )
   const readOnlyModule = (access.mode === "client"
@@ -671,6 +677,9 @@ function Dashboard({
             onChangeClient={moduleOnChange}
             onExportReport={access.canCreateReports ? () => onExportReport({ kind: "keyword" }) : undefined}
           />
+        )}
+        {activeModule === "plan" && (
+          <PublishingPlanModule client={client} />
         )}
         {activeModule === "article" && (
           <ArticleGenerationModule client={client} onChangeClient={moduleOnChange} />

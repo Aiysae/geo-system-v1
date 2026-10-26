@@ -42,7 +42,6 @@ import {
   SOURCE_PLATFORM_CATEGORY_LABELS,
 } from "@/lib/source-platform-intelligence"
 import { SourcePlatformAdoptionChart } from "@/components/keyword/source-platform-adoption-chart"
-import PublishingPlanPanel from "@/components/client-feedback/publishing-plan-panel"
 import { getClientSubjectType } from "@/lib/analysis-subject"
 import { mergeExtractedProfileIntoKnowledgeBase } from "@/lib/client-knowledge-base"
 import {
@@ -50,6 +49,7 @@ import {
   normalizeKeywordStrategyLanguageStyle,
 } from "@/lib/geo-strategy/keyword-strategy-methodology"
 import { normalizeExtractedProfileForJob } from "@/lib/geo-strategy/extracted-profile-normalizer"
+import { questionBasePlan } from "@/lib/geo-strategy/question-base-plan"
 import {
   WORKSPACE_NAVIGATION_EVENT,
   parseWorkspaceNavigation,
@@ -228,8 +228,9 @@ function createBrandFromClient(client: Client): BrandData {
 function applyRequestedKeywordView(brand: BrandData, urlValue: string): BrandData {
   const target = parseWorkspaceNavigation(urlValue)
   if (target.clientId && target.clientId !== brand.id) return brand
-  if ((target.view === "questions" || target.view === "strategy") && brand.strategyPlan) {
-    const next = brand.step === "strategy" ? brand : { ...brand, step: "strategy" as const }
+  if (target.view === "questions" || (target.view === "strategy" && brand.strategyPlan)) {
+    const step = target.view === "questions" ? "questions" as const : "strategy" as const
+    const next = brand.step === step ? brand : { ...brand, step }
     if (
       target.view === "questions"
       && target.jobId?.startsWith("qjob_")
@@ -675,6 +676,33 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
     updateBrand({ [field]: value })
   }
 
+  const openKeywordView = useCallback((step: ToolStep) => {
+    const target = step === "extraction" && !activeBrand.extractedProfile ? "input" : step
+    if (target !== activeBrand.step) updateBrand({ step: target })
+  }, [activeBrand.extractedProfile, activeBrand.step, updateBrand])
+
+  const openPublishingPlan = useCallback(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.set("clientId", client.id)
+    url.searchParams.set("module", "plan")
+    url.searchParams.delete("view")
+    url.searchParams.delete("jobId")
+    window.dispatchEvent(new CustomEvent(WORKSPACE_NAVIGATION_EVENT, {
+      detail: { url: `${url.pathname}${url.search}` },
+    }))
+  }, [client.id])
+
+  // Questions are generated from the strategy report when there is one, and
+  // otherwise from the confirmed profile or the client's basic details.
+  const questionPlan = useMemo<{ plan: GeoStrategyPlan; source: QuestionPlanSource }>(() => (
+    activeBrand.strategyPlan
+      ? { plan: activeBrand.strategyPlan, source: "strategy" }
+      : {
+          plan: questionBasePlan(activeBrand, client, subjectType),
+          source: activeBrand.extractedProfile ? "profile" : "basic",
+        }
+  ), [activeBrand, client, subjectType])
+
   const [keywordModelSetting, setKeywordModelSetting] = useState<AiProviderPublicSetting | null>(null)
   const [strategyModelSetting, setStrategyModelSetting] = useState<AiProviderPublicSetting | null>(null)
   const [questionProviderSettings, setQuestionProviderSettings] = useState<Partial<Record<QuestionModelProvider, AiProviderPublicSetting>>>({})
@@ -998,8 +1026,7 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
 
   // Question generation
   const handleGenerateQuestions = useCallback(async () => {
-    const strategyPlan = activeBrand.strategyPlan
-    if (!strategyPlan) return
+    const strategyPlan = questionPlan.plan
     const selectedQuestionSetting = questionProviderSettings[activeBrand.questionModelProvider]
     if (selectedQuestionSetting && !selectedQuestionSetting.hasApiKey) {
       updateBrand({
@@ -1146,7 +1173,7 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
         questionJobProgress: undefined,
       })
     }
-  }, [activeBrand.strategyPlan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.categoryConfig, client.id, client.name, questionProviderSettings, updateBrand])
+  }, [questionPlan.plan, activeBrand.questionCount, activeBrand.customQuestionCount, activeBrand.questionModelProvider, activeBrand.questionModel, activeBrand.questionCustomKeywords, activeBrand.questionCustomPainScenarios, activeBrand.categoryConfig, client.id, client.name, questionProviderSettings, updateBrand])
 
   const handleStopGenerateQuestions = useCallback(async () => {
     const jobId = activeBrand.questionJobId
@@ -1387,14 +1414,14 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
   }, [activeBrand.strategyPlan, activeBrand.questions, wordExporting])
 
   const handleExportQuestionsCsv = useCallback(() => {
-    if (!activeBrand.strategyPlan || activeBrand.questions.length === 0) return
-    const csv = generateQuestionCsv(activeBrand.questions, activeBrand.strategyPlan)
+    if (activeBrand.questions.length === 0) return
+    const csv = generateQuestionCsv(activeBrand.questions, questionPlan.plan)
     const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" })
-    downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_疑问句池.csv`)
-  }, [activeBrand.strategyPlan, activeBrand.questions])
+    downloadBlob(blob, `${buildQuestionExportBaseName(questionPlan.plan)}_疑问句池.csv`)
+  }, [questionPlan.plan, activeBrand.questions])
 
   const handleExportQuestionsWord = useCallback(async () => {
-    if (!activeBrand.strategyPlan || activeBrand.questions.length === 0 || wordExporting) return
+    if (activeBrand.questions.length === 0 || wordExporting) return
     setWordExporting("questions")
     setWordExportError("")
     try {
@@ -1403,18 +1430,18 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
         loadShituWordLogo(),
       ])
       const blob = await buildKeywordStrategyWordBlob({
-        plan: activeBrand.strategyPlan,
+        plan: questionPlan.plan,
         questions: activeBrand.questions,
         variant: "questions",
         logoData,
       })
-      downloadBlob(blob, `${buildQuestionExportBaseName(activeBrand.strategyPlan)}_势途GEO疑问句与优势报告.docx`)
+      downloadBlob(blob, `${buildQuestionExportBaseName(questionPlan.plan)}_势途GEO疑问句与优势报告.docx`)
     } catch (error) {
       setWordExportError(error instanceof Error ? error.message : "疑问句 Word 报告生成失败，请稍后重试。")
     } finally {
       setWordExporting(null)
     }
-  }, [activeBrand.strategyPlan, activeBrand.questions, wordExporting])
+  }, [questionPlan.plan, activeBrand.questions, wordExporting])
 
   const handleReExtract = useCallback(async () => {
     await handleExtract()
@@ -1475,7 +1502,13 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
         nextSteps={ab.strategyPlan ? ["先核对策略总览中的目标客户与核心关键词。", ab.questions.length ? "从疑问句池中确认优先回答的问题，并结合执行排期安排内容。" : "由项目负责人生成疑问句池，再安排内容制作。", "执行后在周月报中查看动作与检测变化。"] : ab.extractedProfile ? ["检查整理结果中的事实、优势与证据来源。", "由项目负责人确认资料并生成策略。"] : ["补充客户资料、产品服务和目标用户。", "由项目负责人整理资料，核对后进入策略规划。"]}
       />
         <div className="overflow-x-auto border-b border-[#E8EEF5] bg-[#F8FAFD] px-3 pt-3 sm:px-5 lg:px-6">
-          <StepProgress current={ab.step} />
+          <KeywordTabs
+            current={ab.step}
+            profileReady={Boolean(ab.extractedProfile)}
+            strategyReady={Boolean(ab.strategyPlan)}
+            questionTotal={ab.questions.length}
+            onChange={openKeywordView}
+          />
         </div>
 
         <main className="px-3 py-4 sm:px-5 lg:px-6">
@@ -1549,14 +1582,13 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
             />
           )}
 
-          {/* Step 3: Strategy Result */}
+          {/* Strategy report */}
           {(ab.step === "strategy") && ab.strategyPlan && (
             <StrategyStep
               key={`${ab.id}:${ab.strategyPlan.website_prompts?.updated_at || "base"}`}
               subjectType={subjectType}
               plan={ab.strategyPlan}
               sourcePlatformSnapshot={sourcePlatformSnapshot}
-              client={client}
               clientId={client.id}
               onPlanChange={nextPlan => updateBrand({ strategyPlan: nextPlan })}
               websitePromptJobRef={client.backgroundJobs?.keywordWebsitePrompt}
@@ -1565,6 +1597,36 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
                   backgroundJobs: backgroundJobsWith("keywordWebsitePrompt", ref),
                 })
               }}
+              questionTotal={ab.questions.length}
+              onOpenQuestions={() => openKeywordView("questions")}
+              onOpenPublishingPlan={openPublishingPlan}
+              onExportJson={handleExportJson}
+              onExportMarkdown={handleExportMarkdown}
+              onExportWord={handleExportWord}
+              onExportPdf={onExportReport}
+              wordExporting={wordExporting}
+              wordExportError={wordExportError}
+              onBack={() => openKeywordView("extraction")}
+            />
+          )}
+
+          {(ab.step === "strategy") && !ab.strategyPlan && (
+            <KeywordEmptyView
+              title="还没有策略报告"
+              description={ab.extractedProfile
+                ? "客户资料已经整理好，确认后即可生成策略报告。疑问句和发布规划不依赖策略报告，可以先用。"
+                : "策略报告根据整理后的客户资料生成。疑问句和发布规划不依赖策略报告，可以先用。"}
+              actionLabel={ab.extractedProfile ? "去确认资料并生成策略" : "去整理资料"}
+              onAction={() => openKeywordView(ab.extractedProfile ? "extraction" : "input")}
+            />
+          )}
+
+          {/* Question pool */}
+          {(ab.step === "questions") && (
+            <QuestionsStep
+              subjectType={subjectType}
+              plan={questionPlan.plan}
+              planSource={questionPlan.source}
               questions={ab.questions}
               questionStatus={ab.questionStatus}
               questionError={ab.questionError}
@@ -1589,16 +1651,12 @@ export default function KeywordStrategyModule({ client, onChangeClient, onExport
               onCategoryConfigChange={v => setBrandField("categoryConfig", v)}
               onGenerateQuestions={handleGenerateQuestions}
               onStopQuestions={handleStopGenerateQuestions}
-              onExportJson={handleExportJson}
-              onExportMarkdown={handleExportMarkdown}
-              onExportWord={handleExportWord}
-              onExportPdf={onExportReport}
               onExportQuestionsCsv={handleExportQuestionsCsv}
               onExportQuestionsWord={handleExportQuestionsWord}
               wordExporting={wordExporting}
               wordExportError={wordExportError}
-              onBack={() => updateBrand({ step: "extraction" })}
-              hasQuestions={ab.questions.length > 0}
+              onOpenProfile={() => openKeywordView(ab.extractedProfile ? "extraction" : "input")}
+              onOpenStrategy={() => openKeywordView("strategy")}
             />
           )}
         </main>
@@ -1627,28 +1685,80 @@ function KeywordBackgroundJobNotice({
 
 // ==================== Step Progress ====================
 
-function StepProgress({ current }: { current: ToolStep }) {
-  const steps: { key: ToolStep; label: string }[] = [
-    { key: "input", label: "上传资料" },
-    { key: "extraction", label: "确认内容" },
-    { key: "strategy", label: "生成策略" },
-    { key: "questions", label: "生成问题" },
+type KeywordView = "profile" | "strategy" | "questions"
+
+function keywordViewOf(step: ToolStep): KeywordView {
+  if (step === "strategy") return "strategy"
+  if (step === "questions" || step === "export") return "questions"
+  return "profile"
+}
+
+/** Each part can be opened at any time; none waits for the one before it. */
+function KeywordTabs({
+  current,
+  profileReady,
+  strategyReady,
+  questionTotal,
+  onChange,
+}: {
+  current: ToolStep
+  profileReady: boolean
+  strategyReady: boolean
+  questionTotal: number
+  onChange: (step: ToolStep) => void
+}) {
+  const active = keywordViewOf(current)
+  const tabs: { key: KeywordView; step: ToolStep; label: string; status: string }[] = [
+    { key: "profile", step: profileReady ? "extraction" : "input", label: "资料整理", status: profileReady ? "已整理" : "未整理" },
+    { key: "strategy", step: "strategy", label: "策略报告", status: strategyReady ? "已生成" : "未生成" },
+    { key: "questions", step: "questions", label: "疑问句", status: questionTotal > 0 ? `${questionTotal} 条` : "未生成" },
   ]
 
-  const idx = steps.findIndex(s => s.key === current)
-
   return (
-    <div className="mb-3 flex min-w-[520px] items-center gap-1 sm:min-w-0">
-      {steps.map((s, i) => (
-        <div key={s.key} className="flex items-center gap-1 flex-1">
-          <div className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all
-            ${i < idx ? "bg-[#E6F4FF] text-[#0958D9]" : i === idx ? "bg-[#1677FF] text-white shadow-sm" : "bg-white text-slate-400 ring-1 ring-slate-200"}`}>
-            {i < idx ? <Check className="h-3 w-3" /> : <span className="w-3 h-3 rounded-full bg-current flex items-center justify-center text-[8px] font-bold">{i + 1}</span>}
-            {s.label}
-          </div>
-          {i < steps.length - 1 && <div className={`h-px flex-1 ${i < idx ? "bg-[#69B1FF]" : "bg-slate-200"}`} />}
-        </div>
-      ))}
+    <div role="tablist" aria-label="关键词策略功能" className="mb-3 flex min-w-[420px] items-center gap-1.5 sm:min-w-0">
+      {tabs.map(tab => {
+        const selected = tab.key === active
+        return (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onChange(tab.step)}
+            className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-1
+              ${selected ? "bg-[#1677FF] text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-[#F0F7FF] hover:text-[#0958D9]"}`}
+          >
+            {tab.label}
+            <span className={`rounded px-1.5 py-0.5 text-[10px] ${selected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>{tab.status}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function KeywordEmptyView({
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  title: string
+  description: string
+  actionLabel: string
+  onAction: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+      <div className="text-sm font-semibold text-slate-800">{title}</div>
+      <p className="mt-2 max-w-md text-xs leading-5 text-slate-500">{description}</p>
+      <button
+        type="button"
+        onClick={onAction}
+        className="mt-4 inline-flex items-center gap-1 rounded-lg bg-[#1677FF] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#0958D9]"
+      >
+        {actionLabel} <ArrowRight className="h-3.5 w-3.5" />
+      </button>
     </div>
   )
 }
@@ -2238,59 +2348,30 @@ function ExtractionStep({
 
 function StrategyStep({
   subjectType,
-  plan, sourcePlatformSnapshot, client, clientId, onPlanChange, websitePromptJobRef, onChangeWebsitePromptJob,
-  questions, questionStatus, questionError,
-  questionJobProgress,
-  questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios,
-  categoryConfig, questionProviderSettings, onCategoryConfigChange,
-  onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onGenerateQuestions, onStopQuestions,
-  onExportJson, onExportMarkdown, onExportWord, onExportPdf, onExportQuestionsCsv, onExportQuestionsWord, onBack,
+  plan, sourcePlatformSnapshot, clientId, onPlanChange, websitePromptJobRef, onChangeWebsitePromptJob,
+  questionTotal, onOpenQuestions, onOpenPublishingPlan,
+  onExportJson, onExportMarkdown, onExportWord, onExportPdf, onBack,
   wordExporting, wordExportError,
-  hasQuestions,
 }: {
   subjectType: "brand" | "person"
   plan: GeoStrategyPlan
   sourcePlatformSnapshot: SourcePlatformSnapshot
-  client: Client
   clientId: string
   onPlanChange: (plan: GeoStrategyPlan) => void
   websitePromptJobRef?: BackgroundJobRef
   onChangeWebsitePromptJob: (ref?: BackgroundJobRef) => void
-  questions: QuestionItem[]
-  questionStatus: GenerationStatus
-  questionError: string
-  questionJobProgress?: QuestionJobProgress
-  questionCount: number
-  customQuestionCount: number
-  questionModelProvider: QuestionModelProvider
-  questionModel: string
-  questionCustomKeywords: string
-  questionCustomPainScenarios: string
-  categoryConfig: QuestionCategoryConfig
-  questionProviderSettings: Partial<Record<QuestionModelProvider, AiProviderPublicSetting>>
-  onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
-  onQuestionCountChange: (v: number) => void
-  onCustomQuestionCountChange: (v: number) => void
-  onQuestionModelProviderChange: (v: QuestionModelProvider) => void
-  onQuestionModelChange: (v: string) => void
-  onQuestionCustomKeywordsChange: (v: string) => void
-  onQuestionCustomPainScenariosChange: (v: string) => void
-  onGenerateQuestions: () => void
-  onStopQuestions: () => void
+  questionTotal: number
+  onOpenQuestions: () => void
+  onOpenPublishingPlan?: () => void
   onExportJson: () => void
   onExportMarkdown: () => void
   onExportWord: () => void
   onExportPdf?: () => void
-  onExportQuestionsCsv: () => void
-  onExportQuestionsWord: () => void
   wordExporting: "strategy" | "questions" | null
   wordExportError: string
   onBack: () => void
-  hasQuestions: boolean
 }) {
   const isPerson = subjectType === "person"
-  const [showJson, setShowJson] = useState(false)
-  const [showQuestionSettings, setShowQuestionSettings] = useState(false)
   const [activePromptKey, setActivePromptKey] = useState<string | null>(null)
   const [copiedPromptKey, setCopiedPromptKey] = useState<string | null>(null)
   const [officialPrompt, setOfficialPrompt] = useState(() => plan.website_prompts?.official || "")
@@ -2302,8 +2383,6 @@ function StrategyStep({
     )
   ))
   const [thirdPartyPromptErrors, setThirdPartyPromptErrors] = useState<Record<string, string>>({})
-  const questionPoolRef = useRef<HTMLDivElement>(null)
-  const questionAdvantages = extractQuestionAdvantages(plan)
   const websitePromptPayload = websitePromptJobRef?.payload as WebsitePromptJobPayload | undefined
   const websitePromptKey = websitePromptJobRef
     ? websitePromptPayload?.kind === "third-party" && Number.isInteger(websitePromptPayload.siteIndex)
@@ -2315,17 +2394,6 @@ function StrategyStep({
   const displayedSourcePlatformSnapshot = sourcePlatformSnapshot.platforms.length > 0
     ? sourcePlatformSnapshot
     : plan.source_platform_snapshot
-
-  const revealQuestionPool = useCallback(() => {
-    setShowJson(true)
-    window.requestAnimationFrame(() => {
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      questionPoolRef.current?.scrollIntoView({
-        behavior: reduceMotion ? "auto" : "smooth",
-        block: "start",
-      })
-    })
-  }, [])
 
   const handleCopyPrompt = useCallback(async (key: string, prompt: string) => {
     try {
@@ -2486,12 +2554,12 @@ function StrategyStep({
         </div>
       ) : null}
 
-      {hasQuestions ? (
+      {questionTotal > 0 ? (
         <button
           type="button"
-          onClick={revealQuestionPool}
+          onClick={onOpenQuestions}
           className="group flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:border-[#0958D9] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1677FF] focus-visible:ring-offset-2"
-          aria-label={`查看全部 ${questions.length} 条疑问句`}
+          aria-label={`查看全部 ${questionTotal} 条疑问句`}
         >
           <span className="flex min-w-0 items-center gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0958D9] text-white">
@@ -2500,7 +2568,7 @@ function StrategyStep({
             <span className="min-w-0">
               <span className="block text-xs font-medium text-[#0050B3]">疑问句已生成</span>
               <span className="mt-0.5 block truncate text-sm font-bold text-slate-900">
-                疑问句池 <span className="text-[#1677FF]">{questions.length} 条</span>
+                疑问句池 <span className="text-[#1677FF]">{questionTotal} 条</span>
               </span>
             </span>
           </span>
@@ -2764,7 +2832,21 @@ function StrategyStep({
         </Card>
       )}
 
-      <PublishingPlanPanel client={client} />
+      {onOpenPublishingPlan ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-[#D7E5F2] bg-[#F8FBFF] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs leading-5 text-slate-600">
+            <span className="font-semibold text-slate-800">发布规划</span>
+            已独立为单独功能，可以随时制定发布数量和执行任务，不需要先生成策略。
+          </div>
+          <button
+            type="button"
+            onClick={onOpenPublishingPlan}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#91CAFF] bg-white px-3 py-1.5 text-xs font-semibold text-[#0958D9] transition hover:bg-[#EAF5FF]"
+          >
+            打开发布规划 <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
 
       {/* Monitoring & Roadmap */}
       <details className="group rounded-xl border border-slate-200 bg-white/70">
@@ -2812,7 +2894,99 @@ function StrategyStep({
       </div>
       </details>
 
-      {/* Question Module */}
+    </div>
+  )
+}
+
+// ==================== Questions ====================
+
+/** Where the question pool takes its brief from when it is generated. */
+type QuestionPlanSource = "strategy" | "profile" | "basic"
+
+function QuestionsStep({
+  subjectType, plan, planSource,
+  questions, questionStatus, questionError, questionJobProgress,
+  questionCount, customQuestionCount, questionModelProvider, questionModel, questionCustomKeywords, questionCustomPainScenarios,
+  categoryConfig, questionProviderSettings, onCategoryConfigChange,
+  onQuestionCountChange, onCustomQuestionCountChange, onQuestionModelProviderChange, onQuestionModelChange, onQuestionCustomKeywordsChange, onQuestionCustomPainScenariosChange, onGenerateQuestions, onStopQuestions,
+  onExportQuestionsCsv, onExportQuestionsWord, wordExporting, wordExportError,
+  onOpenProfile, onOpenStrategy,
+}: {
+  subjectType: "brand" | "person"
+  plan: GeoStrategyPlan
+  planSource: QuestionPlanSource
+  questions: QuestionItem[]
+  questionStatus: GenerationStatus
+  questionError: string
+  questionJobProgress?: QuestionJobProgress
+  questionCount: number
+  customQuestionCount: number
+  questionModelProvider: QuestionModelProvider
+  questionModel: string
+  questionCustomKeywords: string
+  questionCustomPainScenarios: string
+  categoryConfig: QuestionCategoryConfig
+  questionProviderSettings: Partial<Record<QuestionModelProvider, AiProviderPublicSetting>>
+  onCategoryConfigChange: (cfg: QuestionCategoryConfig) => void
+  onQuestionCountChange: (v: number) => void
+  onCustomQuestionCountChange: (v: number) => void
+  onQuestionModelProviderChange: (v: QuestionModelProvider) => void
+  onQuestionModelChange: (v: string) => void
+  onQuestionCustomKeywordsChange: (v: string) => void
+  onQuestionCustomPainScenariosChange: (v: string) => void
+  onGenerateQuestions: () => void
+  onStopQuestions: () => void
+  onExportQuestionsCsv: () => void
+  onExportQuestionsWord: () => void
+  wordExporting: "strategy" | "questions" | null
+  wordExportError: string
+  onOpenProfile: () => void
+  onOpenStrategy: () => void
+}) {
+  const isPerson = subjectType === "person"
+  const hasQuestions = questions.length > 0
+  const [showJson, setShowJson] = useState(false)
+  const [showQuestionSettings, setShowQuestionSettings] = useState(false)
+  const questionPoolRef = useRef<HTMLDivElement>(null)
+  const questionAdvantages = extractQuestionAdvantages(plan)
+
+  const revealQuestionPool = useCallback(() => {
+    setShowJson(true)
+    window.requestAnimationFrame(() => {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      questionPoolRef.current?.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start",
+      })
+    })
+  }, [])
+
+  return (
+    <div className="space-y-4 animate-fade-in-up">
+      {planSource !== "strategy" ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-[#D7E5F2] bg-[#F8FBFF] px-4 py-3 text-xs leading-5 text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            {planSource === "profile"
+              ? "还没有策略报告，疑问句会按「资料整理」里确认的客户画像生成。生成策略报告后再生成，可以用上策略里的关键词。"
+              : "还没有整理客户资料，疑问句只按客户名称、行业和下方填写的关键词生成。建议在“关键词”里选择自定义并填写，或先整理资料。"}
+          </span>
+          <button
+            type="button"
+            onClick={planSource === "profile" ? onOpenStrategy : onOpenProfile}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#91CAFF] bg-white px-3 py-1.5 text-xs font-semibold text-[#0958D9] transition hover:bg-[#EAF5FF]"
+          >
+            {planSource === "profile" ? "去生成策略报告" : "去整理资料"} <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
+
+      {wordExportError ? (
+        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs leading-5 text-red-700">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{wordExportError}</span>
+        </div>
+      ) : null}
+
       <div ref={questionPoolRef} className="scroll-mt-24">
       <Card title="疑问句池" icon={<Search className="h-4 w-4 text-violet-500" />}
         extra={
@@ -3160,7 +3334,7 @@ function QuestionSettingsPanel({
 
   return (
     <div className="space-y-4">
-      <div className="text-xs text-slate-500">策略已生成，可选择生成关键词、劣势、痛点场景三类疑问句。</div>
+      <div className="text-xs text-slate-500">可选择生成关键词、劣势、痛点场景三类疑问句。</div>
 
       <div className="space-y-3 rounded-lg border border-[#DCE6F2] bg-[#F8FAFD] p-4">
         <h3 className="text-xs font-semibold text-slate-600">基础设置</h3>
@@ -3379,7 +3553,7 @@ function QuestionSettingsPanel({
                   ))}
                 </div>
               ) : (
-                <div className="text-[11px] text-amber-700">当前策略没有可用劣势，生成时会自动跳过这一部分。</div>
+                <div className="text-[11px] text-amber-700">当前没有可用劣势，生成时会自动跳过这一部分。</div>
               )}
             </div>
           </div>
