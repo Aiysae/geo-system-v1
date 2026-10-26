@@ -21,7 +21,7 @@ export const AI_CREDENTIAL_VENDOR_PRESETS: AiCredentialVendorPreset[] = [
     label: "豆包 / 火山方舟",
     baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
     chatPath: "/chat/completions",
-    defaultModels: ["doubao-seed-2-0-lite-260215"],
+    defaultModels: ["doubao-seed-2-0-lite-260428"],
     allowedModules: [
       "article",
       "question",

@@ -38,7 +38,7 @@ const saved = await saveAiCredential({
 }, "verification-test")
 
 const repair = knownAiCredentialRepair(saved)
-assert.equal(repair?.allowedModels?.[0], "doubao-seed-2-0-lite-260215")
+assert.equal(repair?.allowedModels?.[0], "doubao-seed-2-0-lite-260428")
 
 const kimiRepair = knownAiCredentialRepair({
   ...saved,

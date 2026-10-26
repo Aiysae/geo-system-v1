@@ -1,5 +1,5 @@
 export const DOUBAO_RESEARCH_STABLE_MODEL =
-  process.env.DOUBAO_RESEARCH_MODEL?.trim() || "doubao-seed-2-0-lite-260215"
+  process.env.DOUBAO_RESEARCH_MODEL?.trim() || "doubao-seed-2-0-lite-260428"
 
 export const RESEARCH_STAGE_TIMEOUT_SECONDS = 150
 export const COMPETITOR_STAGE_TIMEOUT_SECONDS = 150

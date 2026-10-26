@@ -118,7 +118,7 @@ const DEFINITIONS: AiProviderDefinition[] = [
         description: "仅适合非严格联网场景；渗透率检测严格模式需要填写官方联网 Bot ID。",
         baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
         chatPath: "/chat/completions",
-        model: "doubao-seed-2-0-lite-260215",
+        model: "doubao-seed-2-0-lite-260428",
       },
       {
         key: "doubao-endpoint",

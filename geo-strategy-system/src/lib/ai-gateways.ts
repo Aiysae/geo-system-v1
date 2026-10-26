@@ -119,7 +119,7 @@ export const AI_GATEWAY_PRESETS: AiGatewayPreset[] = [
     modelsPath: "/models",
     protocol: "openai_chat",
     authType: "bearer",
-    defaultModel: "doubao-seed-2-0-lite-260215",
+    defaultModel: "doubao-seed-2-0-lite-260428",
     timeout: 600,
     maxConcurrency: 3,
   },
