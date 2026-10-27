@@ -23,6 +23,7 @@ import {
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
+import MobileAnswerDialog, { MobileAnswerButton } from "@/components/penetration/mobile-answer-view"
 import BrandRankingCard from "@/components/penetration/brand-ranking-card"
 import IndustryShareChart from "@/components/penetration/industry-share-chart"
 import ModelRateTrend from "@/components/penetration/model-rate-trend"
@@ -806,6 +807,8 @@ export function PenetrationHistoryDetail({
                 models={record.request.activeModels?.length
                   ? record.request.activeModels
                   : record.request.models}
+                ourBrand={record.request.ourBrand}
+                brandAliases={record.request.brandAliases}
                 focusQuestion={answerQuestion}
                 onClearFocus={() => setAnswerQuestion(null)}
               />
@@ -914,11 +917,15 @@ function SnapshotField({ label, value }: { label: string; value: string }) {
 function HistoryRawAnswers({
   historyId,
   models,
+  ourBrand,
+  brandAliases,
   focusQuestion,
   onClearFocus,
 }: {
   historyId: string
   models: ModelKey[]
+  ourBrand: string
+  brandAliases: string[]
   /** Shows only this question's answers, opened. */
   focusQuestion?: string | null
   onClearFocus?: () => void
@@ -933,6 +940,7 @@ function HistoryRawAnswers({
   const [activeModel, setActiveModel] = useState<ModelKey | null>(availableModels[0] || null)
   const [byModel, setByModel] = useState<PenetrationByModel>({})
   const [loadingModel, setLoadingModel] = useState<ModelKey | null>(null)
+  const [mobileView, setMobileView] = useState<{ model: ModelKey; index: number } | null>(null)
   const [loadError, setLoadError] = useState("")
   const currentModel = activeModel && availableModels.includes(activeModel)
     ? activeModel
@@ -1074,17 +1082,36 @@ function HistoryRawAnswers({
                   key={item.sampleId || `${currentModel}-${index}`}
                   item={item}
                   index={index}
+                  onOpenMobile={() => setMobileView({ model: currentModel, index: allItems.indexOf(item) })}
                 />
               ))}
             </div>
           )}
         </>
       ) : null}
+      {mobileView ? (
+        <MobileAnswerDialog
+          byModel={byModel}
+          initialModel={mobileView.model}
+          initialIndex={mobileView.index}
+          ourBrand={ourBrand}
+          brandAliases={brandAliases}
+          onClose={() => setMobileView(null)}
+        />
+      ) : null}
     </section>
   )
 }
 
-function HistoryAnswerItem({ item, index }: { item: PenetrationItem; index: number }) {
+function HistoryAnswerItem({
+  item,
+  index,
+  onOpenMobile,
+}: {
+  item: PenetrationItem
+  index: number
+  onOpenMobile: () => void
+}) {
   const uniqueSources = useMemo(() => {
     const seen = new Set<string>()
     return (item.searchSources || []).filter(source => {
@@ -1131,6 +1158,7 @@ function HistoryAnswerItem({ item, index }: { item: PenetrationItem; index: numb
           {item.sampledAt ? (
             <span className="px-1.5 py-0.5 text-slate-400">{formatDate(item.sampledAt)}</span>
           ) : null}
+          <MobileAnswerButton onClick={onOpenMobile} />
         </div>
         <div className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-slate-600">
           {item.answer || "本次没有返回回答原文。"}

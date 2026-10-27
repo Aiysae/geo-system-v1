@@ -23,6 +23,7 @@ import { useGlobalExcludedSubjects } from "@/hooks/use-global-excluded-subjects"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
+import MobileAnswerDialog, { MobileAnswerButton } from "./mobile-answer-view"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
@@ -1056,6 +1057,7 @@ function RawAnswersPanel({
   const [activeModel, setActive] = useState<ModelKey | null>(models[0] ?? null)
   const currentModel = activeModel && models.includes(activeModel) ? activeModel : models[0] ?? null
   const targetSubjectNames = [ourBrand, ...brandAliases].map(name => name.trim()).filter(Boolean)
+  const [mobileView, setMobileView] = useState<{ model: ModelKey; index: number } | null>(null)
 
   if (models.length === 0 || !currentModel) return null
 
@@ -1262,6 +1264,7 @@ function RawAnswersPanel({
                           <RefreshCw className={`h-3 w-3 ${retestingSampleId === meta.key ? "animate-spin" : ""}`} />
                           重新检测
                         </button> : null}
+                        <MobileAnswerButton onClick={() => setMobileView({ model: currentModel, index: i })} />
                       </div>
                     </div>
                   </div>
@@ -1321,6 +1324,16 @@ function RawAnswersPanel({
           </div>
         </div>
       )}
+      {mobileView ? (
+        <MobileAnswerDialog
+          byModel={byModel}
+          initialModel={mobileView.model}
+          initialIndex={mobileView.index}
+          ourBrand={ourBrand}
+          brandAliases={brandAliases}
+          onClose={() => setMobileView(null)}
+        />
+      ) : null}
     </div>
   )
 }
