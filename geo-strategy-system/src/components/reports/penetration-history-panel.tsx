@@ -789,17 +789,6 @@ export function PenetrationHistoryDetail({
             />
           </section>
 
-          {result.aggregated.missedQuestions.length > 0 ? (
-            <section className="rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-4">
-              <h4 className="text-xs font-semibold text-amber-900">
-                未被任一模型提及的问题（{result.aggregated.missedQuestions.length}）
-              </h4>
-              <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs leading-5 text-amber-900/85">
-                {result.aggregated.missedQuestions.map(question => <li key={question}>{question}</li>)}
-              </ol>
-            </section>
-          ) : null}
-
           {showRawAnswers ? (
             <div ref={answersRef} className="scroll-mt-4">
               <HistoryRawAnswers

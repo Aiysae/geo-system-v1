@@ -954,24 +954,6 @@ export function PenetrationResultsBody({
         subjectType={subjectType}
       />
 
-      {pen.aggregated.missedQuestions.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
-          <div className="mb-2 text-[11px] uppercase tracking-wider text-amber-700">
-            未被任一模型提及的疑问句（{pen.aggregated.missedQuestions.length}）
-          </div>
-          <ul className="list-disc space-y-1 pl-4 text-xs text-amber-900">
-            {pen.aggregated.missedQuestions.slice(0, 6).map((q, i) => (
-              <li key={i}>{q}</li>
-            ))}
-            {pen.aggregated.missedQuestions.length > 6 && (
-              <li className="list-none text-amber-600">
-                ...还有 {pen.aggregated.missedQuestions.length - 6} 条
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
-
       <div ref={answersRef} className="scroll-mt-4">
       <RawAnswersPanel
         focusQuestion={answerQuestion}

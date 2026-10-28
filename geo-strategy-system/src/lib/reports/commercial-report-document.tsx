@@ -335,8 +335,37 @@ const styles = StyleSheet.create({
     borderColor: COLORS.line,
   },
   appendixMeta: { color: COLORS.blue, fontSize: 7.5, fontWeight: 700 },
-  appendixQuestion: { marginTop: 4, color: COLORS.ink, fontSize: 8.5, fontWeight: 700 },
   appendixAnswer: { maxWidth: "100%", marginTop: 4, color: COLORS.text, fontSize: 7.5, lineHeight: 1.55 },
+  answerGroup: { marginBottom: 14 },
+  answerGroupHeader: {
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    borderRadius: 5,
+    backgroundColor: COLORS.paper,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.blue,
+  },
+  answerGroupNumber: { color: COLORS.blue, fontSize: 8 },
+  answerGroupTitle: { maxWidth: "100%", color: COLORS.ink, fontSize: 9, fontWeight: 700, lineHeight: 1.45 },
+  answerGroupStats: { marginTop: 2, color: COLORS.muted, fontSize: 6.8 },
+  chatAnswer: { marginTop: 8, marginLeft: 8 },
+  chatAnswerMeta: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 4, marginBottom: 3 },
+  chatModel: { color: COLORS.ink, fontSize: 7.5, fontWeight: 700 },
+  chatTag: { paddingHorizontal: 4, paddingVertical: 1.5, borderRadius: 3, backgroundColor: "#EEF4FF", color: COLORS.muted, fontSize: 6.3 },
+  chatHit: { paddingHorizontal: 4, paddingVertical: 1.5, borderRadius: 3, backgroundColor: "#E3F9F1", color: "#0B8A63", fontSize: 6.3, fontWeight: 700 },
+  chatBubble: {
+    maxWidth: "100%",
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    borderTopLeftRadius: 2,
+    backgroundColor: "#F4F6F9",
+  },
+  chatText: { maxWidth: "100%", color: COLORS.text, fontSize: 7.5, lineHeight: 1.6 },
+  chatBrand: { color: "#AD4E00", fontWeight: 700 },
+  chatSourceTitle: { marginTop: 5, color: COLORS.muted, fontSize: 6.5 },
+  chatSources: { maxWidth: "100%", marginTop: 2, fontSize: 6.5, lineHeight: 1.6 },
+  chatSourceLink: { color: "#1677FF", textDecoration: "none" },
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 },
   pill: {
     paddingHorizontal: 6,
@@ -2111,28 +2140,21 @@ function PenetrationOpportunityPage({ input }: { input: CommercialReportInput })
   const terms = reportVocabulary(input)
   const competitors = (penetration.aggregated.topCompetitors || []).slice(0, 8)
     .map(item => `${item} 在本轮回答中形成较高频的模型心智占位。`)
-  const missed = (penetration.aggregated.missedQuestions || []).slice(0, 14)
-  if (competitors.length === 0 && missed.length === 0) return null
+  if (competitors.length === 0) return null
   return (
     <Page size="A4" style={styles.page} wrap>
       <HeaderFooter input={input} />
       <ChapterTitle
         kicker="GAP ANALYSIS"
-        title="竞争与问题缺口"
+        title="竞争缺口"
         intro={isPersonReport(input)
-          ? "把人物声量差距转化为可执行的同行对照与疑问句补强清单。"
-          : "把品牌声量差距转化为可执行的竞品对照与疑问句补强清单。"}
+          ? "把人物声量差距转化为可执行的同行对照清单。"
+          : "把品牌声量差距转化为可执行的竞品对照清单。"}
       />
       {competitors.length > 0 ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>主要{terms.competitors}</Text>
           <NumberedList items={competitors} />
-        </View>
-      ) : null}
-      {missed.length > 0 ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{terms.target}未覆盖疑问句</Text>
-          <NumberedList items={missed} />
         </View>
       ) : null}
     </Page>
@@ -3326,24 +3348,149 @@ function ProcessEvidencePage({ input }: { input: CommercialReportInput }) {
   )
 }
 
+// Models mark sources as [1], [^1], [^1^], [ref_1], [citation:1] or 【1†source】.
+const ANSWER_CITATION = /\[\^(\d{1,3})\^?\]|\[(?:ref_|citation:)(\d{1,3})\]|【(\d{1,3})†[^】]*】/g
+
+/** The answer's Markdown as plain reading text: no heading marks, emphasis or table rules. */
+function plainAnswerText(answer: string): string {
+  return answer
+    .replace(/^\s*\[\^\d{1,3}\^?\]:.*$/gm, "")
+    .replace(ANSWER_CITATION, (_match, a, b, c) => `[${a || b || c}]`)
+    .replace(/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/gm, "")
+    .replace(/^\s*\|(.*)\|\s*$/gm, (_match, row: string) => row.split("|").map(cell => cell.trim()).join(" ｜ "))
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*|__/g, "")
+    .replace(/^\s*[-*+]\s+/gm, "• ")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim()
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+/** The text with every mention of the client's names set apart. */
+function HighlightedAnswer({ text, terms }: { text: string; terms: string[] }) {
+  const sorted = Array.from(new Set(terms.map(term => term.trim()).filter(Boolean))).sort((a, b) => b.length - a.length)
+  if (sorted.length === 0) return <Text style={styles.chatText}>{text}</Text>
+  const lower = new Set(sorted.map(term => term.toLowerCase()))
+  const parts = text.split(new RegExp(`(${sorted.map(escapeRegExp).join("|")})`, "gi")).filter(Boolean)
+  return (
+    <Text style={styles.chatText}>
+      {parts.map((part, index) => lower.has(part.toLowerCase())
+        ? <Text key={index} style={styles.chatBrand}>{part}</Text>
+        : part)}
+    </Text>
+  )
+}
+
+function answerSources(item: PenetrationItem): PenetrationSource[] {
+  const seen = new Set<string>()
+  return (item.searchSources || []).filter(source => {
+    if (!/^https?:\/\//i.test(source.url || "") || seen.has(source.url)) return false
+    seen.add(source.url)
+    return true
+  })
+}
+
+interface AppendixQuestionGroup {
+  question: string
+  answers: Array<{ model: ModelKey; item: PenetrationItem; ordinal: number; repeats: number }>
+}
+
+/** Every saved answer, one group per question, each model's repeats numbered. */
+function appendixQuestionGroups(answers: FlattenedAnswer[]): AppendixQuestionGroup[] {
+  const groups = new Map<string, AppendixQuestionGroup>()
+  const repeats = new Map<string, number>()
+  for (const { model, item } of answers) {
+    const key = `${model}\u0000${item.question.trim()}`
+    repeats.set(key, (repeats.get(key) ?? 0) + 1)
+  }
+  const seen = new Map<string, number>()
+  for (const { model, item } of answers) {
+    const question = item.question.trim()
+    const key = `${model}\u0000${question}`
+    const ordinal = (seen.get(key) ?? 0) + 1
+    seen.set(key, ordinal)
+    let group = groups.get(question)
+    if (!group) {
+      group = { question, answers: [] }
+      groups.set(question, group)
+    }
+    group.answers.push({ model, item, ordinal, repeats: repeats.get(key) ?? 1 })
+  }
+  return Array.from(groups.values())
+}
+
 function AppendixPages({ input, answers }: { input: CommercialReportInput; answers: FlattenedAnswer[] }) {
   if (input.detail !== "full" || answers.length === 0) return null
+  const groups = appendixQuestionGroups(answers)
+  const highlightTerms = [input.client.ourBrand, ...(input.client.brandAliases || [])]
   return (
     <Page size="A4" style={styles.page} wrap>
       <HeaderFooter input={input} />
-      <ChapterTitle kicker="APPENDIX" title="原始联网回答与来源" intro={`按模型完整列出 ${answers.length} 条已保存回答及其来源，不在报告生成时重新提问。`} />
-      {answers.map(({ model, item }, index) => (
-        <View key={`${model}-${index}-${item.question}`} style={styles.appendixItem}>
-          <Text style={styles.appendixMeta}>{MODEL_LABELS[model]} · Q{index + 1} · {item.webVerified ? "联网可验证" : "联网未验证"}</Text>
-          <Text style={styles.appendixQuestion}>{item.question}</Text>
-          <Text style={styles.appendixAnswer}>{item.answer || item.webFailureReason || "该回答未返回有效内容。"}</Text>
-          {item.extraction && item.extraction.status !== "succeeded" ? (
-            <Text style={styles.sourceMeta}>本条品牌名单尚未完整整理，未纳入品牌排行榜。</Text>
-          ) : item.mentionedBrands.length > 0 ? (
-            <View style={styles.pillRow}>{item.mentionedBrands.map(brand => <Text key={brand} style={styles.pill}>{brand}</Text>)}</View>
-          ) : null}
-        </View>
-      ))}
+      <ChapterTitle
+        kicker="APPENDIX"
+        title="原始联网回答与来源"
+        intro={`按疑问句分组列出 ${groups.length} 个问题的 ${answers.length} 条已保存回答，同一模型多次检测按次序排列；来源可点击打开原网页，不在报告生成时重新提问。`}
+      />
+      {groups.map((group, groupIndex) => {
+        const hits = group.answers.filter(answer => answer.item.hitOur).length
+        const models = new Set(group.answers.map(answer => answer.model)).size
+        return (
+          <View key={group.question} style={styles.answerGroup}>
+            <View style={styles.answerGroupHeader} minPresenceAhead={90}>
+              <Text style={styles.answerGroupTitle}>
+                <Text style={styles.answerGroupNumber}>Q{String(groupIndex + 1).padStart(2, "0")}　</Text>
+                {group.question}
+              </Text>
+              <Text style={styles.answerGroupStats}>
+                {models} 个模型 · {group.answers.length} 条回答 · {hits > 0 ? `${hits} 条提及${input.client.ourBrand || "我方"}` : "均未提及我方"}
+              </Text>
+            </View>
+            {group.answers.map(({ model, item, ordinal, repeats }) => {
+              const sources = answerSources(item)
+              const text = plainAnswerText(item.answer || "") || item.webFailureReason || "该回答未返回有效内容。"
+              return (
+                <View key={`${model}-${ordinal}`} style={styles.chatAnswer}>
+                  <View style={styles.chatAnswerMeta} minPresenceAhead={40}>
+                    <Text style={styles.chatModel}>{MODEL_LABELS[model]}</Text>
+                    {repeats > 1 ? <Text style={styles.chatTag}>第 {ordinal} 次</Text> : null}
+                    {item.hitOur ? <Text style={styles.chatHit}>✓ 命中</Text> : <Text style={styles.chatTag}>未命中</Text>}
+                    <Text style={styles.chatTag}>{item.webVerified ? "联网可验证" : "联网未验证"}</Text>
+                    {item.sampledAt ? <Text style={styles.chatTag}>{formatDateToMinute(item.sampledAt)}</Text> : null}
+                  </View>
+                  <View style={styles.chatBubble}>
+                    <HighlightedAnswer text={text} terms={highlightTerms} />
+                    {sources.length > 0 ? (
+                      <>
+                        <Text style={styles.chatSourceTitle}>参考 {sources.length} 个来源（点击打开）</Text>
+                        {/* One run of text: a separate box per link makes long reports very slow to lay out. */}
+                        <Text style={styles.chatSources}>
+                          {sources.map((source, index) => (
+                            <React.Fragment key={source.url}>
+                              {index > 0 ? "　" : null}
+                              <Link src={source.url} style={styles.chatSourceLink}>
+                                [{index + 1}] {(source.domain || new URL(source.url).hostname).replace(/^www\./, "")}
+                              </Link>
+                            </React.Fragment>
+                          ))}
+                        </Text>
+                      </>
+                    ) : null}
+                  </View>
+                  {item.extraction && item.extraction.status !== "succeeded" ? (
+                    <Text style={styles.sourceMeta}>本条品牌名单尚未完整整理，未纳入品牌排行榜。</Text>
+                  ) : item.mentionedBrands.length > 0 ? (
+                    <View style={styles.pillRow}>{item.mentionedBrands.map(brand => <Text key={brand} style={styles.pill}>{brand}</Text>)}</View>
+                  ) : null}
+                </View>
+              )
+            })}
+          </View>
+        )
+      })}
     </Page>
   )
 }

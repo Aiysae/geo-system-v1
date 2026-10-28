@@ -391,7 +391,9 @@ async function runCommercialReportJob(id: string): Promise<void> {
             PATH: process.env.PATH,
             TZ: process.env.TZ || "Asia/Shanghai",
           },
-          timeout: 15 * 60 * 1000,
+          // A full report of a large detection runs to some 800 pages, and the
+          // appendix links every answer's sources.
+          timeout: 25 * 60 * 1000,
           maxBuffer: 1024 * 1024,
           signal: controller.signal,
         },
