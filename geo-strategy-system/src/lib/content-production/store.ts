@@ -4,6 +4,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 import { Pool } from "pg"
+import { postgresJson } from "@/lib/postgres-json"
 import type {
   ContentProductionRun,
   ContentProductionRunFilters,
@@ -116,7 +117,7 @@ export async function createContentProductionRun(run: ContentProductionRun): Pro
           run.requestId,
           run.createdByUserId,
           run.articleOwnerUserId,
-          JSON.stringify(run),
+          postgresJson(run),
           run.createdAt,
         ],
       )
@@ -294,7 +295,7 @@ export async function mutateContentProductionRun<T>(
         `UPDATE geo_content_production_runs_v1
          SET data = $3::jsonb, updated_at = $4
          WHERE owner_user_id = $1 AND id = $2`,
-        [ownerUserId, runId, JSON.stringify(run), run.updatedAt],
+        [ownerUserId, runId, postgresJson(run), run.updatedAt],
       )
       await db.query("COMMIT")
       return { run: clone(run), result }

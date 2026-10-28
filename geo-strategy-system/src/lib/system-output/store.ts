@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "crypto"
 import fs from "fs/promises"
 import path from "path"
 import { Pool } from "pg"
+import { postgresJson } from "@/lib/postgres-json"
 import { SYSTEM_OUTPUT_SCHEMA_SQL } from "@/lib/system-output/schema"
 import type {
   SystemOutputKind,
@@ -220,6 +221,9 @@ async function savePostgresRecord(
   record: SystemOutputRecord,
 ): Promise<{ record: SystemOutputRecord; created: boolean }> {
   await ensureSystemOutputSchema()
+  // No conflict target: the id is derived from (owner, module, task), so the web
+  // and worker processes saving the same task at once can collide on either
+  // unique key first, and a target on one of them lets the other one throw.
   const result = await pool().query<OutputRow>(
     `INSERT INTO geo_system_outputs_v1 (
        owner_user_id, actor_user_id, id, task_id, client_id, client_name,
@@ -230,7 +234,7 @@ async function savePostgresRecord(
        $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb,
        $14::jsonb, $15, $16, $17, $18, $19
      )
-     ON CONFLICT (owner_user_id, module, task_id) DO NOTHING
+     ON CONFLICT DO NOTHING
      RETURNING owner_user_id, actor_user_id, id, task_id, client_id, client_name,
        module, kind, status, source, summary, request_snapshot, result_snapshot,
        resource_reference, error, schema_version, created_at, completed_at, updated_at`,
@@ -245,7 +249,7 @@ async function savePostgresRecord(
       record.kind,
       record.status,
       record.source,
-      JSON.stringify(record.summary),
+      postgresJson(record.summary),
       jsonOrNull(record.request),
       jsonOrNull(record.result),
       jsonOrNull(record.resource),
@@ -409,7 +413,7 @@ function assertRecord(ownerUserId: string, record: SystemOutputRecord): void {
 }
 
 function jsonOrNull(value: unknown): string | null {
-  return value === undefined ? null : JSON.stringify(value)
+  return value === undefined ? null : postgresJson(value)
 }
 
 function cleanOptional(value: unknown, maxLength: number): string {

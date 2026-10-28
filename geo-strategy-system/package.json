@@ -73,6 +73,7 @@
     "test:article-batch-review": "NODE_ENV=test tsx scripts/test-article-batch-review.mts",
     "test:geo-article-prompts": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-geo-article-prompts.mts",
     "test:article-video-script": "tsx scripts/test-article-video-script.mts",
+    "test:postgres-json": "tsx scripts/test-postgres-json.mts",
     "test:video-production": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-video-production.mts",
     "test:geo-methodology": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-geo-methodology.mts",
     "test:knowledge-import": "NODE_OPTIONS=--conditions=react-server tsx scripts/test-knowledge-import.mts",

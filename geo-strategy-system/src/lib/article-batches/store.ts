@@ -2,6 +2,7 @@ import "server-only"
 
 import { createHash } from "crypto"
 import { Pool } from "pg"
+import { postgresJson } from "@/lib/postgres-json"
 import { kv } from "@/lib/kv"
 import { syncArticleBatchTask } from "@/lib/task-center/adapters"
 import { buildArticleBatchSystemOutputRecord } from "@/lib/system-output/builders"
@@ -271,7 +272,7 @@ async function savePostgres(batch: StoredArticleBatch): Promise<void> {
       batch.ownerUserId,
       batch.clientId,
       batch.requestId,
-      JSON.stringify(batch),
+      postgresJson(batch),
       batch.createdAt,
       batch.updatedAt,
     ],
@@ -439,7 +440,7 @@ export async function mutateStoredArticleBatch<T>(
         `UPDATE geo_article_batches_v1
          SET data = $2::jsonb, updated_at = $3::timestamptz
          WHERE id = $1`,
-        [id, JSON.stringify(batch), batch.updatedAt],
+        [id, postgresJson(batch), batch.updatedAt],
       )
       await db.query("COMMIT")
       await syncArticleBatchTask(batch)

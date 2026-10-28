@@ -4,6 +4,7 @@ import fs from "fs/promises"
 import path from "path"
 import { randomUUID } from "crypto"
 import { Pool } from "pg"
+import { postgresJson } from "@/lib/postgres-json"
 import {
   computeBrandVoice,
   computeKeywordCompetition,
@@ -471,10 +472,10 @@ async function savePostgresRecord(
       record.operation,
       record.status,
       record.source,
-      JSON.stringify(record.request),
-      JSON.stringify(record.summary),
-      JSON.stringify(record.dashboard),
-      record.result ? JSON.stringify(record.result) : null,
+      postgresJson(record.request),
+      postgresJson(record.summary),
+      postgresJson(record.dashboard),
+      record.result ? postgresJson(record.result) : null,
       record.error || null,
       record.schemaVersion,
       record.createdAt,
