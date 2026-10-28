@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Target, ChevronDown, MessageSquare, Globe2, ExternalLink, CheckCircle2, RefreshCw, Pencil, X } from "lucide-react"
+import { Target, ChevronDown, ChevronLeft, ChevronRight, MessageSquare, Globe2, CheckCircle2, RefreshCw, Pencil, Search, X } from "lucide-react"
 import BatchInputPanel from "./batch-input-panel"
 import PenetrationResultSummary from "./result-summary"
 import PenetrationDonut from "./penetration-donut"
@@ -23,7 +23,7 @@ import { useGlobalExcludedSubjects } from "@/hooks/use-global-excluded-subjects"
 import BrandShareOfVoice from "@/components/dashboard/brand-share-of-voice"
 import KeywordCompetition from "@/components/dashboard/keyword-competition"
 import ModelAvatar from "@/components/model-avatar"
-import MobileAnswerDialog, { MobileAnswerButton } from "./mobile-answer-view"
+import { InlineMobileAnswer, matchingIndex } from "./mobile-answer-view"
 import { MODEL_LABELS } from "@/lib/model-labels"
 import { apiFetch, readApiJson } from "@/lib/api-fetch"
 import { createBackgroundRequestId, createIdempotentApiJob } from "@/lib/background-job-client"
@@ -1057,30 +1057,15 @@ function RawAnswersPanel({
   const [activeModel, setActive] = useState<ModelKey | null>(models[0] ?? null)
   const currentModel = activeModel && models.includes(activeModel) ? activeModel : models[0] ?? null
   const targetSubjectNames = [ourBrand, ...brandAliases].map(name => name.trim()).filter(Boolean)
-  const [mobileView, setMobileView] = useState<{ model: ModelKey; index: number } | null>(null)
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [query, setQuery] = useState("")
+  const [hitFilter, setHitFilter] = useState<"all" | "hit" | "miss">("all")
+  const [sourcesOpen, setSourcesOpen] = useState(false)
 
   if (models.length === 0 || !currentModel) return null
 
   function isTargetSubject(subject: string): boolean {
     return targetSubjectNames.some(name => isSameSubject(subject, name, subjectType))
-  }
-
-  function highlight(text: string, brand: string): React.ReactNode {
-    const b = brand.trim()
-    if (!b) return text
-    const parts = text.split(new RegExp(`(${b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"))
-    return parts.map((p, i) =>
-      p.toLowerCase() === b.toLowerCase() ? (
-        <mark
-          key={i}
-          className="bg-gradient-to-r from-amber-200 to-yellow-200 text-amber-900 px-1 rounded font-semibold"
-        >
-          {p}
-        </mark>
-      ) : (
-        <span key={i}>{p}</span>
-      )
-    )
   }
 
   const items = byModel[currentModel] ?? []
@@ -1090,22 +1075,61 @@ function RawAnswersPanel({
   const topSource = modelDomainStats[0] ?? null
   const sourceTotal = modelDomainStats.reduce((sum, item) => sum + item.count, 0)
   const auditStats = getModelAuditStats(shownItems)
-  const questionTotals = new Map<string, number>()
-  for (const item of items) {
-    const key = item.question.trim()
-    questionTotals.set(key, (questionTotals.get(key) ?? 0) + 1)
-  }
   const questionOccurrences = new Map<string, number>()
-  const sampleMeta = items.map((item, index) => {
+  const rows = items.map((item, index) => {
     const questionKey = item.question.trim()
     const ordinal = (questionOccurrences.get(questionKey) ?? 0) + 1
     questionOccurrences.set(questionKey, ordinal)
     return {
+      item,
+      index,
       ordinal,
-      total: questionTotals.get(questionKey) ?? 1,
       key: item.sampleId || `legacy_${currentModel}_${index}`,
+      hit: typeof item.hitOur === "boolean"
+        ? item.hitOur
+        : ourBrand
+          ? item.mentionedBrands.some(b => isTargetSubject(b))
+          : false,
     }
   })
+  // A question asked several times is one entry; its repeats are picked beside the answer.
+  const groups: { question: string; number: number; rows: typeof rows; hits: number }[] = []
+  for (const row of focus ? rows.filter(row => row.item.question.trim() === focus) : rows) {
+    const question = row.item.question.trim()
+    let group = groups.find(entry => entry.question === question)
+    if (!group) {
+      group = { question, number: groups.length + 1, rows: [], hits: 0 }
+      groups.push(group)
+    }
+    group.rows.push(row)
+    if (row.hit) group.hits++
+  }
+  const hitCount = groups.filter(group => group.hits > 0).length
+  const keyword = query.trim().toLowerCase()
+  const visibleGroups = groups.filter(group =>
+    (!keyword || group.question.toLowerCase().includes(keyword))
+    && (hitFilter === "all" || (hitFilter === "hit") === group.hits > 0),
+  )
+  const selectedPosition = Math.max(0, visibleGroups.findIndex(group => group.rows.some(row => row.index === selectedIndex)))
+  const selectedGroup = visibleGroups[selectedPosition] ?? null
+  const selected = selectedGroup
+    ? selectedGroup.rows.find(row => row.index === selectedIndex) ?? selectedGroup.rows[0]
+    : null
+
+  // Another model opens on the same question, and the same repeat of it.
+  function switchModel(next: ModelKey) {
+    if (selected) {
+      const nextIndex = matchingIndex(byModel[next] ?? [], selected.item.question.trim(), selected.ordinal - 1)
+      setSelectedIndex(Math.max(0, nextIndex))
+    }
+    setActive(next)
+  }
+
+  const filters = [
+    { key: "all" as const, label: "全部", count: groups.length },
+    { key: "hit" as const, label: "命中", count: hitCount },
+    { key: "miss" as const, label: "未命中", count: groups.length - hitCount },
+  ]
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -1123,7 +1147,7 @@ function RawAnswersPanel({
           <div className="text-left">
             <div className="text-sm font-medium text-slate-800">原始联网回答与来源</div>
             <div className="text-[11px] text-slate-500">
-              查看各模型的完整回答、联网状态和可点击来源
+              按手机 App 界面查看各模型的完整回答，来源可点击打开
             </div>
           </div>
         </div>
@@ -1146,7 +1170,7 @@ function RawAnswersPanel({
             {models.map(m => (
               <button
                 key={m}
-                onClick={() => setActive(m)}
+                onClick={() => switchModel(m)}
                 className={`text-xs px-3 py-1.5 rounded-lg transition font-medium ${
                   currentModel === m
                     ? "bg-[#1677FF] text-white shadow"
@@ -1162,178 +1186,232 @@ function RawAnswersPanel({
               </button>
             ))}
           </div>
-          <div className="px-4 py-3 bg-cyan-50/40 border-b border-cyan-100">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex items-start gap-2">
-                <span className="mt-0.5 w-6 h-6 rounded-lg bg-white border border-cyan-100 flex items-center justify-center text-cyan-700">
-                  <Globe2 className="h-3.5 w-3.5" />
-                </span>
-                <div>
-                  <div className="text-xs font-semibold text-slate-800">来源网站概览</div>
-                  <div className="text-[11px] text-slate-500 leading-relaxed">
-                    汇总 {MODEL_LABELS[currentModel]} {focus ? "这一题" : "本次"}回答引用的公开网页；未返回网址的回答会单独标记。
-                  </div>
+          <div className="bg-cyan-50/40 border-b border-cyan-100">
+            <button
+              type="button"
+              onClick={() => setSourcesOpen(value => !value)}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition hover:bg-cyan-50/80"
+              aria-expanded={sourcesOpen}
+            >
+              <span className="w-6 h-6 shrink-0 rounded-lg bg-white border border-cyan-100 flex items-center justify-center text-cyan-700">
+                <Globe2 className="h-3.5 w-3.5" />
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-slate-800">来源网站概览</span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">
+                {topSource
+                  ? `${modelDomainStats.length} 个网站 · 引用 ${sourceTotal} 次 · 最高频 ${topSource.domain}`
+                  : "未返回可核验的来源网站"}
+              </span>
+              <span className="shrink-0 text-[11px] font-medium text-[#1677FF]">{sourcesOpen ? "收起" : "展开"}</span>
+              <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-[#1677FF] transition-transform ${sourcesOpen ? "rotate-180" : ""}`} />
+            </button>
+            {sourcesOpen ? (
+              <div className="px-4 pb-3">
+                <div className="text-[11px] text-slate-500 leading-relaxed">
+                  汇总 {MODEL_LABELS[currentModel]} {focus ? "这一题" : "本次"}回答引用的公开网页；未返回网址的回答会单独标记。
                 </div>
-              </div>
-              {topSource && (
-                <div className="text-[11px] text-cyan-900 bg-white/80 border border-cyan-100 rounded-lg px-2.5 py-1.5">
-                  最高频：<span className="font-semibold">{topSource.domain}</span> · {topSource.count} 次
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <AuditStatCard label="回答方式" value={auditStats.modeSummary} />
+                  <AuditStatCard label="纯净出站已核验" value={`${auditStats.rawQuestionOnly}/${shownItems.length}`} />
+                  <AuditStatCard label="可核验联网回答" value={`${auditStats.webVerified}/${shownItems.length}`} />
                 </div>
-              )}
-            </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <AuditStatCard label="回答方式" value={auditStats.modeSummary} />
-              <AuditStatCard label="纯净出站已核验" value={`${auditStats.rawQuestionOnly}/${shownItems.length}`} />
-              <AuditStatCard label="可核验联网回答" value={`${auditStats.webVerified}/${shownItems.length}`} />
-            </div>
-            {modelDomainStats.length > 0 ? (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {modelDomainStats.map(source => (
-                  <div
-                    key={source.domain}
-                    className="bg-white border border-cyan-100 rounded-lg px-2.5 py-2 min-w-0"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-medium text-slate-700 truncate">
-                        {source.domain}
-                      </span>
-                      <span className="text-[10px] font-semibold text-cyan-700 whitespace-nowrap">
-                        {source.count} 次
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                {modelDomainStats.length > 0 ? (
+                  <div className="mt-3 grid max-h-[320px] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+                    {modelDomainStats.map(source => (
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500"
-                        style={{
-                          width: `${Math.max(10, Math.round((source.count / sourceTotal) * 100))}%`,
-                        }}
-                      />
-                    </div>
+                        key={source.domain}
+                        className="bg-white border border-cyan-100 rounded-lg px-2.5 py-2 min-w-0"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-medium text-slate-700 truncate">
+                            {source.domain}
+                          </span>
+                          <span className="text-[10px] font-semibold text-cyan-700 whitespace-nowrap">
+                            {source.count} 次
+                          </span>
+                        </div>
+                        <div className="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                            style={{
+                              width: `${Math.max(10, Math.round((source.count / sourceTotal) * 100))}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <div className="mt-3 text-[11px] text-slate-500 bg-white/70 border border-dashed border-cyan-100 rounded-lg px-3 py-2">
+                    该模型本次未返回可核验的来源网站，可以重新检测本题。
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="mt-3 text-[11px] text-slate-500 bg-white/70 border border-dashed border-cyan-100 rounded-lg px-3 py-2">
-                该模型本次未返回可核验的来源网站，可以重新检测本题。
-              </div>
-            )}
+            ) : null}
           </div>
-          <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
-            {items.map((it, i) => {
-              if (focus && it.question.trim() !== focus) return null
-              const meta = sampleMeta[i]
-              const hit =
-                typeof it.hitOur === "boolean"
-                  ? it.hitOur
-                  : ourBrand
-                    ? it.mentionedBrands.some(b => isTargetSubject(b))
-                    : false
-              return (
-                <div key={i} className="px-4 py-3 hover:bg-slate-50/50 transition">
-                  <div className="flex items-start gap-2 mb-1.5">
-                    <span className="text-[10px] font-mono text-slate-400 mt-0.5">
-                      Q{String(i + 1).padStart(2, "0")}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="break-words text-xs font-medium leading-relaxed text-slate-700">
-                        {it.question}
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <span
-                          className="whitespace-nowrap rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
-                          title={it.sampleId || "历史结果"}
-                        >
-                          第 {meta.ordinal} 次检测{meta.total > 1 ? ` / 共 ${meta.total} 次` : ""}
-                        </span>
-                        {hit ? (
-                          <span className="whitespace-nowrap rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                            ✓ 命中
-                          </span>
-                        ) : (
-                          <span className="whitespace-nowrap rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                            未命中
-                          </span>
-                        )}
-                        {onRetest ? <button
-                          type="button"
-                          onClick={() => onRetest(currentModel, it, meta.key)}
-                          disabled={retestDisabled}
-                          className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-blue-200 bg-white px-1.5 text-[10px] font-medium text-[#1677FF] transition hover:border-[#1677FF] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          title={`使用${MODEL_LABELS[currentModel]}重新联网检测本题，并保留当前回答`}
-                        >
-                          <RefreshCw className={`h-3 w-3 ${retestingSampleId === meta.key ? "animate-spin" : ""}`} />
-                          重新检测
-                        </button> : null}
-                        <MobileAnswerButton onClick={() => setMobileView({ model: currentModel, index: i })} />
-                      </div>
-                    </div>
-                  </div>
-                  {it.sampledAt && (
-                    <div className="mb-1.5 pl-7 text-[10px] text-slate-400">
-                      检测时间 {new Date(it.sampledAt).toLocaleString("zh-CN")}
-                    </div>
-                  )}
-                  <AnswerItem text={it.answer} ourBrand={ourBrand} highlightFn={highlight} />
-                  <AnswerAuditBadges item={it} />
-                  <SourceAuditSnippet item={it} />
-                  {it.extraction && it.extraction.status !== "succeeded" ? (
-                    <div className="flex items-center gap-1 pl-7 text-[10px] text-amber-700">
-                      <RefreshCw className={`h-3 w-3 ${it.extraction.status === "pending" ? "animate-spin" : ""}`} />
-                      {it.extraction.status === "pending" ? "品牌名单正在整理" : "本条品牌名单待重新整理"}
-                    </div>
-                  ) : it.mentionedBrands.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1 pl-7">
-                      <span className="mr-1 text-[10px] text-slate-400">
-                        {subjectType === "person" ? "同行人物" : "识别品牌"}
-                      </span>
-                      {it.mentionedBrands.map((b, j) => {
-                        const isOur = isTargetSubject(b)
-                        return (
-                          <span
-                            key={j}
-                            className={`text-[10px] px-1.5 py-0.5 rounded ${
-                              isOur
-                                ? "bg-gradient-to-r from-amber-200 to-yellow-200 text-amber-900 font-semibold"
-                                : "bg-slate-100 text-slate-600"
-                            }`}
-                          >
-                            {b}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {subjectType === "person" && (it.mentionedEntities || []).some(entity => entity.kind === "organization") ? (
-                    <div className="mt-1 flex flex-wrap items-center gap-1 pl-7">
-                      <span className="mr-1 text-[10px] text-slate-400">关联机构</span>
-                      {(it.mentionedEntities || [])
-                        .filter(entity => entity.kind === "organization")
-                        .map(entity => (
-                          <span
-                            key={`${entity.kind}-${entity.name}`}
-                            className="rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] text-cyan-800 ring-1 ring-cyan-100"
-                          >
-                            {entity.name}
-                          </span>
-                        ))}
-                    </div>
+          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]">
+            <aside className="flex min-w-0 flex-col self-start rounded-xl border border-slate-200 bg-slate-50/60 lg:sticky lg:top-4">
+              <div className="space-y-2 border-b border-slate-200 p-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={query}
+                    onChange={event => setQuery(event.target.value)}
+                    placeholder="搜索疑问句"
+                    className="h-8 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-7 text-xs text-slate-700 outline-none transition focus:border-[#1677FF]"
+                  />
+                  {query ? (
+                    <button
+                      type="button"
+                      onClick={() => setQuery("")}
+                      className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:text-slate-600"
+                      aria-label="清空搜索"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   ) : null}
                 </div>
-              )
-            })}
+                <div className="flex gap-1">
+                  {filters.map(filter => (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => setHitFilter(filter.key)}
+                      className={`flex-1 rounded-md px-1.5 py-1 text-[11px] font-medium transition ${
+                        hitFilter === filter.key
+                          ? "bg-[#1677FF] text-white"
+                          : "border border-slate-200 bg-white text-slate-600 hover:border-[#1677FF]"
+                      }`}
+                    >
+                      <span className="text-[11px]">{filter.label} {filter.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="max-h-72 overflow-y-auto p-1.5 lg:max-h-[680px]">
+                {visibleGroups.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-[11px] text-slate-400">没有符合条件的疑问句</div>
+                ) : visibleGroups.map(group => {
+                  const active = group === selectedGroup
+                  return (
+                    <button
+                      key={group.question}
+                      type="button"
+                      onClick={() => setSelectedIndex(group.rows[0].index)}
+                      className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition ${
+                        active ? "bg-white shadow-sm ring-1 ring-[#1677FF]/40" : "hover:bg-white"
+                      }`}
+                    >
+                      <span className="mt-0.5 shrink-0 font-mono text-[10px] text-slate-400">
+                        Q{String(group.number).padStart(2, "0")}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className={`line-clamp-2 text-xs leading-relaxed ${active ? "font-medium text-[#003EB3]" : "text-slate-700"}`}>
+                          {group.question}
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <HitBadge hit={group.hits > 0} />
+                          {group.rows.length > 1 ? (
+                            <span className="text-[10px] text-slate-400">
+                              {group.hits > 0 ? `${group.hits}/${group.rows.length} 次命中` : `检测 ${group.rows.length} 次`}
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </aside>
+            {selectedGroup && selected ? (
+              <section className="min-w-0">
+                <div className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                  <span className="mt-0.5 shrink-0 font-mono text-[10px] text-slate-400">
+                    Q{String(selectedGroup.number).padStart(2, "0")}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="break-words text-sm font-medium leading-relaxed text-slate-800">
+                      {selected.item.question}
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {selectedGroup.rows.length > 1 ? selectedGroup.rows.map(row => (
+                        <button
+                          key={row.key}
+                          type="button"
+                          onClick={() => setSelectedIndex(row.index)}
+                          title={row.item.sampleId || "历史结果"}
+                          className={`inline-flex h-6 items-center gap-1 rounded border px-1.5 text-[10px] font-medium transition ${
+                            row === selected
+                              ? "border-[#1677FF] bg-[#1677FF] text-white"
+                              : "border-blue-100 bg-blue-50 text-blue-700 hover:border-[#1677FF]"
+                          }`}
+                        >
+                          <span className="text-[10px]">
+                            第 {row.ordinal} 次
+                            {row.hit ? <span className={`ml-0.5 ${row === selected ? "text-white" : "text-emerald-600"}`}>✓</span> : null}
+                          </span>
+                        </button>
+                      )) : (
+                        <span
+                          className="whitespace-nowrap rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
+                          title={selected.item.sampleId || "历史结果"}
+                        >
+                          第 1 次检测
+                        </span>
+                      )}
+                      <HitBadge hit={selected.hit} />
+                      {onRetest ? <button
+                        type="button"
+                        onClick={() => onRetest(currentModel, selected.item, selected.key)}
+                        disabled={retestDisabled}
+                        className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-blue-200 bg-white px-1.5 text-[10px] font-medium text-[#1677FF] transition hover:border-[#1677FF] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        title={`使用${MODEL_LABELS[currentModel]}重新联网检测本题，并保留当前回答`}
+                      >
+                        <RefreshCw className={`h-3 w-3 ${retestingSampleId === selected.key ? "animate-spin" : ""}`} />
+                        重新检测
+                      </button> : null}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="mr-1 text-[11px] text-slate-400">{selectedPosition + 1} / {visibleGroups.length}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedIndex(visibleGroups[selectedPosition - 1].rows[0].index)}
+                      disabled={selectedPosition <= 0}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-[#1677FF] disabled:opacity-40"
+                      aria-label="上一题"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedIndex(visibleGroups[selectedPosition + 1].rows[0].index)}
+                      disabled={selectedPosition >= visibleGroups.length - 1}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-[#1677FF] disabled:opacity-40"
+                      aria-label="下一题"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-start gap-4">
+                  <InlineMobileAnswer
+                    model={currentModel}
+                    item={selected.item}
+                    ourBrand={ourBrand}
+                    brandAliases={brandAliases}
+                  />
+                  <AnswerDetails item={selected.item} subjectType={subjectType} isTargetSubject={isTargetSubject} />
+                </div>
+              </section>
+            ) : (
+              <section className="flex min-h-40 items-center justify-center rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
+                左侧没有符合条件的疑问句，换个关键词或筛选条件试试。
+              </section>
+            )}
           </div>
         </div>
       )}
-      {mobileView ? (
-        <MobileAnswerDialog
-          byModel={byModel}
-          initialModel={mobileView.model}
-          initialIndex={mobileView.index}
-          ourBrand={ourBrand}
-          brandAliases={brandAliases}
-          onClose={() => setMobileView(null)}
-        />
-      ) : null}
     </div>
   )
 }
@@ -1412,7 +1490,7 @@ function AnswerAuditBadges({ item }: { item: PenetrationItem }) {
       ].join("\n")
     : "历史结果没有保存出站请求证明"
   return (
-    <div className="pl-7 mb-2 flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5">
       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
         {getSearchModeLabel(item.searchMode)}
       </span>
@@ -1479,122 +1557,107 @@ function getModelDomainStats(items: PenetrationItem[]): SourceDomainCount[] {
     .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
 }
 
-function uniqueSources(sources: PenetrationSource[]): PenetrationSource[] {
-  const seen = new Set<string>()
-  const out: PenetrationSource[] = []
-  for (const source of sources) {
-    if (seen.has(source.url)) continue
-    seen.add(source.url)
-    out.push(source)
-  }
-  return out
+function HitBadge({ hit }: { hit: boolean }) {
+  return hit ? (
+    <span className="whitespace-nowrap rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+      ✓ 命中
+    </span>
+  ) : (
+    <span className="whitespace-nowrap rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+      未命中
+    </span>
+  )
 }
 
-function SourceAuditSnippet({ item }: { item: PenetrationItem }) {
-  const domains =
-    item.sourceDomains && item.sourceDomains.length > 0
-      ? item.sourceDomains
-      : summarizeSourcesByDomain(item.searchSources ?? [])
-  const allSources = uniqueSources(item.searchSources ?? [])
-  const searchQueries = Array.from(new Set((item.searchQueries ?? []).filter(Boolean)))
-
-  if (domains.length === 0 && allSources.length === 0 && searchQueries.length === 0 && !item.webFailureReason) {
-    return null
-  }
-
+function DetailBlock({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="pl-7 mb-2">
-      <div className="rounded-lg border border-slate-100 bg-slate-50/70 px-2.5 py-2">
-        {searchQueries.length > 0 && (
-          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-medium text-slate-500">搜索关键词</span>
-            {searchQueries.map(query => (
-              <span
-                key={query}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600"
-              >
-                {query}
-              </span>
-            ))}
-          </div>
-        )}
-        {item.webFailureReason && (
-          <div className="mb-1.5 rounded border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
-            本条回答未返回可核验来源，可以重新检测。
-          </div>
-        )}
-        {domains.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-medium text-slate-500">来源网站</span>
-            {domains.map(source => (
-              <span
-                key={source.domain}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600"
-              >
-                {source.domain} · {source.count} 次
-              </span>
-            ))}
-          </div>
-        )}
-        {allSources.length > 0 && (
-          <div className="mt-2 flex flex-col gap-1.5">
-            <div className="text-[10px] font-medium text-slate-500">
-              全部信源网址（{allSources.length}）
-            </div>
-            {allSources.map((source, index) => (
-              <a
-                key={source.url}
-                href={source.url}
-                target="_blank"
-                rel="noreferrer"
-                className="group flex items-start gap-1.5 rounded border border-white/70 bg-white/75 px-2 py-1.5 text-[10px] text-slate-500 hover:border-cyan-100 hover:text-[#1677FF] min-w-0"
-                title={source.title}
-              >
-                <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
-                <span className="shrink-0 font-mono text-slate-400">#{index + 1}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-slate-600 group-hover:text-[#1677FF]">
-                    {source.title || source.domain}
-                  </span>
-                  <span className="block break-all font-mono text-slate-400 group-hover:text-[#1677FF]">
-                    {source.url}
-                  </span>
-                </span>
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
+    <div>
+      <div className="mb-1.5 text-[10px] font-medium text-slate-400">{label}</div>
+      {children}
     </div>
   )
 }
 
-function AnswerItem({
-  text,
-  ourBrand,
-  highlightFn,
+/** What the detection recorded about one answer, beside its phone view. */
+function AnswerDetails({
+  item,
+  subjectType,
+  isTargetSubject,
 }: {
-  text: string
-  ourBrand: string
-  highlightFn: (t: string, b: string) => React.ReactNode
+  item: PenetrationItem
+  subjectType: AnalysisSubjectType
+  isTargetSubject: (subject: string) => boolean
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const isLong = text.length > 260
-  const displayText = !isLong || expanded ? text : text.slice(0, 260) + "..."
+  const searchQueries = Array.from(new Set((item.searchQueries ?? []).filter(Boolean)))
+  const organizations = subjectType === "person"
+    ? (item.mentionedEntities || []).filter(entity => entity.kind === "organization")
+    : []
 
   return (
-    <div className="pl-7 mb-2">
-      <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">
-        {highlightFn(displayText, ourBrand)}
-      </div>
-      {isLong && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="mt-1.5 text-[11px] font-medium text-[#1677FF] hover:text-[#003EB3] transition-colors"
-        >
-          {expanded ? "收起完整联网回答" : "展开完整联网回答"}
-        </button>
-      )}
+    <div className="min-w-[220px] flex-1 space-y-3 rounded-xl border border-slate-200 bg-white p-3 lg:mt-[38px]">
+      {item.sampledAt ? (
+        <DetailBlock label="检测时间">
+          <div className="text-[11px] text-slate-600">{new Date(item.sampledAt).toLocaleString("zh-CN")}</div>
+        </DetailBlock>
+      ) : null}
+      <DetailBlock label="联网情况">
+        <AnswerAuditBadges item={item} />
+        {item.webFailureReason ? (
+          <div className="mt-1.5 rounded border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
+            本条回答未返回可核验来源，可以重新检测。
+          </div>
+        ) : null}
+      </DetailBlock>
+      {searchQueries.length > 0 ? (
+        <DetailBlock label="搜索关键词">
+          <div className="flex flex-wrap gap-1">
+            {searchQueries.map(query => (
+              <span key={query} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-600">
+                {query}
+              </span>
+            ))}
+          </div>
+        </DetailBlock>
+      ) : null}
+      <DetailBlock label={subjectType === "person" ? "同行人物" : "识别品牌"}>
+        {item.extraction && item.extraction.status !== "succeeded" ? (
+          <div className="flex items-center gap-1 text-[10px] text-amber-700">
+            <RefreshCw className={`h-3 w-3 ${item.extraction.status === "pending" ? "animate-spin" : ""}`} />
+            {item.extraction.status === "pending" ? "品牌名单正在整理" : "本条品牌名单待重新整理"}
+          </div>
+        ) : item.mentionedBrands.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {item.mentionedBrands.map((brand, index) => (
+              <span
+                key={`${brand}-${index}`}
+                className={`text-[10px] px-1.5 py-0.5 rounded ${
+                  isTargetSubject(brand)
+                    ? "bg-gradient-to-r from-amber-200 to-yellow-200 text-amber-900 font-semibold"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {brand}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="text-[10px] text-slate-400">没有识别到</div>
+        )}
+      </DetailBlock>
+      {organizations.length > 0 ? (
+        <DetailBlock label="关联机构">
+          <div className="flex flex-wrap gap-1">
+            {organizations.map(entity => (
+              <span
+                key={`${entity.kind}-${entity.name}`}
+                className="rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] text-cyan-800 ring-1 ring-cyan-100"
+              >
+                {entity.name}
+              </span>
+            ))}
+          </div>
+        </DetailBlock>
+      ) : null}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react"
 import { createPortal } from "react-dom"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -230,6 +230,16 @@ function rehypeHighlight(terms: string[]) {
 }
 
 function Citation({ skin, index, source }: { skin: Skin; index: number; source?: PenetrationSource }) {
+  const chip = <CitationChip skin={skin} index={index} source={source} />
+  if (!source?.url) return chip
+  return (
+    <a href={source.url} target="_blank" rel="noreferrer" title={source.title || source.url} className="hover:opacity-70">
+      {chip}
+    </a>
+  )
+}
+
+function CitationChip({ skin, index, source }: { skin: Skin; index: number; source?: PenetrationSource }) {
   if (skin === "doubao" && source) {
     return (
       <span className="mx-0.5 inline-block rounded-md bg-[#F2F3F5] px-1.5 align-[1px] text-[11px] leading-[18px] text-[#646A73]">
@@ -434,14 +444,23 @@ function SourceList({ sources }: { sources: PenetrationSource[] }) {
   return (
     <ol className="mb-4 space-y-2 rounded-xl bg-[#F7F8FA] p-3">
       {sources.map((source, index) => (
-        <li key={source.url || index} className="flex gap-2 text-[12.5px] leading-[1.5]">
-          <span className="mt-[1px] flex h-4 min-w-4 items-center justify-center rounded bg-white px-1 text-[10px] text-[#8F959E]">
-            {index + 1}
-          </span>
-          <span className="min-w-0">
-            <span className="line-clamp-1 text-[#1F2329]">{source.title || source.domain}</span>
-            <span className="block truncate text-[11px] text-[#8F959E]">{source.domain}</span>
-          </span>
+        <li key={source.url || index}>
+          <a
+            href={source.url || undefined}
+            target="_blank"
+            rel="noreferrer"
+            title={source.url}
+            className="group flex gap-2 text-[12.5px] leading-[1.5]"
+          >
+            <span className="mt-[1px] flex h-4 min-w-4 items-center justify-center rounded bg-white px-1 text-[10px] text-[#8F959E]">
+              {index + 1}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="line-clamp-1 text-[#1F2329] group-hover:text-[#0066FF] group-hover:underline">{source.title || source.domain}</span>
+              <span className="block truncate text-[11px] text-[#8F959E]">{source.domain}</span>
+            </span>
+            {source.url ? <SquareArrowOutUpRight className="mt-[3px] h-3 w-3 shrink-0 text-[#B8BCC2] group-hover:text-[#0066FF]" /> : null}
+          </a>
         </li>
       ))}
     </ol>
@@ -757,7 +776,7 @@ function ordinalOf(items: PenetrationItem[], index: number): number {
 }
 
 /** The same question's answer from another model, matching which repeat it was. */
-function matchingIndex(items: PenetrationItem[], question: string, ordinal: number): number {
+export function matchingIndex(items: PenetrationItem[], question: string, ordinal: number): number {
   const indexes = items.flatMap((item, index) => (item.question.trim() === question ? [index] : []))
   return indexes[Math.min(ordinal, indexes.length - 1)] ?? -1
 }
@@ -765,6 +784,148 @@ function matchingIndex(items: PenetrationItem[], question: string, ordinal: numb
 function exportFileName(appName: string, question: string): string {
   const safe = question.trim().replace(/[\\/:*?"<>|\s]+/g, "").slice(0, 20)
   return `${appName}-${safe || "回答"}.png`
+}
+
+function useLongImageExport() {
+  const captureRef = useRef<HTMLDivElement>(null)
+  const [capturing, setCapturing] = useState(false)
+  const [exportError, setExportError] = useState("")
+
+  async function exportImage(fileName: string) {
+    if (capturing) return
+    setExportError("")
+    setCapturing(true)
+    try {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      const node = captureRef.current
+      if (!node) return
+      // Browsers refuse canvases much taller than ~16k pixels.
+      const pixelRatio = Math.max(1, Math.min(2, 16000 / node.scrollHeight))
+      const dataUrl = await toPng(node, { pixelRatio, backgroundColor: "#ffffff", cacheBust: true })
+      const link = document.createElement("a")
+      link.href = dataUrl
+      link.download = fileName
+      link.click()
+    } catch {
+      setExportError("长图生成失败，请稍后重试。")
+    } finally {
+      setCapturing(false)
+    }
+  }
+
+  return { captureRef, capturing, exportError, exportImage }
+}
+
+function PhoneFrame({
+  model,
+  item,
+  highlightTerms,
+  capturing,
+  captureRef,
+  screenHeight,
+}: {
+  model: ModelKey
+  item: PenetrationItem
+  highlightTerms: string[]
+  capturing: boolean
+  captureRef: RefObject<HTMLDivElement | null>
+  screenHeight: string
+}) {
+  return (
+    <div className="mx-auto w-full max-w-[390px] rounded-[44px] bg-[#111] p-[10px] shadow-2xl">
+      <div className="overflow-hidden rounded-[34px] bg-white">
+        <div ref={captureRef} className="bg-white">
+          <div className={capturing ? "" : screenHeight}>
+            <PhoneScreen model={model} item={item} highlightTerms={highlightTerms} capturing={capturing} />
+          </div>
+          {capturing ? (
+            <div className="border-t border-slate-100 bg-[#FAFAFA] px-4 py-2.5 text-center text-[10px] leading-4 text-slate-400">
+              界面还原展示 · 回答原文由势途 GEO
+              {item.sampledAt ? ` 于 ${new Date(item.sampledAt).toLocaleString("zh-CN")} ` : " "}
+              通过 {MODEL_LABELS[model]} 联网检测获得
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function HighlightToggle({ on, disabled, onToggle }: { on: boolean; disabled: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition disabled:opacity-40 ${
+        on ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-500"
+      }`}
+    >
+      <Highlighter className="h-3.5 w-3.5" />
+      {on ? "已高亮我方品牌" : "不高亮品牌"}
+    </button>
+  )
+}
+
+function ExportButton({ capturing, disabled, onExport }: { capturing: boolean; disabled: boolean; onExport: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onExport}
+      disabled={disabled || capturing}
+      className="inline-flex h-7 items-center gap-1 rounded-md bg-[#1677FF] px-2.5 text-[11px] font-medium text-white transition hover:bg-[#0958D9] disabled:opacity-60"
+    >
+      {capturing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+      导出手机长图
+    </button>
+  )
+}
+
+/** One answer shown in its model's phone app, in place on the page. */
+export function InlineMobileAnswer({
+  model,
+  item,
+  ourBrand,
+  brandAliases = [],
+}: {
+  model: ModelKey
+  item: PenetrationItem
+  ourBrand: string
+  brandAliases?: string[]
+}) {
+  const [highlight, setHighlight] = useState(true)
+  const { captureRef, capturing, exportError, exportImage } = useLongImageExport()
+  const skin = SKIN_BY_MODEL[model]
+  const highlightTerms = useMemo(
+    () => (highlight ? [ourBrand, ...brandAliases] : []),
+    [highlight, ourBrand, brandAliases],
+  )
+
+  return (
+    <div className="w-full max-w-[390px]">
+      <div className="mb-2.5 flex flex-wrap items-center gap-2">
+        <HighlightToggle on={highlight} disabled={!ourBrand.trim()} onToggle={() => setHighlight(on => !on)} />
+        <ExportButton
+          capturing={capturing}
+          disabled={false}
+          onExport={() => exportImage(exportFileName(APP_NAMES[skin], item.question))}
+        />
+        {exportError ? <span className="text-[11px] text-rose-600">{exportError}</span> : null}
+      </div>
+      <PhoneFrame
+        key={`${model}-${item.sampleId || item.question}`}
+        model={model}
+        item={item}
+        highlightTerms={highlightTerms}
+        capturing={capturing}
+        captureRef={captureRef}
+        screenHeight="h-[680px]"
+      />
+      <p className="mt-2 text-center text-[11px] leading-5 text-slate-400">
+        界面按 {APP_NAMES[skin]} App 样式还原，回答内容为本次真实检测结果
+      </p>
+    </div>
+  )
 }
 
 export function MobileAnswerButton({ onClick }: { onClick: () => void }) {
@@ -799,9 +960,7 @@ export default function MobileAnswerDialog({
   const [model, setModel] = useState(initialModel)
   const [index, setIndex] = useState(initialIndex)
   const [highlight, setHighlight] = useState(true)
-  const [capturing, setCapturing] = useState(false)
-  const [exportError, setExportError] = useState("")
-  const captureRef = useRef<HTMLDivElement>(null)
+  const { captureRef, capturing, exportError, exportImage } = useLongImageExport()
 
   const items = byModel[model] ?? []
   const item = items[index]
@@ -834,28 +993,6 @@ export default function MobileAnswerDialog({
     if (nextIndex < 0) return
     setModel(next)
     setIndex(nextIndex)
-  }
-
-  async function exportImage() {
-    if (!item || capturing) return
-    setExportError("")
-    setCapturing(true)
-    try {
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-      const node = captureRef.current
-      if (!node) return
-      // Browsers refuse canvases much taller than ~16k pixels.
-      const pixelRatio = Math.max(1, Math.min(2, 16000 / node.scrollHeight))
-      const dataUrl = await toPng(node, { pixelRatio, backgroundColor: "#ffffff", cacheBust: true })
-      const link = document.createElement("a")
-      link.href = dataUrl
-      link.download = exportFileName(APP_NAMES[skin], item.question)
-      link.click()
-    } catch {
-      setExportError("长图生成失败，请稍后重试。")
-    } finally {
-      setCapturing(false)
-    }
   }
 
   if (typeof document === "undefined") return null
@@ -923,53 +1060,26 @@ export default function MobileAnswerDialog({
             </div>
           ) : null}
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setHighlight(on => !on)}
-              disabled={!ourBrand.trim()}
-              className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition disabled:opacity-40 ${
-                highlight ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-500"
-              }`}
-            >
-              <Highlighter className="h-3.5 w-3.5" />
-              {highlight ? "已高亮我方品牌" : "不高亮品牌"}
-            </button>
-            <button
-              type="button"
-              onClick={exportImage}
-              disabled={!item || capturing}
-              className="inline-flex h-7 items-center gap-1 rounded-md bg-[#1677FF] px-2.5 text-[11px] font-medium text-white transition hover:bg-[#0958D9] disabled:opacity-60"
-            >
-              {capturing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-              导出手机长图
-            </button>
+            <HighlightToggle on={highlight} disabled={!ourBrand.trim()} onToggle={() => setHighlight(on => !on)} />
+            <ExportButton
+              capturing={capturing}
+              disabled={!item}
+              onExport={() => item && exportImage(exportFileName(APP_NAMES[skin], item.question))}
+            />
             {exportError ? <span className="text-[11px] text-rose-600">{exportError}</span> : null}
           </div>
         </div>
 
         {item ? (
-          <div className="mx-auto w-full max-w-[390px] rounded-[44px] bg-[#111] p-[10px] shadow-2xl">
-            <div className="overflow-hidden rounded-[34px] bg-white">
-              <div ref={captureRef} className="bg-white">
-                <div className={capturing ? "" : "h-[min(760px,calc(100vh-220px))] min-h-[520px]"}>
-                  <PhoneScreen
-                    key={`${model}-${index}`}
-                    model={model}
-                    item={item}
-                    highlightTerms={highlightTerms}
-                    capturing={capturing}
-                  />
-                </div>
-                {capturing ? (
-                  <div className="border-t border-slate-100 bg-[#FAFAFA] px-4 py-2.5 text-center text-[10px] leading-4 text-slate-400">
-                    界面还原展示 · 回答原文由势途 GEO
-                    {item.sampledAt ? ` 于 ${new Date(item.sampledAt).toLocaleString("zh-CN")} ` : " "}
-                    通过 {MODEL_LABELS[model]} 联网检测获得
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
+          <PhoneFrame
+            key={`${model}-${index}`}
+            model={model}
+            item={item}
+            highlightTerms={highlightTerms}
+            capturing={capturing}
+            captureRef={captureRef}
+            screenHeight="h-[min(760px,calc(100vh-220px))] min-h-[520px]"
+          />
         ) : null}
         <p className="mt-3 text-center text-[11px] leading-5 text-white/80">
           界面按 {APP_NAMES[skin]} App 样式还原，回答内容为本次真实检测结果；导出的长图底部会注明这一点。
