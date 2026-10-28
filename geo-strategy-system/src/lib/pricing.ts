@@ -126,6 +126,21 @@ export const FEATURE_PRICES = {
     credits: 2,
     unitLabel: "条",
   },
+  videoProductionAvatar: {
+    label: "视频生产 · 数字人口播",
+    credits: 3,
+    unitLabel: "条",
+  },
+  videoProductionSlides: {
+    label: "视频生产 · 图文视频",
+    credits: 6,
+    unitLabel: "条",
+  },
+  videoProductionImage: {
+    label: "视频生产 · 重新生成图片",
+    credits: 1,
+    unitLabel: "张",
+  },
   articleRewrite: {
     label: "文章生成 · 文章改写",
     credits: 8,

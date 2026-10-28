@@ -112,6 +112,15 @@ export function resolveBackgroundTask(kind: BackgroundJobKind, payload: unknown)
         units: 1,
         label: getFeaturePrice("keywordWebsitePrompt").label,
       }
+    case "videoProduction": {
+      const featureKey = body.type === "avatar" ? "videoProductionAvatar" : "videoProductionSlides"
+      return {
+        endpoint: "/api/video-production/run",
+        featureKey,
+        units: 1,
+        label: getFeaturePrice(featureKey).label,
+      }
+    }
   }
 }
 
@@ -138,5 +147,6 @@ export function isBackgroundJobKind(value: unknown): value is BackgroundJobKind 
     "keywordAdvantages",
     "keywordStrategy",
     "keywordWebsitePrompt",
+    "videoProduction",
   ].includes(String(value))
 }

@@ -25,6 +25,7 @@ const BACKGROUND_JOB_MODULE: Record<BackgroundJobKind, TeamModuleKey> = {
   keywordAdvantages: "keyword",
   keywordStrategy: "keyword",
   keywordWebsitePrompt: "keyword",
+  videoProduction: "article",
 }
 
 const FIELD_REQUIREMENTS: Partial<Record<keyof Client, WorkspacePermissionRequirement>> = {

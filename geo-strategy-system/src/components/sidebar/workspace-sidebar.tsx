@@ -11,6 +11,7 @@ import {
   Building2,
   CalendarRange,
   ChevronRight,
+  Clapperboard,
   FileText,
   Gauge,
   GraduationCap,
@@ -36,6 +37,7 @@ export type DashboardModuleKey =
   | "keyword"
   | "plan"
   | "article"
+  | "video"
   | "feedback"
 
 export const DASHBOARD_MODULES: ReadonlyArray<{
@@ -51,7 +53,8 @@ export const DASHBOARD_MODULES: ReadonlyArray<{
   { key: "difficulty", label: "难度测评", desc: "难度、周期与成本", icon: Gauge, accent: "from-[#0958D9] to-[#1677FF]" },
   { key: "keyword", label: "关键词策略", desc: "问题与发文策略", icon: ListOrdered, accent: "from-[#4096FF] to-[#00C8FF]" },
   { key: "plan", label: "发布规划", desc: "发布数量与执行任务", icon: CalendarDays, accent: "from-[#1677FF] to-[#13C2C2]" },
-  { key: "article", label: "文章生成", desc: "多模板内容创作", icon: FileText, accent: "from-[#6C5CE7] to-[#2F54EB]" },
+  { key: "article", label: "文章生产", desc: "多模板内容创作", icon: FileText, accent: "from-[#6C5CE7] to-[#2F54EB]" },
+  { key: "video", label: "视频生产", desc: "数字人口播与图文视频", icon: Clapperboard, accent: "from-[#6C5CE7] to-[#2F54EB]" },
   { key: "feedback", label: "执行反馈", desc: "日历、周报与月报", icon: CalendarRange, accent: "from-[#00AEEA] to-[#13C2C2]" },
 ] as const
 
@@ -100,10 +103,13 @@ const DASHBOARD_WORKFLOWS: ReadonlyArray<{
   {
     key: "article",
     label: "内容生产",
-    desc: "单篇、批量与改写",
+    desc: "文章与视频",
     icon: FileText,
     accent: "from-[#6C5CE7] to-[#2F54EB]",
-    modules: [{ key: "article", label: "内容生产" }],
+    modules: [
+      { key: "article", label: "文章生产" },
+      { key: "video", label: "视频生产" },
+    ],
   },
 ] as const
 
@@ -120,7 +126,8 @@ function PublishingGroupLabel({ selected }: { selected: boolean }) {
 
 /**
  * The publishing plan has no permission of its own: like its API, it opens to
- * anyone who may use keyword strategy or execution feedback.
+ * anyone who may use keyword strategy or execution feedback. Video production
+ * shares the article (content production) permission.
  */
 export function hasDashboardModulePermission(
   permissions: readonly TeamPermissionKey[],
@@ -131,6 +138,7 @@ export function hasDashboardModulePermission(
     return hasTeamPermission(permissions, "keyword", action)
       || hasTeamPermission(permissions, "feedback", action)
   }
+  if (module === "video") return hasTeamPermission(permissions, "article", action)
   return hasTeamPermission(permissions, module, action)
 }
 

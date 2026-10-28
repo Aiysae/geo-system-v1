@@ -8,6 +8,7 @@ export const WORKSPACE_MODULES = [
   "keyword",
   "plan",
   "article",
+  "video",
   "feedback",
 ] as const
 

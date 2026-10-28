@@ -68,6 +68,10 @@ const ArticleGenerationModule = dynamic(
   () => import("@/components/article/article-generation-module"),
   { loading: ModuleLoading },
 )
+const VideoProductionModule = dynamic(
+  () => import("@/components/video/video-production-module"),
+  { loading: ModuleLoading },
+)
 const PublishingPlanModule = dynamic(
   () => import("@/components/publishing-plan/publishing-plan-module"),
   { loading: ModuleLoading },
@@ -106,6 +110,8 @@ function sectionsForDashboardModule(module: DashboardModuleKey): WorkspaceSectio
       return ["core", "knowledgeBase", "keywordStrategy", "jobs"]
     case "article":
       return ["core", "knowledgeBase", "keywordStrategy", "articleGeneration", "jobs"]
+    case "video":
+      return ["core", "keywordStrategy"]
     case "plan":
     case "feedback":
       return ["core"]
@@ -683,6 +689,12 @@ function Dashboard({
         )}
         {activeModule === "article" && (
           <ArticleGenerationModule client={client} onChangeClient={moduleOnChange} />
+        )}
+        {activeModule === "video" && (
+          <VideoProductionModule
+            client={client}
+            teamId={access.mode === "team" ? access.teamId : undefined}
+          />
         )}
         {activeModule === "feedback" && (
           <ClientFeedbackModule client={client} />

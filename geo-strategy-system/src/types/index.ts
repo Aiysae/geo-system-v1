@@ -321,6 +321,7 @@ export type BackgroundJobKind =
   | "keywordAdvantages"
   | "keywordStrategy"
   | "keywordWebsitePrompt"
+  | "videoProduction"
 
 export type BackgroundJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled"
 

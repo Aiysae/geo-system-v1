@@ -32,6 +32,7 @@ const BACKGROUND_CONFIG: Record<string, {
   keywordAdvantages: { module: "keyword", title: "核心优势提炼" },
   keywordStrategy: { module: "keyword", title: "关键词策略生成" },
   keywordWebsitePrompt: { module: "keyword", title: "第三方网站 Prompt 生成" },
+  videoProduction: { module: "article", title: "视频生产" },
 }
 
 function normalizeStatus(status: string, retrying = false): TaskCenterStatus {
@@ -111,10 +112,12 @@ export async function syncBackgroundJobTask(job: CommonJob & {
     progressPercent: progress(job.progressPercent),
     stage: job.stage,
     error: job.error,
-    resultUrl: workspaceUrl(job.clientId, config.module, job.teamId, {
-      view: backgroundResultView(job.kind),
-      jobId: job.id,
-    }),
+    resultUrl: job.kind === "videoProduction"
+      ? buildWorkspaceResultUrl({ clientId: job.clientId, teamId: job.teamId, module: "video" })
+      : workspaceUrl(job.clientId, config.module, job.teamId, {
+          view: backgroundResultView(job.kind),
+          jobId: job.id,
+        }),
     canCancel: active(status),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,

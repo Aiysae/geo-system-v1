@@ -12,6 +12,7 @@ const BACKGROUND_JOB_MODULE = {
   keywordAdvantages: "keyword",
   keywordStrategy: "keyword",
   keywordWebsitePrompt: "keyword",
+  videoProduction: "article",
 } satisfies Record<BackgroundJobKind, TeamModuleKey>
 
 export function moduleForBackgroundJob(kind: BackgroundJobKind): TeamModuleKey {

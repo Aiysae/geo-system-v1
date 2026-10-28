@@ -26,6 +26,8 @@ const cases = [
   {"kind": "keywordAdvantages", "payload": {}, "expected": {"endpoint": "/api/geo-strategy/advantages", "featureKey": "keywordAdvantages", "units": 1, "label": "关键词策略 · 优势生成", "credits": 2}},
   {"kind": "keywordStrategy", "payload": {}, "expected": {"endpoint": "/api/geo-strategy/generate", "featureKey": "keywordStrategyGenerate", "units": 1, "label": "关键词策略 · 策略生成", "credits": 5}},
   {"kind": "keywordWebsitePrompt", "payload": {}, "expected": {"endpoint": "/api/geo-strategy/website-prompt", "featureKey": "keywordWebsitePrompt", "units": 1, "label": "关键词策略 · 网站 Prompt 生成", "credits": 3}},
+  {"kind": "videoProduction", "payload": {"type": "slides"}, "expected": {"endpoint": "/api/video-production/run", "featureKey": "videoProductionSlides", "units": 1, "label": "视频生产 · 图文视频", "credits": 6}},
+  {"kind": "videoProduction", "payload": {"type": "avatar"}, "expected": {"endpoint": "/api/video-production/run", "featureKey": "videoProductionAvatar", "units": 1, "label": "视频生产 · 数字人口播", "credits": 3}},
 ] satisfies Array<{ kind: BackgroundJobKind; payload: unknown; expected: BackgroundJobEstimate }>
 
 for (const { kind, payload, expected } of cases) {
